@@ -171,6 +171,36 @@ orientation snapshot; it is not a backlog or release ledger.
   machines still lack an exact published Nayax mapping, including ten with recent
   Sunze card sales, so they remain on Sunze until their provider identities are
   mapped rather than guessed.
+- The owner confirmed the interim reporting source split: Nayax supplies card
+  money and machine apps supply cash. Finance screenshots show that SnapCase app
+  `Order amount` excludes tax while app `Payment amount` includes tax. The
+  importer uses API `paymentAmount`, with the current mapping supported by
+  inspected UI parity rather than a claim about every API field or location.
+  Finance also reported two unnamed Oklahoma locations whose relevant Nayax data
+  excludes sales tax.
+  Exact location/machine identities, report field, rates and effective dates are
+  still needed from the finance reporting SOP before that exception can drive a
+  consumer calculation. It is not a zero-tax assumption.
+- The owner selected request-month refund recognition. A later payment posts no
+  second sales deduction; a later unpaid denial or amount change posts only its
+  difference in the change month. The calculation must retain the original
+  purchase scope and existing assignment terms through a machine move, preserve
+  already posted paid deductions, recognize eligible opening unpaid requests
+  once at cutover, and leave issued Pay Stubs unchanged for ordinary later
+  refund events.
+- The owner authorized merging the independently reviewed request-month helper,
+  consumer bindings, and contract documentation. That authorization does not
+  activate the dormant calculation or supply the missing location-specific tax
+  facts: production keeps the legacy calculation until the ordered database,
+  report/export, scheduler, and frontend release is deployed and the one-shot
+  activation is deliberately recorded. Finance issue #1592 remains an
+  activation dependency rather than a merge permission gate.
+- Machine-app cash can remain incomplete while a machine is offline. Sunze's
+  daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
+  twice-daily 34-day overlap and bounded manual recovery, can ingest late rows
+  idempotently. Complete pagination does not prove every offline sale uploaded,
+  and an empty response is not proved zero cash. Existing targeted Pay Stub
+  regeneration handles later corrections without replacing issued versions.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a

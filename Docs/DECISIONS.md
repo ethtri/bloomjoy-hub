@@ -1,5 +1,58 @@
 # Decisions
 
+## 2026-09-28 — Interim authority is Nayax card plus machine-app cash; tax basis is field and location specific
+
+This refines the amount-basis and period-timing parts of the September 28 source
+decision below.
+
+- The owner confirmed the interim source split: Nayax is card-sale and paid
+  card-refund authority, while Sunze and Kexiaozhan machine apps supply cash.
+  This is the selected interim approach, not a vendor-only source switch.
+- Finance screenshots show that the Kexiaozhan/SnapCase app `Order amount`
+  excludes tax while app `Payment amount` includes tax. The current cash
+  projection uses API `paymentAmount`; inspected UI/API parity supports that
+  mapping for the tested cash shape. This does not establish every API field or
+  location's tax semantics. Amount-basis logic must name the surface and field
+  instead of treating every provider value alike.
+- Finance also reports that Nayax data at two Oklahoma locations excludes sales
+  tax. Until the reporting SOP supplies the exact location/machine identities,
+  effective local dates, relevant Nayax report/customer-payment field, rates and
+  treatment, this remains attributed evidence. It does not mean a zero rate or
+  exemption and must not be generalized to all Nayax facts.
+- The reviewed #1571 helper selects sale basis from explicit `amountBasis` or
+  `taxBasis` metadata, or the documented Sunze order basis; an otherwise unknown
+  Nayax sale does not default to tax-inclusive. Separately, it preserves an
+  unproved refund request amount with unknown basis unless exact cash completion,
+  exact matched Nayax customer-charge evidence, an authoritative receipt, or
+  inherited explicit paid metadata proves that amount's basis. Do not invent a
+  location/date rule or drop known sales.
+- A complete app/API export can still omit physical cash sales that an offline
+  machine has not uploaded. Existing Sunze overlap/monthly recovery and the
+  twice-daily SnapCase 34-day overlap plus bounded manual backfill handle later
+  arrivals idempotently. They do not prove zero cash during an offline period.
+  Late corrections reuse the targeted Pay Stub stale notification and manager
+  regeneration/version flow.
+- The owner and finance team will provide the reporting SOP. Each exception must
+  name location/machine scope, source surface and field, amount basis, rate,
+  effective dates, and offline recovery procedure. This dependency does not add
+  a global payroll gate, warning dashboard or speculative schedule change.
+- The owner authorized merging the reviewed helper, consumer bindings and
+  documentation while leaving recognition inactive. Missing #1592 finance
+  evidence blocks the later one-shot activation and affected tax-rule rollout;
+  it is not a request for another merge approval and does not justify guessing
+  a location, field, rate or effective date.
+- The owner selected request-month recognition. A later payment changes status
+  only and posts no second deduction. A later unpaid denial, withdrawal or
+  request-amount change posts only the unpaid difference in that change month;
+  it does not rewrite the original sale month or request month.
+- The request keeps its proved original purchase machine, location, account and
+  sale tax basis. Existing effective assignment and compensation terms remain;
+  a move does not transfer the deduction to a replacement technician, partner
+  or owner.
+- Cutover preserves previously posted paid deductions and recognizes each
+  eligible previously unrecognized unpaid request once in the activation month.
+  Replay is idempotent, and ordinary later events do not reopen issued stubs.
+
 ## 2026-09-28 — Retain split sales authority and count canonical refund requests once
 
 - Keep Nayax authoritative for card sale amounts and paid card-refund evidence;
@@ -12,12 +65,15 @@
   payment failure do not erase a valid request.
 - Normalize sales and refund components to tax-exclusive values exactly once.
   Blank/zero source tax does not prove exemption, and a value already proved
-  tax-exclusive receives no additional tax subtraction.
+  tax-exclusive receives no additional tax subtraction. In particular,
+  `tax_exclusive` with `tax_cents = 0` means that no tax is removed from that
+  source amount; it does not prove that no tax was collected or that the sale,
+  location or customer is tax-exempt.
 - The bounded app/API evidence does not support a vendor-only source switch.
   Keep current effective source boundaries until a later recorded decision has
   comparable vendor card coverage, amount, tax, timing and refund evidence.
-- The detailed field matrix, calculation contract, fixture handoff and remaining
-  late-request period choice are in `Docs/SALES_SOURCE_FIELD_CONTRACT.md`.
+- The detailed field matrix, approved request-month/change-month contract and
+  fixture handoff are in `Docs/SALES_SOURCE_FIELD_CONTRACT.md`.
 
 ## 2026-09-26 - Nayax is the card-sales authority; machine platforms supply cash
 
