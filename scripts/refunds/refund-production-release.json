@@ -263,7 +263,8 @@
     "20260928181716_correct_sales_report_refund_totals.sql",
     "20260928214735_refund_obsolete_clarification_health.sql",
     "20260928234730_refund_overview_setwise_reuse.sql",
-    "20260928235000_refund_completion_existing_thread_resolution.sql"
+    "20260928235000_refund_completion_existing_thread_resolution.sql",
+    "20260929010530_refund_overview_lifecycle_stage_reuse.sql"
   ],
   "migrationFilesSha256": "ded003a065458d825745fdc86401f247d5a1d3458a0d13ddc6caca3c0a61f9bd",
   "migrationVersionSetSha256": "906a384970d65a3a78792e571ecef883f9acb9f68c2b38f2ef06631e50f42b89",
