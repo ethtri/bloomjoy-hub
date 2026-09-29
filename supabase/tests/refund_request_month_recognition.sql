@@ -375,6 +375,17 @@ $$, $$values (
   'fd300000-0000-4000-8000-000000000011'::uuid,
   'fd200000-0000-4000-8000-000000000011'::uuid
 )$$, 'Immutable recognition snapshots do not restrict established source cleanup');
+select results_eq($$
+  select source, request_deduction_ex_tax_cents,
+    unresolved_refund_count, unresolved_refund_cents
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000011',
+    (now() at time zone 'UTC')::date,
+    (now() at time zone 'UTC')::date
+  )
+  where source='refund_request'
+$$, $$values ('refund_request'::text,null::bigint,1::bigint,500::bigint)$$,
+  'Recognition remains reportable after source cleanup; missing rate stays explicit');
 
 select * from finish();
 rollback;

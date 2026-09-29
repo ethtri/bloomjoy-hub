@@ -1037,7 +1037,7 @@ begin
     join private.refund_request_recognition_rollout rollout
       on rollout.singleton
      and event.recorded_at >= rollout.activated_at
-    join public.refund_cases refund_case
+    left join public.refund_cases refund_case
       on refund_case.id = event.refund_case_id
     left join public.refund_authoritative_receipts receipt
       on receipt.refund_case_id = event.refund_case_id
