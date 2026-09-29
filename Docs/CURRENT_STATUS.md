@@ -169,11 +169,15 @@ orientation snapshot; it is not a backlog or release ledger.
   fixed. Production readback after migration `20260929033000` found its first
   repair incomplete: two unresolved duplicate-review cases still displayed
   System lookup work even though the real lookup claimant excludes them. The
-  caseworker heartbeat was paused again before it ran. Follow-up migration
-  `20260929043000` applies the claimant's current case exclusions before the
-  overview can override canonical Agent work; this remains prospective until
-  deployed readback. Neither migration adds a queue, run ledger, decision,
-  message, refund, or payment authority.
+  caseworker heartbeat was paused again before it ran. Migration
+  `20260929043000` applied the claimant exclusions inside the current-work
+  projector, but authenticated production readback still showed both rows as
+  System work because a later lookup compatibility stage overlaid that result.
+  Follow-up migration `20260929051000` repairs only the already-visible
+  next-work object in the final actor-scoped overview when duplicate
+  reconciliation remains open; this remains prospective until deployed
+  readback. These migrations add no queue, run ledger, decision, message,
+  refund, or payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.

@@ -287,6 +287,19 @@ select ok((with projected_system as (
       is distinct from 'run_lookup'
     from projected_system),
   'unresolved reconciliation cannot be presented as executable System lookup work');
+select ok((select exists(
+    select 1
+    from jsonb_array_elements(
+      coalesce(value->'cases','[]'::jsonb)
+      ||coalesce(value->'internalTestCases','[]'::jsonb)) item
+    where item->>'id'=md5('refund-overview-bench-case-31')::uuid::text
+      and item#>>'{lifecycle,nextWork,actor}'='agent'
+      and item#>>'{lifecycle,nextWork,actionCode}'='research_purchase'
+      and item#>>'{lifecycle,nextWork,actionLabel}'=
+        'Research the purchase and prepare the next safe step.'
+      and item#>'{lifecycle,nextWork,blocker}'='null'::jsonb)
+  from (select public.admin_get_refund_operations_overview() value) overview),
+  'final overview cannot reintroduce System lookup after reconciliation exclusion');
 rollback to savepoint overview_lookup_claim_parity;
 select is(public.refund_project_current_next_work_cases('{}'::jsonb),
   '{}'::jsonb,
