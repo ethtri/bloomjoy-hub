@@ -59,13 +59,14 @@ alter table public.refund_case_messages
     check (reconciliation_message_role in ('request','reminder')),
   add column if not exists transactional_provider_message_header text
     check (transactional_provider_message_header is null
-      or public.is_refund_gmail_canonical_message_header(
-        transactional_provider_message_header));
+      or (octet_length(transactional_provider_message_header)<=998
+        and transactional_provider_message_header ~ '^<[^<>[:space:]@]+@[^<>[:space:]@]+>$'));
 
 alter table public.refund_transactional_delivery_events
   add column if not exists provider_message_header text
     check (provider_message_header is null
-      or public.is_refund_gmail_canonical_message_header(provider_message_header));
+      or (octet_length(provider_message_header)<=998
+        and provider_message_header ~ '^<[^<>[:space:]@]+@[^<>[:space:]@]+>$'));
 
 -- Resend now supplies the RFC Message-ID on every delivery webhook. Preserve
 -- that source identity in the existing delivery ledger so a reply to a

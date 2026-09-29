@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set local search_path = public, extensions;
 
-select plan(74);
+select plan(75);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -268,6 +268,13 @@ select has_column('public','refund_case_messages','transactional_provider_messag
   'Transactional questions retain the provider Message-ID needed for exact replies');
 select has_column('public','refund_case_reconciliation_reviews','clarification_reply_message_id',
   'The existing review retains one immutable clarification reply');
+select ok(not exists (
+    select 1 from pg_catalog.pg_constraint c
+    where c.conrelid in ('public.refund_case_messages'::regclass,
+        'public.refund_transactional_delivery_events'::regclass)
+      and pg_catalog.pg_get_constraintdef(c.oid)
+        like '%is_refund_gmail_canonical_message_header%'
+  ),'Message-ID shape checks do not require callers to execute a private helper');
 select has_function('public','service_enqueue_refund_reconciliation_clarification',
   array['uuid','uuid','bigint','uuid','text'],
   'The existing outbox has one purpose-bound clarification entry point');
