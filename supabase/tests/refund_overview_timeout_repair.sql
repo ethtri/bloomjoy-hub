@@ -256,6 +256,38 @@ select ok((with stale_lookup as (
       #>'{0,lifecycle}')-'nextWork')
     from stale_lookup),
   'stale System lookup work repairs only nextWork from current case truth');
+savepoint overview_lookup_claim_parity;
+insert into public.refund_case_reconciliation_reviews(
+  id,left_refund_case_id,right_refund_case_id,match_class,reason_codes,
+  left_fact_fingerprint,right_fact_fingerprint)
+select 'a9680000-0000-4000-8000-000000000001',least(left_case,right_case),
+  greatest(left_case,right_case),'possible',array['customer_email_exact'],
+  repeat('d',64),repeat('e',64)
+from (select md5('refund-overview-bench-case-31')::uuid left_case,
+             md5('refund-overview-bench-case-32')::uuid right_case) fixture;
+select ok((with projected_system as (
+    select jsonb_build_object(
+      'id',c.id,'officialActionVersion',c.official_action_version,
+      'lifecycle',jsonb_set(jsonb_set(public.refund_lifecycle_contract(c.id),
+        '{nextWork,actor}','"system"'::jsonb,true),
+        '{nextWork,actionCode}','"run_lookup"'::jsonb,true)) payload,
+      public.refund_lifecycle_contract(c.id)->'nextWork' canonical_next_work
+    from public.refund_cases c
+    where c.id=md5('refund-overview-bench-case-31')::uuid
+  ) select
+    public.refund_case_has_unresolved_reconciliation(
+      md5('refund-overview-bench-case-31')::uuid)
+    and public.refund_project_nayax_lookup_recovery_cases_for_manager(
+      jsonb_build_array(payload),true)#>>'{0,nayaxLookupWork,state}'='system'
+    and public.refund_project_current_next_work_cases(
+      jsonb_build_array(payload))#>'{0,lifecycle,nextWork}'
+      is not distinct from canonical_next_work
+    and public.refund_project_current_next_work_cases(
+      jsonb_build_array(payload))#>>'{0,lifecycle,nextWork,actionCode}'
+      is distinct from 'run_lookup'
+    from projected_system),
+  'unresolved reconciliation cannot be presented as executable System lookup work');
+rollback to savepoint overview_lookup_claim_parity;
 select is(public.refund_project_current_next_work_cases('{}'::jsonb),
   '{}'::jsonb,
   'next-work keeps its prior non-array identity contract');

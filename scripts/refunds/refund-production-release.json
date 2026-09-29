@@ -265,7 +265,8 @@
     "20260928234730_refund_overview_setwise_reuse.sql",
     "20260928235000_refund_completion_existing_thread_resolution.sql",
     "20260929010530_refund_overview_lifecycle_stage_reuse.sql",
-    "20260929033000_refund_overview_next_work_identity.sql"
+    "20260929033000_refund_overview_next_work_identity.sql",
+    "20260929043000_refund_overview_lookup_claim_parity.sql"
   ],
   "migrationFilesSha256": "c7a9fd346464d8b252fbf6ac582671bfa75f979427fd238c2b26513e8862b133",
   "migrationVersionSetSha256": "34d66bfbedc182541bfc72824113a5c153943d459cae750424536a27e0fdb814",
