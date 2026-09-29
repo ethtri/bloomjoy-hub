@@ -5,6 +5,7 @@ const files = {
   exportFunction: 'supabase/functions/sales-report-export/index.ts',
   schedulerFunction: 'supabase/functions/sales-report-scheduler/index.ts',
   reportingClient: 'src/lib/reporting.ts',
+  reportingUat: 'scripts/validate-reporting-uat.mjs',
   signedExportWindow: 'src/lib/signedExportWindow.ts',
   portalReports: 'src/pages/portal/Reports.tsx',
   adminReporting: 'src/pages/admin/Reporting.tsx',
@@ -22,6 +23,7 @@ const sharedBuilder = read(files.sharedBuilder);
 const exportFunction = read(files.exportFunction);
 const schedulerFunction = read(files.schedulerFunction);
 const reportingClient = read(files.reportingClient);
+const reportingUat = read(files.reportingUat);
 const signedExportWindow = read(files.signedExportWindow);
 const portalReports = read(files.portalReports);
 const adminReporting = read(files.adminReporting);
@@ -30,6 +32,13 @@ const smokeChecklist = read(files.smokeChecklist);
 assert(
   sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/shared-basis-v2"'),
   'Operator PDF builder must expose the shared-basis generator version.',
+);
+
+assert(
+  reportingUat.includes("pdfGeneratorVersion: 'sales-report-pdf/polished-v1'") &&
+    reportingUat.includes('await exportButton.click()') &&
+    reportingUat.includes("waitForRecordedRequest(page, state.operatorExports, 'Operator export request')"),
+  'Reporting UAT must exercise the live frontend export flow against the supported rolling-release v1 response.',
 );
 
 assert(
@@ -93,12 +102,14 @@ assert(
 );
 
 assert(
-  reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/shared-basis-v2'") &&
+  reportingClient.includes('supportedSalesReportPdfGeneratorVersions = new Set([') &&
+    reportingClient.includes("'sales-report-pdf/polished-v1'") &&
+    reportingClient.includes("'sales-report-pdf/shared-basis-v2'") &&
     reportingClient.includes('normalizeSalesReportCalculationVersion(row.calculation_version)') &&
     reportingClient.includes("'legacy-sales-basis-v0' | 'shared-sales-basis-v1'") &&
-    reportingClient.includes('response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion') &&
+    reportingClient.includes("supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')") &&
     reportingClient.includes('outdated PDF generator'),
-  'Portal report exports must block stale sales-report-export responses instead of opening them.',
+  'Portal report exports must accept both rolling-release generators and block missing or unknown versions.',
 );
 
 assert(

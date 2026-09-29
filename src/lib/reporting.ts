@@ -407,7 +407,10 @@ type ExportSalesReportResponse = {
   rowCount?: number;
 };
 
-const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/shared-basis-v2';
+const supportedSalesReportPdfGeneratorVersions = new Set([
+  'sales-report-pdf/polished-v1',
+  'sales-report-pdf/shared-basis-v2',
+]);
 const reportExportBucket = 'sales-report-exports';
 
 const exportFormatOrder: Record<AdminReportExportFormat, number> = {
@@ -889,7 +892,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if (response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion) {
+  if (!supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );
