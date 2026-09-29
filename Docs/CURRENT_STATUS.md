@@ -111,6 +111,13 @@ orientation snapshot; it is not a backlog or release ledger.
   Exact location/machine identities, report field, rates and effective dates are
   still needed from the finance reporting SOP before that exception can drive a
   consumer calculation. It is not a zero-tax assumption.
+- The owner selected request-month refund recognition. A later payment posts no
+  second sales deduction; a later unpaid denial or amount change posts only its
+  difference in the change month. The calculation must retain the original
+  purchase scope and existing assignment terms through a machine move, preserve
+  already posted paid deductions, recognize eligible opening unpaid requests
+  once at cutover, and leave issued Pay Stubs unchanged for ordinary later
+  refund events.
 - Machine-app cash can remain incomplete while a machine is offline. Sunze's
   daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
   twice-daily 34-day overlap and bounded manual recovery, can ingest late rows

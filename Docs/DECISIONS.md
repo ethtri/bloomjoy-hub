@@ -2,8 +2,8 @@
 
 ## 2026-09-28 — Interim authority is Nayax card plus machine-app cash; tax basis is field and location specific
 
-This refines the amount-basis part of the September 28 source decision below;
-the canonical requested/paid refund rules remain unchanged.
+This refines the amount-basis and period-timing parts of the September 28 source
+decision below.
 
 - The owner confirmed the interim source split: Nayax is card-sale and paid
   card-refund authority, while Sunze and Kexiaozhan machine apps supply cash.
@@ -33,8 +33,17 @@ the canonical requested/paid refund rules remain unchanged.
   name location/machine scope, source surface and field, amount basis, rate,
   effective dates, and offline recovery procedure. This dependency does not add
   a global payroll gate, warning dashboard or speculative schedule change.
-- Original-sale-period versus request-period attribution for a late refund
-  remains a separate unanswered owner choice.
+- The owner selected request-month recognition. A later payment changes status
+  only and posts no second deduction. A later unpaid denial, withdrawal or
+  request-amount change posts only the unpaid difference in that change month;
+  it does not rewrite the original sale month or request month.
+- The request keeps its proved original purchase machine, location, account and
+  sale tax basis. Existing effective assignment and compensation terms remain;
+  a move does not transfer the deduction to a replacement technician, partner
+  or owner.
+- Cutover preserves previously posted paid deductions and recognizes each
+  eligible previously unrecognized unpaid request once in the activation month.
+  Replay is idempotent, and ordinary later events do not reopen issued stubs.
 
 ## 2026-09-28 — Retain split sales authority and count canonical refund requests once
 
@@ -52,8 +61,8 @@ the canonical requested/paid refund rules remain unchanged.
 - The bounded app/API evidence does not support a vendor-only source switch.
   Keep current effective source boundaries until a later recorded decision has
   comparable vendor card coverage, amount, tax, timing and refund evidence.
-- The detailed field matrix, calculation contract, fixture handoff and remaining
-  late-request period choice are in `Docs/SALES_SOURCE_FIELD_CONTRACT.md`.
+- The detailed field matrix, approved request-month/change-month contract and
+  fixture handoff are in `Docs/SALES_SOURCE_FIELD_CONTRACT.md`.
 
 ## 2026-09-26 - Nayax is the card-sales authority; machine platforms supply cash
 

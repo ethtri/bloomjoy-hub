@@ -56,7 +56,7 @@ All stored calculation inputs use integer cents and carry an explicit amount
 basis. Values with an unknown basis do not silently become zero-tax or
 tax-exclusive values.
 
-For each machine and reporting period:
+For cumulative case reconciliation:
 
 ```text
 cash_ex_tax = sum(cash amounts normalized exactly once)
@@ -69,12 +69,27 @@ combined_refund_ex_tax = paid_refund_ex_tax + outstanding_request_ex_tax
 already_reflected_ex_tax = portion already removed from the selected sales input
 applied_refund_deduction_ex_tax = max(combined_refund_ex_tax - already_reflected_ex_tax, 0)
 
-commissionable_sales = cash_ex_tax + card_ex_tax - applied_refund_deduction_ex_tax
+cumulative_sales_after_refunds = cash_ex_tax + card_ex_tax - applied_refund_deduction_ex_tax
+```
+
+The cumulative balances above explain how much one case has removed to date;
+they are not the monthly expense formula. For each machine-local reporting
+period, commissionable sales use sales in that period minus new request
+deductions and request-amount increases, plus unpaid denials, withdrawals and
+amount decreases recorded in that period. A later payment changes requested and
+paid context but contributes zero additional deduction.
+
+```text
+period_refund_impact_ex_tax = new_requests + amount_increases
+  - unpaid_denial_or_withdrawal_reversals - amount_decreases
+period_commissionable_sales = period_cash_ex_tax + period_card_ex_tax
+  - period_refund_impact_ex_tax
 ```
 
 Do not floor the final result unless the existing contract explicitly requires
-it. Expose cash, card, requested outstanding, paid refund and combined deduction
-separately before applying partner-specific rules.
+it. Expose cash, card, requested outstanding, paid refund, period deduction,
+period reversal and cumulative deduction separately before applying
+partner-specific rules.
 
 Request-target precedence for a canonical case is:
 
@@ -102,18 +117,28 @@ Lifecycle rules:
 
 - Exclude a row with `duplicate_of_refund_case_id`; its canonical case owns the
   components.
+- Recognize a financially valued request in the machine-local month in which
+  the request was received. Keep the request's proved original purchase machine,
+  location, account and sale tax basis even if the machine later moves.
 - A positive canonical request contributes before approval and remains
   outstanding through ordinary review, approval, provider pending, failed or
   ambiguous execution, and age beyond 30 days.
 - A paid amount moves value from outstanding to paid. Full payment leaves the
   combined deduction unchanged; partial payment reduces outstanding by the same
-  amount.
+  amount. Payment never reopens the request month and posts no new sales
+  deduction in the payment month.
 - Denial or explicit withdrawal removes only the unpaid remainder. Existing
-  paid value remains. The current schema has a denial decision but no proved
-  first-class withdrawal fact, so generic `closed` must not mean withdrawn.
+  paid value remains. Post the reversal in the machine-local month of the dated
+  denial or withdrawal; do not rewrite the earlier request month. The current
+  schema has a denial decision but no proved first-class withdrawal fact, so
+  generic `closed` must not mean withdrawn.
 - A request amount edit changes the target on the same canonical case. It is not
-  a second request. Provider/email/Hub evidence deduplicates through the existing
-  case, receipt and adjustment lineage.
+  a second request. Post only the increase or decrease in the machine-local month
+  of the dated change. Provider/email/Hub evidence deduplicates through the
+  existing case, receipt and adjustment lineage.
+- Existing effective assignment and compensation terms continue to control.
+  The request or change month is an accounting date, not authority to charge a
+  replacement technician, partner or owner after a machine move.
 - A source that already removed a sale because of refund status cannot also feed
   the same applied deduction. Record the already-reflected portion and reduce
   only that case's applied deduction. Keep unrelated known sales available.
@@ -121,7 +146,7 @@ Lifecycle rules:
 Tax normalization follows the original sale's basis and effective tax rule:
 
 - `tax_exclusive`: use the amount directly; subtract no additional tax.
-- `gross_with_separate_tax`: subtract the proved tax component once.
+- `separate_tax`: subtract the proved tax component once.
 - `tax_inclusive`: use a proved source-provided included-tax component, or for a
   proved rate `r` calculate embedded tax as
   `round(gross_cents * r / (100 + r))` and tax-exclusive sales as gross minus
@@ -149,6 +174,11 @@ while each distinct positive adjustment remains its own paid component. Legacy
 adjustments linked only by `refund_cases.reporting_adjustment_id` retain their
 case and tender context. The function exposes incident, request-receipt and
 paid-evidence dates separately and does not select an effective refund date.
+The approved adapter must derive signed dated request/change components from
+durable evidence rather than reconstructing prior periods from the case's current
+status or current amount. Existing dated case audit and payment evidence should
+be reused; add only the smallest recognition record needed where those facts
+cannot reproduce the approved history.
 
 Refund amount basis follows explicit adjustment metadata or exact Nayax
 card/refund provenance only when that provenance also identifies the applicable
@@ -177,13 +207,13 @@ recorded location/machine, relevant imported field and effective-date basis
 before binding any financial consumer. Do not guess the missing rules, change
 an unknown basis to zero tax, or activate a partial speculative policy.
 
-The remaining owner policy choice is period attribution for a request received
-after the sale period. Existing completed adjustments use completion/evidence
-dates, but that does not settle the requested-refund policy. The recommended
-choice is the original sale period because it preserves machine, technician and
-tax attribution and can use the existing statement regeneration/version flow.
-Until the owner decides, #1571 should keep the attribution choice explicit in
-fixtures and must not infer it from completion date.
+The approved period policy recognizes a request in its machine-local receipt
+month. A later payment contributes zero; a later unpaid denial, withdrawal or
+amount change contributes only its signed difference in the change month. This
+accounting date is separate from purchase attribution: retain the proved
+original machine, location, account, sale tax basis and existing assignment
+terms. Do not infer a request or reversal date from payment completion or the
+case's current status.
 
 ## Required fixture handoff
 
@@ -198,6 +228,10 @@ fixtures and must not infer it from completion date.
 | Request older than 30 days | unchanged unless denied/withdrawn/paid |
 | Missing legacy request amount | unresolved; no fabricated deduction |
 | Source already omits refunded original | combined refund stays visible; applied deduction is reduced by the proved already-reflected portion |
+| September sale, October $10 request, November payment | October -$10; November $0 |
+| October $10 request, November unpaid denial | October -$10; November +$10 |
+| October $10 request, $4 paid, November denial | October -$10; November +$6 |
+| Previously unrecognized eligible unpaid request at cutover | one opening deduction; replay remains zero |
 
 ## Reusable implementation paths
 
@@ -254,8 +288,11 @@ fallback. A future vendor-card switch would be a separate recorded decision.
 Sunze still needs an independently known timestamp pair for its account-wide
 timezone rule.
 
-For requested refunds, the only remaining business choice is original-sale
-period versus request period for a late request and its later reversal. A true
-partial request that differs from the reported amount paid also needs an
-explicit stored request target before that case can contribute; current intake
-captures one required positive amount and does not distinguish those two facts.
+The owner selected request-month recognition with later change-month reversals.
+At activation, previously posted paid deductions remain in place and eligible
+previously unrecognized unpaid requests are recognized once in the activation
+month. Replaying the cutover must not book them again, and ordinary later
+payments or denials must not reopen old issued statements. A true partial request
+that differs from the reported amount paid still needs an explicit stored
+request target before that case can contribute; current intake captures one
+required positive amount and does not distinguish those two facts.
