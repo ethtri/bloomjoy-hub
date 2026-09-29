@@ -250,10 +250,10 @@ select ok((with stale_lookup as (
       #>>'{0,lifecycle,nextWork,actionCode}'='run_lookup'
     and public.refund_project_current_next_work_cases(payload)
       #>>'{0,lifecycle,nextWork,actionCode}'='research_purchase'
-    and (public.refund_project_current_next_work_cases(payload)
-      #>'{0,lifecycle}'-'nextWork') is not distinct from
-      (public.refund_project_next_work_pre_identity_repair_v1(payload)
-      #>'{0,lifecycle}'-'nextWork')
+    and ((public.refund_project_current_next_work_cases(payload)
+      #>'{0,lifecycle}')-'nextWork') is not distinct from
+      ((public.refund_project_next_work_pre_identity_repair_v1(payload)
+      #>'{0,lifecycle}')-'nextWork')
     from stale_lookup),
   'stale System lookup work repairs only nextWork from current case truth');
 select is(public.refund_project_current_next_work_cases('{}'::jsonb),
