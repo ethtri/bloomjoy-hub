@@ -155,7 +155,9 @@ existing-conversation research is exhausted.
 - If the customer does not respond, send one follow-up in the same conversation.
 - Do not create repeated reminder loops.
 - A reply updates the same case and restarts matching automatically.
-- Close the case after 30 days without a useful response.
+- After 30 days without useful input, prepare a reject recommendation for the
+  Manager. The Manager makes the final decision; the unattended case worker
+  does not close or deny the request automatically.
 
 ## What not to add
 

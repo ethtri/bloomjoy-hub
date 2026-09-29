@@ -47,7 +47,7 @@ select ok(strpos(pg_get_functiondef(
   'final overview validates current next-work contracts before reuse');
 select ok(strpos(pg_get_functiondef(
     'public.refund_project_current_next_work_cases(jsonb)'::regprocedure),
-    'refund_project_next_work_pre_setwise_v1')>0,
+    'refund_project_next_work_pre_identity_repair_v1')>0,
   'next-work reuse retains its exact fail-closed delegate');
 select ok((select proconfig @> array['statement_timeout=20s','work_mem=32MB']
     from pg_proc where oid=
@@ -236,6 +236,26 @@ select ok((select
       value->'cases'||value->'internalTestCases')
     from current_overview),
   'set-wise next-work validation preserves the complete ordered collection');
+select ok((with stale_lookup as (
+    select jsonb_build_array(jsonb_build_object(
+      'id',c.id,'officialActionVersion',c.official_action_version,
+      'nayaxLookupWork',jsonb_build_object('state','complete'),
+      'lifecycle',jsonb_set(jsonb_set(public.refund_lifecycle_contract(c.id),
+        '{nextWork,actor}','"system"'::jsonb,true),
+        '{nextWork,actionCode}','"run_lookup"'::jsonb,true))) payload
+    from public.refund_cases c
+    where c.id=md5('refund-overview-bench-case-32')::uuid
+  ) select
+    public.refund_project_next_work_pre_identity_repair_v1(payload)
+      #>>'{0,lifecycle,nextWork,actionCode}'='run_lookup'
+    and public.refund_project_current_next_work_cases(payload)
+      #>>'{0,lifecycle,nextWork,actionCode}'='research_purchase'
+    and (public.refund_project_current_next_work_cases(payload)
+      #>'{0,lifecycle}'-'nextWork') is not distinct from
+      (public.refund_project_next_work_pre_identity_repair_v1(payload)
+      #>'{0,lifecycle}'-'nextWork')
+    from stale_lookup),
+  'stale System lookup work repairs only nextWork from current case truth');
 select is(public.refund_project_current_next_work_cases('{}'::jsonb),
   '{}'::jsonb,
   'next-work keeps its prior non-array identity contract');
@@ -282,6 +302,7 @@ select ok((select item#>>'{nayaxLookupWork,state}'='system'
       and item->>'canSelectNayaxCandidate'='false'
       and item#>>'{lifecycle,managerAction,action}'='none'
       and item#>>'{lifecycle,lookup,status}'='checking'
+      and item#>>'{lifecycle,nextWork,actionCode}'='run_lookup'
     from current_overview o
     cross join lateral jsonb_array_elements(
       coalesce(o.value->'cases','[]'::jsonb)

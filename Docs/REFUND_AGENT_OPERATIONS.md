@@ -29,7 +29,8 @@ applicable action below and then continue to the next case:
 - research and save the exact reviewed candidate when the result is ambiguous;
 - use the portal's same-case, approved template to send the one targeted
   clarification or its single non-response follow-up;
-- close a case that has had no useful response for 30 days;
+- after 30 days without useful input, prepare a reject recommendation for the
+  Manager's decision;
 - prepare an approve/decline recommendation and notify the assigned Manager; or
 - record one PII-free engineering issue for a System defect and continue other
   cases.
@@ -64,8 +65,8 @@ current machine ownership and Manager scope in `AGENTS.md`; never borrow another
 Nayax account or Manager identity.
 
 For an unattended run, continue until every visible case is either prepared for
-one Manager decision, waiting on the one allowed customer response, closed under
-the 30-day rule, or blocked by a recorded System issue.
+one Manager decision, waiting on the one allowed customer response, or blocked
+by a recorded System issue.
 
 ## 2. Read before acting
 
@@ -99,7 +100,7 @@ each set of digits came from before comparing them. A mismatch alone is not a
 blocker: check the exact machine, venue-local time, customer charge or receipt,
 product and independent sales evidence before discarding a plausible purchase.
 Do not assume different digits are equivalent without that corroboration, and
-keep the provider-status and duplicate-refund checks before selection.
+keep the provider-status and same-case attempt/history checks before selection.
 
 The System saves a routine clear match automatically. Keep every plausible
 ambiguous candidate visible and explain the evidence. A case worker may select a
@@ -144,17 +145,20 @@ payout destination:
 3. Never request a full card number, CVV, expiration date, PIN, password, bank
    login, or wallet secret.
 4. Verify the message was sent by **Bloomjoy Refunds
-   <refunds@bloomjoysweets.com>** to the customer and copied to the current assigned
-   Managers before recording the case as waiting.
+   <refunds@bloomjoysweets.com>** in the existing customer conversation and is
+   visible in the portal before recording the case as waiting. Manager alerts
+   and digests are for decision-needed work; do not routinely copy Managers on
+   clarification messages.
 5. If the customer does not reply, send one follow-up in the same conversation.
    Do not create another reminder cycle.
 6. A reply updates this case and restarts matching; never require a new form.
-7. Close after 30 days without a useful response.
+7. After 30 days without useful input, prepare the reject recommendation for
+   the Manager. Do not close or deny the request automatically.
 
 This procedure authorizes the single necessary information request and its one
-non-response follow-up, and the administrative 30-day no-response closure. It
-does not authorize a refund, a final denial decision, or unrelated customer
-correspondence.
+non-response follow-up, and preparation of the 30-day no-response recommendation.
+It does not authorize a refund, a final denial decision, automatic closure, or
+unrelated customer correspondence.
 
 ## 6. Give the Manager one decision
 
@@ -223,4 +227,4 @@ do not copy customer or payment details into the summary.
 - No intermediate cash-payout status.
 - Never repeat an unknown payment, guess between genuinely plausible
   transactions, expose private payment data, or bypass exact-transaction and
-  duplicate protections.
+  same-case replay protections.

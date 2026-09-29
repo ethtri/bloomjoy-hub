@@ -75,8 +75,9 @@ historical fixtures cannot add product gates that the workflow does not contain.
   or execute the server-owned matching RPC.
 - [ ] Customer clarification appears only after internal research is exhausted,
   asks one targeted question in the existing case, sends one follow-up only when
-  there is no reply, applies replies to the same case, and closes after 30 days
-  without a useful response.
+  there is no reply, applies replies to the same case, and prepares a Manager
+  reject recommendation after 30 days without useful input. The unattended
+  worker never closes or denies the case.
 - [ ] A historical no-safe-match follow-up with no customer-correctable field,
   message, or send evidence remains open Agent purchase research. It does not
   imply a customer question exists or offer a resend. Stale facts and any
@@ -92,6 +93,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
   recheck as next work while the new lookup is due or checking. It does not
   still say to review the settled reply or wait for a customer answer. Once the
   read-only lookup finishes, the case stage replaces the recheck copy.
+- [ ] A structurally current cached System `run_lookup` row is rechecked against
+  current case truth. Ineligible/not-started lookup work returns to Agent
+  purchase research, a genuinely eligible lookup remains System-owned, and the
+  repair never restores a `nextWork` object removed by actor-scoped redaction.
 - [ ] The hourly subscription-backed reply task reads only the exact verified
   request and complete later-reply set. Ordinary prose can yield a quoted,
   version-bound fact receipt, including card network and a wallet-device token
