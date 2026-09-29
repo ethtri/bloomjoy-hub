@@ -396,8 +396,6 @@ begin
       new_basis := 'unknown';
       new_basis_provenance := 'changed_refund_amount_basis_unproved';
     end if;
-    basis_changed := old_basis is distinct from new_basis;
-
     scope_changed := row(
       old.reporting_machine_id,
       old.reporting_location_id,
@@ -409,6 +407,16 @@ begin
       new.payment_method,
       new.matched_sales_fact_id
     );
+
+    if old_basis = 'unknown'
+      and old_target is distinct from new_target
+      and not scope_changed then
+      -- One row carries one basis. Exact proof for a changed after-amount must
+      -- not be applied to a distinct, still-unproved before-amount.
+      new_basis := 'unknown';
+      new_basis_provenance := 'changed_refund_amount_mixed_basis_unproved';
+    end if;
+    basis_changed := old_basis is distinct from new_basis;
 
     if recognized_before is not distinct from recognized_after
       and not scope_changed then
@@ -486,7 +494,9 @@ begin
   -- current-period reclassification. The old event stays immutable, so a
   -- correction cannot rewrite an already issued period.
   if not first_request and (scope_changed or basis_changed)
-    and not (old_basis = 'unknown' and new_basis <> 'unknown') then
+    and not (
+      old_basis = 'unknown' and new_basis <> 'unknown' and not scope_changed
+    ) then
     select location.timezone
     into old_location_timezone
     from public.reporting_locations location
@@ -981,18 +991,42 @@ begin
         when event.amount_basis <> 'unknown' then event.amount_basis
         when event.request_target_after_cents is null then 'unknown'
         when refund_case.payment_method = 'cash'
+          and (
+            event.request_target_before_cents
+              is not distinct from event.request_target_after_cents
+            or event.event_kind in (
+              'request_received', 'late_request_opening', 'cutover_opening',
+              'scope_applied'
+            )
+          )
           and refund_case.status = 'completed'
           and refund_case.refund_completed_at is not null
           and refund_case.payment_amount_cents = event.request_target_after_cents
           and refund_case.refund_amount_cents = event.request_target_after_cents
           then 'tax_inclusive'
         when refund_case.payment_method = 'card'
+          and (
+            event.request_target_before_cents
+              is not distinct from event.request_target_after_cents
+            or event.event_kind in (
+              'request_received', 'late_request_opening', 'cutover_opening',
+              'scope_applied'
+            )
+          )
           and refund_case.correlation_source = 'nayax'
           and refund_case.matched_nayax_amount_cents = event.request_target_after_cents
           and refund_case.matched_nayax_currency_code = 'USD'
           and nullif(refund_case.matched_nayax_transaction_id, '') is not null
           then 'tax_inclusive'
-        when receipt.id is not null then 'tax_inclusive'
+        when receipt.id is not null
+          and (
+            event.request_target_before_cents
+              is not distinct from event.request_target_after_cents
+            or event.event_kind in (
+              'request_received', 'late_request_opening', 'cutover_opening',
+              'scope_applied'
+            )
+          ) then 'tax_inclusive'
         else 'unknown'
       end::text as effective_amount_basis,
       tax_rate.tax_rate_percent

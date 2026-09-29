@@ -187,6 +187,75 @@ select results_eq($$
 $$, $$values (4000::bigint,0::bigint)$$,
   'Exact same-amount Nayax proof resolves the original request without double deduction');
 
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status,
+  customer_request_received_at, customer_request_received_source
+) values (
+  'fd400000-0000-4000-8000-000000000007', 'RF-PERIOD-7',
+  'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001',
+  'changed-proof@example.invalid', 'Changed amount gains exact evidence',
+  clock_timestamp(), 'card', 1100, 1100, 'needs_review', clock_timestamp(),
+  'gmail_contact_ingested'
+);
+update public.refund_cases set
+  refund_amount_cents=880, correlation_status='matched', correlation_source='nayax',
+  matched_nayax_transaction_id='exact-880', matched_nayax_amount_cents=880,
+  matched_nayax_currency_code='USD', matched_nayax_machine_auth_time=incident_at
+where id='fd400000-0000-4000-8000-000000000007';
+select results_eq($$
+  select refund_reversal_ex_tax_cents, commissionable_sales_ex_tax_cents,
+    (unresolved_refund_count > 0)
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001',
+    (now() at time zone 'America/Los_Angeles')::date,
+    (now() at time zone 'America/Los_Angeles')::date
+  ) where source='refund_request'
+    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date
+$$, $$values (null::bigint,null::bigint,true)$$,
+  'Proof for a changed after-amount never fabricates a known reversal of an unknown before-amount');
+
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_order_hash,
+  source_row_hash, tax_cents, raw_payload
+) values (
+  'fd600000-0000-4000-8000-000000000008', 'fd300000-0000-4000-8000-000000000002',
+  'fd200000-0000-4000-8000-000000000002', current_date-10, 'credit', 1100, 1,
+  'nayax_scheduled_report', repeat('8',32), repeat('8',64), 0,
+  '{"amountBasis":"gross_customer_charge_minor"}'
+);
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status,
+  customer_request_received_at, customer_request_received_source
+) values (
+  'fd400000-0000-4000-8000-000000000008', 'RF-PERIOD-8',
+  'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001',
+  'scope-proof@example.invalid', 'Proof also corrects purchase scope',
+  now()-interval '10 days', 'card', 1100, 1100, 'needs_review',
+  clock_timestamp(), 'gmail_contact_ingested'
+);
+update public.refund_cases set
+  matched_sales_fact_id='fd600000-0000-4000-8000-000000000008',
+  correlation_status='matched', correlation_source='nayax',
+  matched_nayax_transaction_id='scope-exact-1100', matched_nayax_amount_cents=1100,
+  matched_nayax_currency_code='USD', matched_nayax_machine_auth_time=incident_at
+where id='fd400000-0000-4000-8000-000000000008';
+select results_eq($$
+  select event_kind, reporting_machine_id,
+    recognized_target_before_cents, recognized_target_after_cents
+  from private.refund_request_recognition_events
+  where refund_case_id='fd400000-0000-4000-8000-000000000008'
+    and event_kind in ('scope_reversed','scope_applied')
+  order by event_kind desc
+$$, $$values
+  ('scope_reversed'::text,'fd300000-0000-4000-8000-000000000001'::uuid,1100::bigint,0::bigint),
+  ('scope_applied'::text,'fd300000-0000-4000-8000-000000000002'::uuid,0::bigint,1100::bigint)
+$$, 'Same-amount proof plus scope correction reverses and reapplies on the proved purchase scope');
+
 insert into public.sales_adjustment_facts (
   id, reporting_machine_id, reporting_location_id, adjustment_date,
   adjustment_type, amount_cents, complaint_count, source, source_row_hash,
