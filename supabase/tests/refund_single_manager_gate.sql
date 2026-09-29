@@ -109,7 +109,7 @@ declare one_click boolean:=p_recommendation_state='high_confidence';
 begin
   insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
-    incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+    incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
     card_last4_provenance,payment_interaction,status,correlation_status,
     deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
     nayax_lookup_status,nayax_refund_execution_status,customer_request_received_at,
@@ -117,7 +117,7 @@ begin
   values(p_case_id,'RF-'||upper(right(replace(p_case_id::text,'-',''),12)),
     'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
     right(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
-    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',fixture_amount,'4242',
+    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',fixture_amount,fixture_amount,'4242',
     'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
     'checking','not_requested','2026-09-12T21:00:00Z','hosted_refund_intake');
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -227,13 +227,13 @@ select is(public.refund_lifecycle_contract(
   'the authorized System selection reaches the existing Manager decision path');
 reset role;
 update public.reporting_machine_refund_managers
-set revoked_at=statement_timestamp()
+set status='revoked',revoked_at=statement_timestamp(),revoke_reason='Fixture authority check'
 where id='a3450000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case(
     'a3470000-0000-4000-8000-000000000015'),null::jsonb,
   'a stale System selection proof cannot prepare a recommendation after authority is revoked');
 update public.reporting_machine_refund_managers
-set revoked_at=null
+set status='active',revoked_at=null,revoke_reason=null
 where id='a3450000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case(
     'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
