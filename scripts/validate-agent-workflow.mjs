@@ -165,8 +165,9 @@ if (exists("Docs/REFUND_WORKFLOW.md")) {
   );
   assert(
     /send one follow-up/i.test(refundWorkflow) &&
-      /Close the case after 30 days/i.test(refundWorkflow),
-    "Refund workflow must preserve the single follow-up and 30-day closure policy.",
+      /prepare a reject recommendation/i.test(refundWorkflow) &&
+      /does\s+not close or deny the (?:case|request) automatically/i.test(refundWorkflow),
+    "Refund workflow must preserve the single follow-up and Manager-owned 30-day decision policy.",
   );
   assert(
     !/exact customer-amount matching is required/i.test(refundWorkflow),
@@ -189,8 +190,9 @@ if (exists("Docs/REFUND_AGENT_OPERATIONS.md")) {
   );
   assert(
     /approved template/i.test(refundProcedure) &&
-      /administrative 30-day no-response closure/i.test(refundProcedure),
-    "Refund procedure must use the systematic one-question flow and permit routine 30-day closure.",
+      /prepare the reject recommendation for\s+the Manager/i.test(refundProcedure) &&
+      /Do not close or deny the request automatically/i.test(refundProcedure),
+    "Refund procedure must use the systematic one-question flow and keep the 30-day decision with a Manager.",
   );
 }
 

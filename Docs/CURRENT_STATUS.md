@@ -160,6 +160,16 @@ orientation snapshot; it is not a backlog or release ledger.
   scheduler runs are healthy and suppress ineligible duplicate work, but a
   no-op run is not evidence that a case progressed; real action outcomes remain
   separately visible in the action ledger.
+- A September 29 audit found 55 independent open case-work identities after
+  excluding one open duplicate. The existing scheduled sweep and reply worker
+  do not perform the broader purchase research, provider setup, reply review,
+  delivery reconciliation, or assignment repair. The existing Codex caseworker
+  heartbeat is the single broad consumer; it must work the portal and produce a
+  real case transition or delivered customer question before this gap is called
+  fixed. Migration `20260929033000` narrowly repairs two stale portal rows that
+  still displayed System lookup work after current truth returned them to Agent
+  purchase research. It adds no queue, run ledger, decision, message, refund, or
+  payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.

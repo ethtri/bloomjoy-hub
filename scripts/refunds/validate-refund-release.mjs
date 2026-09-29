@@ -72,11 +72,16 @@ for (const required of [
   'including sales tax',
   'Confirm refund sent via Zelle',
   'send one follow-up',
-  'Close the case after 30 days',
+  'prepare a reject recommendation',
 ]) {
   assert.match(refundWorkflow, new RegExp(required, 'i'),
     'Canonical refund workflow is missing: ' + required);
 }
+assert.match(
+  refundWorkflow,
+  /does\s+not close or deny the (?:case|request) automatically/i,
+  'Canonical refund workflow must keep final 30-day closure or denial with a Manager',
+);
 assert(qaSmokeChecklist.includes('Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior'));
 assert.match(refundEmailAssistantRunbook, /subordinate to/);
 
