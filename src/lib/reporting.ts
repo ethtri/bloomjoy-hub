@@ -1,6 +1,7 @@
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import type { ReportingMachineType } from '@/lib/machineTypes';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { getOptionalSnapCasePartnershipId } from '@/lib/snapcaseMappingWindow';
 
 export type { ReportingMachineType } from '@/lib/machineTypes';
 
@@ -68,6 +69,7 @@ export type AdminReportingMachine = {
   machine_type: ReportingMachineType;
   serial_number: string | null;
   sunze_machine_id: string | null;
+  nayax_machine_id: string | null;
   status: string;
   operational_phase: ReportingMachineOperationalPhase;
   created_at: string;
@@ -576,7 +578,7 @@ type MapSnapCaseMachineInput = {
   locationId?: string | null;
   locationName?: string | null;
   machineLabel?: string | null;
-  partnershipId: string;
+  partnershipId?: string | null;
   effectiveStartDate: string;
   effectiveEndDate?: string | null;
   reason: string;
@@ -949,7 +951,7 @@ export const mapSnapCaseMachineAdmin = async (
     p_location_id: input.locationId || null,
     p_location_name: input.locationName || null,
     p_machine_label: input.machineLabel || null,
-    p_partnership_id: input.partnershipId,
+    p_partnership_id: getOptionalSnapCasePartnershipId(input.partnershipId),
     p_effective_start_date: input.effectiveStartDate,
     p_effective_end_date: input.effectiveEndDate || null,
     p_reason: input.reason,
@@ -963,7 +965,7 @@ export const mapSnapCaseMachineAdmin = async (
   return {
     machineId: String(record.machineId ?? ''),
     machineLabel: String(record.machineLabel ?? ''),
-    partnershipId: String(record.partnershipId ?? input.partnershipId),
+    partnershipId: String(record.partnershipId ?? input.partnershipId ?? ''),
     partnershipName: String(record.partnershipName ?? ''),
     providerAccountId: String(record.providerAccountId ?? input.providerAccountId),
     sourceMachineId: String(record.sourceMachineId ?? input.sourceMachineId),

@@ -57,9 +57,16 @@ import {
   reserveSignedExportWindow,
 } from '@/lib/signedExportWindow';
 import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi';
+import { getSnapCaseMappingEffectiveWindow } from '@/lib/snapcaseMappingWindow';
 
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
+
+const isEligibleExistingSnapCaseMachine = (
+  machine: Pick<AdminReportingMachine, 'machine_type' | 'sunze_machine_id' | 'nayax_machine_id'>
+) =>
+  !machine.sunze_machine_id &&
+  (machine.machine_type === 'snapcase' || Boolean(machine.nayax_machine_id?.trim()));
 
 type ImportedMachineSetupForm = {
   partnershipId: string;
@@ -320,6 +327,11 @@ export default function AdminReportingPage() {
 
       setIsSettingUpMachine(true);
       try {
+        const effectiveWindow = getSnapCaseMappingEffectiveWindow(
+          setupMachine.machine,
+          selectedPartnership,
+          new Date().toISOString().slice(0, 10)
+        );
         const result = await mapSnapCaseMachineAdmin({
           providerAccountId: setupMachine.machine.providerAccountId,
           sourceMachineId: setupMachine.machine.sourceMachineId,
@@ -328,10 +340,9 @@ export default function AdminReportingPage() {
           locationId: form.mappingMode === 'new' ? form.locationId : null,
           locationName: form.mappingMode === 'new' ? form.locationName.trim() : null,
           machineLabel: form.mappingMode === 'new' ? form.machineLabel.trim() : null,
-          partnershipId: selectedPartnership?.id ?? '',
-          effectiveStartDate:
-            selectedPartnership?.effective_start_date ?? setupMachine.machine.firstSeenAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-          effectiveEndDate: selectedPartnership?.effective_end_date ?? null,
+          partnershipId: selectedPartnership?.id ?? null,
+          effectiveStartDate: effectiveWindow.effectiveStartDate,
+          effectiveEndDate: effectiveWindow.effectiveEndDate,
           reason: importedMachineSetupReason,
         });
         trackEvent('admin_snapcase_machine_mapping_completed', {
@@ -1247,10 +1258,10 @@ function ImportedMachineSetupDialog({
                 >
                   <option value="">Choose machine</option>
                   {machines
-                    .filter((item) => item.machine_type === 'snapcase' && !item.sunze_machine_id)
+                    .filter(isEligibleExistingSnapCaseMachine)
                     .map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'}
+                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'} — {formatMachineType(item.machine_type)}{item.machine_type !== 'snapcase' ? ' · Nayax linked' : ''}
                     </option>
                   ))}
                 </select>

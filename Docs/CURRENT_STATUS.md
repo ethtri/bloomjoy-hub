@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-09-19.
+Last compacted: 2026-09-28.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -28,10 +28,12 @@ orientation snapshot; it is not a backlog or release ledger.
   any provider read, and one case has confirmed payment that must not reopen
   transaction search. Track the other two fallbacks separately under #628;
   a loading list alone is not completion of the final-decision workflow.
-- On 2026-09-25 the authenticated production refund Case list began timing out
-  before it could load. P0 issue [#1453](https://github.com/ethtri/bloomjoy-hub/issues/1453)
-  tracks the database performance repair and authorized post-release readback;
-  a merged migration alone does not establish recovery.
+- The September 28 production timeout is recovered. The read-only admin overview
+  has a bounded 20-second function budget, and fresh authenticated production
+  checks returned all 71 operational cases plus 11 internal/test cases in
+  roughly 9-14 seconds. The Refunds page rendered 58 active and 13 closed cases
+  without console errors. The long wrapper chain remains performance debt; this
+  recovery does not widen any payment, refund, or customer-message timeout.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
@@ -142,6 +144,11 @@ orientation snapshot; it is not a backlog or release ledger.
   block only when their mapped machine lacks a completed payment import and
   successful cash publication. Production behavior still requires the related
   migrations to merge and deploy.
+- Issue #1569 reconciled the six confirmed SnapCase source identities with their
+  existing Nayax-linked Hub machines in production. The bounded repair preserved
+  mapping dates, cash fact hashes and amounts, assignments, compensation, tax
+  rules, and access grants. Completion receipts were revalidated through the
+  established mapping trigger, and the issue and project item are complete.
 - Issue #1478 now has a source-connected projection contract for Kexiaozhan cash only;
   existing Nayax scheduled facts remain the sole card authority and existing
   sales adjustments remain the sole refund deduction. Gross cash amount and
@@ -159,22 +166,18 @@ orientation snapshot; it is not a backlog or release ledger.
   backlog pass, including read, archived, and spam mail, found no unanswered new
   refund inquiry; the hourly manual fallback is paused. Two older refund-status
   conversations remain separate follow-up work, not new form-link candidates.
-- The merged #1443/#1445 workflow-health migrations are live. Their production
-  readback reports degraded delivery and workflow health for two unresolved
-  customer-status notices and eight current clarification-contact obligations.
-  Those exact delivery histories still need reconciliation; the health signal
-  does not establish that a customer reply or refund was completed. The first
-  natural daily Manager digest cycle on September 27 sent four scoped digests
-  for 73 recipient-case entries (41 distinct cases); all four provider receipts
-  were delivered, and the mapped Manager with no open cases received none.
-  The September 28 cycle remains.
-- The two completed-card cases have a successful Nayax refund but an exhausted,
-  unsent completion email. Their original Info conversations have no completion
-  reply, and the exact database messages have no provider or Gmail send record.
-  An operator-only, one-time recovery is merged but not yet deployed; no replacement email
-  or payment has been sent. Six other clarification cycles never formed a
-  customer question, one was correctly policy-suppressed, and one historical
-  Resend effect remains unknown. None should be blindly resent.
+- The merged refund workflow-health migrations are live. Two paid cases retain
+  unresolved customer-status obligations because their historical completion
+  copies cannot be bound to a reversible provider or Gmail identifier. The
+  refunds and receipts are complete; delivery remains unknown, and another
+  payment or replacement message is not authorized. The final historical
+  no-safe-match message asked for zero fields and the current case also has no
+  customer-correctable field, so health classifies that clarification as
+  resolved obsolete while preserving its unknown-delivery audit evidence.
+- The natural daily Manager digest passed on both September 27 and 28. Recent
+  scheduler runs are healthy and suppress ineligible duplicate work, but a
+  no-op run is not evidence that a case progressed; real action outcomes remain
+  separately visible in the action ledger.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.

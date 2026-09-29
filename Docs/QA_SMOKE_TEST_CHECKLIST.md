@@ -561,7 +561,8 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
 - [ ] User with no reporting entitlement is blocked from `/portal/reports` with clear reporting-access copy
 - [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
-- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, machine, and cash/credit payment filters without exposing location controls or columns
+- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, machine, and All payments/Cash/Card/Other/Unknown payment filters without exposing location controls or columns; All payments is the default and the selected payment scope stays visible
+- [ ] Operator report UI and PDF show Recorded sales − Reported refunds = Sales after refunds; the $505/$27 fixture shows $478, known card refunds remain on Card, and refund-only Unknown rows remain visible without being redistributed
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] On mobile widths (`360x800`, `390x844`, `414x896`), `/portal/reports` period controls, machine/payment filters, KPI cards, charts, machine comparison, report rows, and PDF export action stack without horizontal page scrolling or truncated labels
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and Partner Revenue Share as separate values when applied refund adjustments exist
@@ -572,7 +573,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Inactive partnership status stops Corporate Partner live reporting access
 - [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months show one `No report for this period` state without duplicate machine/setup errors, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
-- [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
+- [ ] `/portal/reports` export creates a private signed PDF link that matches the selected date, machine, grain, and payment scope filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
 - [ ] `npm run refunds:validate-scheduled-reports` proves authenticated Nayax reports retain settled sales separately from refund observations, replay without duplicate facts, and reject malformed or non-settled rows
 - [ ] A reviewed Nayax report replay creates idempotent `nayax_scheduled_report` facts for active published mappings. Sunze-backed card facts stay staged before their machine-local boundary; after a bounded verified cutover, one daily authority fact contains Nayax card money and paid Sunze order/item/tax metrics, zero-value Sunze operational rows remain separate, and clearing the boundary restores the retained original Sunze card values.
@@ -847,6 +848,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin Reporting > Sync lists imported machines needing setup with source name, read-only external machine ID, queued rows/revenue, latest sale, and last-seen time
+- [ ] SnapCase existing-machine setup lists non-Sunze Snapcase machines and legacy Nayax-linked machines with account, location, and type context; a legacy target saves through the normal mapping action, while Sunze-bound machines remain absent.
 - [ ] Admin can set up an imported machine from `/admin/reporting` by choosing the report/partnership, confirming machine label, location, machine type, and reporting tax rate without editing the external machine ID
 - [ ] Imported machine setup creates/updates the reporting machine, assigns it to the selected partnership, applies tax setup, promotes queued sales rows, and shows the promoted row count/revenue in the success message
 - [ ] Admin can ignore an imported machine and reopen it later without changing already configured reporting machines

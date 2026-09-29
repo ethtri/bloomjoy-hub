@@ -129,7 +129,7 @@ const operatorFacts = [
   ['2026-07-21', 'operator-machine-garden', 'credit', 9000, 0, 9],
   ['2026-07-22', 'operator-machine-north', 'credit', 11000, 500, 11],
   ['2026-07-22', 'operator-machine-garden', 'other', 6000, 0, 6],
-].map(([date, machineId, paymentMethod, netSalesCents, refundAmountCents, transactionCount]) => {
+].map(([date, machineId, paymentMethod, recordedSalesCents, refundAmountCents, transactionCount]) => {
   const dimension = operatorDimensions.find((item) => item.machine_id === machineId);
   return {
     period_start: date,
@@ -138,15 +138,15 @@ const operatorFacts = [
     location_id: dimension.location_id,
     location_name: dimension.location_name,
     payment_method: paymentMethod,
-    net_sales_cents: netSalesCents,
+    net_sales_cents: recordedSalesCents - refundAmountCents,
     refund_amount_cents: refundAmountCents,
-    gross_sales_cents: netSalesCents + refundAmountCents,
+    gross_sales_cents: recordedSalesCents,
     transaction_count: transactionCount,
   };
 });
 
 const paymentLabels = {
-  credit: 'Credit',
+  credit: 'Card',
   cash: 'Cash',
   other: 'Other',
   unknown: 'Unknown',
@@ -839,9 +839,9 @@ const assertOperatorDailyReconciliation = async (page) => {
   await metrics.waitFor();
   const metricsText = await textOf(metrics);
   for (const [label, expected] of [
-    ['net sales', '$680.00'],
-    ['gross sales', '$700.00'],
-    ['refund impact', '$20.00'],
+    ['recorded sales', '$680.00'],
+    ['reported refunds', '$20.00'],
+    ['sales after refunds', '$660.00'],
   ]) {
     assert(metricsText.toLowerCase().includes(label) && metricsText.includes(expected), `Operator ${label} KPI must reconcile to ${expected}. Found: ${metricsText}`);
   }
@@ -850,13 +850,13 @@ const assertOperatorDailyReconciliation = async (page) => {
   const dailySection = page.locator(selectors.operatorDailySales);
   await dailySection.waitFor();
   const expectedDays = new Map([
-    ['2026-07-16', ['$150.00', '$155.00', '$5.00', '15']],
+    ['2026-07-16', ['$150.00', '$145.00', '$5.00', '15']],
     ['2026-07-17', ['$80.00', '$80.00', '$0.00', '8']],
-    ['2026-07-18', ['$120.00', '$130.00', '$10.00', '12']],
+    ['2026-07-18', ['$120.00', '$110.00', '$10.00', '12']],
     ['2026-07-19', ['$0.00', '0']],
     ['2026-07-20', ['$70.00', '$70.00', '$0.00', '7']],
     ['2026-07-21', ['$90.00', '$90.00', '$0.00', '9']],
-    ['2026-07-22', ['$170.00', '$175.00', '$5.00', '17']],
+    ['2026-07-22', ['$170.00', '$165.00', '$5.00', '17']],
   ]);
   for (const [date, expectedValues] of expectedDays) {
     const row = await visibleLocator(
@@ -877,8 +877,8 @@ const assertOperatorDailyReconciliation = async (page) => {
   for (const row of operatorFacts) {
     assert(detailText.includes(row.machine_label), `Detailed report must include ${row.machine_label}.`);
     assert(detailText.includes(paymentLabels[row.payment_method]), `Detailed report must include ${paymentLabels[row.payment_method]}.`);
-    assert(detailText.includes(`$${(row.net_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.net_sales_cents / 100).toFixed(2)} net sales.`);
-    assert(detailText.includes(`$${(row.gross_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.gross_sales_cents / 100).toFixed(2)} gross sales.`);
+    assert(detailText.includes(`$${(row.gross_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.gross_sales_cents / 100).toFixed(2)} recorded sales.`);
+    assert(detailText.includes(`$${(row.net_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.net_sales_cents / 100).toFixed(2)} sales after refunds.`);
   }
 };
 
@@ -895,16 +895,16 @@ const assertVisibleDetailedTotals = async (page, label) => {
     const cells = rows.nth(index).locator('td');
     const currencyToCents = (value) =>
       Math.round(Number(value.replace(/[^0-9.-]/g, '')) * 100);
-    totals.netSalesCents += currencyToCents(await cells.nth(3).innerText());
-    totals.grossSalesCents += currencyToCents(await cells.nth(4).innerText());
-    totals.refundAmountCents += currencyToCents(await cells.nth(5).innerText());
+    totals.grossSalesCents += currencyToCents(await cells.nth(3).innerText());
+    totals.refundAmountCents += currencyToCents(await cells.nth(4).innerText());
+    totals.netSalesCents += currencyToCents(await cells.nth(5).innerText());
     totals.transactionCount += Number((await cells.nth(6).innerText()).replace(/[^0-9-]/g, ''));
   }
   assert(
     JSON.stringify(totals) ===
       JSON.stringify({
-        netSalesCents: 68000,
-        grossSalesCents: 70000,
+        netSalesCents: 66000,
+        grossSalesCents: 68000,
         refundAmountCents: 2000,
         transactionCount: 68,
       }),
@@ -1052,12 +1052,13 @@ const assertOperatorDesktop = async (browser) => {
       const payment = page.locator(selectors.operatorPayment);
       await payment.waitFor();
       assert((await textOf(payment)).includes('All payments'), 'Payment control must summarize its default as All payments.');
+      assert((await textOf(page.locator(selectors.operatorAdvancedFilters))).includes('All payments includes Cash, Card, Other, and Unknown.'), 'Payment scope must explain every value included by All payments.');
       await assertTouchTarget(payment, 'Operator payment selector');
     });
     await settleScreenshotViewport(page);
     await page.screenshot({ path: path.join(outputDir, 'operator-filter-more-desktop.png'), fullPage: true });
     await page.locator(selectors.operatorPayment).click();
-    for (const label of ['Cash', 'Credit', 'Other', 'Unknown']) {
+    for (const label of ['Cash', 'Card', 'Other', 'Unknown']) {
       await page.getByRole('menuitemcheckbox', { name: label, exact: true }).waitFor();
     }
     await page.screenshot({ path: path.join(outputDir, 'operator-payment-menu-desktop.png'), fullPage: true });
@@ -1109,7 +1110,7 @@ const assertOperatorDesktop = async (browser) => {
         `Partial weekly labels must stay inside the selected date range. Found: ${weeklySummaryText}`,
       );
       const metricsText = await textOf(page.locator(selectors.operatorMetrics));
-      assert(metricsText.includes('$680.00') && metricsText.includes('$700.00'), 'Weekly grouping must preserve reconciled totals.');
+      assert(metricsText.includes('$680.00') && metricsText.includes('$660.00'), 'Weekly grouping must preserve reconciled totals.');
       await settleScreenshotViewport(page);
       await page.screenshot({ path: path.join(outputDir, 'operator-weekly-summary-desktop.png'), fullPage: true });
       await assertVisibleDetailedTotals(page, 'Weekly');
@@ -1135,10 +1136,10 @@ const assertOperatorDesktop = async (browser) => {
     await check('Operator machine and payment filters scope every total and export', async () => {
       const machineTrigger = await findOperatorMachineTrigger(page);
       await selectRadixOption(machineTrigger, 'North Atrium');
-      await selectOperatorPayment(page, 'Credit');
+      await selectOperatorPayment(page, 'Card');
       const metrics = page.locator(selectors.operatorMetrics);
-      await expectCurrency(metrics, '$210.00', 'Filtered operator net KPI');
-      await expectCurrency(metrics, '$215.00', 'Filtered operator gross KPI');
+      await expectCurrency(metrics, '$210.00', 'Filtered operator recorded-sales KPI');
+      await expectCurrency(metrics, '$205.00', 'Filtered operator after-refund KPI');
       await expectCurrency(metrics, '$5.00', 'Filtered operator refund KPI');
       const metricsText = await textOf(metrics);
       assert(/Transactions\s+21\b/i.test(metricsText), `Filtered Transactions KPI must be 21. Found: ${metricsText}`);
