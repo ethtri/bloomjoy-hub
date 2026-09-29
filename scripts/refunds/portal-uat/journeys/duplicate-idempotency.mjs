@@ -80,6 +80,7 @@ export const createDuplicateIdempotencyChecks = ({
           otherStatus: 'waiting_on_customer',
           canonicalCaseId: null,
           resolutionReasonCode: null,
+          clarificationState: 'available',
           createdAt: now.toISOString(),
           resolvedAt: null,
         },
@@ -125,6 +126,13 @@ export const createDuplicateIdempotencyChecks = ({
         await page.getByRole('button', { name: 'Different purchases', exact: true }).isVisible() &&
         await page.getByRole('link', { name: 'Open other case', exact: true }).isVisible() &&
         (await page.getByRole('link', { name: /Open exact case/i }).count()) === 0
+    );
+    recorder.assert(
+      'Research-exhausted duplicate review exposes one existing-thread customer question',
+      await page.getByRole('button', {
+        name: 'Ask which purchase these requests describe',
+        exact: true,
+      }).isVisible()
     );
     recorder.assert(
       'Possible duplicate keeps official manager action disabled before resolution',

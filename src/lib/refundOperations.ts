@@ -1052,6 +1052,13 @@ export type RefundReconciliationReview = {
   resolutionReasonCode: string | null;
   createdAt: string;
   resolvedAt: string | null;
+  clarificationState?: 'available' | 'question_queued' | 'waiting_for_customer' |
+    'reminder_queued' | 'reply_received' | 'stale';
+  clarificationReplyBinding?: 'exact_thread' | 'review_required' | null;
+  clarificationReminderDueAt?: string | null;
+  clarificationRequestMessageId?: string | null;
+  clarificationReplyMessageId?: string | null;
+  payloadRedacted?: true;
 };
 
 export type RefundCaseReconciliation = {
@@ -3053,6 +3060,59 @@ export const resolveRefundCaseReconciliation = async (
     throw new Error(error.message || 'Unable to save the duplicate review.');
   }
   return data as RefundCaseReconciliation;
+};
+
+export const resolveRefundCaseReconciliationFromReply = async (input: {
+  reviewId: string;
+  resolution: 'duplicate' | 'distinct';
+  canonicalRefundCaseId: string | null;
+  sourceMessageId: string;
+  sourceQuote: string;
+}): Promise<RefundCaseReconciliation> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_resolve_refund_case_reconciliation_from_reply',
+    {
+      p_review_id: input.reviewId,
+      p_resolution: input.resolution,
+      p_canonical_refund_case_id: input.canonicalRefundCaseId,
+      p_source_message_id: input.sourceMessageId,
+      p_source_quote: input.sourceQuote,
+    }
+  );
+  if (error) {
+    throw new Error(error.message || 'Unable to save the source-bound duplicate review.');
+  }
+  return data as RefundCaseReconciliation;
+};
+
+export const requestRefundReconciliationClarification = async (input: {
+  reviewId: string;
+  anchorCaseId: string;
+  expectedCaseVersion: number;
+  messageIntentId: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc(
+    'service_enqueue_refund_reconciliation_clarification',
+    {
+      p_review_id: input.reviewId,
+      p_anchor_case_id: input.anchorCaseId,
+      p_expected_case_version: input.expectedCaseVersion,
+      p_intent_id: input.messageIntentId,
+      p_role: 'request',
+    }
+  );
+  const result = data && typeof data === 'object' ? data as Record<string, unknown> : null;
+  if (error || result?.enqueued !== true || typeof result.messageId !== 'string') {
+    throw new Error(error?.message || 'Unable to queue the customer question.');
+  }
+  return result as {
+    enqueued: true;
+    replayed: boolean;
+    messageId: string;
+    messageStatus: string;
+    outboxState: string;
+    payloadRedacted: true;
+  };
 };
 
 export const resolveRefundGmailCaseLinkReview = async (input: {

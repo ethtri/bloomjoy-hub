@@ -22,7 +22,7 @@ test('coordinator returns a bounded, newly-created-only redacted identity set', 
 
 test('new completions exact-drain before generic recovery through the one shared atomic claim', () => {
   const queue = sweep.indexOf('await queueAutomaticReceiptCompletions(counters)');
-  const exact = sweep.indexOf('runManualMessageOutboxSweep(counters, messageId, 1)');
+  const exact = sweep.indexOf('runManualMessageOutboxSweep(counters, messageId, 1)', queue);
   const generic = sweep.indexOf('await runManualMessageOutboxSweep(counters);', exact);
   assert.ok(queue >= 0 && queue < exact && exact < generic);
   assert.match(outbox, /service_claim_refund_manual_message_deliveries/);

@@ -317,6 +317,18 @@ orientation snapshot; it is not a backlog or release ledger.
   as review work; decision alerts and Manager digests remain separate.
   Candidate research and linked-case loading remain the next operational slice.
   These migrations add no queue, run ledger, decision, refund, or payment authority.
+- The two remaining same-customer duplicate-review requests cannot be safely
+  classified from internal evidence: their purchase facts match, but their
+  customer-entered incident times differ and no provider transaction is bound.
+  The current reconciliation panel has only final duplicate/distinct actions,
+  so it cannot ask the one question needed to distinguish a corrected repeat
+  submission from two purchases. The pending clarification slice reuses the
+  existing customer-thread outbox and verified-reply intake for one fixed,
+  pair-bound question and at most one reminder. It binds the exact review and
+  both fact fingerprints, accepts ordinary customer wording for Bloomjoy review,
+  and requires the exact outbound provider Message-ID in the customer reply before the
+  existing operator action may record a customer-confirmed result. It adds no
+  queue, payment gate, automatic duplicate decision, refund, or provider action.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.

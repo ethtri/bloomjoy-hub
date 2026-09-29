@@ -23,6 +23,7 @@ export type RefundTransactionalDeliveryState =
 
 export type RefundTransactionalDeliveryWebhook = {
   providerMessageId: string;
+  providerMessageHeader: string;
   state: RefundTransactionalDeliveryState;
   eventAt: string;
 };
@@ -63,6 +64,7 @@ const RESEND_RETRIEVED_STATES: Record<string, RefundTransactionalDeliveryState> 
 
 export type RefundTransactionalDeliveryRefresh = {
   providerMessageId: string;
+  providerMessageHeader: string;
   state: RefundTransactionalDeliveryState;
   terminal: boolean;
   payloadRedacted: true;
@@ -85,11 +87,19 @@ export const parseRefundTransactionalDeliveryRefresh = (
     ? payload.last_event.trim().toLowerCase()
     : "";
   const state = RESEND_RETRIEVED_STATES[lastEvent];
-  if (providerMessageId !== expectedProviderMessageId || !state) {
+  const providerMessageHeader = typeof payload?.message_id === "string"
+    ? payload.message_id.trim()
+    : "";
+  if (
+    providerMessageId !== expectedProviderMessageId || !state ||
+    !/^<[^<>\s@]+@[^<>\s@]+>$/.test(providerMessageHeader) ||
+    providerMessageHeader.length > 998
+  ) {
     throw new Error("Transactional delivery evidence is invalid.");
   }
   return {
     providerMessageId,
+    providerMessageHeader,
     state,
     terminal: !["accepted", "deferred"].includes(state),
     payloadRedacted: true,
@@ -144,18 +154,24 @@ export const parseRefundTransactionalDeliveryWebhook = (
   const providerMessageId = typeof data?.email_id === "string"
     ? data.email_id.trim()
     : "";
+  const providerMessageHeader = typeof data?.message_id === "string"
+    ? data.message_id.trim()
+    : "";
   const rawEventAt = typeof payload.created_at === "string"
     ? payload.created_at.trim()
     : "";
   const eventAtMs = Date.parse(rawEventAt);
   if (
     !PROVIDER_MESSAGE_ID_PATTERN.test(providerMessageId) ||
+    !/^<[^<>\s@]+@[^<>\s@]+>$/.test(providerMessageHeader) ||
+    providerMessageHeader.length > 998 ||
     !Number.isFinite(eventAtMs)
   ) {
     throw new Error("Transactional delivery webhook evidence is invalid.");
   }
   return {
     providerMessageId,
+    providerMessageHeader,
     state,
     eventAt: new Date(eventAtMs).toISOString(),
   };
