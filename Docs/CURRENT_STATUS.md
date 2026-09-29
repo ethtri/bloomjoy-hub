@@ -201,10 +201,12 @@ orientation snapshot; it is not a backlog or release ledger.
   ready-notice contract rejected. Migration `20260929144500` keeps approved cash
   payout work with the Agent until the protected `cash_zelle_pending` state and
   an exact authorized Manager action are both present; the saved approval is
-  unchanged and no payment is attempted. A
-  production rollback rehearsal changed that case to `review_customer_reply`,
-  removed the premature Manager action, and let the full workflow-health
-  projection complete with zero customer-status delivery obligations.
+  unchanged and no payment is attempted. The production migration is live. A
+  September 29 15:30 UTC health run completed successfully with no notification,
+  set the existing workflow incident's stable-recovery timer, and created no new
+  operations alert. Production now projects the affected case as
+  `review_customer_reply` with no Manager payout action; customer-status delivery
+  obligations remain zero.
 - A September 29 audit found 55 independent open case-work identities after
   excluding one open duplicate. The existing scheduled sweep and reply worker
   do not perform the broader purchase research, provider setup, reply review,
