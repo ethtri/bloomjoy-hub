@@ -136,7 +136,21 @@ begin
         then 'occurrence_time_uncertain' else 'before_or_at_request' end,
       'transaction_occurrence_semantics',case when p_trigger='scheduled'
         then 'unknown' else 'online_purchase_occurrence' end,
-      'transaction_occurrence_comparable',p_trigger<>'scheduled'),
+      'transaction_occurrence_comparable',p_trigger<>'scheduled',
+      'transaction_occurrence_proof_source',case when p_trigger='scheduled'
+        then null else 'verified_provider_purchase_occurrence_v1' end,
+      'transaction_occurrence_timestamp_source',case when p_trigger='scheduled'
+        then null else 'authorization_gmt' end,
+      'transaction_occurrence_timezone_basis',case when p_trigger='scheduled'
+        then null else 'utc' end,
+      'transaction_occurrence_lower_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T20:00:00Z' end,
+      'transaction_occurrence_upper_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T20:00:00Z' end,
+      'request_receipt_lower_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T21:00:00Z' end,
+      'request_receipt_upper_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T21:00:00Z' end),
     now()+interval '1 hour');
   return public.service_commit_refund_nayax_lookup_and_preselect_v1(
     p_case_id,1,1,p_lookup_status,p_recommendation_state,
