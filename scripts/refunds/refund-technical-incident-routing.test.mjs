@@ -34,6 +34,10 @@ test('only Sunze technical failures move to the GPT route', () => {
   const serveStart = sunze.indexOf('serve(async', healthStart);
   const healthSource = sunze.slice(healthStart, serveStart);
   assert.match(healthSource, /technical_agent_route: "bloomjoy-technical-incident-repair"/u);
+  assert.match(
+    healthSource,
+    /if \(!healthRunId\) \{\s*return jsonResponse\(\{ error: "Unable to record Sunze technical incident\." \}, 503\);/u,
+  );
   assert.doesNotMatch(healthSource, /sendReportingAlert\(/u);
 
   const importFailureStart = sunze.indexOf('if (importRunId) {', serveStart);

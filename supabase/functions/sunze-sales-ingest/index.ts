@@ -821,6 +821,9 @@ const handleHealthCheck = async (body: Record<string, unknown>) => {
         technical_agent_routed_at: new Date().toISOString(),
       },
     });
+    if (!healthRunId) {
+      return jsonResponse({ error: "Unable to record Sunze technical incident." }, 503);
+    }
   }
 
   return jsonResponse({
