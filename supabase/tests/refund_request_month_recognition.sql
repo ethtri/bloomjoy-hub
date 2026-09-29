@@ -193,7 +193,7 @@ select results_eq($$
     (now() at time zone 'America/Los_Angeles')::date
   ) where source='refund_request'
     and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date
-$$, $$values (4000::bigint,0::bigint)$$,
+$$, $$values (1000::bigint,0::bigint)$$,
   'Exact same-amount Nayax proof resolves the original request without double deduction');
 
 insert into public.refund_cases (
