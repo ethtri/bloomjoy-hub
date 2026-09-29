@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles',case when n=60 then 'ambiguous' else 'exact' end,case when n=60 then 'rough' else 'exact' end,'card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n in (44,60) then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
+    'America/Los_Angeles',case when n=60 then 'ambiguous' else 'exact' end,case when n=60 then 'rough' else 'exact' end,case when n=61 then 'cash' else 'card' end,case when n=61 then 'cash' when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n in (44,60,61) then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48,61) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48,61) then null else 'physical_card' end,case when n=61 then null when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -38,7 +38,9 @@ begin
       raise exception 'Fixture prior lookup rejected: %',lookup_result;
     end if;
   end if;
-  if n in (27,28,29,38,42,45,60) then
+  if n=61 then
+    fields:=array['zelle_payment_contact']::text[];
+  elsif n in (27,28,29,38,42,45,60) then
     -- Wallet detail is a scoped correction request, not the ordinary
     -- missing-information cycle, whose production guard rejects wallet work.
     fields:=case when n=60 then array['incident_time']::text[]
@@ -1493,5 +1495,47 @@ select is((select count(*)::integer from public.refund_case_nayax_refund_attempt
 select ok(not has_function_privilege('authenticated',
   'public.service_apply_refund_scoped_reply_incident_time(uuid,uuid,uuid,bigint,text,uuid,text)','execute'),
   'The browser cannot call the protected reply-time writer');
+select pg_temp.make_scope(61);
+update public.refund_gmail_messages set plain_body=
+  'I do not use Zelle. The amount should be $12.00.' where id=pg_temp.gid(61);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(61),pg_temp.gid(61))
+  ->>'outcome','received','Payout-only Zelle limitation binds to the exact request');
+create temp table payout_limitation_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(61)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from payout_limitation_task),
+    (select (task->>'claimToken')::uuid from payout_limitation_task),pg_temp.gid(61),
+    (select (task->>'factVersion')::bigint from payout_limitation_task),
+    (select task->>'bodySha256' from payout_limitation_task),pg_temp.gid(61),
+    'I do not use Zelle.','customer_cannot_provide')
+    ->>'outcome','reviewed_no_fact',
+  'A source-bound payout limitation completes review without adopting unrelated amount text');
+select ok((select reply_review_state='resolved'
+      and reply_review_result_code='customer_cannot_provide'
+      and reply_directional_evidence->>'payoutDestinationUnavailable'='true'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(61))
+  and (select payment_amount_cents=1000 and zelle_payment_contact is null
+      and decision is null and refund_completed_at is null
+    from public.refund_cases where id=pg_temp.cid(61))
+  and (select count(*)=0 from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(61)),
+  'Payout limitation is durable while financial truth and completion stay unchanged');
+select pg_temp.make_scope(62);
+update public.refund_gmail_messages set plain_body='I do not use Zelle.'
+  where id=pg_temp.gid(62);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(62),pg_temp.gid(62))
+  ->>'outcome','received','Non-payout correction can bind the same untrusted phrase');
+create temp table non_payout_limitation_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(62)::text;
+select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from non_payout_limitation_task),
+    (select (task->>'claimToken')::uuid from non_payout_limitation_task),pg_temp.gid(62),
+    (select (task->>'factVersion')::bigint from non_payout_limitation_task),
+    (select task->>'bodySha256' from non_payout_limitation_task),pg_temp.gid(62),
+    'I do not use Zelle.','customer_cannot_provide')$$,
+  '%Cannot-provide disposition needs a source-backed limitation%',
+  'No-use wording does not broaden generic purchase-correction review');
 select * from finish();
 rollback;
