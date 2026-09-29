@@ -134,8 +134,8 @@ insert into public.refund_cases (
   payment_amount_cents, refund_amount_cents, status,
   customer_request_received_at, customer_request_received_source
 ) values
-  ('fd400000-0000-4000-8000-000000000004', 'RF-PERIOD-4', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', 'new1@example.invalid', 'New request one', clock_timestamp(), 'card', 1100, 1100, 'needs_review', clock_timestamp(), 'hosted_refund_intake'),
-  ('fd400000-0000-4000-8000-000000000005', 'RF-PERIOD-5', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', 'new2@example.invalid', 'New request two', clock_timestamp(), 'card', 2200, 2200, 'needs_review', clock_timestamp(), 'hosted_refund_intake');
+  ('fd400000-0000-4000-8000-000000000004', 'RF-PERIOD-4', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', 'new1@example.invalid', 'New request one', now()-interval '2 days', 'card', 1100, 1100, 'needs_review', clock_timestamp(), 'hosted_refund_intake'),
+  ('fd400000-0000-4000-8000-000000000005', 'RF-PERIOD-5', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', 'new2@example.invalid', 'New request two', now()-interval '2 days', 'card', 2200, 2200, 'needs_review', clock_timestamp(), 'hosted_refund_intake');
 
 select is((select request_deduction_ex_tax_cents
   from private.machine_sales_daily_components(
@@ -143,7 +143,7 @@ select is((select request_deduction_ex_tax_cents
     (now() at time zone 'America/Los_Angeles')::date,
     (now() at time zone 'America/Los_Angeles')::date
   ) where source='refund_request'
-    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date),
+    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date-2),
   3000::bigint, 'Same-day requests deduct once after cumulative normalization');
 select is((select outstanding_context_ex_tax_cents
   from private.machine_sales_daily_components(
@@ -151,7 +151,7 @@ select is((select outstanding_context_ex_tax_cents
     (now() at time zone 'America/Los_Angeles')::date,
     (now() at time zone 'America/Los_Angeles')::date
   ) where source='refund_request'
-    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date),
+    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date-2),
   3000::bigint, 'Outstanding context sums each same-day case');
 
 insert into public.refund_cases (
@@ -313,7 +313,7 @@ select is((select sum(refund_reversal_ex_tax_cents)::bigint
     (now() at time zone 'America/Los_Angeles')::date,
     (now() at time zone 'America/Los_Angeles')::date
   ) where source='refund_request'
-    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date),
+    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date-2),
   600::bigint, 'Denial reverses only the unpaid normalized balance');
 
 insert into public.machine_sales_facts (
