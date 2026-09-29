@@ -19,6 +19,12 @@ const duplicateRecovery = read(
 const messageSend = read(
   'supabase/functions/refund-case-message-send/index.ts',
 );
+const outcomeResolve = read(
+  'supabase/functions/refund-nayax-outcome-resolve/index.ts',
+);
+const customerOnlyCompletion = read(
+  'supabase/migrations/20260929164000_refund_completion_customer_only.sql',
+);
 
 test('normal claimed v2 completion is dispatched with its stored manual kind', () => {
   const claimStart = orchestration.indexOf(
@@ -38,9 +44,64 @@ test('normal claimed v2 completion is dispatched with its stored manual kind', (
   assert.ok(deliveryStart >= 0);
   const delivery = completionDelivery.slice(deliveryStart);
   assert.match(delivery, /deliveryKind: "manual"/);
+  assert.match(delivery, /managerCopyPolicy: "customer_thread_only"/);
   assert.match(delivery, /claimPlainBody: claim\.body as string/);
   assert.doesNotMatch(delivery, /deliveryKind: "automatic"/);
   assert.match(delivery, /service_prepare_nayax_completion_retry/);
+});
+
+test('every provider-success completion transport settles customer-only recipients', () => {
+  for (const source of [completionDelivery, outcomeResolve, messageSend]) {
+    assert.match(source, /managerCopyPolicy: "customer_thread_only"/);
+  }
+  assert.match(
+    completionDelivery,
+    /deliveredManagerCcCount = gmailDelivery\.managerCcCount;[\s\S]*?deliveredManagerRecipientOverlap =\s*gmailDelivery\.managerRecipientOverlap;[\s\S]*?p_manager_cc_count: deliveredManagerCcCount,[\s\S]*?p_manager_recipient_overlap: deliveredManagerRecipientOverlap/,
+  );
+  assert.match(
+    messageSend,
+    /completionManagerCcCount = gmailDelivery\.managerCcCount;[\s\S]*?completionManagerRecipientOverlap =\s*gmailDelivery\.managerRecipientOverlap;[\s\S]*?p_manager_cc_count: completionManagerCcCount,[\s\S]*?p_manager_recipient_overlap:\s*completionManagerRecipientOverlap/,
+  );
+  assert.match(
+    outcomeResolve,
+    /p_manager_cc_count: formManagerCcCount,[\s\S]*?p_manager_recipient_overlap: formManagerRecipientOverlap/,
+  );
+  assert.match(
+    outcomeResolve,
+    /formManagerCcCount = gmailDelivery\.managerCcCount;[\s\S]*?formManagerRecipientOverlap =\s*gmailDelivery\.managerRecipientOverlap/,
+  );
+  assert.match(
+    outcomeResolve,
+    /formManagerCcCount = 0;[\s\S]*?formManagerRecipientOverlap = false;[\s\S]*?cc: \[\]/,
+  );
+  assert.match(outcomeResolve, /to: \[recipientEmail\],[\s\S]*?cc: \[\]/);
+  assert.match(messageSend, /to: \[recipientEmail\],[\s\S]*?cc: \[\]/);
+  assert.doesNotMatch(messageSend, /p_executor_assertion: ""/);
+  assert.match(
+    messageSend,
+    /if \(nayaxCompletionRecoveryMessageId\) \{[\s\S]*?!\/\^\[A-Za-z0-9_\-\]\{32,200\}\$\/[\s\S]*?service_prepare_nayax_form_completion_retry/,
+  );
+
+  assert.match(
+    customerOnlyCompletion,
+    /create or replace function public\.service_finish_nayax_refund_completion\([\s\S]*?p_manager_cc_count integer,[\s\S]*?p_manager_recipient_overlap boolean/,
+  );
+  assert.match(
+    customerOnlyCompletion,
+    /completion_manager_cc_count = 0/,
+  );
+  assert.match(
+    customerOnlyCompletion,
+    /Sent Gmail proof with customer-only recipient policy is required/,
+  );
+  assert.match(
+    customerOnlyCompletion,
+    /Customer-only completion and current mapped Machine Manager route required/,
+  );
+  assert.doesNotMatch(
+    customerOnlyCompletion,
+    /emailed once with current mapped Machine Managers copied/,
+  );
 });
 
 test('form completion uses the receipt-bound outbox claim instead of a Gmail thread', () => {

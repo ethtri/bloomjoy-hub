@@ -30,6 +30,17 @@ orientation snapshot; it is not a backlog or release ledger.
   contains an amount, method, card, network, or wallet fact stays in ordinary
   fact review; the amount, decision, completion state, and alternate payment
   policy remain unchanged until that review finishes.
+- On September 29 a governed confirmed-refund receipt reached the customer in
+  the existing Gmail thread but also copied two mapped Managers because manual
+  `completed` outbox rows still inherited the general Manager-copy policy. A
+  second eligible receipt is held rather than repeat that route. The bounded
+  correction sends manual customer questions and completion receipts to the
+  customer thread only. The same recipient rule covers direct Gmail, bounded
+  same-message retry, provider-outcome resolution, and transactional fallback;
+  their settlement records the physical zero-CC result while retaining the
+  current mapped-manager governance check. Manager approval/denial alerts and
+  digests keep their existing routes. The earlier delivery remains immutable
+  and is not resent.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
@@ -214,7 +225,10 @@ orientation snapshot; it is not a backlog or release ledger.
   set the existing workflow incident's stable-recovery timer, and created no new
   operations alert. Production now projects the affected case as
   `review_customer_reply` with no Manager payout action; customer-status delivery
-  obligations remain zero.
+  obligations remain zero. After the full 60-minute healthy window, the 16:30
+  UTC health run resolved the durable workflow incident with
+  `stable_recovery`; its one recovery action was recorded for the technical
+  agent and did not create another raw executive email.
 - A September 29 audit found 55 independent open case-work identities after
   excluding one open duplicate. The existing scheduled sweep and reply worker
   do not perform the broader purchase research, provider setup, reply review,
