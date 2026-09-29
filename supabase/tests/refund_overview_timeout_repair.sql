@@ -22,16 +22,24 @@ select ok(strpos(pg_get_functiondef(
   'correction parity emits its exact contract marker');
 select ok(strpos(pg_get_functiondef(
     'public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)'::regprocedure),
-    'nayaxLookupWork')>0,
-  'lookup recovery retains current case-owned work projection');
+    'refund_project_lookup_work_pre_setwise_v1')>0,
+  'lookup recovery retains its exact case-owned delegate');
 select ok(strpos(pg_get_functiondef(
     'public.refund_project_customer_outreach_cases_for_manager(jsonb,boolean)'::regprocedure),
-    'refund_project_outreach_pre_reuse_v1')>0,
+    'refund_project_outreach_pre_setwise_v1')>0,
   'customer outreach retains its exact fail-closed delegate');
+select ok(strpos(pg_get_functiondef(
+    'public.refund_project_lifecycle_v2_cases(jsonb)'::regprocedure),
+    'refund_project_lifecycle_pre_setwise_reuse_v1')>0,
+  'lifecycle reuse retains its exact fail-closed delegate');
 select ok(strpos(pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure),
     'refund_project_current_next_work_cases')>0,
   'final overview validates current next-work contracts before reuse');
+select ok(strpos(pg_get_functiondef(
+    'public.refund_project_current_next_work_cases(jsonb)'::regprocedure),
+    'refund_project_next_work_pre_setwise_v1')>0,
+  'next-work reuse retains its exact fail-closed delegate');
 select ok((select proconfig @> array['statement_timeout=20s','work_mem=32MB']
     from pg_proc where oid=
       'public.admin_get_refund_operations_overview()'::regprocedure),
@@ -187,6 +195,80 @@ select ok((select
       is not distinct from value->'internalTestCases'
     from current_overview),
   'current next-work and recommendation contracts are reused exactly in both collections');
+select ok((select
+    public.refund_project_lifecycle_v2_cases(
+      value->'cases'||value->'internalTestCases')
+      is not distinct from
+    public.refund_project_lifecycle_pre_setwise_reuse_v1(
+      value->'cases'||value->'internalTestCases')
+    from current_overview),
+  'set-wise lifecycle reuse is byte-for-byte equal to the retained projector at production-sized volume');
+select ok((select
+    public.refund_project_nayax_lookup_recovery_cases_for_manager(
+      value->'cases'||value->'internalTestCases',true)
+      is not distinct from
+    public.refund_project_lookup_work_pre_setwise_v1(
+      value->'cases'||value->'internalTestCases',true)
+    from current_overview),
+  'set-wise lookup-work projection preserves the complete ordered collection');
+select ok((select
+    public.refund_project_customer_outreach_cases_for_manager(
+      value->'cases'||value->'internalTestCases',true)
+      is not distinct from
+    public.refund_project_outreach_pre_setwise_v1(
+      value->'cases'||value->'internalTestCases',true)
+    from current_overview),
+  'set-wise outreach projection preserves the complete ordered collection');
+select ok((select
+    public.refund_project_current_next_work_cases(
+      value->'cases'||value->'internalTestCases')
+      is not distinct from
+    public.refund_project_next_work_pre_setwise_v1(
+      value->'cases'||value->'internalTestCases')
+    from current_overview),
+  'set-wise next-work validation preserves the complete ordered collection');
+select is(public.refund_project_current_next_work_cases('{}'::jsonb),
+  '{}'::jsonb,
+  'next-work keeps its prior non-array identity contract');
+select throws_like($test$
+  select public.refund_project_lifecycle_v2_cases('{}'::jsonb)
+$test$,'%cannot extract elements%',
+  'malformed lifecycle input still fails through the retained projector');
+select ok((select bool_and(
+    public.refund_project_lifecycle_v2_cases(jsonb_build_array(
+      jsonb_set(item,'{lifecycle,stage}',to_jsonb(stage_name),true)))
+      is not distinct from
+    public.refund_project_lifecycle_pre_setwise_reuse_v1(jsonb_build_array(
+      jsonb_set(item,'{lifecycle,stage}',to_jsonb(stage_name),true))))
+    from current_overview o
+    cross join lateral jsonb_array_elements(o.value->'cases') item
+    cross join unnest(array[
+      'needs_transaction_selection','transaction_confirmed','awaiting_payout'
+    ]::text[]) stage_name
+    limit 3),
+  'selection and payout stages keep the full canonical lifecycle fallback');
+select ok((select
+    public.refund_project_lifecycle_v2_cases(jsonb_build_array(
+      jsonb_set(item,'{officialActionVersion}','-1'::jsonb,true)))
+      is not distinct from
+    public.refund_project_lifecycle_pre_setwise_reuse_v1(jsonb_build_array(
+      jsonb_set(item,'{officialActionVersion}','-1'::jsonb,true)))
+    from current_overview o
+    cross join lateral jsonb_array_elements(o.value->'cases') item
+    limit 1),
+  'a stale official-action version falls back to the retained lifecycle projector');
+select is((select
+    public.refund_project_customer_outreach_cases_for_manager(
+      jsonb_build_array(jsonb_set(item,
+        '{lifecycle,customerOutreach,failureCode}',
+        '"private_failure"'::jsonb,true)),false)
+      #>>'{0,lifecycle,customerOutreach,failureCode}'
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      o.value->'cases'||o.value->'internalTestCases') item
+    where item#>>'{nayaxLookupWork,state}' in ('complete','refund_operations')
+    limit 1),null::text,
+  'non-operations projection still redacts the outreach failure code');
 select ok((select item#>>'{nayaxLookupWork,state}'='system'
       and item->>'canSelectNayaxCandidate'='false'
       and item#>>'{lifecycle,managerAction,action}'='none'

@@ -261,7 +261,8 @@
     "20260928181500_refund_overview_runtime_budget.sql",
     "20260928181639_snapcase_legacy_nayax_mapping_eligibility.sql",
     "20260928181716_correct_sales_report_refund_totals.sql",
-    "20260928214735_refund_obsolete_clarification_health.sql"
+    "20260928214735_refund_obsolete_clarification_health.sql",
+    "20260928234730_refund_overview_setwise_reuse.sql"
   ],
   "migrationFilesSha256": "794f21848c37bb12006caf65d945bc83b1b45373049d5030c07359b38fcb6315",
   "migrationVersionSetSha256": "e3ad108d9d7fc1ce0d1ee77dad41f9b6c4110f273db5da5c210036a687ba5369",
