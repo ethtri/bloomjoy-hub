@@ -159,6 +159,7 @@ select ok(pg_temp.capture_error(format($sql$select public.admin_resolve_refund_c
   like 'P4681:Review the exact settled case%',
   'An arbitrary message digest cannot close the current obligation');
 
+reset role;
 select ok((select case_population='customer' and payment_method='card'
     and status='completed' and decision='approved' and refund_completed_at is not null
     and reporting_adjustment_id='ce500000-0000-4000-8000-000000000001'
@@ -211,6 +212,7 @@ select ok(
     where nayax_refund_attempt_id='ce700000-0000-4000-8000-000000000001'
       and status='pending'),
   'The fixture has one exact receipt/thread and no pending financial work');
+set local role authenticated;
 
 select is((public.admin_resolve_refund_completion_existing_thread(
   'ce400000-0000-4000-8000-000000000001','ce800000-0000-4000-8000-000000000001',
