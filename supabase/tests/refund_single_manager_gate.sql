@@ -137,6 +137,7 @@ begin
       'transaction_occurrence_semantics',case when p_trigger='scheduled'
         then 'unknown' else 'online_purchase_occurrence' end,
       'transaction_occurrence_comparable',p_trigger<>'scheduled',
+      'time_delta_minutes',case when p_trigger='scheduled' then null else 0 end,
       'transaction_occurrence_proof_source',case when p_trigger='scheduled'
         then null else 'verified_provider_purchase_occurrence_v1' end,
       'transaction_occurrence_timestamp_source',case when p_trigger='scheduled'
