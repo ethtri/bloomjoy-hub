@@ -142,9 +142,9 @@ type OperatorPeriodPreset =
 type OperatorPeriodSummaryRow = {
   key: string;
   label: string;
-  netSalesCents: number;
-  grossSalesCents: number;
-  refundAmountCents: number;
+  netSalesCents: number | null;
+  grossSalesCents: number | null;
+  refundAmountCents: number | null;
   transactionCount: number;
 };
 type OperatorFreshnessState = 'fresh' | 'stale' | 'unavailable';
@@ -467,21 +467,29 @@ const emptyPartnerTotals = (): PartnerDashboardTotals => ({
   bloomjoyRetainedCents: 0,
 });
 
+const addNullableMoney = (...values: Array<number | null>): number | null =>
+  values.some((value) => value == null)
+    ? null
+    : values.reduce<number>((total, value) => total + (value ?? 0), 0);
+
 const sumPartnerTotals = (
   totals: PartnerDashboardTotals,
   period: PartnerDashboardTotals
 ): PartnerDashboardTotals => ({
   orderCount: totals.orderCount + period.orderCount,
   itemQuantity: totals.itemQuantity + period.itemQuantity,
-  grossSalesCents: totals.grossSalesCents + period.grossSalesCents,
-  refundAmountCents: totals.refundAmountCents + period.refundAmountCents,
-  taxCents: totals.taxCents + period.taxCents,
-  feeCents: totals.feeCents + period.feeCents,
-  costCents: totals.costCents + period.costCents,
-  netSalesCents: totals.netSalesCents + period.netSalesCents,
-  splitBaseCents: totals.splitBaseCents + period.splitBaseCents,
-  amountOwedCents: totals.amountOwedCents + period.amountOwedCents,
-  bloomjoyRetainedCents: totals.bloomjoyRetainedCents + period.bloomjoyRetainedCents,
+  grossSalesCents: addNullableMoney(totals.grossSalesCents, period.grossSalesCents),
+  refundAmountCents: addNullableMoney(totals.refundAmountCents, period.refundAmountCents),
+  taxCents: addNullableMoney(totals.taxCents, period.taxCents),
+  feeCents: addNullableMoney(totals.feeCents, period.feeCents),
+  costCents: addNullableMoney(totals.costCents, period.costCents),
+  netSalesCents: addNullableMoney(totals.netSalesCents, period.netSalesCents),
+  splitBaseCents: addNullableMoney(totals.splitBaseCents, period.splitBaseCents),
+  amountOwedCents: addNullableMoney(totals.amountOwedCents, period.amountOwedCents),
+  bloomjoyRetainedCents: addNullableMoney(
+    totals.bloomjoyRetainedCents,
+    period.bloomjoyRetainedCents
+  ),
 });
 
 const periodMatchesOption = (
@@ -558,8 +566,17 @@ const getPartnerComparisonNoun = (periodMode: PartnerPeriodMode) =>
 const getPartnerPeriodNoun = (periodMode: PartnerPeriodMode) =>
   periodMode === 'weekly' ? 'week' : 'month';
 
-const formatCurrency = (cents: number, exact = false) =>
-  (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
+const formatCurrency = (cents: number | null, exact = false) =>
+  cents == null
+    ? 'Unavailable'
+    : (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
+
+const formatRefundImpact = (cents: number | null, exact = false) => {
+  if (cents == null) return 'Unavailable';
+  if (cents === 0) return formatCurrency(0, exact);
+  const sign = cents > 0 ? '-' : '+';
+  return `${sign}${formatCurrency(Math.abs(cents), exact)}`;
+};
 
 const formatDate = (value: string | null | undefined) =>
   value
@@ -619,7 +636,8 @@ const formatDateTime = (value: string | null | undefined) =>
       })
     : 'not available';
 
-const formatPercentChange = (current: number, previous: number) => {
+const formatPercentChange = (current: number | null, previous: number | null) => {
+  if (current == null || previous == null) return 'Unavailable';
   if (previous === 0) return current > 0 ? 'New activity' : 'No change';
   const value = ((current - previous) / previous) * 100;
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
@@ -697,12 +715,14 @@ const buildPartnerMachineOptions = (
   });
 };
 
-const getChangeTone = (current: number, previous: number) => {
+const getChangeTone = (current: number | null, previous: number | null) => {
+  if (current == null || previous == null) return 'text-muted-foreground';
   if (current === previous) return 'text-muted-foreground';
   return current > previous ? 'text-sage' : 'text-amber';
 };
 
-const getTrendIcon = (current: number, previous: number) => {
+const getTrendIcon = (current: number | null, previous: number | null) => {
+  if (current == null || previous == null) return Info;
   if (current === previous) return Info;
   return current > previous ? TrendingUp : TrendingDown;
 };
@@ -717,9 +737,9 @@ const groupRows = <TKey extends string>(
     {
       key: TKey;
       label: string;
-      netSalesCents: number;
-      grossSalesCents: number;
-      refundAmountCents: number;
+      netSalesCents: number | null;
+      grossSalesCents: number | null;
+      refundAmountCents: number | null;
       transactionCount: number;
     }
   >();
@@ -737,14 +757,18 @@ const groupRows = <TKey extends string>(
         transactionCount: 0,
       };
 
-    current.netSalesCents += row.netSalesCents;
-    current.grossSalesCents += row.grossSalesCents;
-    current.refundAmountCents += row.refundAmountCents;
+    current.netSalesCents = addNullableMoney(current.netSalesCents, row.netSalesCents);
+    current.grossSalesCents = addNullableMoney(current.grossSalesCents, row.grossSalesCents);
+    current.refundAmountCents = addNullableMoney(current.refundAmountCents, row.refundAmountCents);
     current.transactionCount += row.transactionCount;
     groups.set(key, current);
   });
 
-  return [...groups.values()].sort((left, right) => right.netSalesCents - left.netSalesCents);
+  return [...groups.values()].sort((left, right) => {
+    if (left.netSalesCents == null) return right.netSalesCents == null ? 0 : 1;
+    if (right.netSalesCents == null) return -1;
+    return right.netSalesCents - left.netSalesCents;
+  });
 };
 
 const buildOperatorPeriodSummaryRows = (
@@ -786,9 +810,9 @@ const buildOperatorPeriodSummaryRows = (
     dailyRows.push({
       key,
       label: formatDate(key),
-      netSalesCents: totals?.netSalesCents ?? 0,
-      grossSalesCents: totals?.grossSalesCents ?? 0,
-      refundAmountCents: totals?.refundAmountCents ?? 0,
+      netSalesCents: totals ? totals.netSalesCents : 0,
+      grossSalesCents: totals ? totals.grossSalesCents : 0,
+      refundAmountCents: totals ? totals.refundAmountCents : 0,
       transactionCount: totals?.transactionCount ?? 0,
     });
   }
@@ -801,6 +825,12 @@ const isOperatorPeriodSummaryRowZero = (row: OperatorPeriodSummaryRow) =>
   row.grossSalesCents === 0 &&
   row.refundAmountCents === 0 &&
   row.transactionCount === 0;
+
+const formatSalesRowCurrency = (value: number | null) =>
+  value == null ? 'Unavailable' : formatCurrency(value, true);
+
+const formatSalesRefundCurrency = (value: number | null, usesSharedSalesBasis: boolean) =>
+  usesSharedSalesBasis ? formatRefundImpact(value, true) : formatSalesRowCurrency(value);
 
 export default function ReportsPage() {
   const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
@@ -980,9 +1010,8 @@ function OperatorReportingView({
   });
 
   const summary = useMemo(() => summarizeSalesReport(reportRows), [reportRows]);
-  const averageOrderCents =
-    summary.transactionCount > 0 ? Math.round(summary.grossSalesCents / summary.transactionCount) : 0;
-
+  const usesSharedSalesBasis = reportRows.length > 0 &&
+    reportRows.every((row) => row.calculationVersion === 'shared-sales-basis-v1');
   const periodSummaryRows = useMemo(
     () => buildOperatorPeriodSummaryRows(reportRows, dateFrom, dateTo, grain),
     [dateFrom, dateTo, grain, reportRows]
@@ -999,7 +1028,7 @@ function OperatorReportingView({
     () =>
       periodSummaryRows.map((row) => ({
         period: grain === 'day' ? formatShortDate(row.key) : row.label,
-        netSales: row.netSalesCents / 100,
+        netSales: row.netSalesCents == null ? null : row.netSalesCents / 100,
       })),
     [grain, periodSummaryRows]
   );
@@ -1086,6 +1115,7 @@ function OperatorReportingView({
               <CardTitle className="text-xl">{t('reports.operatorPerformance')}</CardTitle>
               <CardDescription>
                 {t('reports.operatorPerformanceDescription')}
+                {usesSharedSalesBasis && ` ${t('reports.sharedSalesBasisDescription')}`}
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -1339,19 +1369,32 @@ function OperatorReportingView({
         ) : (
           <>
             <MetricCard
-              label={t('reports.recordedSales')}
+              label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
               value={formatCurrency(summary.grossSalesCents, true)}
-              context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents, true) })}
+              context={usesSharedSalesBasis
+                ? (summary.taxCents == null
+                  ? t('reports.salesTaxUnavailable')
+                  : t('reports.taxRemoved', { value: formatCurrency(summary.taxCents, true) }))
+                : t('reports.beforeRefundAdjustments')}
             />
             <MetricCard
-              label={t('reports.reportedRefunds')}
-              value={formatCurrency(summary.refundAmountCents, true)}
-              context={t('reports.deductedFromRecordedSales')}
+              label={t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
+              value={formatSalesRefundCurrency(summary.refundAmountCents, usesSharedSalesBasis)}
+              context={usesSharedSalesBasis ? t(summary.refundLegacyPaidDeductionCents > 0
+                ? 'reports.requestReversalLegacyContext'
+                : 'reports.requestAndReversalContext', {
+                requests: formatCurrency(summary.refundRequestDeductionCents, true),
+                reversals: formatCurrency(summary.refundReversalCents, true),
+                legacy: formatCurrency(summary.refundLegacyPaidDeductionCents, true),
+              }) : t('reports.appliedToDate')}
             />
             <MetricCard
-              label={t('reports.salesAfterRefunds')}
+              label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
               value={formatCurrency(summary.netSalesCents, true)}
-              context={t('reports.recordedSalesMinusRefunds')}
+              context={usesSharedSalesBasis ? t('reports.refundBalanceContext', {
+                paid: formatCurrency(summary.refundPaidContextCents, true),
+                outstanding: formatCurrency(summary.refundOutstandingContextCents, true),
+              }) : t('reports.afterRefundAdjustments')}
             />
             <MetricCard
               label={t('reports.transactions')}
@@ -1441,6 +1484,7 @@ function OperatorReportingView({
                       key={row.key}
                       row={row}
                       grain={grain}
+                      usesSharedSalesBasis={usesSharedSalesBasis}
                     />
                   ))}
                 </div>
@@ -1452,9 +1496,9 @@ function OperatorReportingView({
                           {grain === 'day' ? t('reports.date') : t('reports.period')}
                         </TableHead>
                         {grain === 'day' && <TableHead>{t('reports.status')}</TableHead>}
-                        <TableHead className="text-right">{t('reports.recordedSales')}</TableHead>
-                        <TableHead className="text-right">{t('reports.reportedRefunds')}</TableHead>
-                        <TableHead className="text-right">{t('reports.salesAfterRefunds')}</TableHead>
+                        <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}</TableHead>
+                        <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}</TableHead>
+                        <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}</TableHead>
                         <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1480,7 +1524,7 @@ function OperatorReportingView({
                             {formatCurrency(row.grossSalesCents, true)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {formatCurrency(row.refundAmountCents, true)}
+                            {formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {formatCurrency(row.netSalesCents, true)}
@@ -1503,7 +1547,9 @@ function OperatorReportingView({
           <CardHeader>
             <CardTitle className="text-xl">{t('reports.salesTrend')}</CardTitle>
             <CardDescription>
-              {t('reports.salesTrendDescription')}
+              {t(usesSharedSalesBasis
+                ? 'reports.netSalesTrendDescription'
+                : 'reports.salesTrendDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1537,7 +1583,9 @@ function OperatorReportingView({
           <CardHeader>
             <CardTitle className="text-xl">{t('reports.machineComparison')}</CardTitle>
             <CardDescription>
-              {t('reports.machineComparisonDescription')}
+              {t(usesSharedSalesBasis
+                ? 'reports.netSalesMachineComparisonDescription'
+                : 'reports.machineComparisonDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1551,7 +1599,7 @@ function OperatorReportingView({
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
                     primary={formatCurrency(row.netSalesCents, true)}
-                    secondary={`${t('reports.recordedSales')} ${formatCurrency(row.grossSalesCents, true)}`}
+                    secondary={`${t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')} ${formatCurrency(row.grossSalesCents, true)}`}
                   />
                 ))}
               </div>
@@ -1606,6 +1654,7 @@ function OperatorReportingView({
                     grain={grain}
                     dateFrom={dateFrom}
                     dateTo={dateTo}
+                    usesSharedSalesBasis={usesSharedSalesBasis}
                   />
                 ))}
               </div>
@@ -1616,9 +1665,9 @@ function OperatorReportingView({
                       <TableHead>{t('reports.period')}</TableHead>
                       <TableHead>{t('reports.machine')}</TableHead>
                       <TableHead>{t('reports.payment')}</TableHead>
-                      <TableHead className="text-right">{t('reports.recordedSales')}</TableHead>
-                      <TableHead className="text-right">{t('reports.reportedRefunds')}</TableHead>
-                      <TableHead className="text-right">{t('reports.salesAfterRefunds')}</TableHead>
+                      <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}</TableHead>
+                      <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}</TableHead>
+                      <TableHead className="text-right">{t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}</TableHead>
                       <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1638,13 +1687,13 @@ function OperatorReportingView({
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatCurrency(row.grossSalesCents, true)}
+                          {formatSalesRowCurrency(row.grossSalesCents)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatCurrency(row.refundAmountCents, true)}
+                          {formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatCurrency(row.netSalesCents, true)}
+                          {formatSalesRowCurrency(row.netSalesCents)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {numberFormatter.format(row.transactionCount)}
@@ -2007,7 +2056,7 @@ function PartnerDashboardView() {
     () =>
       displayPeriods.map((period) => ({
         period: formatPartnerPeriod(period, periodMode),
-        netSales: period.netSalesCents / 100,
+        netSales: period.netSalesCents == null ? null : period.netSalesCents / 100,
       })),
     [displayPeriods, periodMode]
   );
@@ -2453,13 +2502,13 @@ function PartnerDashboardView() {
               data={netSalesTrendData}
               config={partnerNetSalesChartConfig}
               dataKey="netSales"
-              value={formatCurrency(currentPeriod?.netSalesCents ?? 0, true)}
+              value={formatCurrency(currentPeriod?.netSalesCents ?? null, true)}
               change={formatPercentChange(
-                currentPeriod?.netSalesCents ?? 0,
-                previousPeriod?.netSalesCents ?? 0
+                currentPeriod?.netSalesCents ?? null,
+                previousPeriod ? previousPeriod.netSalesCents : 0
               )}
-              current={currentPeriod?.netSalesCents ?? 0}
-              previous={previousPeriod?.netSalesCents ?? 0}
+              current={currentPeriod?.netSalesCents ?? null}
+              previous={previousPeriod ? previousPeriod.netSalesCents : 0}
               valueFormatter={(value) => formatCurrency(Math.round(value * 100))}
             />
           </div>
@@ -2514,7 +2563,7 @@ function PartnerDashboardView() {
                           </TableHeader>
                           <TableBody>
                             {machineRows.map((row) => {
-                              const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+                              const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous ? row.previous.grossSalesCents : 0);
                               const machineOption = machineOptionsById.get(
                                 row.current.reportingMachineId
                               );
@@ -2540,7 +2589,7 @@ function PartnerDashboardView() {
                                     {formatCurrency(row.current.grossSalesCents, true)}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    -{formatCurrency(row.current.refundAmountCents, true)}
+                                    {formatRefundImpact(row.current.refundAmountCents, true)}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <div>{numberFormatter.format(periodVolume(row.current))} items</div>
@@ -2549,7 +2598,7 @@ function PartnerDashboardView() {
                                     </div>
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    <div>{formatCurrency(row.current.taxCents + row.current.feeCents, true)}</div>
+                                    <div>{formatCurrency(addNullableMoney(row.current.taxCents, row.current.feeCents), true)}</div>
                                     {hasAdditionalCosts(row.current) && (
                                       <div className="text-xs text-muted-foreground">
                                         Additional costs {formatCurrency(row.current.costCents, true)}
@@ -2574,13 +2623,13 @@ function PartnerDashboardView() {
                                     <div
                                       className={cn(
                                         'inline-flex items-center justify-end gap-1 font-medium',
-                                        getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+                                        getChangeTone(row.current.grossSalesCents, row.previous ? row.previous.grossSalesCents : 0)
                                       )}
                                     >
                                       <TrendIcon className="h-4 w-4" />
                                       {formatPercentChange(
                                         row.current.grossSalesCents,
-                                        row.previous?.grossSalesCents ?? 0
+                                        row.previous ? row.previous.grossSalesCents : 0
                                       )}
                                     </div>
                                     <div
@@ -2630,6 +2679,7 @@ function PartnerDashboardView() {
 
             <PartnerCalculationCard
               summary={currentPeriod ?? preview.summary}
+              usesSharedSalesBasis={preview.calculationVersion === 'shared-sales-basis-v1'}
               periodLabel={
                 currentPeriod
                   ? formatPartnerPeriod(currentPeriod, periodMode)
@@ -2684,6 +2734,7 @@ function PartnerAnswerBand({
   const previous = previousPeriod;
   const periodNoun = getPartnerComparisonNoun(periodMode);
   const scopeLabel = selectedMachineLabel ?? 'All machines';
+  const usesSharedSalesBasis = preview.calculationVersion === 'shared-sales-basis-v1';
 
   return (
     <Card>
@@ -2698,23 +2749,23 @@ function PartnerAnswerBand({
         <AnswerItem
           label={PARTNER_REVENUE_SHARE_LABEL}
           value={formatCurrency(current.amountOwedCents, true)}
-          detail={`${formatPercentChange(current.amountOwedCents, previous?.amountOwedCents ?? 0)} vs previous ${periodNoun}`}
+          detail={`${formatPercentChange(current.amountOwedCents, previous ? previous.amountOwedCents : 0)} vs previous ${periodNoun}`}
           emphasis
         />
         <AnswerItem
-          label="Gross sales"
+          label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'}
           value={formatCurrency(current.grossSalesCents, true)}
-          detail={`${formatPercentChange(current.grossSalesCents, previous?.grossSalesCents ?? 0)} vs previous ${periodNoun}`}
+          detail={`${formatPercentChange(current.grossSalesCents, previous ? previous.grossSalesCents : 0)} vs previous ${periodNoun}`}
         />
         <AnswerItem
           label="Refund impact"
-          value={`-${formatCurrency(current.refundAmountCents, true)}`}
+          value={formatRefundImpact(current.refundAmountCents, true)}
           detail="Applied approved adjustments"
         />
         <AnswerItem
           label="Net sales"
           value={formatCurrency(current.netSalesCents, true)}
-          detail="After tax, refunds, and configured deductions"
+          detail={usesSharedSalesBasis ? 'After refunds and configured deductions' : 'After tax, refunds, and configured deductions'}
         />
         <AnswerItem
           label="Split base"
@@ -2740,17 +2791,19 @@ function PartnerTrendCard({
 }: {
   title: string;
   description: string;
-  data: Array<Record<string, string | number>>;
+  data: Array<Record<string, string | number | null>>;
   config: ChartConfig;
   dataKey: string;
   value: string;
   change: string;
-  current: number;
-  previous: number;
+  current: number | null;
+  previous: number | null;
   valueFormatter?: (value: number) => string;
 }) {
   const TrendIcon = getTrendIcon(current, previous);
-  const hasVisibleValues = data.some((point) => Number(point[dataKey] ?? 0) > 0);
+  const hasVisibleValues = data.some((point) =>
+    typeof point[dataKey] === 'number' && Number(point[dataKey]) > 0
+  );
 
   return (
     <Card className="min-w-0">
@@ -2908,7 +2961,7 @@ function PartnerMachineHistoryCard({
                           {formatCurrency(row.period.grossSalesCents, true)}
                         </TableCell>
                         <TableCell className="text-right">
-                          -{formatCurrency(row.period.refundAmountCents, true)}
+                          {formatRefundImpact(row.period.refundAmountCents, true)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div>{numberFormatter.format(periodVolume(row.period))} items</div>
@@ -2917,7 +2970,7 @@ function PartnerMachineHistoryCard({
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div>{formatCurrency(row.period.taxCents + row.period.feeCents, true)}</div>
+                          <div>{formatCurrency(addNullableMoney(row.period.taxCents, row.period.feeCents), true)}</div>
                           {hasAdditionalCosts(row.period) && (
                             <div className="text-xs text-muted-foreground">
                               Additional costs {formatCurrency(row.period.costCents, true)}
@@ -3046,12 +3099,12 @@ function PartnerMachineHistoryMobileCard({
         />
         <MobileProofItem
           label="Refunds"
-          value={`-${formatCurrency(row.period.refundAmountCents, true)}`}
+          value={formatRefundImpact(row.period.refundAmountCents, true)}
           detail={`Gross sales ${formatCurrency(row.period.grossSalesCents, true)}`}
         />
         <MobileProofItem
           label="Tax + deductions"
-          value={formatCurrency(row.period.taxCents + row.period.feeCents, true)}
+          value={formatCurrency(addNullableMoney(row.period.taxCents, row.period.feeCents), true)}
           detail={formatTaxDeductionsDetail(row.period)}
         />
         <MobileProofItem
@@ -3082,7 +3135,7 @@ function PartnerMachineMobileCard({
   isSelected?: boolean;
   onViewMachine: () => void;
 }) {
-  const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+  const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous ? row.previous.grossSalesCents : 0);
 
   return (
     <div
@@ -3110,11 +3163,11 @@ function PartnerMachineMobileCard({
           <div
             className={cn(
               'mt-1 inline-flex items-center gap-1 text-xs font-medium',
-              getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+              getChangeTone(row.current.grossSalesCents, row.previous ? row.previous.grossSalesCents : 0)
             )}
           >
             <TrendIcon className="h-3.5 w-3.5" />
-            {formatPercentChange(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)}
+            {formatPercentChange(row.current.grossSalesCents, row.previous ? row.previous.grossSalesCents : 0)}
           </div>
         </div>
       </div>
@@ -3133,11 +3186,11 @@ function PartnerMachineMobileCard({
         <MobileProofItem
           label="Net sales"
           value={formatCurrency(row.current.netSalesCents, true)}
-          detail={`Refunds -${formatCurrency(row.current.refundAmountCents, true)} / ${formatPayoutBasisDetail(row.current)}`}
+          detail={`Refund impact ${formatRefundImpact(row.current.refundAmountCents, true)} / ${formatPayoutBasisDetail(row.current)}`}
         />
         <MobileProofItem
           label="Tax + deductions"
-          value={formatCurrency(row.current.taxCents + row.current.feeCents, true)}
+          value={formatCurrency(addNullableMoney(row.current.taxCents, row.current.feeCents), true)}
           detail={formatTaxDeductionsDetail(row.current)}
         />
       </div>
@@ -3180,10 +3233,12 @@ function MobileProofItem({
 
 function PartnerCalculationCard({
   summary,
+  usesSharedSalesBasis,
   periodLabel,
   selectedMachineLabel,
 }: {
   summary: PartnerDashboardTotals;
+  usesSharedSalesBasis: boolean;
   periodLabel: string;
   selectedMachineLabel?: string;
 }) {
@@ -3200,9 +3255,9 @@ function PartnerCalculationCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
-        <CalculationLine label="Refund impact" value={`-${formatCurrency(summary.refundAmountCents, true)}`} />
-        <CalculationLine label="Tax impact" value={`-${formatCurrency(summary.taxCents, true)}`} />
+        <CalculationLine label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'} value={formatCurrency(summary.grossSalesCents, true)} />
+        <CalculationLine label="Refund impact" value={formatRefundImpact(summary.refundAmountCents, true)} />
+        <CalculationLine label={usesSharedSalesBasis ? 'Sales tax (separated)' : 'Tax impact'} value={`${usesSharedSalesBasis ? '' : '-'}${formatCurrency(summary.taxCents, true)}`} />
         <CalculationLine label="Configured deductions" value={`-${formatCurrency(summary.feeCents, true)}`} />
         {summaryHasAdditionalCosts && (
           <CalculationLine label="Additional costs" value={`-${formatCurrency(summary.costCents, true)}`} />
@@ -3223,9 +3278,9 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales uses the imported order amount for partner reporting. Machine tax,
-            approved refund adjustments, and configured deductions are deducted once to create net
-            sales.
+            {usesSharedSalesBasis
+              ? 'Sales before refunds excludes sales tax. Refund impact and configured deductions are applied once to create net sales; sales tax is shown separately as context.'
+              : 'Gross sales uses the imported order amount for partner reporting. Machine tax, approved refund adjustments, and configured deductions are deducted once to create net sales.'}
             {summaryUsesNetSalesAsPayoutBasis
               ? ' Net sales is the payout basis for this period.'
               : ' The active rule then adjusts net sales into the payout basis.'}
@@ -3563,9 +3618,11 @@ function MachineSummaryRow({
 function OperatorPeriodSummaryMobileCard({
   row,
   grain,
+  usesSharedSalesBasis,
 }: {
   row: OperatorPeriodSummaryRow;
   grain: ReportGrain;
+  usesSharedSalesBasis: boolean;
 }) {
   const { t } = useLanguage();
   const isZeroSales = isOperatorPeriodSummaryRowZero(row);
@@ -3588,17 +3645,17 @@ function OperatorPeriodSummaryMobileCard({
       </div>
       <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
-          label={t('reports.recordedSales')}
+          label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
           value={formatCurrency(row.grossSalesCents, true)}
           detail={t('reports.beforeRefundAdjustments')}
         />
         <MobileProofItem
-          label={t('reports.reportedRefunds')}
-          value={formatCurrency(row.refundAmountCents, true)}
+          label={t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
+          value={formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
           detail={t('reports.appliedToDate')}
         />
         <MobileProofItem
-          label={t('reports.salesAfterRefunds')}
+          label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
           value={formatCurrency(row.netSalesCents, true)}
           detail={t('reports.afterRefundAdjustments')}
         />
@@ -3617,11 +3674,13 @@ function OperatorReportRowMobileCard({
   grain,
   dateFrom,
   dateTo,
+  usesSharedSalesBasis,
 }: {
   row: SalesReportRow;
   grain: ReportGrain;
   dateFrom: string;
   dateTo: string;
+  usesSharedSalesBasis: boolean;
 }) {
   const { t } = useLanguage();
   const periodLabel = formatOperatorPeriodLabel(row.periodStart, grain, dateFrom, dateTo);
@@ -3641,14 +3700,14 @@ function OperatorReportRowMobileCard({
       </div>
       <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
-          label={t('reports.salesAfterRefunds')}
-          value={formatCurrency(row.netSalesCents, true)}
+          label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
+          value={formatSalesRowCurrency(row.netSalesCents)}
           detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}`}
         />
         <MobileProofItem
-          label={t('reports.recordedSales')}
-          value={formatCurrency(row.grossSalesCents, true)}
-          detail={`${t('reports.reportedRefunds')} ${formatCurrency(row.refundAmountCents, true)}`}
+          label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
+          value={formatSalesRowCurrency(row.grossSalesCents)}
+          detail={`${t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')} ${formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}`}
         />
       </div>
     </div>

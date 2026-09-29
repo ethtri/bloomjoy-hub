@@ -43,8 +43,17 @@ const numberFormatter = new Intl.NumberFormat();
 
 const parseDateInput = (value: string) => new Date(`${value}T00:00:00`);
 
-const formatCurrency = (cents: number, exact = false) =>
-  (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
+const formatCurrency = (cents: number | null, exact = false) =>
+  cents == null ? 'Unavailable' : (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
+
+const formatRefundImpact = (cents: number | null, exact = false) => {
+  if (cents == null) return 'Unavailable';
+  if (cents === 0) return formatCurrency(0, exact);
+  return `${cents > 0 ? '-' : '+'}${formatCurrency(Math.abs(cents), exact)}`;
+};
+
+const formatDeduction = (cents: number | null, exact = false) =>
+  cents == null ? 'Unavailable' : `-${formatCurrency(cents, exact)}`;
 
 const formatDate = (value: string | null | undefined) =>
   value
@@ -82,7 +91,8 @@ const getPartnerModeLabel = (periodMode: PartnerDashboardPeriodMode) => {
 const getPartnerPeriodNoun = (periodMode: PartnerDashboardPeriodMode) =>
   periodMode === 'weekly' ? 'week' : 'month';
 
-const formatPercentChange = (current: number, previous: number) => {
+const formatPercentChange = (current: number | null, previous: number | null) => {
+  if (current == null || previous == null) return 'Unavailable';
   if (previous === 0) return current > 0 ? 'New activity' : 'No change';
   const value = ((current - previous) / previous) * 100;
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
@@ -108,6 +118,7 @@ function PartnerPrintableReport({
   isInProgressPeriod,
 }: PartnerPrintableReportProps) {
   const current = currentPeriod ?? preview.summary;
+  const usesSharedSalesBasis = preview.calculationVersion === 'shared-sales-basis-v1';
   const currentHasAdditionalCosts = hasAdditionalCosts(current);
   const currentUsesNetSalesAsPayoutBasis = usesNetSalesAsPayoutBasis(current);
   const periodLabel = currentPeriod
@@ -186,19 +197,19 @@ function PartnerPrintableReport({
             emphasis
           />
           <PrintableMetric
-            label="Gross sales"
+            label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'}
             value={formatCurrency(current.grossSalesCents, true)}
             detail={`${formatPercentChange(current.grossSalesCents, previousPeriod?.grossSalesCents ?? 0)} vs prior`}
           />
           <PrintableMetric
             label="Refund impact"
-            value={`-${formatCurrency(current.refundAmountCents, true)}`}
+            value={formatRefundImpact(current.refundAmountCents, true)}
             detail="Applied adjustments"
           />
           <PrintableMetric
             label="Net sales"
             value={formatCurrency(current.netSalesCents, true)}
-            detail="After tax, refunds, and deductions"
+            detail={usesSharedSalesBasis ? 'After refunds and configured deductions' : 'After tax, refunds, and deductions'}
           />
           <PrintableMetric
             label="Split base"
@@ -236,7 +247,7 @@ function PartnerPrintableReport({
                     {formatCurrency(period.grossSalesCents, true)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    -{formatCurrency(period.refundAmountCents, true)}
+                    {formatRefundImpact(period.refundAmountCents, true)}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {formatCurrency(period.netSalesCents, true)}
@@ -292,7 +303,7 @@ function PartnerPrintableReport({
                       {formatCurrency(row.current.grossSalesCents, true)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      -{formatCurrency(row.current.refundAmountCents, true)}
+                      {formatRefundImpact(row.current.refundAmountCents, true)}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div>{numberFormatter.format(periodVolume(row.current))} items</div>
@@ -330,9 +341,9 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales uses the imported order amount for partner reporting. Machine tax,
-              approved refund adjustments, and configured deductions are deducted once to create
-              net sales.
+              {usesSharedSalesBasis
+                ? 'Sales before refunds excludes sales tax. Refund impact and configured deductions are applied once to create net sales; sales tax is shown separately as context.'
+                : 'Gross sales uses the imported order amount for partner reporting. Machine tax, approved refund adjustments, and configured deductions are deducted once to create net sales.'}
               {currentUsesNetSalesAsPayoutBasis
                 ? ' Net sales is the payout basis for this period.'
                 : ' The active rule then adjusts net sales into the payout basis.'}
@@ -340,12 +351,12 @@ function PartnerPrintableReport({
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
-            <CalculationLine label="Gross sales" value={formatCurrency(current.grossSalesCents, true)} />
-            <CalculationLine label="Refund impact" value={`-${formatCurrency(current.refundAmountCents, true)}`} />
-            <CalculationLine label="Tax impact" value={`-${formatCurrency(current.taxCents, true)}`} />
-            <CalculationLine label="Configured deductions" value={`-${formatCurrency(current.feeCents, true)}`} />
+            <CalculationLine label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'} value={formatCurrency(current.grossSalesCents, true)} />
+            <CalculationLine label="Refund impact" value={formatRefundImpact(current.refundAmountCents, true)} />
+            <CalculationLine label={usesSharedSalesBasis ? 'Sales tax (separated)' : 'Tax impact'} value={usesSharedSalesBasis ? formatCurrency(current.taxCents, true) : formatDeduction(current.taxCents, true)} />
+            <CalculationLine label="Configured deductions" value={formatDeduction(current.feeCents, true)} />
             {currentHasAdditionalCosts && (
-              <CalculationLine label="Additional costs" value={`-${formatCurrency(current.costCents, true)}`} />
+              <CalculationLine label="Additional costs" value={formatDeduction(current.costCents, true)} />
             )}
             <CalculationLine label="Net sales" value={formatCurrency(current.netSalesCents, true)} />
             {!currentUsesNetSalesAsPayoutBasis && (

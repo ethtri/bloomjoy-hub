@@ -1,5 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { summarizeSalesReportPdfRows } from "./sales-report-pdf.ts";
+import {
+  buildMachineRollups,
+  formatMachineRollupCurrency,
+  summarizeSalesReportPdfRows,
+} from "./sales-report-pdf.ts";
 
 Deno.test("sales report export preserves recorded, refund, and after-refund totals", () => {
   const summary = summarizeSalesReportPdfRows([
@@ -21,7 +25,12 @@ Deno.test("sales report export preserves recorded, refund, and after-refund tota
     },
   ]);
 
-  assertEquals(summary, {
+  assertEquals({
+    grossSalesCents: summary.grossSalesCents,
+    refundAmountCents: summary.refundAmountCents,
+    netSalesCents: summary.netSalesCents,
+    transactionCount: summary.transactionCount,
+  }, {
     grossSalesCents: 50_500,
     refundAmountCents: 2_700,
     netSalesCents: 47_800,
@@ -41,10 +50,64 @@ Deno.test("sales report export keeps refund-only unknown rows", () => {
     },
   ]);
 
-  assertEquals(summary, {
+  assertEquals({
+    grossSalesCents: summary.grossSalesCents,
+    refundAmountCents: summary.refundAmountCents,
+    netSalesCents: summary.netSalesCents,
+    transactionCount: summary.transactionCount,
+  }, {
     grossSalesCents: 0,
     refundAmountCents: 500,
     netSalesCents: -500,
     transactionCount: 0,
   });
+});
+
+Deno.test("sales report export does not present known-only money as a complete total", () => {
+  const summary = summarizeSalesReportPdfRows([
+    {
+      calculation_version: "shared-sales-basis-v1",
+      gross_sales_cents: 10_000,
+      refund_amount_cents: 1_000,
+      net_sales_cents: 9_000,
+      tax_cents: 1_000,
+    },
+    {
+      calculation_version: "shared-sales-basis-v1",
+      gross_sales_cents: null,
+      refund_amount_cents: null,
+      net_sales_cents: null,
+      tax_cents: null,
+      unresolved_sales_count: 1,
+      unresolved_sales_cents: 1_000,
+    },
+  ]);
+
+  assertEquals(summary.grossSalesCents, null);
+  assertEquals(summary.refundAmountCents, null);
+  assertEquals(summary.netSalesCents, null);
+  assertEquals(summary.taxCents, null);
+
+  const [machine] = buildMachineRollups([
+    {
+      machine_label: "Mixed basis machine",
+      gross_sales_cents: 10_000,
+      refund_amount_cents: 1_000,
+      net_sales_cents: 9_000,
+    },
+    {
+      machine_label: "Mixed basis machine",
+      gross_sales_cents: null,
+      refund_amount_cents: null,
+      net_sales_cents: null,
+    },
+  ]);
+  assertEquals(
+    formatMachineRollupCurrency(
+      machine.grossSalesCents,
+      machine.grossValueCount,
+      machine.rowCount,
+    ),
+    "Unavailable",
+  );
 });

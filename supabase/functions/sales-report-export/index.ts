@@ -5,6 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildSalesReportReference,
   buildSalesReportPdf,
+  getSalesReportCalculationVersion,
   SALES_REPORT_PDF_GENERATOR_VERSION,
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
@@ -190,6 +191,13 @@ serve(async (req) => {
     const rows = ((reportRows ?? []) as SalesReportPdfRow[]).sort((left, right) =>
       String(left.period_start ?? "").localeCompare(String(right.period_start ?? ""))
     );
+    try {
+      getSalesReportCalculationVersion(rows);
+    } catch (error) {
+      return jsonResponse({
+        error: error instanceof Error ? error.message : "Sales report calculation versions are inconsistent.",
+      }, 409);
+    }
     const summary = summarizeSalesReportPdfRows(rows);
 
     const { data: snapshot, error: snapshotError } = await serviceSupabase
@@ -203,6 +211,18 @@ serve(async (req) => {
           net_sales_cents: summary.netSalesCents,
           refund_amount_cents: summary.refundAmountCents,
           gross_sales_cents: summary.grossSalesCents,
+          tax_cents: summary.taxCents,
+          refund_request_deduction_cents: summary.refundRequestDeductionCents,
+          refund_reversal_cents: summary.refundReversalCents,
+          refund_legacy_paid_deduction_cents: summary.refundLegacyPaidDeductionCents,
+          refund_paid_context_cents: summary.refundPaidContextCents,
+          refund_outstanding_context_cents: summary.refundOutstandingContextCents,
+          unresolved_sales_count: summary.unresolvedSalesCount,
+          unresolved_sales_cents: summary.unresolvedSalesCents,
+          unresolved_refund_count: summary.unresolvedRefundCount,
+          unresolved_refund_cents: summary.unresolvedRefundCents,
+          unresolved_paid_context_count: summary.unresolvedPaidContextCount,
+          unresolved_paid_context_cents: summary.unresolvedPaidContextCents,
           transaction_count: summary.transactionCount,
           row_count: rows.length,
         },

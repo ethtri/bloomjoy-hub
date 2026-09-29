@@ -13,6 +13,8 @@ import {
 } from "./partner-report-export.ts";
 
 export type SalesReportPdfRow = {
+  calculation_version?: string;
+  calculationVersion?: string;
   period_start?: string;
   periodStart?: string;
   machine_label?: string;
@@ -21,20 +23,83 @@ export type SalesReportPdfRow = {
   locationName?: string;
   payment_method?: string;
   paymentMethod?: string;
-  net_sales_cents?: number;
-  netSalesCents?: number;
-  refund_amount_cents?: number;
-  refundAmountCents?: number;
-  gross_sales_cents?: number;
-  grossSalesCents?: number;
+  net_sales_cents?: number | null;
+  netSalesCents?: number | null;
+  refund_amount_cents?: number | null;
+  refundAmountCents?: number | null;
+  gross_sales_cents?: number | null;
+  grossSalesCents?: number | null;
+  tax_cents?: number | null;
+  taxCents?: number | null;
+  refund_request_deduction_cents?: number;
+  refundRequestDeductionCents?: number;
+  refund_reversal_cents?: number;
+  refundReversalCents?: number;
+  refund_legacy_paid_deduction_cents?: number;
+  refundLegacyPaidDeductionCents?: number;
+  refund_paid_context_cents?: number;
+  refundPaidContextCents?: number;
+  refund_outstanding_context_cents?: number;
+  refundOutstandingContextCents?: number;
+  unresolved_sales_count?: number;
+  unresolvedSalesCount?: number;
+  unresolved_sales_cents?: number;
+  unresolvedSalesCents?: number;
+  unresolved_refund_count?: number;
+  unresolvedRefundCount?: number;
+  unresolved_refund_cents?: number;
+  unresolvedRefundCents?: number;
+  unresolved_paid_context_count?: number;
+  unresolvedPaidContextCount?: number;
+  unresolved_paid_context_cents?: number;
+  unresolvedPaidContextCents?: number;
   transaction_count?: number;
   transactionCount?: number;
 };
 
+export type SalesReportCalculationVersion =
+  | "legacy-sales-basis-v0"
+  | "shared-sales-basis-v1";
+
+const normalizeCalculationVersion = (row: SalesReportPdfRow): SalesReportCalculationVersion =>
+  (row.calculation_version ?? row.calculationVersion) === "shared-sales-basis-v1"
+    ? "shared-sales-basis-v1"
+    : "legacy-sales-basis-v0";
+
+export const getSalesReportCalculationVersion = (
+  rows: SalesReportPdfRow[],
+): SalesReportCalculationVersion => {
+  const rawVersions = rows
+    .map((row) => row.calculation_version ?? row.calculationVersion)
+    .filter((value): value is string => Boolean(value));
+  if (rawVersions.some((value) =>
+    value !== "legacy-sales-basis-v0" && value !== "shared-sales-basis-v1"
+  )) {
+    throw new Error("Sales report rows use an unsupported calculation version.");
+  }
+  const versions = new Set(rows.map(normalizeCalculationVersion));
+  if (versions.size > 1) {
+    throw new Error("Sales report rows use inconsistent calculation versions.");
+  }
+  return versions.values().next().value ?? "legacy-sales-basis-v0";
+};
+
 export type SalesReportPdfSummary = {
-  netSalesCents: number;
-  refundAmountCents: number;
-  grossSalesCents: number;
+  netSalesCents: number | null;
+  refundAmountCents: number | null;
+  grossSalesCents: number | null;
+  taxCents: number | null;
+  refundRequestDeductionCents: number;
+  refundReversalCents: number;
+  refundLegacyPaidDeductionCents: number;
+  refundPaidContextCents: number;
+  refundOutstandingContextCents: number;
+  unresolvedSalesCount: number;
+  unresolvedSalesCents: number;
+  unresolvedRefundCount: number;
+  unresolvedRefundCents: number;
+  unresolvedPaidContextCount: number;
+  unresolvedPaidContextCents: number;
   transactionCount: number;
 };
 
@@ -78,9 +143,13 @@ type MachineRollup = {
   refundAmountCents: number;
   grossSalesCents: number;
   transactionCount: number;
+  grossValueCount: number;
+  refundValueCount: number;
+  netValueCount: number;
+  rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v1";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/shared-basis-v2";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -133,9 +202,10 @@ const formatCurrency = (cents: unknown): string =>
     })
   }`;
 
-const formatDeductionCurrency = (cents: unknown): string => {
-  const value = Math.abs(numberValue(cents));
-  return value > 0 ? `-${formatCurrency(value)}` : "$0.00";
+const formatRefundImpactCurrency = (cents: unknown): string => {
+  const value = numberValue(cents);
+  if (value === 0) return "$0.00";
+  return `${value > 0 ? "-" : "+"}${formatCurrency(Math.abs(value))}`;
 };
 
 const formatInteger = (value: unknown): string =>
@@ -215,26 +285,121 @@ const readRefundAmountCents = (row: SalesReportPdfRow): number =>
 const readGrossSalesCents = (row: SalesReportPdfRow): number =>
   numberValue(row.gross_sales_cents ?? row.grossSalesCents);
 
+const readTaxCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.tax_cents ?? row.taxCents);
+
+const readRefundRequestDeductionCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.refund_request_deduction_cents ?? row.refundRequestDeductionCents);
+
+const readRefundReversalCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.refund_reversal_cents ?? row.refundReversalCents);
+
+const readRefundLegacyPaidDeductionCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.refund_legacy_paid_deduction_cents ?? row.refundLegacyPaidDeductionCents);
+
+const readRefundPaidContextCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.refund_paid_context_cents ?? row.refundPaidContextCents);
+
+const readRefundOutstandingContextCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.refund_outstanding_context_cents ?? row.refundOutstandingContextCents);
+
+const readUnresolvedSalesCount = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_sales_count ?? row.unresolvedSalesCount);
+
+const readUnresolvedSalesCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_sales_cents ?? row.unresolvedSalesCents);
+
+const readUnresolvedRefundCount = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_refund_count ?? row.unresolvedRefundCount);
+
+const readUnresolvedRefundCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_refund_cents ?? row.unresolvedRefundCents);
+
+const readUnresolvedPaidContextCount = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_paid_context_count ?? row.unresolvedPaidContextCount);
+
+const readUnresolvedPaidContextCents = (row: SalesReportPdfRow): number =>
+  numberValue(row.unresolved_paid_context_cents ?? row.unresolvedPaidContextCents);
+
 const readTransactionCount = (row: SalesReportPdfRow): number =>
   numberValue(row.transaction_count ?? row.transactionCount);
 
+const hasGrossSalesValue = (row: SalesReportPdfRow): boolean =>
+  (row.gross_sales_cents ?? row.grossSalesCents) != null;
+const hasRefundAmountValue = (row: SalesReportPdfRow): boolean =>
+  (row.refund_amount_cents ?? row.refundAmountCents) != null;
+const hasNetSalesValue = (row: SalesReportPdfRow): boolean =>
+  (row.net_sales_cents ?? row.netSalesCents) != null;
+const hasTaxValue = (row: SalesReportPdfRow): boolean =>
+  (row.tax_cents ?? row.taxCents) != null;
+export const formatMachineRollupCurrency = (
+  value: number,
+  valueCount: number,
+  rowCount: number,
+  refundImpact = false,
+): string =>
+  valueCount === rowCount
+    ? (refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value))
+    : "Unavailable";
+
 export const summarizeSalesReportPdfRows = (
   rows: SalesReportPdfRow[]
-): SalesReportPdfSummary =>
-  rows.reduce<SalesReportPdfSummary>(
+): SalesReportPdfSummary => {
+  const summary = rows.reduce<SalesReportPdfSummary>(
     (summary, row) => ({
-      netSalesCents: summary.netSalesCents + readNetSalesCents(row),
-      refundAmountCents: summary.refundAmountCents + readRefundAmountCents(row),
-      grossSalesCents: summary.grossSalesCents + readGrossSalesCents(row),
+      netSalesCents: (summary.netSalesCents ?? 0) + readNetSalesCents(row),
+      refundAmountCents: (summary.refundAmountCents ?? 0) + readRefundAmountCents(row),
+      grossSalesCents: (summary.grossSalesCents ?? 0) + readGrossSalesCents(row),
+      taxCents: (summary.taxCents ?? 0) + readTaxCents(row),
+      refundRequestDeductionCents:
+        summary.refundRequestDeductionCents + readRefundRequestDeductionCents(row),
+      refundReversalCents: summary.refundReversalCents + readRefundReversalCents(row),
+      refundLegacyPaidDeductionCents:
+        summary.refundLegacyPaidDeductionCents + readRefundLegacyPaidDeductionCents(row),
+      refundPaidContextCents: summary.refundPaidContextCents + readRefundPaidContextCents(row),
+      refundOutstandingContextCents:
+        summary.refundOutstandingContextCents + readRefundOutstandingContextCents(row),
+      unresolvedSalesCount: summary.unresolvedSalesCount + readUnresolvedSalesCount(row),
+      unresolvedSalesCents: summary.unresolvedSalesCents + readUnresolvedSalesCents(row),
+      unresolvedRefundCount: summary.unresolvedRefundCount + readUnresolvedRefundCount(row),
+      unresolvedRefundCents: summary.unresolvedRefundCents + readUnresolvedRefundCents(row),
+      unresolvedPaidContextCount:
+        summary.unresolvedPaidContextCount + readUnresolvedPaidContextCount(row),
+      unresolvedPaidContextCents:
+        summary.unresolvedPaidContextCents + readUnresolvedPaidContextCents(row),
       transactionCount: summary.transactionCount + readTransactionCount(row),
     }),
     {
       netSalesCents: 0,
       refundAmountCents: 0,
       grossSalesCents: 0,
+      taxCents: 0,
+      refundRequestDeductionCents: 0,
+      refundReversalCents: 0,
+      refundLegacyPaidDeductionCents: 0,
+      refundPaidContextCents: 0,
+      refundOutstandingContextCents: 0,
+      unresolvedSalesCount: 0,
+      unresolvedSalesCents: 0,
+      unresolvedRefundCount: 0,
+      unresolvedRefundCents: 0,
+      unresolvedPaidContextCount: 0,
+      unresolvedPaidContextCents: 0,
       transactionCount: 0,
     }
   );
+
+  return {
+    ...summary,
+    grossSalesCents: rows.some((row) => !hasGrossSalesValue(row))
+      ? null : summary.grossSalesCents,
+    refundAmountCents: rows.some((row) => !hasRefundAmountValue(row))
+      ? null : summary.refundAmountCents,
+    netSalesCents: rows.some((row) => !hasNetSalesValue(row))
+      ? null : summary.netSalesCents,
+    taxCents: rows.some((row) => !hasTaxValue(row)) ? null : summary.taxCents,
+  };
+};
 
 export const buildSalesReportReference = (snapshotId: string, dateTo?: string): string => {
   const periodEnd = toAscii(dateTo).replaceAll("-", "").slice(0, 8) || "PERIOD";
@@ -249,7 +414,7 @@ const uniqueLabels = (values: string[]): string[] =>
     left.localeCompare(right)
   );
 
-const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] => {
+export const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] => {
   const rollups = new Map<string, MachineRollup>();
 
   rows.forEach((row) => {
@@ -261,12 +426,20 @@ const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] => {
       refundAmountCents: 0,
       grossSalesCents: 0,
       transactionCount: 0,
+      grossValueCount: 0,
+      refundValueCount: 0,
+      netValueCount: 0,
+      rowCount: 0,
     };
 
     current.netSalesCents += readNetSalesCents(row);
     current.refundAmountCents += readRefundAmountCents(row);
     current.grossSalesCents += readGrossSalesCents(row);
     current.transactionCount += readTransactionCount(row);
+    current.grossValueCount += hasGrossSalesValue(row) ? 1 : 0;
+    current.refundValueCount += hasRefundAmountValue(row) ? 1 : 0;
+    current.netValueCount += hasNetSalesValue(row) ? 1 : 0;
+    current.rowCount += 1;
     rollups.set(label, current);
   });
 
@@ -652,17 +825,15 @@ const drawDashboardPage = (
   summary: SalesReportPdfSummary,
   context: Required<SalesReportPdfContext>,
   machineRollups: MachineRollup[],
+  calculationVersion: SalesReportCalculationVersion,
 ) => {
+  const usesSharedSalesBasis = calculationVersion === "shared-sales-basis-v1";
   const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: COLORS.page });
   drawBrandHeader(page, fonts, assets, context.title, context.subtitle, context.reportReference);
 
   const periodLabel = `${formatDateLong(context.dateFrom)} - ${formatDateLong(context.dateTo)}`;
   const generatedLabel = formatGeneratedAt(context.generatedAt);
-  const averageOrderCents = summary.transactionCount > 0
-    ? Math.round(summary.grossSalesCents / summary.transactionCount)
-    : 0;
-
   let y = PAGE_HEIGHT - 222;
   const metricGap = 10;
   const metricWidth = (CONTENT_WIDTH - metricGap * 3) / 4;
@@ -670,26 +841,42 @@ const drawDashboardPage = (
     x: MARGIN,
     y,
     width: metricWidth,
-    label: "Recorded sales",
-    value: formatCurrency(summary.grossSalesCents),
-    detail: `${formatCurrency(averageOrderCents)} avg order`,
+    label: usesSharedSalesBasis ? "Sales before refunds" : "Gross sales",
+    value: usesSharedSalesBasis && summary.grossSalesCents == null
+      ? "Unavailable"
+      : formatCurrency(summary.grossSalesCents),
+    detail: usesSharedSalesBasis
+      ? (summary.taxCents == null
+        ? "Sales tax unavailable"
+        : `Excludes tax; ${formatCurrency(summary.taxCents)} separated`)
+      : "Recorded sales before reported refunds",
     emphasis: true,
   });
   drawMetricCard(page, fonts, {
     x: MARGIN + (metricWidth + metricGap),
     y,
     width: metricWidth,
-    label: "Reported refunds",
-    value: formatDeductionCurrency(summary.refundAmountCents),
-    detail: "Deducted from recorded sales",
+    label: usesSharedSalesBasis
+      ? "Refund deductions"
+      : "Reported refunds",
+    value: usesSharedSalesBasis && summary.refundAmountCents == null
+      ? "Unavailable"
+      : formatRefundImpactCurrency(summary.refundAmountCents),
+    detail: usesSharedSalesBasis
+      ? `${formatCurrency(summary.refundRequestDeductionCents)} requests; ${formatCurrency(summary.refundReversalCents)} reversals${summary.refundLegacyPaidDeductionCents > 0 ? `; ${formatCurrency(summary.refundLegacyPaidDeductionCents)} prior paid` : ''}`
+      : "Reported refund adjustments",
   });
   drawMetricCard(page, fonts, {
     x: MARGIN + (metricWidth + metricGap) * 2,
     y,
     width: metricWidth,
-    label: "Sales after refunds",
-    value: formatCurrency(summary.netSalesCents),
-    detail: "Recorded sales minus refunds",
+    label: usesSharedSalesBasis ? "Net sales" : "Sales after refunds",
+    value: usesSharedSalesBasis && summary.netSalesCents == null
+      ? "Unavailable"
+      : formatCurrency(summary.netSalesCents),
+    detail: usesSharedSalesBasis
+      ? `${formatCurrency(summary.refundPaidContextCents)} paid in period; ${formatCurrency(summary.refundOutstandingContextCents)} outstanding`
+      : "Gross sales less reported refunds",
   });
   drawMetricCard(page, fonts, {
     x: MARGIN + (metricWidth + metricGap) * 3,
@@ -713,7 +900,9 @@ const drawDashboardPage = (
   drawText(
     page,
     fonts,
-    "This report summarizes the selected operator machine scope from Bloomjoy Hub reporting data. Totals include reported refund adjustments and are prepared for management or partner review without raw payment identifiers, source-order rows, or provider workbooks.",
+    usesSharedSalesBasis
+      ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
+      : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope.",
     {
       x: MARGIN + 18,
       y: y + storyHeight - 50,
@@ -778,7 +967,9 @@ const drawDashboardPage = (
     font: fonts.bold,
     color: COLORS.ink,
   });
-  page.drawText("Top machines by sales after reported refunds for the selected period.", {
+  page.drawText(usesSharedSalesBasis
+    ? "Top machines by net sales for the selected period."
+    : "Top machines by sales after reported refunds for the selected period.", {
     x: MARGIN + 18,
     y: y + rollupCardHeight - 44,
     size: 8.5,
@@ -789,9 +980,9 @@ const drawDashboardPage = (
   const tableTop = y + rollupCardHeight - 70;
   const columns = [
     { label: "Machine", x: MARGIN + 18, width: 220, align: "left" as const },
-    { label: "Recorded", x: MARGIN + 260, width: 64, align: "right" as const },
-    { label: "Refunds", x: MARGIN + 332, width: 64, align: "right" as const },
-    { label: "After", x: MARGIN + 404, width: 64, align: "right" as const },
+    { label: usesSharedSalesBasis ? "Sales ex tax" : "Gross sales", x: MARGIN + 260, width: 64, align: "right" as const },
+    { label: usesSharedSalesBasis ? "Refund impact" : "Refunds", x: MARGIN + 332, width: 64, align: "right" as const },
+    { label: usesSharedSalesBasis ? "Net sales" : "After refunds", x: MARGIN + 404, width: 64, align: "right" as const },
     { label: "Txns", x: MARGIN + 474, width: 28, align: "right" as const },
   ];
   page.drawRectangle({
@@ -837,7 +1028,9 @@ const drawDashboardPage = (
       drawTableText(
         page,
         fonts,
-        formatCurrency(machine.grossSalesCents),
+        formatMachineRollupCurrency(
+          machine.grossSalesCents, machine.grossValueCount, machine.rowCount,
+        ),
         columns[1].x,
         rowY,
         columns[1].width,
@@ -846,7 +1039,9 @@ const drawDashboardPage = (
       drawTableText(
         page,
         fonts,
-        formatDeductionCurrency(machine.refundAmountCents),
+        formatMachineRollupCurrency(
+          machine.refundAmountCents, machine.refundValueCount, machine.rowCount, true,
+        ),
         columns[2].x,
         rowY,
         columns[2].width,
@@ -855,7 +1050,9 @@ const drawDashboardPage = (
       drawTableText(
         page,
         fonts,
-        formatCurrency(machine.netSalesCents),
+        formatMachineRollupCurrency(
+          machine.netSalesCents, machine.netValueCount, machine.rowCount,
+        ),
         columns[3].x,
         rowY,
         columns[3].width,
@@ -874,32 +1071,31 @@ const drawDashboardPage = (
   }
 
   const noteY = y + 18;
-  page.drawRectangle({
-    x: MARGIN,
-    y: 58,
-    width: CONTENT_WIDTH,
-    height: 48,
-    color: COLORS.sageLight,
-    borderColor: COLORS.border,
-    borderWidth: 0.7,
-  });
-  drawText(page, fonts, "Warning state", {
-    x: MARGIN + 14,
-    y: 87,
-    size: 8.5,
-    font: fonts.bold,
-    color: COLORS.sage,
-  });
-  drawText(page, fonts, rows.length === 0
-    ? "No sales rows were returned for this selected period and scope."
-    : "No blocking export warnings were returned. Use the appendix for row-level reconciliation.",
-  {
-    x: MARGIN + 14,
-    y: 72,
-    size: 8.2,
-    color: COLORS.muted,
-    maxWidth: CONTENT_WIDTH - 28,
-  });
+  if (rows.length === 0) {
+    page.drawRectangle({
+      x: MARGIN,
+      y: 58,
+      width: CONTENT_WIDTH,
+      height: 48,
+      color: COLORS.sageLight,
+      borderColor: COLORS.border,
+      borderWidth: 0.7,
+    });
+    drawText(page, fonts, "Report status", {
+      x: MARGIN + 14,
+      y: 87,
+      size: 8.5,
+      font: fonts.bold,
+      color: COLORS.sage,
+    });
+    drawText(page, fonts, "No sales rows were returned for this selected period and scope.", {
+      x: MARGIN + 14,
+      y: 72,
+      size: 8.2,
+      color: COLORS.muted,
+      maxWidth: CONTENT_WIDTH - 28,
+    });
+  }
   const additionalRollups = Math.max(0, machineRollups.length - visibleRollups.length);
   if (additionalRollups > 0) {
     drawText(page, fonts, `${formatInteger(additionalRollups)} additional machine rollups continue in row-level detail when applicable.`, {
@@ -960,7 +1156,9 @@ const drawReportRowsPage = (
   rows: SalesReportPdfRow[],
   context: Required<SalesReportPdfContext>,
   pageNumber: number,
+  calculationVersion: SalesReportCalculationVersion,
 ): number => {
+  const usesSharedSalesBasis = calculationVersion === "shared-sales-basis-v1";
   const rowsPerPage = 26;
   let currentPageNumber = pageNumber;
 
@@ -972,9 +1170,9 @@ const drawReportRowsPage = (
       { label: "Period", x: MARGIN, width: 58, align: "left" as const },
       { label: "Machine", x: MARGIN + 70, width: 172, align: "left" as const },
       { label: "Payment", x: MARGIN + 250, width: 52, align: "left" as const },
-      { label: "Recorded", x: MARGIN + 304, width: 66, align: "right" as const },
-      { label: "Refunds", x: MARGIN + 374, width: 66, align: "right" as const },
-      { label: "After", x: MARGIN + 444, width: 66, align: "right" as const },
+      { label: usesSharedSalesBasis ? "Sales ex tax" : "Gross sales", x: MARGIN + 304, width: 66, align: "right" as const },
+      { label: usesSharedSalesBasis ? "Refund impact" : "Refunds", x: MARGIN + 374, width: 66, align: "right" as const },
+      { label: usesSharedSalesBasis ? "Net sales" : "After refunds", x: MARGIN + 444, width: 66, align: "right" as const },
       { label: "Txns", x: MARGIN + 514, width: 28, align: "right" as const },
     ];
     columns.forEach((column) =>
@@ -1027,7 +1225,8 @@ const drawReportRowsPage = (
         columns[2].width,
         { size: 7.8, color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readGrossSalesCents(row)), columns[3].x, y, columns[3].width, {
+      drawTableText(page, fonts, hasGrossSalesValue(row)
+        ? formatCurrency(readGrossSalesCents(row)) : "Unavailable", columns[3].x, y, columns[3].width, {
         size: 7.8,
         align: "right",
         bold: true,
@@ -1035,13 +1234,16 @@ const drawReportRowsPage = (
       drawTableText(
         page,
         fonts,
-        formatDeductionCurrency(readRefundAmountCents(row)),
+        hasRefundAmountValue(row)
+          ? formatRefundImpactCurrency(readRefundAmountCents(row))
+          : "Unavailable",
         columns[4].x,
         y,
         columns[4].width,
         { size: 7.8, align: "right", color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readNetSalesCents(row)), columns[5].x, y, columns[5].width, {
+      drawTableText(page, fonts, hasNetSalesValue(row)
+        ? formatCurrency(readNetSalesCents(row)) : "Unavailable", columns[5].x, y, columns[5].width, {
         size: 7.8,
         align: "right",
       });
@@ -1144,9 +1346,13 @@ export const buildSalesReportPdf = async ({
     rows,
   );
   const machineRollups = buildMachineRollups(rows);
+  const calculationVersion = getSalesReportCalculationVersion(rows);
 
-  drawDashboardPage(pdfDoc, fonts, assets, rows, finalSummary, context, machineRollups);
-  drawReportRowsPage(pdfDoc, fonts, assets, rows, context, 2);
+  drawDashboardPage(
+    pdfDoc, fonts, assets, rows, finalSummary, context, machineRollups,
+    calculationVersion,
+  );
+  drawReportRowsPage(pdfDoc, fonts, assets, rows, context, 2, calculationVersion);
 
   return pdfDoc.save();
 };

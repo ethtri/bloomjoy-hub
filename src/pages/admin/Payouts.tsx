@@ -151,9 +151,19 @@ const workerTypeOptions: Array<{ value: OperatorWorkerType; label: string }> = [
 ];
 
 const formatCurrency = (cents: number | null | undefined) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(
-    (cents ?? 0) / 100
-  );
+  cents == null
+    ? 'Unavailable'
+    : new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+const formatRefundImpact = (cents: number | null | undefined) => {
+  if (cents == null) return 'Unavailable';
+  const value = cents;
+  if (value === 0) return formatCurrency(0);
+  return `${value > 0 ? '−' : '+'}${formatCurrency(Math.abs(value))}`;
+};
+
+const formatAbsoluteCurrency = (cents: number | null | undefined) =>
+  cents == null ? 'Unavailable' : formatCurrency(Math.abs(cents));
 
 const formatDuration = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
@@ -314,7 +324,10 @@ const scopeTechnicianToMachine = (
     paidShifts: entries.reduce((sum, entry) => sum + entry.paidShifts, 0),
     shiftEarningsCents,
     taxCents: machines.reduce((sum, machine) => sum + (machine.taxCents ?? 0), 0),
-    commissionableSalesCents: machines.reduce((sum, machine) => sum + machine.commissionableSalesCents, 0),
+    commissionableSalesCents: machines.reduce(
+      (sum, machine) => sum + (machine.commissionableSalesCents ?? 0),
+      0
+    ),
     commissionEarningsCents,
     bonusCents: 0,
     supplyCreditCents: 0,
@@ -364,6 +377,7 @@ function TechnicianReport({
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
   const periodInProgress = technician.calculationMeta.periodInProgress === true;
+  const usesSharedSalesBasis = technician.calculationMeta.salesCalculationVersion === 'shared-sales-basis-v1';
   const hasAssignmentInPeriod = technician.calculationMeta.hasAssignmentInPeriod
     ?? technician.machines.length > 0;
   const assignmentGap = !hasAssignmentInPeriod && assignments.length > 0;
@@ -565,7 +579,9 @@ function TechnicianReport({
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`commission-${technician.operatorProfileId}`}>
         <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Commission is calculated as (sales − refunds − estimated sales tax) × the contractor’s commission rate.
+          {usesSharedSalesBasis
+            ? 'Commission is calculated as (tax-exclusive sales − refund deductions + reversals) × the contractor’s commission rate. Paid and outstanding refund amounts are context only.'
+            : 'Commission is calculated as (sales − refunds − estimated sales tax) × the contractor’s commission rate.'}
         </p>
         <div className="mt-3 rounded-lg border border-border px-3">
           {technician.machines.length ? technician.machines.map((machine) => {
@@ -601,7 +617,16 @@ function TechnicianReport({
                               {formatDate(segment.segmentStartDate)}–{formatDate(segment.segmentEndDate)}
                             </span>
                             <span className="mt-0.5 block">
-                              {formatCurrency(segment.grossSalesCents)} sales − {formatCurrency(Math.abs(segment.refundAdjustmentCents ?? 0))} refunds − {formatCurrency(Math.abs(segment.taxCents ?? 0))} tax ({segment.taxRatePercent == null ? 'rate missing' : `${segment.taxRatePercent}%`})
+                              {usesSharedSalesBasis ? (
+                                <>
+                                  {formatCurrency(segment.grossSalesCents)} tax-exclusive sales · {segment.refundAdjustmentCents == null
+                                    ? 'refund impact Unavailable'
+                                    : `${formatCurrency(segment.refundRequestDeductionCents ?? Math.max(segment.refundAdjustmentCents, 0))} requested + ${formatCurrency(segment.refundReversalCents ?? 0)} reversed`}
+                                  <span className="mt-0.5 block">{formatAbsoluteCurrency(segment.taxCents)} sales tax separated</span>
+                                </>
+                              ) : (
+                                <>{formatCurrency(segment.grossSalesCents)} sales − {formatAbsoluteCurrency(segment.refundAdjustmentCents)} refunds − {formatAbsoluteCurrency(segment.taxCents)} tax ({segment.taxRatePercent == null ? 'rate missing' : `${segment.taxRatePercent}%`})</>
+                              )}
                             </span>
                             <span className="mt-0.5 block font-medium text-foreground">
                               {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'commission rate missing' : formatRate(segment.commissionBasisPoints)} = {machineCommissionUnavailable ? 'Allocation unavailable' : formatCurrency(segment.commissionEarningsCents)}
@@ -615,7 +640,9 @@ function TechnicianReport({
                       </span>
                     )}
                     <span className="mt-1 block">
-                      Machine totals: {formatCurrency(machine.grossSalesCents)} sales − {formatCurrency(Math.abs(machine.refundAdjustmentCents ?? 0))} refunds − {formatCurrency(Math.abs(machine.taxCents ?? 0))} estimated sales tax
+                      {usesSharedSalesBasis
+                        ? <>Machine totals: {formatCurrency(machine.grossSalesCents)} tax-exclusive sales · refund impact {formatRefundImpact(machine.refundAdjustmentCents)} · {formatAbsoluteCurrency(machine.taxCents)} sales tax separated</>
+                        : <>Machine totals: {formatCurrency(machine.grossSalesCents)} sales − {formatAbsoluteCurrency(machine.refundAdjustmentCents)} refunds − {formatAbsoluteCurrency(machine.taxCents)} estimated sales tax</>}
                     </span>
                     <span className="mt-1 block">
                       Included window {formatAssignmentRange(machine.assignedStartDate, machine.assignedEndDate)}{machine.sourceLatestSaleDate ? ` · Sales through ${formatDate(machine.sourceLatestSaleDate)}` : ''}
@@ -722,12 +749,19 @@ export default function AdminPayoutsPage() {
   );
   const totalPaidShifts = visibleTechnicians.reduce((sum, technician) => sum + technician.paidShifts, 0);
   const totalEstimatedTax = visibleTechnicians.reduce((sum, technician) => sum + (technician.taxCents ?? 0), 0);
-  const totalCommissionableSales = visibleTechnicians.reduce((sum, technician) => sum + technician.commissionableSalesCents, 0);
+  const totalCommissionableSales = visibleTechnicians.reduce(
+    (sum, technician) => sum + technician.commissionableSalesCents,
+    0
+  );
   const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
   const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
   const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0);
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
-    technician.machines.some((machine) => machine.revenueSnapshotId == null)
+    technician.machines.some((machine) => machine.revenueSnapshotId == null) ||
+    hasUnresolvedCommission(technician)
+  );
+  const allVisibleSharedSalesBasis = visibleTechnicians.length > 0 && visibleTechnicians.every(
+    (technician) => technician.calculationMeta.salesCalculationVersion === 'shared-sales-basis-v1'
   );
   const periodInProgress = visibleTechnicians.some(
     (technician) => technician.calculationMeta.periodInProgress === true
@@ -1059,7 +1093,7 @@ export default function AdminPayoutsPage() {
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
-              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'See the details below' : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
+              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'See the details below' : allVisibleSharedSalesBasis ? `${formatCurrency(totalEstimatedTax)} sales tax separated` : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
               <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : periodInProgress ? 'Current estimate, before payment or tax' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>

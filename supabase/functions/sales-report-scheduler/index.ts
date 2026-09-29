@@ -5,15 +5,10 @@ import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import {
   buildSalesReportReference,
   buildSalesReportPdf,
+  getSalesReportCalculationVersion,
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
-import {
-  calculateScheduledSalesReportRows,
-  chunkSalesReportQueryValues,
-  fetchAllSalesReportRows,
-  type SalesReportRefundCaseTender,
-} from "../_shared/sales-report-calculation.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -42,39 +37,6 @@ type ReportSchedule = {
     email: string;
     active: boolean;
   }>;
-};
-
-type MachineRow = {
-  id: string;
-  machine_label: string;
-  location_id: string;
-};
-
-type SalesFactRow = {
-  id: string;
-  reporting_machine_id: string;
-  reporting_location_id: string;
-  sale_date: string;
-  payment_method: string;
-  net_sales_cents: number;
-  transaction_count: number;
-};
-
-type AdjustmentFactRow = {
-  id: string;
-  reporting_machine_id: string;
-  reporting_location_id: string;
-  adjustment_date: string;
-  adjustment_type: string;
-  amount_cents: number;
-  source: string;
-  refund_case_id: string | null;
-  raw_payload: Record<string, unknown> | null;
-};
-
-type LocationRow = {
-  id: string;
-  name: string;
 };
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -255,133 +217,42 @@ const buildScheduledReportRows = async (
   }
 
   const filters = resolveReportFilters(schedule, now);
-  // Schedule creation and reads are super-admin-only. Match the interactive RPC by
-  // keeping historical/inactive machines eligible and applying location scope to facts.
-  let machineQuery = supabase
-    .from("reporting_machines")
-    .select("id, machine_label, location_id");
-
-  if (filters.machineIds.length > 0) {
-    machineQuery = machineQuery.in("id", filters.machineIds);
+  if (!schedule.created_by || !uuidPattern.test(schedule.created_by)) {
+    throw new Error("Scheduled report owner is unavailable.");
   }
 
-  const { data: machineData, error: machineError } = await machineQuery;
-  if (machineError) {
-    throw new Error(machineError.message);
-  }
-
-  const machines = (((machineData ?? []) as unknown) as MachineRow[]).filter((machine) =>
-    uuidPattern.test(machine.id)
+  // The narrow service RPC applies the schedule owner's normal machine access
+  // before reading the same shared calculation used by the interactive report.
+  const { data, error } = await supabase.rpc(
+    "sales_report_scheduler_get_sales_report",
+    {
+      p_actor_user_id: schedule.created_by,
+      p_date_from: filters.dateFrom,
+      p_date_to: filters.dateTo,
+      p_grain: filters.grain,
+      p_machine_ids: filters.machineIds.length ? filters.machineIds : null,
+      p_location_ids: filters.locationIds.length ? filters.locationIds : null,
+      p_payment_methods: filters.paymentMethods.length ? filters.paymentMethods : null,
+    },
   );
-  const machineIds = machines.map((machine) => machine.id);
-  const machineById = new Map(machines.map((machine) => [machine.id, machine]));
-
-  if (machineIds.length === 0) {
-    return { rows: [], filters };
+  if (error) {
+    throw new Error(error.message);
   }
 
-  const salesFacts = await fetchAllSalesReportRows<SalesFactRow>(async (from, to) => {
-    let query = supabase
-      .from("machine_sales_facts")
-      .select(
-        "id, reporting_machine_id, reporting_location_id, sale_date, payment_method, net_sales_cents, transaction_count"
-      )
-      .gte("sale_date", filters.dateFrom)
-      .lte("sale_date", filters.dateTo)
-      .in("reporting_machine_id", machineIds)
-      .order("id")
-      .range(from, to);
-    if (filters.paymentMethods.length > 0) {
-      query = query.in("payment_method", filters.paymentMethods);
-    }
-    if (filters.locationIds.length > 0) {
-      query = query.in("reporting_location_id", filters.locationIds);
-    }
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    return (data ?? []) as SalesFactRow[];
-  });
-
-  const adjustmentFacts = await fetchAllSalesReportRows<AdjustmentFactRow>(async (from, to) => {
-    let query = supabase
-      .from("sales_adjustment_facts")
-      .select(
-        "id, reporting_machine_id, reporting_location_id, adjustment_date, adjustment_type, amount_cents, source, refund_case_id, raw_payload"
-      )
-      .gte("adjustment_date", filters.dateFrom)
-      .lte("adjustment_date", filters.dateTo)
-      .in("reporting_machine_id", machineIds)
-      .in("adjustment_type", ["refund", "complaint_refund"])
-      .order("id")
-      .range(from, to);
-    if (filters.locationIds.length > 0) {
-      query = query.in("reporting_location_id", filters.locationIds);
-    }
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    return (data ?? []) as AdjustmentFactRow[];
-  });
-  const directRefundCaseIds = [
-    ...new Set(adjustmentFacts.map((adjustment) => adjustment.refund_case_id).filter(Boolean)),
-  ] as string[];
-  const refundCasesById = new Map<string, SalesReportRefundCaseTender>();
-  const refundCasesByAdjustmentId = new Map<string, SalesReportRefundCaseTender>();
-
-  for (const ids of chunkSalesReportQueryValues(directRefundCaseIds)) {
-    const { data, error } = await supabase
-      .from("refund_cases")
-      .select("id, reporting_adjustment_id, payment_method")
-      .in("id", ids)
-      .order("id");
-    if (error) throw new Error(error.message);
-    ((data ?? []) as SalesReportRefundCaseTender[]).forEach((refundCase) => {
-      refundCasesById.set(refundCase.id, refundCase);
-    });
-  }
-
-  for (const ids of chunkSalesReportQueryValues(adjustmentFacts.map((adjustment) => adjustment.id))) {
-    const { data, error } = await supabase
-      .from("refund_cases")
-      .select("id, reporting_adjustment_id, payment_method")
-      .in("reporting_adjustment_id", ids)
-      .order("id");
-    if (error) throw new Error(error.message);
-    ((data ?? []) as SalesReportRefundCaseTender[]).forEach((refundCase) => {
-      if (
-        refundCase.reporting_adjustment_id &&
-        !refundCasesByAdjustmentId.has(refundCase.reporting_adjustment_id)
-      ) {
-        refundCasesByAdjustmentId.set(refundCase.reporting_adjustment_id, refundCase);
-      }
-    });
-  }
-
-  const reportedLocationIds = [...new Set([
-    ...salesFacts.map((fact) => fact.reporting_location_id),
-    ...adjustmentFacts.map((adjustment) => adjustment.reporting_location_id),
-  ])];
-  const locationNamesById = new Map<string, string>();
-  for (const ids of chunkSalesReportQueryValues(reportedLocationIds)) {
-    const { data, error } = await supabase
-      .from("reporting_locations")
-      .select("id, name")
-      .in("id", ids);
-    if (error) throw new Error(error.message);
-    ((data ?? []) as LocationRow[]).forEach((location) => {
-      locationNamesById.set(location.id, location.name);
-    });
-  }
-
-  const rows = calculateScheduledSalesReportRows({
-    salesFacts,
-    adjustments: adjustmentFacts,
-    machinesById: machineById,
-    locationNamesById,
-    refundCasesById,
-    refundCasesByAdjustmentId,
-    grain: filters.grain,
-    paymentMethods: filters.paymentMethods,
-  });
+  const rows = ((data ?? []) as SalesReportPdfRow[]).sort((left, right) =>
+    [
+      String(left.period_start ?? ""),
+      String(left.location_name ?? ""),
+      String(left.machine_label ?? ""),
+      String(left.payment_method ?? ""),
+    ].join(":").localeCompare([
+      String(right.period_start ?? ""),
+      String(right.location_name ?? ""),
+      String(right.machine_label ?? ""),
+      String(right.payment_method ?? ""),
+    ].join(":")),
+  );
+  getSalesReportCalculationVersion(rows);
 
   return { rows, filters };
 };
@@ -403,6 +274,9 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
 
   const { rows, filters } = await buildScheduledReportRows(schedule, now);
   const summary = summarizeSalesReportPdfRows(rows);
+  const calculationVersion = getSalesReportCalculationVersion(rows);
+  const formatSummaryMoney = (value: number | null) =>
+    value == null ? "Unavailable" : (value / 100).toFixed(2);
   const { data: snapshot, error: snapshotError } = await supabase
     .from("report_view_snapshots")
     .insert({
@@ -414,6 +288,18 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
         net_sales_cents: summary.netSalesCents,
         refund_amount_cents: summary.refundAmountCents,
         gross_sales_cents: summary.grossSalesCents,
+        tax_cents: summary.taxCents,
+        refund_request_deduction_cents: summary.refundRequestDeductionCents,
+        refund_reversal_cents: summary.refundReversalCents,
+        refund_legacy_paid_deduction_cents: summary.refundLegacyPaidDeductionCents,
+        refund_paid_context_cents: summary.refundPaidContextCents,
+        refund_outstanding_context_cents: summary.refundOutstandingContextCents,
+        unresolved_sales_count: summary.unresolvedSalesCount,
+        unresolved_sales_cents: summary.unresolvedSalesCents,
+        unresolved_refund_count: summary.unresolvedRefundCount,
+        unresolved_refund_cents: summary.unresolvedRefundCents,
+        unresolved_paid_context_count: summary.unresolvedPaidContextCount,
+        unresolved_paid_context_cents: summary.unresolvedPaidContextCents,
         transaction_count: summary.transactionCount,
         row_count: rows.length,
       },
@@ -483,14 +369,26 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
     .update({ export_status: "ready", export_storage_path: storagePath })
     .eq("id", snapshot.id);
 
+  const calculationLines = calculationVersion === "shared-sales-basis-v1"
+    ? [
+      `Sales before refunds: ${formatSummaryMoney(summary.grossSalesCents)}`,
+      `Sales tax separated: ${formatSummaryMoney(summary.taxCents)}`,
+      `Refund deductions: ${formatSummaryMoney(summary.refundAmountCents)}`,
+      `Paid in period: ${formatSummaryMoney(summary.refundPaidContextCents)}`,
+      `Outstanding requested: ${formatSummaryMoney(summary.refundOutstandingContextCents)}`,
+      `Net sales: ${formatSummaryMoney(summary.netSalesCents)}`,
+    ]
+    : [
+      `Gross sales: ${formatSummaryMoney(summary.grossSalesCents)}`,
+      `Reported refunds: ${formatSummaryMoney(summary.refundAmountCents)}`,
+      `Sales after refunds: ${formatSummaryMoney(summary.netSalesCents)}`,
+    ];
   const text = [
     filters.title,
     "",
     `Date range: ${filters.dateFrom} through ${filters.dateTo}`,
     `Rows: ${rows.length}`,
-    `Recorded sales: ${summary.grossSalesCents / 100}`,
-    `Reported refunds: ${summary.refundAmountCents / 100}`,
-    `Sales after refunds: ${summary.netSalesCents / 100}`,
+    ...calculationLines,
     "",
     "Download the PDF:",
     signedUrlData.signedUrl,

@@ -328,12 +328,12 @@ export type PayoutRevenueSnapshot = {
   locationName: string;
   periodStartDate: string;
   periodEndDate: string;
-  grossSalesCents: number;
-  refundAdjustmentCents: number;
-  taxCents?: number;
+  grossSalesCents: number | null;
+  refundAdjustmentCents: number | null;
+  taxCents?: number | null;
   taxSegments?: TechnicianPayReportCommissionSegment[];
-  netRevenueCents: number;
-  eligibleCommissionRevenueCents: number;
+  netRevenueCents: number | null;
+  eligibleCommissionRevenueCents: number | null;
   transactionCount: number;
   sourceSalesRowCount: number;
   sourceAdjustmentRowCount: number;
@@ -355,11 +355,11 @@ export type PayoutRevenueSnapshotContext = {
   periodEndDate: string;
   snapshots: PayoutRevenueSnapshot[];
   totals: {
-    grossSalesCents: number;
-    refundAdjustmentCents: number;
-    taxCents?: number;
-    netRevenueCents: number;
-    eligibleCommissionRevenueCents: number;
+    grossSalesCents: number | null;
+    refundAdjustmentCents: number | null;
+    taxCents?: number | null;
+    netRevenueCents: number | null;
+    eligibleCommissionRevenueCents: number | null;
     transactionCount: number;
     warningCount: number;
   };
@@ -666,12 +666,18 @@ export type TechnicianPayReportCommissionSegment = {
   segmentEndDate: string;
   commissionRate: TechnicianPayReportRate | null;
   commissionBasisPoints: number | null;
-  grossSalesCents: number;
-  refundAdjustmentCents: number;
+  grossSalesCents: number | null;
+  refundAdjustmentCents: number | null;
+  refundRequestDeductionCents?: number;
+  refundReversalCents?: number;
+  refundPaidContextCents?: number;
+  refundOutstandingContextCents?: number;
+  purchaseAttributionDate?: string;
+  normalizationStatus?: string;
   taxRatePercent: number | null;
-  taxCents: number;
-  netRevenueCents: number;
-  commissionableSalesCents: number;
+  taxCents: number | null;
+  netRevenueCents: number | null;
+  commissionableSalesCents: number | null;
   commissionEarningsCents: number;
   sourceSalesRowCount: number;
   sourceAdjustmentRowCount: number;
@@ -696,20 +702,20 @@ export type TechnicianPayReportMachine = {
   sourceLatestSaleDate: string | null;
   sourceSalesRowCount: number;
   sourceAdjustmentRowCount: number;
-  grossSalesCents: number;
-  refundAdjustmentCents: number;
-  taxCents: number;
-  netRevenueCents: number;
-  commissionableSalesCents: number;
+  grossSalesCents: number | null;
+  refundAdjustmentCents: number | null;
+  taxCents: number | null;
+  netRevenueCents: number | null;
+  commissionableSalesCents: number | null;
   commissionRate: TechnicianPayReportRate | null;
   commissionBasisPoints: number | null;
   commissionEarningsCents: number;
   commissionSegments: TechnicianPayReportCommissionSegment[];
-  snapshotGrossSalesCents: number;
-  snapshotRefundAdjustmentCents: number;
-  snapshotTaxCents: number;
-  snapshotNetRevenueCents: number;
-  snapshotCommissionableSalesCents: number;
+  snapshotGrossSalesCents: number | null;
+  snapshotRefundAdjustmentCents: number | null;
+  snapshotTaxCents: number | null;
+  snapshotNetRevenueCents: number | null;
+  snapshotCommissionableSalesCents: number | null;
   snapshotSourceLatestSaleDate: string | null;
   snapshotMatchesFacts: boolean;
   warnings: TechnicianPayReportIssue[];
@@ -773,6 +779,9 @@ export type TechnicianPayReportTechnician = {
     schemaVersion: 'technician-pay-report-v1' | 'technician-pay-report-v2';
     commissionBasisSource: string;
     commissionFormula?: string;
+    salesCalculationVersion?: string;
+    refundRecognition?: string;
+    paymentCreatesRefundImpact?: boolean;
     refundAppliedOnce: true;
     approvalRequired: false;
     paymentExecution: false;
@@ -1599,11 +1608,11 @@ export const fetchPayoutRevenueSnapshotContext = async (
     periodEndDate: '',
     snapshots: [],
     totals: {
-      grossSalesCents: 0,
-      refundAdjustmentCents: 0,
-      taxCents: 0,
-      netRevenueCents: 0,
-      eligibleCommissionRevenueCents: 0,
+      grossSalesCents: null,
+      refundAdjustmentCents: null,
+      taxCents: null,
+      netRevenueCents: null,
+      eligibleCommissionRevenueCents: null,
       transactionCount: 0,
       warningCount: 0,
     },

@@ -41,6 +41,7 @@ type PartnerPeriodPreviewRpc = {
   period_grain?: PartnerReportPeriodGrain;
   date_from?: string;
   date_to?: string;
+  calculation_version?: string;
   summary?: Record<string, unknown>;
   periods?: Array<Record<string, unknown>>;
   machine_periods?: Array<Record<string, unknown>>;
@@ -833,6 +834,7 @@ const mapPeriodPreviewToPartnerReportPreview = (
   return {
     partnershipId: String(data?.partnership_id ?? request.partnershipId),
     partnershipName: data?.partnership_name,
+    calculationVersion: data?.calculation_version,
     periodGrain: request.periodGrain,
     periodMode: request.periodMode,
     periodStartDate: request.periodStartDate,

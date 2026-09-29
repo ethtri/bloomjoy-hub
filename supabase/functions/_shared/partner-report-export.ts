@@ -11,15 +11,15 @@ import {
 type PartnerReportSummary = {
   order_count?: number;
   item_quantity?: number;
-  gross_sales_cents?: number;
-  refund_amount_cents?: number;
-  tax_cents?: number;
-  fee_cents?: number;
-  cost_cents?: number;
-  net_sales_cents?: number;
-  split_base_cents?: number;
-  amount_owed_cents?: number;
-  bloomjoy_retained_cents?: number;
+  gross_sales_cents?: number | null;
+  refund_amount_cents?: number | null;
+  tax_cents?: number | null;
+  fee_cents?: number | null;
+  cost_cents?: number | null;
+  net_sales_cents?: number | null;
+  split_base_cents?: number | null;
+  amount_owed_cents?: number | null;
+  bloomjoy_retained_cents?: number | null;
   fever_profit_cents?: number;
   partner_profit_cents?: number;
   bloomjoy_profit_cents?: number;
@@ -32,15 +32,15 @@ type PartnerReportMachine = {
   machine_label?: string;
   order_count?: number;
   item_quantity?: number;
-  gross_sales_cents?: number;
-  refund_amount_cents?: number;
-  tax_cents?: number;
-  fee_cents?: number;
-  cost_cents?: number;
-  net_sales_cents?: number;
-  split_base_cents?: number;
-  amount_owed_cents?: number;
-  bloomjoy_retained_cents?: number;
+  gross_sales_cents?: number | null;
+  refund_amount_cents?: number | null;
+  tax_cents?: number | null;
+  fee_cents?: number | null;
+  cost_cents?: number | null;
+  net_sales_cents?: number | null;
+  split_base_cents?: number | null;
+  amount_owed_cents?: number | null;
+  bloomjoy_retained_cents?: number | null;
 };
 
 type PartnerReportPeriod = PartnerReportSummary & {
@@ -57,6 +57,7 @@ type PartnerReportWarning = {
 export type PartnerReportPreview = {
   partnershipId?: string;
   partnershipName?: string;
+  calculationVersion?: string;
   periodGrain?: "reporting_week" | "calendar_month";
   periodMode?: "weekly" | "month_to_date" | "completed_month";
   periodStartDate?: string;
@@ -168,29 +169,51 @@ const numberValue = (value: unknown): number => {
   return Number.isFinite(normalized) ? normalized : 0;
 };
 
-const formatCurrency = (cents: unknown): string =>
-  `$${
+const usesSharedSalesBasis = (preview: PartnerReportPreview): boolean =>
+  preview.calculationVersion === "shared-sales-basis-v1";
+
+const formatCurrency = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
+  return `$${
     (Math.round(numberValue(cents)) / 100).toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })
   }`;
+};
 
 const formatDeductionCurrency = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
   const roundedCents = Math.round(Math.abs(numberValue(cents)));
   if (roundedCents === 0) return "$0.00";
   return `-${formatCurrency(roundedCents)}`;
 };
 
+const formatRefundImpactCurrency = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
+  const roundedCents = Math.round(numberValue(cents));
+  if (roundedCents === 0) return "$0.00";
+  return `${roundedCents > 0 ? "-" : "+"}${formatCurrency(Math.abs(roundedCents))}`;
+};
+
 const formatCompactCurrency = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
   const dollars = Math.round(numberValue(cents) / 100);
   const absolute = Math.abs(dollars).toLocaleString("en-US");
   return dollars < 0 ? `-$${absolute}` : `$${absolute}`;
 };
 
 const formatDeduction = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
   const amount = numberValue(cents);
   return amount > 0 ? `-${formatCurrency(amount)}` : formatCurrency(0);
+};
+
+const formatRefundImpact = (cents: unknown): string => {
+  if (cents == null) return "Unavailable";
+  const amount = numberValue(cents);
+  if (amount === 0) return formatCurrency(0);
+  return `${amount > 0 ? "-" : "+"}${formatCurrency(Math.abs(amount))}`;
 };
 
 const formatInteger = (value: unknown): string =>
@@ -473,6 +496,9 @@ export const buildPartnerReportCsv = ({
   additionalDeductionsNotes,
 }: PartnerReportExportContext): string => {
   const summary = preview.summary ?? {};
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
+  const salesLabel = sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales";
+  const taxLabel = sharedSalesBasis ? "Sales tax (separated)" : "Machine taxes";
   const generatedAtLabel = formatGeneratedAt(generatedAt);
   const reportTitle = getReportTitle(preview);
   const periodLabel = getReportPeriodLabel(preview);
@@ -494,9 +520,9 @@ export const buildPartnerReportCsv = ({
     csvRow(["Metric", "Value"]),
     csvRow(["Orders", formatInteger(summary.order_count)]),
     csvRow(["Sticks/items", formatInteger(summary.item_quantity)]),
-    csvRow(["Gross sales", formatCurrency(summary.gross_sales_cents)]),
-    csvRow(["Refund impact", formatDeductionCurrency(summary.refund_amount_cents)]),
-    csvRow(["Machine taxes", formatDeductionCurrency(summary.tax_cents)]),
+    csvRow([salesLabel, formatCurrency(summary.gross_sales_cents)]),
+    csvRow(["Refund impact", formatRefundImpactCurrency(summary.refund_amount_cents)]),
+    csvRow([taxLabel, sharedSalesBasis ? formatCurrency(summary.tax_cents) : formatDeductionCurrency(summary.tax_cents)]),
     csvRow([feeLabel, formatDeductionCurrency(summary.fee_cents)]),
     csvRow([costLabel, formatDeductionCurrency(summary.cost_cents)]),
     csvRow(["Net sales", formatCurrency(summary.net_sales_cents)]),
@@ -522,9 +548,9 @@ export const buildPartnerReportCsv = ({
       "Machine",
       "Orders",
       "Sticks/items",
-      "Gross sales",
+      salesLabel,
       "Refund impact",
-      "Machine taxes",
+      taxLabel,
       feeLabel,
       costLabel,
       "Net sales",
@@ -538,7 +564,7 @@ export const buildPartnerReportCsv = ({
         formatInteger(machine.order_count),
         formatInteger(machine.item_quantity),
         formatCurrency(machine.gross_sales_cents),
-        `-${formatCurrency(machine.refund_amount_cents)}`,
+        formatRefundImpactCurrency(machine.refund_amount_cents),
         formatCurrency(machine.tax_cents),
         formatCurrency(machine.fee_cents),
         formatCurrency(machine.cost_cents),
@@ -559,16 +585,16 @@ export const buildPartnerReportCsv = ({
         "Period end",
         "Orders",
         "Sticks/items",
-        "Gross sales",
+        salesLabel,
         "Refund impact",
-        "Tax + deductions",
+        sharedSalesBasis ? "Configured deductions" : "Tax + deductions",
         "Net sales",
         "Payout basis",
         getPartnerPayoutLabel(payoutRecipientLabels),
         "Bloomjoy retained",
       ]),
       ...trendPeriods.map((period) => {
-        const taxAndDeductions = numberValue(period.tax_cents) +
+        const taxAndDeductions = (sharedSalesBasis ? 0 : numberValue(period.tax_cents)) +
           numberValue(period.fee_cents) + numberValue(period.cost_cents);
         return csvRow([
           period.period_start ?? "",
@@ -576,7 +602,7 @@ export const buildPartnerReportCsv = ({
           formatInteger(period.order_count),
           formatInteger(period.item_quantity),
           formatCurrency(period.gross_sales_cents),
-          formatDeductionCurrency(period.refund_amount_cents),
+          formatRefundImpactCurrency(period.refund_amount_cents),
           formatDeductionCurrency(taxAndDeductions),
           formatCurrency(period.net_sales_cents),
           formatCurrency(period.split_base_cents ?? period.net_sales_cents),
@@ -672,9 +698,15 @@ const xlsxCurrency = (
   cents: unknown,
   { deduction = false }: { deduction?: boolean } = {},
 ): XlsxCell => {
+  if (cents == null) return xlsxText("Unavailable");
   const dollars = centsToDollars(cents);
   return xlsxNumber(deduction ? -Math.abs(dollars) : dollars, XLSX_STYLE.currency);
 };
+
+const xlsxRefundImpact = (cents: unknown): XlsxCell =>
+  cents == null
+    ? xlsxText("Unavailable")
+    : xlsxNumber(-centsToDollars(cents), XLSX_STYLE.currency);
 
 const xlsxInteger = (value: unknown): XlsxCell =>
   xlsxNumber(Math.round(numberValue(value)), XLSX_STYLE.integer);
@@ -696,7 +728,10 @@ const buildWorkbookSummarySheet = (
     calculationModelLabel = "Revenue share",
   } = context;
   const summary = preview.summary ?? {};
-  const taxAndDeductions = numberValue(summary.tax_cents) +
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
+  const salesLabel = sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales";
+  const taxLabel = sharedSalesBasis ? "Sales tax (separated)" : "Machine taxes";
+  const taxAndDeductions = (sharedSalesBasis ? 0 : numberValue(summary.tax_cents)) +
     numberValue(summary.fee_cents) + numberValue(summary.cost_cents);
   const machineScopeLabel = getMachineScopeLabel(preview);
 
@@ -725,12 +760,12 @@ const buildWorkbookSummarySheet = (
       [xlsxText("Dashboard Totals", XLSX_STYLE.header), xlsxText("Value", XLSX_STYLE.header)],
       [xlsxText("Orders", XLSX_STYLE.label), xlsxInteger(summary.order_count)],
       [xlsxText("Sticks/items", XLSX_STYLE.label), xlsxInteger(summary.item_quantity)],
-      [xlsxText("Gross sales", XLSX_STYLE.label), xlsxCurrency(summary.gross_sales_cents)],
-      [xlsxText("Refund impact", XLSX_STYLE.label), xlsxCurrency(summary.refund_amount_cents, { deduction: true })],
-      [xlsxText("Machine taxes", XLSX_STYLE.label), xlsxCurrency(summary.tax_cents, { deduction: true })],
+      [xlsxText(salesLabel, XLSX_STYLE.label), xlsxCurrency(summary.gross_sales_cents)],
+      [xlsxText("Refund impact", XLSX_STYLE.label), xlsxRefundImpact(summary.refund_amount_cents)],
+      [xlsxText(taxLabel, XLSX_STYLE.label), xlsxCurrency(summary.tax_cents, { deduction: !sharedSalesBasis })],
       [xlsxText(feeLabel, XLSX_STYLE.label), xlsxCurrency(summary.fee_cents, { deduction: true })],
       [xlsxText(costLabel, XLSX_STYLE.label), xlsxCurrency(summary.cost_cents, { deduction: true })],
-      [xlsxText("Tax + deductions", XLSX_STYLE.label), xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency)],
+      [xlsxText(sharedSalesBasis ? "Configured deductions" : "Tax + deductions", XLSX_STYLE.label), xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency)],
       [xlsxText("Net sales", XLSX_STYLE.label), xlsxCurrency(summary.net_sales_cents)],
       [xlsxText("Payout basis", XLSX_STYLE.label), xlsxCurrency(summary.split_base_cents ?? summary.net_sales_cents)],
       [
@@ -753,31 +788,32 @@ const buildWorkbookMachineSheet = (
   } = context;
   const machines = preview.machines ?? [];
   const summary = preview.summary ?? {};
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
   const header = [
     "Machine",
     "Orders",
     "Sticks/items",
-    "Gross sales",
+    sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales",
     "Refund impact",
-    "Machine taxes",
+    sharedSalesBasis ? "Sales tax (separated)" : "Machine taxes",
     feeLabel,
     costLabel,
-    "Tax + deductions",
+    sharedSalesBasis ? "Configured deductions" : "Tax + deductions",
     "Net sales",
     "Payout basis",
     getPartnerPayoutLabel(payoutRecipientLabels),
     "Bloomjoy retained",
   ];
   const machineRows = machines.map((machine) => {
-    const taxAndDeductions = numberValue(machine.tax_cents) +
+    const taxAndDeductions = (sharedSalesBasis ? 0 : numberValue(machine.tax_cents)) +
       numberValue(machine.fee_cents) + numberValue(machine.cost_cents);
     return [
       xlsxText(machine.machine_label ?? "Unnamed machine"),
       xlsxInteger(machine.order_count),
       xlsxInteger(machine.item_quantity),
       xlsxCurrency(machine.gross_sales_cents),
-      xlsxCurrency(machine.refund_amount_cents, { deduction: true }),
-      xlsxCurrency(machine.tax_cents, { deduction: true }),
+      xlsxRefundImpact(machine.refund_amount_cents),
+      xlsxCurrency(machine.tax_cents, { deduction: !sharedSalesBasis }),
       xlsxCurrency(machine.fee_cents, { deduction: true }),
       xlsxCurrency(machine.cost_cents, { deduction: true }),
       xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency),
@@ -787,15 +823,15 @@ const buildWorkbookMachineSheet = (
       xlsxCurrency(getMachineBloomjoyRetainedCents(machine)),
     ];
   });
-  const summaryTaxAndDeductions = numberValue(summary.tax_cents) +
+  const summaryTaxAndDeductions = (sharedSalesBasis ? 0 : numberValue(summary.tax_cents)) +
     numberValue(summary.fee_cents) + numberValue(summary.cost_cents);
   const totalRow = [
     xlsxText("Dashboard total", XLSX_STYLE.label),
     xlsxInteger(summary.order_count),
     xlsxInteger(summary.item_quantity),
     xlsxCurrency(summary.gross_sales_cents),
-    xlsxCurrency(summary.refund_amount_cents, { deduction: true }),
-    xlsxCurrency(summary.tax_cents, { deduction: true }),
+    xlsxRefundImpact(summary.refund_amount_cents),
+    xlsxCurrency(summary.tax_cents, { deduction: !sharedSalesBasis }),
     xlsxCurrency(summary.fee_cents, { deduction: true }),
     xlsxCurrency(summary.cost_cents, { deduction: true }),
     xlsxNumber(-Math.abs(centsToDollars(summaryTaxAndDeductions)), XLSX_STYLE.currency),
@@ -825,6 +861,7 @@ const buildWorkbookTrendSheet = (
   context: PartnerReportExportContext,
 ): XlsxWorksheet => {
   const { preview, payoutRecipientLabels } = context;
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
   const trendPeriods = getTrendPeriods(preview);
   const machineScopeLabel = getMachineScopeLabel(preview);
   const periods = trendPeriods.length > 0
@@ -835,7 +872,7 @@ const buildWorkbookTrendSheet = (
       period_end: preview.periodEndDate ?? preview.weekEndingDate,
     }];
   const rows = periods.map((period) => {
-    const taxAndDeductions = numberValue(period.tax_cents) +
+    const taxAndDeductions = (sharedSalesBasis ? 0 : numberValue(period.tax_cents)) +
       numberValue(period.fee_cents) + numberValue(period.cost_cents);
     return [
       xlsxText(period.period_start ?? ""),
@@ -843,7 +880,7 @@ const buildWorkbookTrendSheet = (
       xlsxInteger(period.order_count),
       xlsxInteger(period.item_quantity),
       xlsxCurrency(period.gross_sales_cents),
-      xlsxCurrency(period.refund_amount_cents, { deduction: true }),
+      xlsxRefundImpact(period.refund_amount_cents),
       xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency),
       xlsxCurrency(period.net_sales_cents),
       xlsxCurrency(period.split_base_cents ?? period.net_sales_cents),
@@ -867,9 +904,9 @@ const buildWorkbookTrendSheet = (
         "Period end",
         "Orders",
         "Sticks/items",
-        "Gross sales",
+        sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales",
         "Refund impact",
-        "Tax + deductions",
+        sharedSalesBasis ? "Configured deductions" : "Tax + deductions",
         "Net sales",
         "Payout basis",
         getPartnerPayoutLabel(payoutRecipientLabels),
@@ -985,25 +1022,27 @@ const buildWorkbookReconciliationSheet = (
     payoutRecipientLabels,
   } = context;
   const summary = preview.summary ?? {};
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
+  const salesLabel = sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales";
   const machines = preview.machines ?? [];
   const machineNetSalesCents = sumCents(machines, (machine) => machine.net_sales_cents);
   const machinePayoutCents = sumCents(machines, getMachinePartnerPayoutCents);
   const summaryPayoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
   const bridgeRows = [
     [
-      xlsxText("Gross sales"),
+      xlsxText(salesLabel),
       xlsxCurrency(summary.gross_sales_cents),
       xlsxText("Recorded gross sales for assigned machines during the selected period.", XLSX_STYLE.note),
     ],
     [
       xlsxText("Refund impact"),
-      xlsxCurrency(summary.refund_amount_cents, { deduction: true }),
+      xlsxRefundImpact(summary.refund_amount_cents),
       xlsxText("Approved refund adjustments applied to this selected period.", XLSX_STYLE.note),
     ],
     [
-      xlsxText("Machine taxes"),
-      xlsxCurrency(summary.tax_cents, { deduction: true }),
-      xlsxText("Configured machine tax impact.", XLSX_STYLE.note),
+      xlsxText(sharedSalesBasis ? "Sales tax (separated)" : "Machine taxes"),
+      xlsxCurrency(summary.tax_cents, { deduction: !sharedSalesBasis }),
+      xlsxText(sharedSalesBasis ? "Sales tax is shown as context and is already excluded from sales." : "Configured machine tax impact.", XLSX_STYLE.note),
     ],
     [
       xlsxText(feeLabel),
@@ -1018,7 +1057,9 @@ const buildWorkbookReconciliationSheet = (
     [
       xlsxText("Net sales", XLSX_STYLE.label),
       xlsxCurrency(summary.net_sales_cents),
-      xlsxText("Gross sales less refund impact, machine taxes, and configured deductions.", XLSX_STYLE.note),
+      xlsxText(sharedSalesBasis
+        ? "Tax-exclusive sales less refund impact and configured deductions."
+        : "Gross sales less refund impact, machine taxes, and configured deductions.", XLSX_STYLE.note),
     ],
     [
       xlsxText("Payout basis", XLSX_STYLE.label),
@@ -1835,6 +1876,7 @@ const drawDashboardPage = (
     splitBaseLabel = "Net sales",
   } = context;
   const summary = preview.summary ?? {};
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
   const page = pdfDoc.addPage([612, 792]);
   const machineScopeLabel = getMachineScopeLabel(preview);
   const partnerName = toAscii(
@@ -1855,7 +1897,7 @@ const drawDashboardPage = (
     payoutCents,
     previousPeriod ? getPrimaryPartnerPayoutCents(previousPeriod) : undefined,
   );
-  const taxAndDeductions = numberValue(summary.tax_cents) +
+  const taxAndDeductions = (sharedSalesBasis ? 0 : numberValue(summary.tax_cents)) +
     numberValue(summary.fee_cents) +
     numberValue(summary.cost_cents);
   const splitBaseKind = getSplitBaseKind(splitBaseLabel);
@@ -1924,9 +1966,9 @@ const drawDashboardPage = (
     y: cardY,
     width: cardWidth,
     height: 82,
-    label: "Gross sales",
+    label: sharedSalesBasis ? "Sales before refunds" : "Gross sales",
     value: formatCurrency(summary.gross_sales_cents),
-    detail: "Before refunds and deductions",
+    detail: sharedSalesBasis ? "Excludes sales tax" : "Before refunds and deductions",
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap),
@@ -1943,7 +1985,7 @@ const drawDashboardPage = (
     width: cardWidth,
     height: 82,
     label: "Refund impact",
-    value: formatDeduction(summary.refund_amount_cents),
+    value: formatRefundImpact(summary.refund_amount_cents),
     detail: "Approved adjustments only",
   });
   drawCard(page, fonts, {
@@ -1951,7 +1993,7 @@ const drawDashboardPage = (
     y: cardY,
     width: cardWidth,
     height: 82,
-    label: "Tax + deductions",
+    label: sharedSalesBasis ? "Configured deductions" : "Tax + deductions",
     value: formatDeduction(taxAndDeductions),
     detail: "Used to calculate net sales",
   });
@@ -1983,20 +2025,20 @@ const drawDashboardPage = (
   );
   const bridgeSegments = [
     {
-      label: "Gross sales",
+      label: sharedSalesBasis ? "Sales before refunds" : "Gross sales",
       value: formatCurrency(summary.gross_sales_cents),
       cents: numberValue(summary.gross_sales_cents),
       color: COLORS.sage,
     },
     {
       label: "Refunds",
-      value: formatDeduction(summary.refund_amount_cents),
+      value: formatRefundImpact(summary.refund_amount_cents),
       cents: numberValue(summary.refund_amount_cents),
       color: COLORS.amber,
     },
     ...(splitBaseKind === "gross" ? [] : [
       {
-        label: "Tax + deductions",
+        label: sharedSalesBasis ? "Configured deductions" : "Tax + deductions",
         value: formatDeduction(taxAndDeductions),
         cents: taxAndDeductions,
         color: COLORS.softText,
@@ -2114,6 +2156,7 @@ const drawDetailPage = (
     additionalDeductionsNotes,
   } = context;
   const summary = preview.summary ?? {};
+  const sharedSalesBasis = usesSharedSalesBasis(preview);
   const page = pdfDoc.addPage([612, 792]);
   const periodLabel = getFriendlyPeriodLabel(preview);
   const machineScopeLabel = getMachineScopeLabel(preview);
@@ -2154,19 +2197,23 @@ const drawDetailPage = (
   const additionalCostCents = numberValue(summary.cost_cents);
   const rows = [
     {
-      label: "Gross sales",
-      formula: "Recorded sales for machines assigned to this partnership during the selected period.",
+      label: sharedSalesBasis ? "Sales before refunds (excludes tax)" : "Gross sales",
+      formula: sharedSalesBasis
+        ? "Tax-exclusive sales for machines assigned to this partnership during the selected period."
+        : "Recorded sales for machines assigned to this partnership during the selected period.",
       value: formatCurrency(summary.gross_sales_cents),
     },
     {
       label: "Less refund impact",
       formula: "Approved refund adjustments matched to this period and these machines.",
-      value: formatDeduction(summary.refund_amount_cents),
+      value: formatRefundImpact(summary.refund_amount_cents),
     },
     {
-      label: "Less machine taxes",
-      formula: "Machine taxes applied under the active agreement.",
-      value: formatDeduction(summary.tax_cents),
+      label: sharedSalesBasis ? "Sales tax (separated)" : "Less machine taxes",
+      formula: sharedSalesBasis
+        ? "Sales tax is shown as context and is already excluded from sales."
+        : "Machine taxes applied under the active agreement.",
+      value: sharedSalesBasis ? formatCurrency(summary.tax_cents) : formatDeduction(summary.tax_cents),
     },
     {
       label: `Less ${feeLabel}`,
@@ -2190,7 +2237,9 @@ const drawDetailPage = (
     },
     {
       label: "Net sales",
-      formula: "Gross sales minus approved refunds, machine taxes, and configured deductions.",
+      formula: sharedSalesBasis
+        ? "Tax-exclusive sales minus approved refunds and configured deductions."
+        : "Gross sales minus approved refunds, machine taxes, and configured deductions.",
       value: formatCurrency(summary.net_sales_cents),
       emphasis: true,
     },
@@ -2462,7 +2511,7 @@ const drawMachineAppendix = (
       formatInteger(machine.order_count),
       formatInteger(machine.item_quantity),
       formatCurrency(machine.gross_sales_cents),
-      formatDeduction(machine.refund_amount_cents),
+      formatRefundImpact(machine.refund_amount_cents),
       formatDeduction(taxAndDeductions),
       formatCurrency(machine.net_sales_cents),
       formatCurrency(machine.split_base_cents ?? machine.net_sales_cents),
@@ -2510,7 +2559,7 @@ const drawMachineAppendix = (
     formatInteger(summary.order_count),
     formatInteger(summary.item_quantity),
     formatCurrency(summary.gross_sales_cents),
-    formatDeduction(summary.refund_amount_cents),
+    formatRefundImpact(summary.refund_amount_cents),
     formatDeduction(totalTaxAndDeductions),
     formatCurrency(summary.net_sales_cents),
     formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
@@ -2612,7 +2661,7 @@ const drawMachineHistoryAppendix = (
       formatInteger(period.order_count),
       formatInteger(period.item_quantity),
       formatCurrency(period.gross_sales_cents),
-      formatDeduction(period.refund_amount_cents),
+      formatRefundImpact(period.refund_amount_cents),
       formatDeduction(taxAndDeductions),
       formatCurrency(period.net_sales_cents),
       formatCurrency(period.split_base_cents ?? period.net_sales_cents),
