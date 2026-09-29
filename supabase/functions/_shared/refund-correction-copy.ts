@@ -4,8 +4,8 @@ import { correctionLabels, type CorrectionField } from './refund-correction.ts';
 // supplied a wrong value or that a provider match has been found.
 export function refundCorrectionReason(fields: readonly CorrectionField[], spanish: boolean) {
   if (fields.length === 1 && fields[0] === 'zelle_payment_contact') return spanish
-    ? 'Necesitamos este correo o teléfono para enviar su reembolso de efectivo aprobado por Zelle.'
-    : 'We need this email or phone number to send your approved cash reimbursement through Zelle.';
+    ? 'Necesitamos este correo o teléfono para continuar revisando cómo se podría enviar un reembolso de efectivo por Zelle.'
+    : 'We need this email or phone number to continue reviewing how a cash reimbursement could be sent through Zelle.';
   const purchase = fields.some((field) => ['location_or_machine', 'incident_date', 'incident_time', 'incident_time_source', 'nearby_attempt_count', 'amount'].includes(field));
   const payment = fields.some((field) => ['payment_method', 'payment_interaction', 'wallet_provider', 'wallet_device_kind', 'card_last4', 'card_last4_source', 'card_network'].includes(field));
   if (purchase && payment) return spanish

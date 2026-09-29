@@ -78,6 +78,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
   there is no reply, applies replies to the same case, and prepares a Manager
   reject recommendation after 30 days without useful input. The unattended
   worker never closes or denies the case.
+- [ ] A clarification or payout-destination request sends only to the customer
+  in the existing thread; it does not CC Managers. An undecided cash case says
+  the destination is needed to continue review and never calls the refund
+  approved. Manager decision alerts and digests remain separate.
 - [ ] A historical no-safe-match follow-up with no customer-correctable field,
   message, or send evidence remains open Agent purchase research. It does not
   imply a customer question exists or offer a resend. Stale facts and any

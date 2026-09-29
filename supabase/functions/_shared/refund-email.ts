@@ -49,7 +49,8 @@ export type RefundCustomerMessageType =
 
 export type RefundManagerCopyPolicy =
   | "manager_cc_required"
-  | "automatic_portal_only";
+  | "automatic_portal_only"
+  | "customer_thread_only";
 
 export type RefundCustomerEmailInput = {
   messageType: RefundCustomerMessageType;
@@ -179,12 +180,13 @@ export const requireRefundManagerCcEmailsForSend = (
     customerEmail.trim().toLowerCase(),
     ...getRefundGmailMailboxIdentities(),
   ]);
-  const automaticPortalOnly = managerCopyPolicy === "automatic_portal_only";
+  const customerOnly = managerCopyPolicy === "automatic_portal_only" ||
+    managerCopyPolicy === "customer_thread_only";
   if (
     !Number.isSafeInteger(managerRecipientCount) ||
     managerRecipientCount! < 1 ||
     managerRecipientCount! > 4 ||
-    (automaticPortalOnly
+    (customerOnly
       ? normalized.length !== 0 || managerRecipientOverlap
       : normalized.length + (managerRecipientOverlap ? 1 : 0) !==
         managerRecipientCount) ||
@@ -224,11 +226,11 @@ export const sendRefundTransactionalEmail = async (
     ...transactionalInput
   } = input;
   if (
-    managerCopyPolicy === "automatic_portal_only" &&
+    managerCopyPolicy !== "manager_cc_required" &&
     (transactionalInput.cc?.length ?? 0) !== 0
   ) {
     throw new Error(
-      "Automatic refund customer email cannot include manager CC recipients.",
+      "Customer-only refund email cannot include manager CC recipients.",
     );
   }
   const refundSenderEmail = requireRefundOfficialSender(

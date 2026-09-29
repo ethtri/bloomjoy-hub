@@ -12,6 +12,7 @@ import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-fo
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { verifyRefundSyntheticGmailProofTransport } from "./refund-synthetic-gmail-proof.ts";
 import { redactRefundStatusLinksForStorage } from "./refund-email.ts";
+import type { RefundManagerCopyPolicy } from "./refund-email.ts";
 
 type RefundEmailPayload = {
   subject: string;
@@ -75,11 +76,15 @@ export const requireRefundCustomerManagerCcResolution = ({
   customerEmail,
   mailboxIdentities,
   deliveryKind = "manual",
+  managerCopyPolicy = deliveryKind === "automatic"
+    ? "automatic_portal_only"
+    : "manager_cc_required",
 }: {
   resolution: unknown;
   customerEmail: string;
   mailboxIdentities: string[];
   deliveryKind?: "manual" | "automatic";
+  managerCopyPolicy?: RefundManagerCopyPolicy;
 }) => {
   const result = resolution && typeof resolution === "object"
     ? resolution as Record<string, unknown>
@@ -95,6 +100,8 @@ export const requireRefundCustomerManagerCcResolution = ({
   const managerRecipientOverlap = result.managerRecipientOverlap === true;
   const managerRecipientCount = Number(result.managerRecipientCount);
   const automaticPortalOnly = deliveryKind === "automatic";
+  const customerThreadOnly = managerCopyPolicy === "customer_thread_only" &&
+    deliveryKind === "manual";
 
   if (
     recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS ||
@@ -113,9 +120,9 @@ export const requireRefundCustomerManagerCcResolution = ({
   }
 
   return {
-    managerCcEmails,
-    managerCcCount: managerCcEmails.length,
-    managerRecipientOverlap,
+    managerCcEmails: customerThreadOnly ? [] : managerCcEmails,
+    managerCcCount: customerThreadOnly ? 0 : managerCcEmails.length,
+    managerRecipientOverlap: customerThreadOnly ? false : managerRecipientOverlap,
     managerRecipientCount,
     recipientResolutionStatus,
   };
@@ -129,6 +136,9 @@ export const dispatchRefundCaseGmailReply = async ({
   email,
   claimPlainBody,
   deliveryKind = "manual",
+  managerCopyPolicy = deliveryKind === "automatic"
+    ? "automatic_portal_only"
+    : "manager_cc_required",
   gmailThreadId = null,
   syntheticProofAuthorizationId = null,
 }: {
@@ -139,6 +149,7 @@ export const dispatchRefundCaseGmailReply = async ({
   email: RefundEmailPayload;
   claimPlainBody?: string;
   deliveryKind?: "manual" | "automatic";
+  managerCopyPolicy?: RefundManagerCopyPolicy;
   gmailThreadId?: string | null;
   syntheticProofAuthorizationId?: string | null;
 }) => {
@@ -253,6 +264,7 @@ export const dispatchRefundCaseGmailReply = async ({
       customerEmail: recipientEmail,
       mailboxIdentities,
       deliveryKind,
+      managerCopyPolicy,
     });
     return {
       usedGmail: false as const,
@@ -347,6 +359,9 @@ export const dispatchRefundCaseGmailReply = async ({
       customerEmail: recipientEmail,
       mailboxIdentities: config.mailboxIdentities,
       deliveryKind: legacyAutomaticManagerCopy ? "manual" : deliveryKind,
+      managerCopyPolicy: legacyAutomaticManagerCopy
+        ? "manager_cc_required"
+        : managerCopyPolicy,
     });
     return {
       usedGmail: true as const,
@@ -466,6 +481,7 @@ export const dispatchRefundCaseGmailReply = async ({
     customerEmail: recipientEmail,
     mailboxIdentities: config.mailboxIdentities,
     deliveryKind,
+    managerCopyPolicy,
   });
   const managerCcEmails = managerResolution.managerCcEmails;
   const claimedResolutionStatus = managerResolution.recipientResolutionStatus;
@@ -508,9 +524,7 @@ export const dispatchRefundCaseGmailReply = async ({
       managerRecipientOverlap: managerResolution.managerRecipientOverlap,
       managerRecipientCount: managerResolution.managerRecipientCount,
       deliveryKind,
-      recipientPolicy: deliveryKind === "automatic"
-        ? "automatic_portal_only"
-        : "manager_cc_required",
+      recipientPolicy: managerCopyPolicy,
       subject,
       text: email.text,
       html: email.html,
