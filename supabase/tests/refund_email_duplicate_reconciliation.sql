@@ -396,7 +396,7 @@ values('94700000-0000-4000-8000-000000000002','94600000-0000-4000-8000-000000000
   '94000000-0000-4000-8000-000000000001','reconciliation-customer-reply','inbound',
   'message','received','same-email-customer@example.test','info@bloomjoysweets.com','customer',
   'verified','Re: Reconciliation clarification','These were two separate purchases.',
-  '<reconciliation-reminder@example.test>',statement_timestamp()-interval '30 minutes',
+  '<reconciliation-reminder@example.test>',statement_timestamp(),
   statement_timestamp()+interval '30 days');
 
 select is(public.service_receive_refund_scoped_email_reply(
