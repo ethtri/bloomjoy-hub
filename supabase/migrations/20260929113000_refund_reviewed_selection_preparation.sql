@@ -28,7 +28,29 @@ $old$;
   -- An exact replay is normally a no-op. When its historical event predates the
   -- current proof schema, record one new proof only after revalidating every
   -- current safety boundary. The case row and its decision stay unchanged.
-  if exact_replay and not manual_portal_candidate and not exists (
+  if exact_replay and not manual_portal_candidate
+    and case_row.decision is null
+    and case_row.status in ('needs_review','correlated')
+    and case_row.nayax_lookup_status in ('multiple_matches','manual_exception')
+    and case_row.nayax_recommendation_state='manager_confirmed'
+    and candidate_row.actor_user_id is not distinct from p_actor_user_id
+    and candidate_row.lookup_generation is not distinct from case_row.nayax_lookup_generation
+    and candidate_row.expires_at>statement_timestamp()
+    and candidate_row.evidence_summary->>'selection_allowed'='true'
+    and candidate_row.evidence_summary->>'payment_status'='approved'
+    and candidate_row.evidence_summary->>'provider_refund_state'='clear'
+    and candidate_row.evidence_summary->>'duplicate_provider_record'='false'
+    and candidate_row.evidence_summary->'hard_exclusions'='[]'::jsonb
+    and public.refund_nayax_request_boundary_evidence_state(
+      case_row.customer_request_received_at,
+      case_row.customer_request_received_source,
+      candidate_row.evidence_summary)='valid'
+    and public.refund_nayax_candidate_identifier_evidence_state(
+      case_row.id,candidate_row.reporting_machine_id,candidate_row.site_id,
+      candidate_row.machine_authorization_time,candidate_row.amount_cents,
+      candidate_row.card_last4,candidate_row.currency_code,
+      candidate_row.evidence_summary)='valid'
+    and not exists (
     select 1 from public.refund_case_events proof
     where proof.refund_case_id = case_row.id
       and proof.event_type = 'nayax_match_selected'
@@ -333,9 +355,7 @@ end;
 $migration$;
 
 revoke all on function public.service_select_refund_nayax_candidate_as_actor(
-  uuid,uuid,bigint,uuid,text) from public,anon,authenticated;
-grant execute on function public.service_select_refund_nayax_candidate_as_actor(
-  uuid,uuid,bigint,uuid,text) to service_role;
+  uuid,uuid,bigint,uuid,text) from public,anon,authenticated,service_role;
 revoke all on function public.admin_select_refund_nayax_candidate_current_user_v1(
   uuid,bigint,uuid,text) from public,anon,service_role;
 grant execute on function public.admin_select_refund_nayax_candidate_current_user_v1(

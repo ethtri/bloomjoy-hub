@@ -48,7 +48,8 @@ create function pg_temp.selection_evidence(
     'transaction_occurrence_timezone_basis',null,
     'transaction_occurrence_lower_bound_at',null,
     'transaction_occurrence_upper_bound_at',null,
-    'request_receipt_lower_bound_at',null,'request_receipt_upper_bound_at',null,
+    'request_receipt_lower_bound_at',null,'request_receipt_upper_bound_at',null)
+  || jsonb_build_object(
     'request_time_boundary','request_time_unknown',
     'transaction_occurrence_comparable',false,
     'transaction_occurrence_semantics','unknown','time_delta_minutes',null,
@@ -112,11 +113,7 @@ values
 ('fa080000-0000-4000-8000-000000000001','fa070000-0000-4000-8000-000000000001',
  1,'fa010000-0000-4000-8000-000000000001','fa040000-0000-4000-8000-000000000001',
  'REVIEWED-SALE',17,'2026-09-20T20:00:00Z',1090,'4242','USD',
- pg_temp.selection_evidence(false,2,'REVIEWED-SALE'),statement_timestamp()+interval '40 days'),
-('fa080000-0000-4000-8000-000000000002','fa070000-0000-4000-8000-000000000001',
- 1,null,'fa040000-0000-4000-8000-000000000001',
- 'OTHER-SALE',17,'2026-09-20T19:55:00Z',1090,'4242','USD',
- pg_temp.selection_evidence(true,1,'OTHER-SALE'),statement_timestamp()+interval '40 days');
+ pg_temp.selection_evidence(false,2,'REVIEWED-SALE'),statement_timestamp()+interval '40 days');
 
 select is(public.refund_decision_recommendation_for_case(
  'fa070000-0000-4000-8000-000000000001'),null::jsonb,
@@ -140,7 +137,8 @@ where refund_case_id='fa070000-0000-4000-8000-000000000001'
  and event_type='nayax_match_selected'
 order by created_at desc,id desc limit 1;
 update public.refund_case_events set metadata=metadata-'candidate_token'
- -'candidate_evidence_hash'-'lookup_generation'-'deterministic_fact_version'
+ -'candidate_evidence_hash'-'lookup_generation'-'deterministic_fact_version',
+ created_at=statement_timestamp()-interval '2 minutes'
 where id=(select id from reviewed_proof);
 select is(public.refund_manager_preparation_snapshot(
  'fa070000-0000-4000-8000-000000000001',
@@ -149,10 +147,11 @@ select is(public.refund_manager_preparation_snapshot(
  'legacy selection metadata cannot prepare a Manager recommendation');
 
 insert into public.refund_case_events(
- refund_case_id,actor_user_id,event_type,message,metadata)
+ refund_case_id,actor_user_id,event_type,message,metadata,created_at)
 select 'fa070000-0000-4000-8000-000000000001',
  'fa010000-0000-4000-8000-000000000002','nayax_match_selected',
- 'Synthetic current-shaped proof from the wrong actor.',metadata
+ 'Synthetic current-shaped proof from the wrong actor.',metadata,
+ statement_timestamp()-interval '1 minute'
 from reviewed_proof;
 select is(public.refund_decision_recommendation_for_case(
  'fa070000-0000-4000-8000-000000000001'),null::jsonb,
@@ -171,6 +170,8 @@ reset role;
 select is(public.refund_decision_recommendation_for_case(
  'fa070000-0000-4000-8000-000000000001')->>'kind','refund',
  'one exact current actor-reviewed transaction recommends a refund');
+select set_config('request.jwt.claim.sub','',true);
+select set_config('request.jwt.claims','{}',true);
 set local role service_role;
 select is(public.refund_lifecycle_contract(
  'fa070000-0000-4000-8000-000000000001')#>>'{nextWork,actionCode}',
@@ -190,12 +191,12 @@ select ok((select c.decision is null
        and e.metadata->>'customer_message_created'='false')
  from public.refund_cases c where c.id='fa070000-0000-4000-8000-000000000001'),
  'proof refresh has no decision, payment attempt, provider call, or customer message');
-update public.refund_nayax_lookup_candidates
-set expires_at=statement_timestamp()-interval '1 second'
-where token='fa080000-0000-4000-8000-000000000001';
+update public.refund_cases
+set payment_amount_cents=1100
+where id='fa070000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case(
  'fa070000-0000-4000-8000-000000000001'),null::jsonb,
- 'expired reviewed evidence invalidates the advisory recommendation');
+ 'a later case fact invalidates the advisory recommendation');
 
 select * from finish();
 rollback;
