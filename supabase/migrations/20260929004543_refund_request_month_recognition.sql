@@ -297,7 +297,12 @@ begin
       old.reporting_machine_id,
       old.reporting_location_id,
       old.payment_method,
-      old.matched_sales_fact_id
+      old.matched_sales_fact_id,
+      old.correlation_source,
+      old.matched_nayax_amount_cents,
+      old.matched_nayax_currency_code,
+      old.matched_nayax_transaction_id,
+      old.refund_completed_at
     ) is not distinct from row(
       new.refund_amount_cents,
       new.payment_amount_cents,
@@ -308,7 +313,12 @@ begin
       new.reporting_machine_id,
       new.reporting_location_id,
       new.payment_method,
-      new.matched_sales_fact_id
+      new.matched_sales_fact_id,
+      new.correlation_source,
+      new.matched_nayax_amount_cents,
+      new.matched_nayax_currency_code,
+      new.matched_nayax_transaction_id,
+      new.refund_completed_at
     ) then
       return new;
     end if;
@@ -356,37 +366,35 @@ begin
     );
     new_basis := old_basis;
     new_basis_provenance := old_basis_provenance;
-    if old_target is distinct from new_target then
-      -- A later approved/executed amount is a new financial fact. The intake
-      -- estimate's gross basis does not prove that replacement amount's basis.
-      if new.payment_method = 'cash'
+    if new.payment_method = 'cash'
         and new.status = 'completed'
         and new.refund_completed_at is not null
         and new.payment_amount_cents is not null
         and new_target = new.payment_amount_cents then
-        new_basis := 'tax_inclusive';
-        new_basis_provenance := 'cash_completion_exact_customer_charge';
-      elsif new.payment_method = 'card'
+      new_basis := 'tax_inclusive';
+      new_basis_provenance := 'cash_completion_exact_customer_charge';
+    elsif new.payment_method = 'card'
         and new.correlation_source = 'nayax'
         and new.matched_nayax_amount_cents = new_target
         and new.matched_nayax_currency_code = 'USD'
         and nullif(new.matched_nayax_transaction_id, '') is not null then
-        new_basis := 'tax_inclusive';
-        new_basis_provenance := 'nayax_exact_matched_customer_charge';
-      elsif exists (
+      new_basis := 'tax_inclusive';
+      new_basis_provenance := 'nayax_exact_matched_customer_charge';
+    elsif exists (
         select 1
         from public.refund_authoritative_receipts receipt
         where receipt.refund_case_id = new.id
           and receipt.original_amount_cents = new_target
           and receipt.refunded_amount_cents = new_target
           and receipt.currency_code = 'USD'
-      ) then
-        new_basis := 'tax_inclusive';
-        new_basis_provenance := 'nayax_authoritative_full_refund_receipt';
-      else
-        new_basis := 'unknown';
-        new_basis_provenance := 'changed_refund_amount_basis_unproved';
-      end if;
+    ) then
+      new_basis := 'tax_inclusive';
+      new_basis_provenance := 'nayax_authoritative_full_refund_receipt';
+    elsif old_target is distinct from new_target then
+      -- A later amount is a new financial fact unless its own execution or
+      -- provider evidence proves the customer-charge basis.
+      new_basis := 'unknown';
+      new_basis_provenance := 'changed_refund_amount_basis_unproved';
     end if;
     basis_changed := old_basis is distinct from new_basis;
 
@@ -403,7 +411,7 @@ begin
     );
 
     if recognized_before is not distinct from recognized_after
-      and not scope_changed and not basis_changed then
+      and not scope_changed then
       return new;
     end if;
 
@@ -477,7 +485,8 @@ begin
   -- A changed machine, location, tender, or matched purchase is booked as a
   -- current-period reclassification. The old event stays immutable, so a
   -- correction cannot rewrite an already issued period.
-  if not first_request and (scope_changed or basis_changed) then
+  if not first_request and (scope_changed or basis_changed)
+    and not (old_basis = 'unknown' and new_basis <> 'unknown') then
     select location.timezone
     into old_location_timezone
     from public.reporting_locations location
@@ -607,7 +616,12 @@ after insert or update of
   reporting_machine_id,
   reporting_location_id,
   payment_method,
-  matched_sales_fact_id
+  matched_sales_fact_id,
+  correlation_source,
+  matched_nayax_amount_cents,
+  matched_nayax_currency_code,
+  matched_nayax_transaction_id,
+  refund_completed_at
 on public.refund_cases
 for each row execute function private.capture_refund_request_recognition_event();
 
@@ -963,11 +977,36 @@ begin
     ) normalized
   ), active_recognition as materialized (
     select event.*,
+      case
+        when event.amount_basis <> 'unknown' then event.amount_basis
+        when event.request_target_after_cents is null then 'unknown'
+        when refund_case.payment_method = 'cash'
+          and refund_case.status = 'completed'
+          and refund_case.refund_completed_at is not null
+          and refund_case.payment_amount_cents = event.request_target_after_cents
+          and refund_case.refund_amount_cents = event.request_target_after_cents
+          then 'tax_inclusive'
+        when refund_case.payment_method = 'card'
+          and refund_case.correlation_source = 'nayax'
+          and refund_case.matched_nayax_amount_cents = event.request_target_after_cents
+          and refund_case.matched_nayax_currency_code = 'USD'
+          and nullif(refund_case.matched_nayax_transaction_id, '') is not null
+          then 'tax_inclusive'
+        when receipt.id is not null then 'tax_inclusive'
+        else 'unknown'
+      end::text as effective_amount_basis,
       tax_rate.tax_rate_percent
     from private.refund_request_recognition_events event
     join private.refund_request_recognition_rollout rollout
       on rollout.singleton
      and event.recorded_at >= rollout.activated_at
+    join public.refund_cases refund_case
+      on refund_case.id = event.refund_case_id
+    left join public.refund_authoritative_receipts receipt
+      on receipt.refund_case_id = event.refund_case_id
+     and receipt.original_amount_cents = event.request_target_after_cents
+     and receipt.refunded_amount_cents = event.request_target_after_cents
+     and receipt.currency_code = 'USD'
     left join lateral (
       select rate.tax_rate_percent
       from public.reporting_machine_tax_rates rate
@@ -990,19 +1029,19 @@ begin
     from active_recognition event
     cross join lateral private.normalize_financial_amount_cents(
       event.recognized_target_before_cents,
-      event.amount_basis,
+      event.effective_amount_basis,
       event.tax_rate_percent,
       null
     ) before_amount
     cross join lateral private.normalize_financial_amount_cents(
       event.recognized_target_after_cents,
-      event.amount_basis,
+      event.effective_amount_basis,
       event.tax_rate_percent,
       null
     ) after_amount
     cross join lateral private.normalize_financial_amount_cents(
       event.paid_cumulative_cents,
-      event.amount_basis,
+      event.effective_amount_basis,
       event.tax_rate_percent,
       null
     ) paid_amount
@@ -1181,7 +1220,8 @@ begin
       on linked_location.id = linked_case.reporting_location_id
     cross join lateral (
       select case
-        when event.amount_basis is not null then event.amount_basis
+        when event.amount_basis is not null and event.amount_basis <> 'unknown'
+          then event.amount_basis
         when adjustment.source = 'nayax_provider_refund' then 'tax_inclusive'
         when linked_case.customer_request_received_source = 'hosted_refund_intake'
           and adjustment.amount_cents = linked_case.payment_amount_cents

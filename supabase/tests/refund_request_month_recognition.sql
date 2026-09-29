@@ -154,6 +154,39 @@ select is((select outstanding_context_ex_tax_cents
     and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date),
   3000::bigint, 'Outstanding context sums each same-day case');
 
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status,
+  customer_request_received_at, customer_request_received_source
+) values (
+  'fd400000-0000-4000-8000-000000000006', 'RF-PERIOD-6',
+  'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001',
+  'proof@example.invalid', 'Same amount gains exact evidence', clock_timestamp(),
+  'card', 1100, 1100, 'needs_review', clock_timestamp(), 'gmail_contact_ingested'
+);
+select is((select count(*) from private.refund_request_recognition_events
+  where refund_case_id='fd400000-0000-4000-8000-000000000006'), 1::bigint,
+  'Unknown request initially has one immutable raw event');
+update public.refund_cases set
+  correlation_status='matched', correlation_source='nayax',
+  matched_nayax_transaction_id='exact-1100', matched_nayax_amount_cents=1100,
+  matched_nayax_currency_code='USD', matched_nayax_machine_auth_time=incident_at
+where id='fd400000-0000-4000-8000-000000000006';
+select is((select count(*) from private.refund_request_recognition_events
+  where refund_case_id='fd400000-0000-4000-8000-000000000006'), 1::bigint,
+  'Evidence-only correction does not create a second monetary event');
+select results_eq($$
+  select request_deduction_ex_tax_cents, unresolved_refund_count
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001',
+    (now() at time zone 'America/Los_Angeles')::date,
+    (now() at time zone 'America/Los_Angeles')::date
+  ) where source='refund_request'
+    and purchase_attribution_date=(now() at time zone 'America/Los_Angeles')::date
+$$, $$values (4000::bigint,0::bigint)$$,
+  'Exact same-amount Nayax proof resolves the original request without double deduction');
+
 insert into public.sales_adjustment_facts (
   id, reporting_machine_id, reporting_location_id, adjustment_date,
   adjustment_type, amount_cents, complaint_count, source, source_row_hash,
