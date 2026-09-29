@@ -33,6 +33,15 @@ select ok(strpos(pg_get_functiondef(
     'refund_project_lifecycle_pre_setwise_reuse_v1')>0,
   'lifecycle reuse retains its exact fail-closed delegate');
 select ok(strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_manager_lifecycle_v1()'
+      ::regprocedure),
+    'refund_lifecycle_contract_pre_manager_queue_truth_v1(refund_case.id)')>0
+  and strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_manager_lifecycle_v1()'
+      ::regprocedure),
+    'public.refund_lifecycle_contract(refund_case.id)')=0,
+  'durable overview stage reuses its retained lifecycle before v2 projection');
+select ok(strpos(pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure),
     'refund_project_current_next_work_cases')>0,
   'final overview validates current next-work contracts before reuse');
