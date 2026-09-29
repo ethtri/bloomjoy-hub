@@ -129,10 +129,18 @@ begin
     pg_temp.request_bound_evidence()||jsonb_build_object(
       'amount_cents',fixture_amount,'amount_delta_cents',0,
       'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
-      'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
+      'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end,
+      'policy_version',case when p_trigger='scheduled'
+        then '2026-09-13.v12' else '2026-09-05.v11' end,
+      'request_time_boundary',case when p_trigger='scheduled'
+        then 'occurrence_time_uncertain' else 'before_or_at_request' end,
+      'transaction_occurrence_semantics',case when p_trigger='scheduled'
+        then 'unknown' else 'online_purchase_occurrence' end,
+      'transaction_occurrence_comparable',p_trigger<>'scheduled'),
     now()+interval '1 hour');
   return public.service_commit_refund_nayax_lookup_and_preselect_v1(
-    p_case_id,1,1,p_lookup_status,p_recommendation_state,'2026-09-05.v11',
+    p_case_id,1,1,p_lookup_status,p_recommendation_state,
+    case when p_trigger='scheduled' then '2026-09-13.v12' else '2026-09-05.v11' end,
     statement_timestamp(),'Provider lookup fixture','a3440000-0000-4000-8000-000000000001',
     1,p_trigger,p_actor_user_id,null);
 end;
