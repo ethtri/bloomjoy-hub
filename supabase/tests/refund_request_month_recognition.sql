@@ -41,9 +41,9 @@ insert into public.sales_adjustment_facts (
   adjustment_type, amount_cents, complaint_count, source, source_row_hash,
   raw_payload, created_at
 ) values (
-  'fd500000-0000-4000-8000-000000000011', 'fd300000-0000-4000-8000-000000000001',
+  'fd500000-0000-4000-8000-000000000020', 'fd300000-0000-4000-8000-000000000001',
   'fd200000-0000-4000-8000-000000000001', current_date-70, 'refund', 500, 1,
-  'manual', repeat('b',64),
+  'manual', repeat('f0',32),
   '{"payment_method":"cash","amountBasis":"tax_exclusive"}', clock_timestamp()
 );
 
@@ -127,15 +127,15 @@ insert into public.sales_adjustment_facts (
   raw_payload, created_at
 ) values
   (
-    'fd500000-0000-4000-8000-000000000012', 'fd300000-0000-4000-8000-000000000001',
+    'fd500000-0000-4000-8000-000000000021', 'fd300000-0000-4000-8000-000000000001',
     'fd200000-0000-4000-8000-000000000001', current_date-69, 'refund', 700, 1,
-    'manual', repeat('c',64),
+    'manual', repeat('f1',32),
     '{"payment_method":"other","amountBasis":"tax_exclusive"}', clock_timestamp()
   ),
   (
-    'fd500000-0000-4000-8000-000000000013', 'fd300000-0000-4000-8000-000000000001',
+    'fd500000-0000-4000-8000-000000000022', 'fd300000-0000-4000-8000-000000000001',
     'fd200000-0000-4000-8000-000000000001', current_date-68, 'refund', 900, 1,
-    'manual', repeat('d',64),
+    'manual', repeat('f2',32),
     '{"payment_method":"cash","amountBasis":"separate_tax"}', clock_timestamp()
   );
 select results_eq($$
