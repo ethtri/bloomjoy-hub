@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(34);
+select plan(36);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -42,8 +42,11 @@ select ok(
   'recommendation evidence is service-only');
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
-values('f1010000-0000-4000-8000-000000000001','authenticated','authenticated',
-  'decision-manager@example.invalid','{}','{}');
+values
+('f1010000-0000-4000-8000-000000000001','authenticated','authenticated',
+  'decision-manager@example.invalid','{}','{}'),
+('f1010000-0000-4000-8000-000000000002','authenticated','authenticated',
+  'decision-manager-two@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type)
 values('f1020000-0000-4000-8000-000000000001','Decision fixtures','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -70,6 +73,8 @@ insert into public.reporting_machine_refund_managers(
 values
 ('f1040000-0000-4000-8000-000000000001','f1010000-0000-4000-8000-000000000001',
  'decision-manager@example.invalid','Fixture'),
+('f1040000-0000-4000-8000-000000000001','f1010000-0000-4000-8000-000000000002',
+ 'decision-manager-two@example.invalid','Second valid machine Manager'),
 ('f1040000-0000-4000-8000-000000000002','f1010000-0000-4000-8000-000000000001',
  'decision-manager@example.invalid','Fixture'),
 ('f1040000-0000-4000-8000-000000000003','f1010000-0000-4000-8000-000000000001',
@@ -220,6 +225,23 @@ set local role service_role;
 select is(public.refund_lifecycle_contract(
  'f1050000-0000-4000-8000-000000000001')#>>'{nextWork,actionCode}',
  'approve_or_deny_request','clear recommendation becomes one Manager decision');
+select ok((select c.assigned_manager_id is null and count(m.id)=2
+  from public.refund_cases c
+  join public.reporting_machine_refund_managers m
+    on m.reporting_machine_id=c.reporting_machine_id
+    and m.status='active' and m.revoked_at is null
+  where c.id='f1050000-0000-4000-8000-000000000001'
+  group by c.assigned_manager_id),
+  'two valid machine Managers do not require an arbitrary case assignee');
+select ok((select lifecycle#>>'{nextWork,actionCode}'='approve_or_deny_request'
+    and lifecycle#>>'{managerQueue,nextAction}'='approve_or_deny_request'
+    and lifecycle#>>'{managerQueue,bucket}'='needs_action'
+    and lifecycle#>>'{managerQueue,label}'='Decision needed'
+    and lifecycle->>'managerNextAction'='approve_or_deny_request'
+    and lifecycle#>>'{managerAction,action}'='none'
+  from (select public.refund_lifecycle_contract(
+    'f1050000-0000-4000-8000-000000000001') lifecycle) q),
+  'generic queue follows the canonical decision while the legacy action stays hidden');
 select ok((select snapshot->>'schemaVersion'='refund_manager_ready_notice_v2'
     and snapshot->>'actionCode'='approve_or_deny_request'
     and snapshot->>'recommendationKind'='refund'
@@ -230,6 +252,9 @@ select ok((select snapshot->>'schemaVersion'='refund_manager_ready_notice_v2'
     'f1010000-0000-4000-8000-000000000001') snapshot) q),
   'ready notice consumes the current card refund recommendation');
 reset role;
+delete from public.reporting_machine_refund_managers
+where reporting_machine_id='f1040000-0000-4000-8000-000000000001'
+  and manager_user_id='f1010000-0000-4000-8000-000000000002';
 select is(public.refund_manager_decision_material_fingerprint(
     'f1050000-0000-4000-8000-000000000001','approve_or_deny_request'),
   public.refund_manager_decision_fingerprint_pre_recommendation_v1(
