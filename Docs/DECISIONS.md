@@ -57,7 +57,10 @@ decision below.
   payment failure do not erase a valid request.
 - Normalize sales and refund components to tax-exclusive values exactly once.
   Blank/zero source tax does not prove exemption, and a value already proved
-  tax-exclusive receives no additional tax subtraction.
+  tax-exclusive receives no additional tax subtraction. In particular,
+  `tax_exclusive` with `tax_cents = 0` means that no tax is removed from that
+  source amount; it does not prove that no tax was collected or that the sale,
+  location or customer is tax-exempt.
 - The bounded app/API evidence does not support a vendor-only source switch.
   Keep current effective source boundaries until a later recorded decision has
   comparable vendor card coverage, amount, tax, timing and refund evidence.
