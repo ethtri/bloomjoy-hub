@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(72);
+select plan(76);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -213,6 +213,31 @@ select ok((select matched_nayax_transaction_id='LOOKUP-000000000015'
       and actor_user_id='a3410000-0000-4000-8000-000000000002'
       and metadata->>'provider_call_made'='false'),
   'System evidence selection remains actor-attributed and makes no provider call');
+reset role;
+select ok((select assigned_manager_id is null
+      from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015')
+    and public.refund_decision_recommendation_for_case(
+      'a3470000-0000-4000-8000-000000000015')->>'kind'='refund',
+  'an exact System selection by a current machine Manager needs no single case assignee');
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+    'a3470000-0000-4000-8000-000000000015')#>>'{nextWork,actionCode}',
+  'approve_or_deny_request',
+  'the authorized System selection reaches the existing Manager decision path');
+reset role;
+update public.reporting_machine_refund_managers
+set revoked_at=statement_timestamp()
+where id='a3450000-0000-4000-8000-000000000001';
+select is(public.refund_decision_recommendation_for_case(
+    'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'a stale System selection proof cannot prepare a recommendation after authority is revoked');
+update public.reporting_machine_refund_managers
+set revoked_at=null
+where id='a3450000-0000-4000-8000-000000000001';
+select is(public.refund_decision_recommendation_for_case(
+    'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
+  'restoring the current machine Manager mapping restores the same evidence-only recommendation');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,

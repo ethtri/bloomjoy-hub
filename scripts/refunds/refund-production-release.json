@@ -279,7 +279,8 @@
     "20260929164000_refund_completion_customer_only.sql",
     "20260929175500_refund_manager_route_consistency.sql",
     "20260929193000_refund_reconciliation_clarification.sql",
-    "20260929221500_refund_system_candidate_review.sql"
+    "20260929221500_refund_system_candidate_review.sql",
+    "20260929231500_refund_system_selection_preparation.sql"
   ],
   "migrationFilesSha256": "3fc9b90cc6607604db5f1d3aae5ad9d0db9639861025bfa031af3aa97be9ae99",
   "migrationVersionSetSha256": "0a6c3dd14f7b323979e7cb073749e5a19f81deac0727206d4277d0593a9b2e7e",
