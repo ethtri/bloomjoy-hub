@@ -53,59 +53,63 @@ select ok(
   'authenticated users cannot settle provider-success completion delivery'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_completion(text,uuid,text)'::regprocedure
-  ),
-  '%Exact customer-only Nayax completion recipient proof required%',
+select ok(
+  position('Exact customer-only Nayax completion recipient proof required' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_completion(text,uuid,text)'::regprocedure
+    )) > 0,
   'legacy Gmail finalizer cannot infer a physical sent recipient route'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_recover_stale_nayax_completion(text,uuid,uuid)'::regprocedure
-  ),
-  '%Exact customer-only Nayax completion recipient proof required%',
+select ok(
+  position('Exact customer-only Nayax completion recipient proof required' in
+    pg_get_functiondef(
+      'public.service_recover_stale_nayax_completion(text,uuid,uuid)'::regprocedure
+    )) > 0,
   'stale recovery turns a pre-policy sent projection into delivery unknown'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_completion(text,uuid,text,integer,boolean)'::regprocedure
-  ),
-  '%coalesce(p_manager_cc_count, -1) <> 0%',
+select ok(
+  position('coalesce(p_manager_cc_count, -1) <> 0' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) > 0,
   'Gmail completion requires zero physical manager CC recipients'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_completion(text,uuid,text,integer,boolean)'::regprocedure
-  ),
-  '%recipient_manager_count is distinct from%total_active_manager_count%',
+select ok(
+  position('recipient_manager_count is distinct from' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) > 0
+  and position('total_active_manager_count' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) > 0,
   'Gmail completion still verifies the current mapped-manager governance route'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
-  ),
-  '%coalesce(p_manager_cc_count, -1) <> 0%',
+select ok(
+  position('coalesce(p_manager_cc_count, -1) <> 0' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) > 0,
   'transactional completion requires zero physical manager CC recipients'
 );
 
-select like(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
-  ),
-  '%distinct_active_manager_count not between 1 and 4%',
+select ok(
+  position('distinct_active_manager_count not between 1 and 4' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) > 0,
   'transactional completion still verifies a current mapped-manager governance route'
 );
 
-select unlike(
-  pg_get_functiondef(
-    'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
-  ),
-  '%Machine Managers copied%',
+select ok(
+  position('Machine Managers copied' in
+    pg_get_functiondef(
+      'public.service_finish_nayax_refund_form_completion(text,uuid,text,integer,boolean)'::regprocedure
+    )) = 0,
   'new transactional completion evidence no longer claims managers were copied'
 );
 
