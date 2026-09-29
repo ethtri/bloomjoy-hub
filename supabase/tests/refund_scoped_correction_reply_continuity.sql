@@ -52,7 +52,8 @@ begin
   end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
   values(mid,cid,case when n in (27,28,29,38,42,45,60) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
-    'deterministic_template','automatic',case when n in (27,28,29,38,42,45,60) then null else 'missing_information' end,
+    'deterministic_template',case when n=61 then 'manual' else 'automatic' end,
+    case when n in (27,28,29,38,42,45,60,61) then null else 'missing_information' end,
     case when n in (27,28,29,38,42,45,60) then 'refund_wallet_correction_v1' else 'refund_follow_up_v2' end,
     (cycle#>>'{cycle,id}')::uuid,fields);
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),(select deterministic_fact_version from public.refund_cases where id=cid));
