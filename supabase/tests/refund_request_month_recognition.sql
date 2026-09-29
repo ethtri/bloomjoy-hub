@@ -319,5 +319,35 @@ select results_eq($$
 $$, $$values (1800::bigint,null::bigint,null::bigint,1::bigint)$$,
   'Known and unknown same-day facts never collapse into a known-only total');
 
+insert into public.customer_accounts (id, name, account_type)
+values ('fd100000-0000-4000-8000-000000000011', 'Recognition deletion fixture', 'internal');
+insert into public.reporting_locations (id, account_id, name, timezone)
+values ('fd200000-0000-4000-8000-000000000011', 'fd100000-0000-4000-8000-000000000011', 'Deletion fixture', 'UTC');
+insert into public.reporting_machines (id, account_id, location_id, machine_label, status)
+values ('fd300000-0000-4000-8000-000000000011', 'fd100000-0000-4000-8000-000000000011', 'fd200000-0000-4000-8000-000000000011', 'Deletion machine', 'active');
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status,
+  customer_request_received_at, customer_request_received_source
+) values (
+  'fd400000-0000-4000-8000-000000000011', 'RF-PERIOD-11',
+  'fd300000-0000-4000-8000-000000000011', 'fd200000-0000-4000-8000-000000000011',
+  'delete@example.invalid', 'Snapshot survives source cleanup', clock_timestamp(),
+  'cash', 500, 500, 'needs_review', clock_timestamp(), 'hosted_refund_intake'
+);
+delete from public.refund_cases where id='fd400000-0000-4000-8000-000000000011';
+delete from public.reporting_machines where id='fd300000-0000-4000-8000-000000000011';
+delete from public.reporting_locations where id='fd200000-0000-4000-8000-000000000011';
+select results_eq($$
+  select refund_case_id, reporting_machine_id, reporting_location_id
+  from private.refund_request_recognition_events
+  where refund_case_id='fd400000-0000-4000-8000-000000000011'
+$$, $$values (
+  'fd400000-0000-4000-8000-000000000011'::uuid,
+  'fd300000-0000-4000-8000-000000000011'::uuid,
+  'fd200000-0000-4000-8000-000000000011'::uuid
+)$$, 'Immutable recognition snapshots do not restrict established source cleanup');
+
 select * from finish();
 rollback;
