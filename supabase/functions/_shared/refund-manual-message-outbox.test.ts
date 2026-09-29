@@ -6,6 +6,7 @@ import {
   claimRefundManualMessageDeliveries,
   deliverRefundManualMessageClaim,
   drainRefundManualMessageOutbox,
+  refundManualMessageManagerCopyPolicy,
   refundOutboxAutomaticSendGate,
 } from "./refund-manual-message-outbox.ts";
 import { RefundGmailError, sha256Hex } from "./refund-gmail.ts";
@@ -113,6 +114,17 @@ const withGmailEnvironment = async (run: () => Promise<void>) => {
     }
   }
 };
+
+Deno.test("automatic more-info keeps the existing automatic no-CC policy", () => {
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "more_info",
+    delivery_kind: "automatic",
+  }), "automatic_portal_only");
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "more_info",
+    delivery_kind: "manual",
+  }), "customer_thread_only");
+});
 
 Deno.test("manual-message outbox claims a bounded exact message contract", async () => {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
