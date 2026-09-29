@@ -138,7 +138,7 @@ Use these after the sales reporting migration has been applied.
    - `Sales Import Recovery` automatically replays a live `Last 7 Days` sync when a scheduled `Sales Import Sync` run on `main` fails, is cancelled, or times out. Manual recovery dispatch defaults to `dry_run=true`; manual live recovery requires `dry_run=false` and `confirm_live=true`.
    - Sunze export now completes through Export Task List. The worker confirms the export, pins the requested task after the request timestamp, downloads it after completion, parses `.xlsx` or `.zip` files, and deletes raw downloads after parsing.
    - If a manual provider file is used for backfill, keep it outside the repo/CI artifacts and delete it after the dry-run/live ingest checks are complete.
-   - Large exports are posted to ingest in chunks so historical date ranges stay below the locked endpoint row limit.
+   - Large exports are posted to ingest in chunks capped at 250 rows so each database write stays below the production statement timeout. Smaller configured chunks are allowed; larger configured values are capped by the worker.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
 7) Run the Sunze import freshness check without touching Sunze:
    - `npm run reporting:provider-health -- --event freshness_check --stale-hours 30`
