@@ -11,11 +11,17 @@ orientation snapshot; it is not a backlog or release ledger.
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
   source. The email must name the exact fields, explain why and link to matching
-  highlighted checks with prior answers preserved. Existing secure forms already
-  validate same-case structured answers and can trigger automatic purchase
-  rechecks. Fresh targeted access after a submitted/expired link and complete
-  notification/form alignment remain implementation gaps under #628/#1361;
-  this docs decision does not claim they are deployed. Emails/assisted exceptions
+  highlighted checks with prior answers preserved. PR #1651 was deployed on
+  September 30: verified current submitted/expired links offer **Update your
+  request**, preserve the submitted receipt and prior answers, and open fresh
+  same-case structured access without another message or follow-up cycle.
+  Validated matching changes invalidate stale purchase evidence and trigger the
+  existing automatic recheck; unchanged confirmation preserves current facts.
+  Production desktop/mobile form journeys passed with synthetic transport;
+  live unknown/unauthorized capabilities were denied and protected case records
+  were unchanged. Internally changed facts, revoked access and independent newer
+  requests cannot be renewed through stale links; supported current issuance
+  owns those cases. #628/#1361 retain remaining gaps. Emails/assisted exceptions
   retain supplied facts. The #1648 free-text email-time parsing work is held and
   superseded by this direction; no parser extension was deployed.
 
