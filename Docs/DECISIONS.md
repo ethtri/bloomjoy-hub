@@ -1,5 +1,27 @@
 # Decisions
 
+## 2026-09-30 - Align the refund PRD with the approved gift-card requirements
+
+The owner confirmed #666/#1639's gift-card plan and requested this PRD alignment.
+This adds the gift-card path to the form-first decision below; it does not change
+original-payment Nayax approval or claim that gift-card issuance is live.
+
+- Reuse the existing form: cash gets a gift-card offer; card gets the recommended
+  gift card or an original-payment refund. Collect card details only for the latter.
+- One automatic issuance per normalized email in rolling 12 months; every extra
+  issuance needs one Manager approval. Same-quarter repeats use that same rule.
+  Declining an offer, card refunds and resending the same code do not consume it.
+- Assume one use and no surviving balance; show value, scope and expiry clearly.
+  Target 1–2 minute email delivery for ordinary eligible requests from stock.
+- Use batch-imported Sunzee/KeMore codes, compatible earliest-expiry allocation
+  and low-stock replenishment. Reuse cases, Manager review and the existing outbox.
+- Preserve payment history, unknown-outcome protection and one resolution per
+  case. Keep purchase value, voucher value and goodwill distinct; rounding and
+  financial treatment remain scoped implementation decisions in #1637–#1640.
+- `Docs/REFUND_WORKFLOW.md` owns the product detail. Existing live card/manual
+  cash operations continue until activation; this docs change authorizes no
+  production issuance, payment or migration of customer commitments.
+
 ## 2026-09-30 - Form-first refund intake and field-specific same-case updates
 
 The owner confirmed this direction under #628 and #1361.
