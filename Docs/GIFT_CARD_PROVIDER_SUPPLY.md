@@ -25,7 +25,12 @@ Primary public application sources:
   `index-BNhaWQzl.js` under `/js/`.
 
 These are observed application contracts, not a claim of a published API or a
-live creation test. Before activation, verify the exact account/machine mapping,
+live creation test. The four current KeMore coupons returned empty embedded
+scope arrays; a positive nonempty scope response has not been observed. The
+adapter verifies the requested device-scope shape and rejects extra category or
+merchant scopes; an unrecognized response holds the batch instead of importing
+it. Confirm this positive shape in the first authorized creation verification.
+Before activation, verify the exact account/machine mapping,
 USD basis, provider timezone and machine redemption instructions. Sunzee
 creation is account-wide: a configured subset must not claim the vendor limits
 redemption to that subset. Credentials must belong to the configured account.

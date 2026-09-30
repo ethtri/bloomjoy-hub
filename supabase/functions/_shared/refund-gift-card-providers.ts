@@ -131,7 +131,14 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
       if (identity(coupon.merchantId) !== merchantId || coupon.discountType !== 1 || cents(coupon.discountValue) !== claim.pool.face_value_cents || coupon.currency !== claim.pool.currency || coupon.isActive !== true || coupon.useScopeType !== 0) throw new SupplyError("provider_batch_mismatch", true);
       const returnedScopes = array(coupon.scopes);
       const deviceScope = returnedScopes.find((s) => s.scopeType === 1);
-      if (!deviceScope || !Array.isArray(deviceScope.scopeValue) || JSON.stringify([...deviceScope.scopeValue].map(String).sort()) !== JSON.stringify([...machineIds].sort())) throw new SupplyError("provider_scope_mismatch", true);
+      if (!deviceScope || returnedScopes.filter((s) => s.scopeType === 1).length !== 1 ||
+        !Array.isArray(deviceScope.scopeValue) ||
+        JSON.stringify([...deviceScope.scopeValue].map(String).sort()) !== JSON.stringify([...machineIds].sort()) ||
+        returnedScopes.some((s) => s.scopeType !== 1 &&
+          (![2, 3].includes(Number(s.scopeType)) || !Array.isArray(s.scopeValue) || s.scopeValue.length !== 0)) ||
+        !Array.isArray(coupon.useMerchantScope) || coupon.useMerchantScope.length !== 0) {
+        throw new SupplyError("provider_scope_mismatch", true);
+      }
       const records = await allPages(request, "/v1/coupon-codes", { couponId: identity(coupon.id) });
       if (records.length !== claim.requestedCount) throw new SupplyError("provider_batch_count_mismatch", true);
       return records.map((r) => {
