@@ -8,6 +8,18 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- On September 30 the primary database scheduler missed two health dispatches
+  and one refund sweep because pg_net reused transport request identifiers that the
+  durable dispatch ledger incorrectly required to be globally unique. The
+  failed transactions rolled back both their ledger rows and queued HTTP
+  requests, so no unknown provider or customer effect escaped and the missed
+  sweep must not be blindly replayed. The repair keeps `run_key` and
+  `(mode, bucket_at)` as the stable dispatch identities while retaining the
+  reusable pg_net request identifier as diagnostic evidence.
+  Existing incident tables did not surface these rolled-back cron failures;
+  closing that visibility gap remains separate work. A natural primary health
+  and sweep after deployment are still required to prove recovery; the pre-fix
+  03:07 sweep succeeding with a fresh identifier is not repair evidence.
 - The cross-case Nayax card blocker is removed: another refund case's
   reference to the same purchase is audit context rather than a payment veto.
   Nayax owns the original-purchase total limit; same-case replay protection,
@@ -35,8 +47,11 @@ orientation snapshot; it is not a backlog or release ledger.
   while a direct no-Zelle statement from one exact bound message is retained as
   internal payout research evidence in the same settlement. It does not infer
   a limitation across messages, add another customer question, approve a refund,
-  or authorize payment. This remains prospective until the migration and hosted
-  replay checks pass and production readback confirms the current task advances.
+  or authorize payment. Migration `20260930020251` is deployed, and the governed
+  runner resolved the exact task while preserving the corrected amount and the
+  bound no-Zelle evidence. The current next step is internal purchase research;
+  no outbound message, decision, payment, completion, or accounting adjustment
+  was created.
 - On September 29 a governed confirmed-refund receipt reached the customer in
   the existing Gmail thread but also copied two mapped Managers because manual
   `completed` outbox rows still inherited the general Manager-copy policy. A
