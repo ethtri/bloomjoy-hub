@@ -117,6 +117,54 @@ begin
   return renewed;
 end $$;
 
+-- Quotes may use an enabled scope template at any $5 denomination. Only an
+-- accepted request materializes its exact pool; browsing never creates stock.
+create function public.service_materialize_refund_gift_card_offer(
+  p_machine_id uuid,p_amount_cents integer,p_template_pool_id uuid,p_expires_at timestamptz
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare template public.refund_gift_card_pools%rowtype;
+  rule public.refund_gift_card_refill_rules%rowtype;
+  exact public.refund_gift_card_pools%rowtype; face integer;
+begin
+  if p_amount_cents is null or p_amount_cents<=0 then raise exception 'Purchase amount required'; end if;
+  face:=(ceil(p_amount_cents::numeric/500)*500)::integer;
+  select * into template from public.refund_gift_card_pools where id=p_template_pool_id for update;
+  select * into rule from public.refund_gift_card_refill_rules where pool_id=template.id;
+  if template.id is null or not template.enabled or template.expires_at<=now()
+    or p_expires_at is null or p_expires_at>template.expires_at or p_expires_at<=now()
+    or not(p_machine_id=any(template.eligible_machine_ids))
+    or not exists(select 1 from public.reporting_machines where id=p_machine_id and status='active')
+    or rule.pool_id is null or rule.provider_config->>'scope_verified' is distinct from 'true'
+    or rule.provider_config->>'currency_verified' is distinct from 'true' then
+    raise exception 'Current enabled verified offer required';
+  end if;
+  -- Serialize across templates in the same account and scope so simultaneous
+  -- accepted requests cannot create duplicate denomination pools.
+  perform pg_advisory_xact_lock(hashtextextended('gift_card_pool:'||template.provider||':'||template.provider_account_id,0));
+  select p.* into exact from public.refund_gift_card_pools p
+    join public.refund_gift_card_refill_rules r on r.pool_id=p.id
+    where p.enabled and p.provider=template.provider and p.provider_account_id=template.provider_account_id
+      and p.currency=template.currency and p.face_value_cents=face
+      and p.eligible_machine_ids=template.eligible_machine_ids and p.eligible_locations=template.eligible_locations
+      and p.redemption_instructions=template.redemption_instructions and p.expires_at>=p_expires_at
+      and r.provider_config=rule.provider_config
+    order by p.expires_at,p.id limit 1;
+  if exact.id is null then
+    insert into public.refund_gift_card_pools(provider,provider_account_id,currency,face_value_cents,
+      eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
+      values(template.provider,template.provider_account_id,template.currency,face,
+        template.eligible_machine_ids,template.eligible_locations,template.expires_at,true,template.redemption_instructions)
+      returning * into exact;
+    insert into public.refund_gift_card_refill_rules(pool_id,min_available,target_available,max_batch_size,
+      validity_days,renew_before_days,provider_config)
+      values(exact.id,rule.min_available,rule.target_available,rule.max_batch_size,
+        rule.validity_days,rule.renew_before_days,rule.provider_config);
+  end if;
+  return jsonb_build_object('pool_id',exact.id,'value',face,'currency',exact.currency,
+    'eligible_locations',exact.eligible_locations,'expires_at',p_expires_at,'one_use',true,
+    'redemption_instructions',exact.redemption_instructions);
+end $$;
+
 create function public.admin_set_refund_gift_card_pool_enabled(p_pool_id uuid,p_enabled boolean)
 returns jsonb language plpgsql security definer set search_path='' as $$
 begin
@@ -348,8 +396,10 @@ grant execute on function public.admin_configure_refund_gift_card_supply(uuid,in
   public.admin_recover_refund_gift_card_refill(uuid,jsonb,text),
   public.admin_import_refund_gift_card_codes(uuid,jsonb,text),public.admin_get_refund_gift_card_supply() to authenticated;
 revoke all on function public.service_rollover_refund_gift_card_supply(),public.service_claim_refund_gift_card_refill(uuid[]),
+  public.service_materialize_refund_gift_card_offer(uuid,integer,uuid,timestamptz),
   public.service_begin_refund_gift_card_refill(uuid,uuid,jsonb,timestamptz),
   public.service_finish_refund_gift_card_refill(uuid,uuid,text,text,jsonb) from public,anon,authenticated,service_role;
 grant execute on function public.service_rollover_refund_gift_card_supply(),public.service_claim_refund_gift_card_refill(uuid[]),
+  public.service_materialize_refund_gift_card_offer(uuid,integer,uuid,timestamptz),
   public.service_begin_refund_gift_card_refill(uuid,uuid,jsonb,timestamptz),
   public.service_finish_refund_gift_card_refill(uuid,uuid,text,text,jsonb) to service_role;

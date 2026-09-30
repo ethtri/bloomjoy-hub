@@ -70,4 +70,31 @@ begin
   if checked<>1 or not exists(select 1 from public.refund_gift_card_pools where id=p
     and expires_at>now()+interval '89 days') then raise exception 'Expiry renews automatically for future offers'; end if;
 end $$;
+insert into public.customer_accounts(id,name,account_type)
+  values('70000000-0000-4000-8000-000000000090','Supply fixture','internal');
+insert into public.reporting_locations(id,account_id,name,timezone)
+  values('70000000-0000-4000-8000-000000000091','70000000-0000-4000-8000-000000000090','Supply fixture','UTC');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status)
+  values('70000000-0000-4000-8000-000000000003','70000000-0000-4000-8000-000000000090',
+    '70000000-0000-4000-8000-000000000091','Supply fixture','active');
+do $$
+declare offer jsonb; replay jsonb; quoted_expiry timestamptz;
+begin
+  select expires_at into quoted_expiry from public.refund_gift_card_pools where id='70000000-0000-4000-8000-000000000001';
+  offer:=public.service_materialize_refund_gift_card_offer('70000000-0000-4000-8000-000000000003',2100,
+    '70000000-0000-4000-8000-000000000001',quoted_expiry);
+  replay:=public.service_materialize_refund_gift_card_offer('70000000-0000-4000-8000-000000000003',2500,
+    '70000000-0000-4000-8000-000000000001',quoted_expiry);
+  if offer->>'value'<>'2500' or offer->>'pool_id'<>replay->>'pool_id'
+    or not exists(select 1 from public.refund_gift_card_refill_rules where pool_id=(offer->>'pool_id')::uuid
+      and target_available=7 and max_batch_size=3)
+    or exists(select 1 from public.refund_gift_card_codes where pool_id=(offer->>'pool_id')::uuid) then
+    raise exception 'Accepted denomination clones configured rules once without minting codes'; end if;
+  update public.refund_gift_card_pools set enabled=false where id='70000000-0000-4000-8000-000000000001';
+  begin
+    perform public.service_materialize_refund_gift_card_offer('70000000-0000-4000-8000-000000000003',3000,
+      '70000000-0000-4000-8000-000000000001',quoted_expiry);
+    raise exception 'Disabled template unexpectedly accepted';
+  exception when others then if sqlerrm='Disabled template unexpectedly accepted' then raise; end if; end;
+end $$;
 rollback;
