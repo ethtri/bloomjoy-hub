@@ -267,7 +267,7 @@ test('the portal schedules manager work only after the core overview succeeds', 
 test('manual refresh completes the critical overview before optional manager work', () => {
   const refresh = functionBody(pageSource, 'const refresh = async () => {', 'const isUsingDemoData');
   const overviewIndex = refresh.indexOf(
-    "await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })",
+    "queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })",
   );
   const managerIndex = refresh.indexOf(
     "queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })",
