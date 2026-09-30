@@ -13,14 +13,17 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, useMerchantScope: [], scopes: [{ scopeType: 1, scopeValue: ["machine-synthetic"] }] });
 const kemoreCode = (c: SupplyClaim) => ({ id: "synthetic-code-id", couponId: "coupon", merchantId: 42, code: "000000123", status: 0, availableCount: 1, usedCount: 0, startTime: providerClock(c.attemptedAt!, "America/Los_Angeles"), endTime: providerClock(c.pool.expires_at, "America/Los_Angeles") });
 const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => Record<string, unknown> = (v) => v) => {
-  const calls: { path: string; method: string; body: Record<string, unknown> }[] = [];
+  const calls: { path: string; method: string; body: Record<string, unknown>; headers: Headers }[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    calls.push({ path, method: init?.method ?? "GET", body });
+    calls.push({ path, method: init?.method ?? "GET", body, headers: new Headers(init?.headers) });
     if (path.endsWith("/user/login")) return json({ code: 0, data: { token: "synthetic-token" } });
     if (path.endsWith("/coupon-compose")) return json({ code: 0, data: { codes: ["000000123"] } });
     if (path.endsWith("/coupons")) return json({ code: 0, data: { total: 1, list: [transform(coupon(c))] } });
+    // Nonempty response is a prospective fixture: connected account's existing
+    // coupons have empty scopes. Fail closed if a first real batch differs.
+    if (path.endsWith("/coupon-scopes")) return json({ code: 0, data: { total: 1, list: [{ id: "scope", couponId: "coupon", scopeType: 1, scopeValue: "machine-synthetic" }] } });
     if (path.endsWith("/coupon-codes")) return json({ code: 0, data: { total: 1, list: [transform(kemoreCode(c))] } });
     throw new Error("Unexpected fixture path");
   };
@@ -37,7 +40,19 @@ Deno.test("KeMore uses observed Americas composer and preserves leading zeros af
   assertEquals(writes[0].body.availableCount, 1);
   assertEquals(writes[0].body.discountValue, "15.00");
   assertEquals(writes[0].body.currency, "USD");
+  assertEquals(writes[0].headers.get("X-App-TimeZone"), "America/Los_Angeles");
   assertEquals(writes[0].body.scopes, [{ scopeType: 1, scopeValue: ["machine-synthetic"] }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }]);
+});
+Deno.test("KeMore validates separate scope rows when coupon list embeds no scopes", async () => {
+  const c = claim(), fixture = kemore(c, (v) => "scopes" in v ? { ...v, scopes: [] } : v);
+  const adapter = await createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials });
+  assertEquals((await adapter.create()).length, 1);
+  assertEquals(fixture.calls.some((r) => r.path.endsWith("coupon-scopes")), true);
+});
+Deno.test("KeMore holds unexpected nonempty separate category scopes", async () => {
+  const c = claim(), fixture = kemore(c);
+  const adapter = await createSupplyAdapter(c, { env: credentials, fetchImpl: (input, init) => String(input).includes("/coupon-scopes?") ? Promise.resolve(json({ code: 0, data: { total: 1, list: [{ id: "scope", scopeType: 2, scopeValue: "unexpected-category" }] } })) : fixture.fetchImpl(input, init) });
+  assertEquals((await assertRejects(() => adapter.create(), SupplyError) as SupplyError).unknown, true);
 });
 Deno.test("KeMore reconciliation reads exact attempt name without another creation", async () => {
   const c = claim(); c.reconcile = true;

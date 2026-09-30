@@ -26,14 +26,19 @@ Primary public application sources:
 
 These are observed application contracts, not a claim of a published API or a
 live creation test. The four current KeMore coupons returned empty embedded
-scope arrays; a positive nonempty scope response has not been observed. The
-adapter verifies the requested device-scope shape and rejects extra category or
+scope arrays and empty separate `/coupon-scopes` pages; a positive nonempty
+scope response has not been observed. The adapter follows the application's
+separate scope-table read, checks exact device identities, also checks any
+nonempty embedded scopes, and rejects extra category or
 merchant scopes; an unrecognized response holds the batch instead of importing
 it. Confirm this positive shape in the first authorized creation verification.
 Before activation, verify the exact account/machine mapping,
 USD basis, provider timezone and machine redemption instructions. Sunzee
 creation is account-wide: a configured subset must not claim the vendor limits
 redemption to that subset. Credentials must belong to the configured account.
+The current KeMore machine inventory reports USD on 22 devices under five
+merchants. The application explicitly sends `X-App-TimeZone` from the caller's
+IANA timezone, so configure that timezone rather than infer one from date text.
 
 Hardware redemption instructions have not been demonstrated by this research.
 Require accurate, verified pool instructions; do not invent a machine button or
@@ -53,6 +58,11 @@ One Super-admin setup call creates a disabled pool and its rules atomically:
 `admin_set_refund_gift_card_pool_enabled` is the supported activation/stop path.
 No additional runtime flag, agent or recurring upload is required. Do not enable
 a pool before completing the account/terms/credentials setup above.
+An enabled verified pool supplies the scope template for other $5 denominations.
+Quotes create no pools or value. On accepted submission,
+`service_materialize_refund_gift_card_offer` reuses or creates the exact rounded
+denomination and copies its configured refill rules; the normal worker supplies
+it automatically. No per-request stock setup is required.
 
 Server-only credential configuration uses `credential_prefix`, for example
 `KEMORE_GIFT_CARD`, to read `KEMORE_GIFT_CARD_USERNAME` and
