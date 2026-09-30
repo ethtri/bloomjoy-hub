@@ -519,6 +519,7 @@ select is((
     'fd300000-0000-4000-8000-000000000012', current_date-10, current_date+1
   )
   where source in ('nayax_scheduled_report','refund_request')
+    and purchase_attribution_date = current_date-10
 ), 0::bigint,
   'A full Nayax request uses the same embedded-tax basis as its sale and nets to zero');
 
@@ -560,8 +561,8 @@ select results_eq($$
     (now() at time zone 'UTC')::date
   )
   where source='refund_request'
-$$, $$values ('refund_request'::text,null::bigint,1::bigint,500::bigint)$$,
-  'Recognition remains reportable after source cleanup; missing rate stays explicit');
+$$, $$values ('refund_request'::text,500::bigint,0::bigint,0::bigint)$$,
+  'Recognition remains numeric and estimated after source cleanup with no configured rate');
 
 select * from finish();
 rollback;

@@ -668,7 +668,7 @@ select ok(exists (
 ), 'Actual evidence change retains the targeted snapshot regeneration audit signal');
 
 update public.reporting_machine_partnership_assignments
-set status = 'inactive'
+set effective_end_date = current_date-1
 where partnership_id = 'ca700000-0000-4000-8000-000000000001'
   and machine_id = 'ca300000-0000-4000-8000-000000000004';
 
