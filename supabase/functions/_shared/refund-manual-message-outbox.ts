@@ -15,6 +15,7 @@ import {
 import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 import { issueRefundCorrectionForMessage, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 import { renderBloomjoyRefundStoredText } from "./refund-email-brand.ts";
+import { renderRefundGiftCardEmail } from "./refund-gift-card-email.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,6 +63,7 @@ type RefundManualMessageRow = {
   id: string;
   refund_case_id: string;
   message_type: string;
+  template_version: string | null;
   status: string;
   recipient_email: string;
   subject: string;
@@ -199,6 +201,7 @@ const getClaimedMessage = async (
       id,
       refund_case_id,
       message_type,
+      template_version,
       status,
       recipient_email,
       subject,
@@ -427,6 +430,21 @@ export const deliverRefundManualMessageClaim = async ({
     text: storedEmail.text,
     html: storedEmail.html,
   };
+  if (message.template_version === "refund_gift_card_v1") {
+    const { data: issuance, error: issuanceError } = await supabase
+      .from("refund_gift_card_issuances")
+      .select("code_id,face_value_cents,currency,expires_at,eligible_locations,redemption_instructions")
+      .eq("message_id", message.id).single();
+    if (issuanceError || !issuance) throw new Error("Gift-card delivery receipt is unavailable.");
+    const { data: card, error: codeError } = await supabase.from("refund_gift_card_codes")
+      .select("code,status").eq("id", issuance.code_id).single();
+    if (codeError || !card || !["issued", "used"].includes(card.status)) {
+      throw new Error("Assigned gift-card code is unavailable.");
+    }
+    email = renderRefundGiftCardEmail({ value: issuance.face_value_cents, currency: issuance.currency,
+      code: card.code, expiresAt: issuance.expires_at, eligibleLocations: issuance.eligible_locations,
+      redemptionInstructions: issuance.redemption_instructions });
+  }
 
   let providerAttemptStarted = false;
   let providerAccepted = false;

@@ -506,6 +506,7 @@ export const readRefundStatusCapability = async ({
     available: true as const,
     rateLimited: false as const,
     lifecycle: requireCustomerRefundLifecycle(result.lifecycle),
+    giftCard: result.gift_card ?? null,
     expiresAt: typeof result.expiresAt === "string" ? result.expiresAt : null,
   };
 };
