@@ -1,7 +1,22 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { runRefundGiftCardSupply } from "./refund-gift-card-supply.ts";
 import { SupplyError, type SupplyClaim } from "./refund-gift-card-providers.ts";
 const claim = (id: string, reconcile = false) => ({ claimed: true, attemptId: id, claimToken: "token", reconcile, pool: { id }, requestedCount: 1 }) as unknown as SupplyClaim;
+Deno.test("worker before gift schema skips only the absent initial RPC and ordinary work continues", async () => {
+  const calls: string[] = []; let providerCalls = 0, ordinaryWork = 0;
+  const result = await runRefundGiftCardSupply({ rpc: async (name) => {
+    calls.push(name); return { data: null, error: { code: "PGRST202", message: "Synthetic missing function" } };
+  } }, { adapter: async () => { providerCalls++; throw new Error("Unexpected provider access"); } });
+  ordinaryWork++;
+  assertEquals(calls, ["service_rollover_refund_gift_card_supply"]);
+  assertEquals(providerCalls, 0); assertEquals(ordinaryWork, 1);
+  assertEquals(result, { completed: 0, failed: 0, unknown: 0, resumed: 0 });
+});
+Deno.test("existing supply RPC errors are not hidden as pre-migration compatibility", async () => {
+  await assertRejects(() => runRefundGiftCardSupply({ rpc: async () => ({ data: null, error: { code: "42501" } }) }), SupplyError);
+  await assertRejects(() => runRefundGiftCardSupply({ rpc: async (name) => ({ data: null,
+    error: name === "service_rollover_refund_gift_card_supply" ? null : { code: "PGRST202" } }) }), SupplyError);
+});
 Deno.test("one pool's unknown outcome preserves its attempt and other pools refill/resume", async () => {
   const claims = [claim("lost"), claim("healthy"), { claimed: false }];
   const outcomes: Record<string, unknown>[] = [];
