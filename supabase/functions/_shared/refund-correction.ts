@@ -21,6 +21,7 @@ export type CorrectionContext = {
   incidentTimeConfidence?: CorrectionAnswer['confidence'];
   expiresAt?: string;
   nextAction?: 'review' | 'recheck';
+  canRenew?: boolean;
   locationChoices?: Array<{ key: string; label: string }>;
 };
 
@@ -31,6 +32,13 @@ export function correctionRefreshInterval(current: CorrectionContext | undefined
 }
 
 export const isCorrectionToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
+// Stable child capability: response loss/retry never creates another update.
+// A different domain keeps it separate from the original delivery capability.
+export const renewalCorrectionToken = async (token: string) => {
+  if (!isCorrectionToken(token)) throw new Error('invalid_token');
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`refund-correction-renewal-v1:${token}`)));
+  return btoa(String.fromCharCode(...digest)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+};
 export const hashCorrectionToken = async (value: string) => {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`refund-correction-v1:${value}`));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -105,6 +113,7 @@ export function requiredCorrectionFields(answers: CorrectionAnswers, context: Co
 export function validateCorrectionAnswers(input: unknown, context: CorrectionContext): CorrectionAnswers {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('invalid_response');
   const answers = input as Record<string, unknown>;
+  if (!Object.keys(answers).length) throw new Error('invalid_response');
   const allowed = context.allowedFields ?? [];
   const values = context.values ?? {};
   for (const field of requiredCorrectionFields(answers as CorrectionAnswers, context)) {

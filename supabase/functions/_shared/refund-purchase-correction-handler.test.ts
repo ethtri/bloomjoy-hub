@@ -1,7 +1,38 @@
 import { handlePurchaseCorrection, recheckSavedPurchaseCorrection } from './refund-purchase-correction-handler.ts';
-import { hashCorrectionToken } from './refund-correction.ts';
+import { hashCorrectionToken, renewalCorrectionToken } from './refund-correction.ts';
 import { createRefundStatusToken, hashRefundStatusValue } from './refund-status-capability.ts';
 const assert = (value:unknown) => { if (!value) throw new Error('Assertion failed'); };
+
+Deno.test('customer renewal is deterministic, distinct, and returns only database-authorized same-case capability', async () => {
+  const token='r'.repeat(43); const child=await renewalCorrectionToken(token);
+  assert(child!==token && child===await renewalCorrectionToken(token));
+  let calls=0;
+  const client={rpc:async(name:string,args:Record<string,unknown>)=>{
+    calls++; assert(name==='service_renew_refund_purchase_correction');
+    assert(args.p_token_hash===await hashCorrectionToken(token));
+    assert(args.p_renewed_token_hash===await hashCorrectionToken(child));
+    assert(!JSON.stringify(args).includes(token) && !JSON.stringify(args).includes(child));
+    return {data:{state:'ready',version:4,publicReference:'RF-SYNTHETIC',requestedFields:['incident_time'],values:{card_last4:'1234'}},error:null};
+  }};
+  for(let attempt=0;attempt<2;attempt++) {
+    const response=await handlePurchaseCorrection({action:'renewPurchaseCorrection',token},client as never);
+    const result=await response.json();assert(result.token===child && result.correction.version===4);
+    assert(result.correction.values.card_last4==='1234' && response.headers.get('Cache-Control')?.includes('no-store'));
+  }
+  assert(calls===2);
+});
+
+Deno.test('renewal rejects guessed targets, revoked/stale capability and operational failures without sending or saving facts', async () => {
+  let calls=0;
+  const client={rpc:async()=>{calls++;return {data:{state:'unavailable'},error:null};}};
+  const guessed=await handlePurchaseCorrection({action:'renewPurchaseCorrection',token:'r'.repeat(43),caseId:'another-case'},client as never);
+  assert(guessed.status===409 && calls===0);
+  const stale=await handlePurchaseCorrection({action:'renewPurchaseCorrection',token:'r'.repeat(43)},client as never);
+  assert(stale.status===409 && calls===1 && !(await stale.json()).token);
+  const failure=await handlePurchaseCorrection({action:'renewPurchaseCorrection',token:'r'.repeat(43)},
+    {rpc:async()=>({data:null,error:{message:'timeout'}})} as never);
+  assert(failure.status===503 && !(await failure.json()).token);
+});
 
 Deno.test('actual public handler rejects guessed case IDs before reading or writing any case', async () => {
   for (const action of ['inspectPurchaseCorrection','submitPurchaseCorrection']) {

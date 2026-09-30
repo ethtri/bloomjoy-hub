@@ -56,6 +56,7 @@ export default function RefundCorrectionPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [received, setReceived] = useState<CorrectionContext | null>(null);
+  const [renewed, setRenewed] = useState<CorrectionContext | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const resultRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -77,7 +78,7 @@ export default function RefundCorrectionPage() {
       }
     },
   });
-  const context = demo ? demoContext(location.search) : query.data;
+  const context = demo ? demoContext(location.search) : query.data ?? renewed;
   const es = (received?.locale ?? context?.locale) === 'es';
   const hasReceived = received !== null;
   const copy = (english: string, spanish: string) => es ? spanish : english;
@@ -88,7 +89,7 @@ export default function RefundCorrectionPage() {
     return () => meta.remove();
   }, [token]);
   useEffect(() => {
-    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(null); setUnavailable(false); setError(''); };
+    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(null); setRenewed(null); setUnavailable(false); setError(''); };
     window.addEventListener('hashchange', openLink);
     return () => window.removeEventListener('hashchange', openLink);
   }, []);
@@ -116,13 +117,24 @@ export default function RefundCorrectionPage() {
   const fields = (context?.allowedFields ?? []).filter((field) => requested.includes(field) || (reviewOthers &&
     (!cash || !['payment_interaction','card_last4','card_last4_source','card_network','wallet_provider','wallet_device_kind'].includes(field)) &&
     (wallet || !['wallet_provider','wallet_device_kind'].includes(field))));
+  const renew = async () => {
+    setSaving(true); setError('');
+    try {
+      const result = await invokeRefundCorrection<{ correction: CorrectionContext; token: string }>({ action: 'renewPurchaseCorrection', token });
+      if (!isCorrectionToken(result.token) || !['ready','received'].includes(result.correction?.state)) throw new Error('Update not confirmed');
+      setToken(result.token); setRenewed(result.correction); setReceived(result.correction.state === 'received' ? result.correction : null);
+      setAnswers({}); setUnavailable(false); setReviewOthers(!result.correction.requestedFields?.length);
+    } catch {
+      setError(copy('We couldn’t open a fresh update. Your saved response is unchanged. Try again, or use the latest Bloomjoy email for help with this same request.', 'No pudimos abrir una actualización. Su respuesta guardada no cambió. Inténtelo de nuevo o use el último correo de Bloomjoy para recibir ayuda con esta misma solicitud.'));
+    } finally { setSaving(false); }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!context) return;
     setError('');
     let validated: CorrectionAnswers;
     try { validated = validateCorrectionAnswers(answers, context); }
-    catch { setError(copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.')); return; }
+    catch { setError(requested.length ? copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.') : copy('Choose a saved detail to update or confirm. Your earlier answers are already saved.', 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.')); return; }
     setSaving(true);
     try {
       const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }
@@ -154,6 +166,8 @@ export default function RefundCorrectionPage() {
           {!savedContext.locale && <p className="mt-4 leading-7" lang="es">{savedContext.nextAction === 'recheck' ? 'Su respuesta se guardó. Bloomjoy está volviendo a comprobar la compra. No necesita enviar otra solicitud.' : savedContext.nextAction === 'review' ? 'Su respuesta se guardó. Una persona de Bloomjoy la revisará. No necesita enviar otra solicitud.' : 'Bloomjoy recibió su respuesta y continuará con esta solicitud. No necesita enviar otra.'}</p>}
           <p className="mt-4 text-sm text-muted-foreground">{copy('We’ll email you about the next step. Saving these details does not send or confirm a payment.', 'Le enviaremos un correo sobre el siguiente paso. Guardar estos detalles no envía ni confirma un pago.')}</p>
           <p className="mt-6 font-medium">{savedContext.publicReference}</p>
+          {savedContext.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
         </section> : openingFailed ? <section aria-live="polite">
           <h1 className="text-2xl font-semibold">We couldn’t open your request.</h1>
           <p className="mt-4 leading-7">Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.</p>
@@ -164,6 +178,8 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 leading-7">Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.</p>
           <p className="mt-4 leading-7" lang="es">Este enlace ya no está disponible. Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.</p>
           {context?.publicReference && <p className="mt-6 font-medium">{context.publicReference}</p>}
+          {context?.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
         </section> : <>
           <p className="text-sm font-medium text-muted-foreground">{context.publicReference}</p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{payoutDestination ? copy('Add your payout destination', 'Agregue el destino de su reembolso') : copy('Update your refund request', 'Actualice su solicitud de reembolso')}</h1>
