@@ -8,6 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- PR #1645 was deployed on September 30. The refund portal shows an actor-scoped
+  lightweight queue before full details, with correct counts and read-only
+  navigation; actions still require the existing full case. Production desktop
+  and mobile selection and case switching passed without error banners or
+  overflow. Fresh queue loads improved to 4.2–8.2 seconds, while full details took
+  8.9–12.0 seconds. Three consecutive loads within five seconds were not achieved;
+  #628 retains the performance gap. The next bounded diagnostic is the queue
+  RPC/network delay, preserving slow samples and avoiding a broader redesign.
 - On September 30 the primary database scheduler missed two health dispatches
   and one refund sweep because pg_net reused transport request identifiers that the
   durable dispatch ledger incorrectly required to be globally unique. The
