@@ -17,9 +17,19 @@ orientation snapshot; it is not a backlog or release ledger.
   `(mode, bucket_at)` as the stable dispatch identities while retaining the
   reusable pg_net request identifier as diagnostic evidence.
   Existing incident tables did not surface these rolled-back cron failures;
-  closing that visibility gap remains separate work. A natural primary health
-  and sweep after deployment are still required to prove recovery; the pre-fix
-  03:07 sweep succeeding with a fresh identifier is not repair evidence.
+  closing that visibility gap remains separate work. After deployment, the
+  natural 03:43 health run and 04:07 sweep both created durable dispatches and
+  finished without failure. The 04:07 sweep was correctly suppressed outside
+  the contact-policy window; no missed run was replayed.
+- Two verified secure-form responses remained mislabeled as unread customer
+  replies even though their exact current facts were already saved. The bounded
+  continuation accepts only the current delivered request with no newer form,
+  no unresolved requested field, and either a completed read-only recheck or the
+  exact changed payout destination. It changes no stored case, decision, message,
+  or payment. A rolled-back production rehearsal moved the card case to its real
+  provider-mapping repair and the cash case to internal purchase research while
+  preserving both delivered requests as history. Deployment and live readback
+  remain required.
 - The cross-case Nayax card blocker is removed: another refund case's
   reference to the same purchase is audit context rather than a payment veto.
   Nayax owns the original-purchase total limit; same-case replay protection,
