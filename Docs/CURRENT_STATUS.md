@@ -14,14 +14,15 @@ orientation snapshot; it is not a backlog or release ledger.
   authorized operator; case, purchase evidence, messages and payment records
   were unchanged during verification. No decision or payment was made.
 
-- #1429: an exact Nayax API success can remain held locally when another
-  original purchase shares the reporting machine/day/amount fingerprint.
-  The bounded repair retains that fingerprint for audit and uses the existing
-  service-only receipt reconciler for exact first-generation System success,
-  without another provider request or customer message. RF-423906B2 remains
-  held until that supported path is deployed, independently verified and used
-  under current authority. Later continuation-generation reporting collisions
-  are outside this slice; broader refund readiness is not claimed.
+- PR #1655 fixed the reporting fingerprint veto for exact first-generation
+  Nayax System success. RF-423906B2's existing provider success now has one
+  applied reporting row and one authoritative receipt, independently verified
+  with protected approval, provider evidence, other purchase and messages
+  unchanged. Receipt retry is idempotent and the case is excluded from delay
+  work. No provider request or completion message was created; customer notice
+  delivery remains unclaimed. Later continuation-generation reporting and the
+  open workflow incident remain outside this slice; broader readiness is not
+  claimed (#1429/#628).
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
