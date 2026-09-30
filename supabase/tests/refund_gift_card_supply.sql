@@ -100,6 +100,30 @@ begin
     raise exception 'Disabled template unexpectedly accepted';
   exception when others then if sqlerrm='Disabled template unexpectedly accepted' then raise; end if; end;
 end $$;
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,
+  email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values('00000000-0000-0000-0000-000000000000','70000000-0000-4000-8000-000000000092',
+  'authenticated','authenticated','supply-setup@example.invalid','',now(),'{}','{}',now(),now());
+insert into public.admin_roles(user_id,role,active)
+  values('70000000-0000-4000-8000-000000000092','super_admin',true);
+select set_config('request.jwt.claims','{"role":"authenticated","sub":"70000000-0000-4000-8000-000000000092"}',true);
+do $$
+declare setup jsonb; config jsonb:='{"credential_prefix":"TEST_ONLY","scope_verified":true,"currency_verified":true}';
+begin
+  setup:=public.admin_setup_refund_gift_card_pool('kemore','synthetic-default-setup',1500,
+    array['70000000-0000-4000-8000-000000000003'::uuid],array['Synthetic location'],
+    p_provider_config=>config);
+  if not exists(select 1 from public.refund_gift_card_pools where id=(setup->>'poolId')::uuid
+    and not enabled and redemption_instructions='On the machine’s touchscreen, choose ‘Enter coupon/code’ and enter your code.')
+    or exists(select 1 from public.refund_gift_card_codes where pool_id=(setup->>'poolId')::uuid) then
+    raise exception 'Omitted instructions must use owner-confirmed guidance without activation or code creation'; end if;
+  setup:=public.admin_setup_refund_gift_card_pool('kemore','synthetic-custom-setup',1500,
+    array['70000000-0000-4000-8000-000000000003'::uuid],array['Synthetic location'],
+    'Verified machine-specific instructions',config);
+  if not exists(select 1 from public.refund_gift_card_pools where id=(setup->>'poolId')::uuid
+    and redemption_instructions='Verified machine-specific instructions') then
+    raise exception 'Verified machine-specific guidance must remain supported'; end if;
+end $$;
 select pass('Supply stock, recovery, privacy, renewal and accepted denomination assertions passed');
 select * from finish();
 rollback;
