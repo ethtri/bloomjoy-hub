@@ -1,5 +1,8 @@
 -- Synthetic codes and identities only. Run after issuance and supply migrations.
 begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path=public,extensions;
+select plan(1);
 do $$
 declare p uuid:='70000000-0000-4000-8000-000000000001';
   sibling uuid:='70000000-0000-4000-8000-000000000002';
@@ -97,4 +100,6 @@ begin
     raise exception 'Disabled template unexpectedly accepted';
   exception when others then if sqlerrm='Disabled template unexpectedly accepted' then raise; end if; end;
 end $$;
+select pass('Supply stock, recovery, privacy, renewal and accepted denomination assertions passed');
+select * from finish();
 rollback;
