@@ -21,3 +21,12 @@ Deno.test('email escapes customer text and cannot send incomplete redemption fac
   assertThrows(() => renderRefundGiftCardEmail({ ...input, redemptionInstructions: '' }));
   assertThrows(() => renderRefundGiftCardEmail({ ...input, eligibleLocations: [] }));
 });
+
+Deno.test('Spanish preference keeps bilingual terms and the same redemption code', () => {
+  const email = renderRefundGiftCardEmail({ ...input, customerLocale: 'es' });
+  for (const detail of ['Un solo uso', 'One use only', 'Úsala en', 'Use at', 'UTC', input.code, input.redemptionInstructions]) {
+    assertEquals(email.html.includes(detail), true);
+    assertEquals(email.text.includes(detail), true);
+  }
+  assertEquals(renderRefundGiftCardEmail({ ...input, customerLocale: 'unknown' }).text, renderRefundGiftCardEmail(input).text);
+});
