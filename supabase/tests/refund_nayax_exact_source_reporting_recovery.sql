@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(42);
+select plan(45);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -279,6 +279,8 @@ create temp table immutable_before as select
  (select to_jsonb(x) from public.refund_nayax_execution_contexts x
   where x.attempt_id=(select (result->>'attemptId')::uuid from approval_result)) context,
  (select to_jsonb(c) from public.refund_cases c where c.id='b7470000-0000-4000-8000-000000000099') other_case,
+ (select to_jsonb(l) from public.sales_adjustment_facts l
+  where source_reference='synthetic-old-report') other_ledger,
  (select count(*) from public.refund_case_messages) messages;
 select pg_temp.set_actor('b7410000-0000-4000-8000-000000000002');
 select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal(
@@ -379,11 +381,17 @@ insert into public.sales_adjustment_facts(reporting_machine_id,reporting_locatio
  source_reference,source_row_reference,refund_case_id,match_status,match_confidence,raw_payload)
 values('b7440000-0000-4000-8000-000000000001','b7430000-0000-4000-8000-000000000001',
  '2026-09-12','refund',1,1,'refund_case','b7470000-0000-4000-8000-000000000001',
- 'refund_cases','RF-SINGLE-GATE','b7470000-0000-4000-8000-000000000001','unmatched',0,'{}');
+ 'refund_cases','RF-SINGLE-GATE','b7470000-0000-4000-8000-000000000001','manual',0,'{}');
 set local session_replication_role=origin;
 select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal(
  'b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),
- '^P4670:','conflicting same-source reporting amount is never overwritten');
+ '^(P4670|23505):','conflicting same-source reporting amount is never overwritten');
+select is((select amount_cents from public.sales_adjustment_facts
+ where source='refund_case' and source_reference='refund_cases' and source_row_reference='RF-SINGLE-GATE'),
+ 1,'rejected conflicting source row retains its original amount');
+select ok((select status='card_refund_pending' and reporting_adjustment_id is null
+ from public.refund_cases where id='b7470000-0000-4000-8000-000000000001'),
+ 'failed source conflict rolls back partial case completion atomically');
 set local session_replication_role=replica;
 delete from public.sales_adjustment_facts where source='refund_case'
  and source_reference='refund_cases' and source_row_reference='RF-SINGLE-GATE';
@@ -419,6 +427,8 @@ select ok((select confirmation_source='api_stage_contract' and settlement_time_p
 select is((select allocation_state from public.refund_nayax_transaction_allocations
  where refund_case_id='b7470000-0000-4000-8000-000000000001'),'refunded','existing exact allocation advances without another provider request');
 select is((select count(*) from public.refund_case_messages),(select messages from immutable_before),'no customer message is created');
+select is((select to_jsonb(l) from public.sales_adjustment_facts l where source_reference='synthetic-old-report'),
+ (select other_ledger from immutable_before),'other original purchase reporting row is untouched');
 select is((select to_jsonb(c) from public.refund_cases c where c.id='b7470000-0000-4000-8000-000000000099'),
  (select other_case from immutable_before),'different original purchase is untouched');
 select is((select jsonb_agg(to_jsonb(j) order by j.id) from public.refund_nayax_provider_stage_journal j
