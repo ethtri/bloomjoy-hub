@@ -25,7 +25,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
         {
           selection_key: selectionKey,
           display_label: 'Refund UAT Mall',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           machine_id: '41000000-0000-4000-8000-000000000003',
           location_id: '41000000-0000-4000-8000-000000000002',
           location_timezone: 'America/Los_Angeles',

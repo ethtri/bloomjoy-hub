@@ -13,6 +13,7 @@ const gift = { state: 'issued', value: 1500, currency: 'USD', eligible_locations
   expires_at: offer.expires_at, issued_at: new Date().toISOString(), delivery_state: 'queued' };
 const requests: { path: string; method: string; body: Record<string, unknown>; authorization: string | null }[] = [];
 const unexpected: string[] = [];
+let activationError: string | null = null;
 let enabled = true, quoteAvailable = true, templateValue = 1500, rpcError: string | null = null;
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, async (req) => {
@@ -22,13 +23,13 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
   if (path === '/auth/v1/user') return json({ id: '81000000-0000-4000-8000-000000000009', email: 'manager@example.invalid', role: 'authenticated', is_anonymous: false });
   if (path.startsWith('/rest/v1/rpc/')) {
     const name = path.split('/').at(-1);
-    if (name === 'service_refund_gift_card_enabled') return json(enabled);
+    if (name === 'service_refund_gift_card_enabled') return activationError ? json({ code: activationError, message: 'Synthetic activation query failure' }, 404) : json(enabled);
     if (name === 'service_get_refund_gift_card_offer') return json(quoteAvailable ? offer : null);
     if (name === 'service_materialize_refund_gift_card_offer') return json({ ...offer, pool_id: derivedPoolId });
     if (name === 'service_refund_machine_is_public') return json(true);
     if (name === 'record_public_intake_rate_limit_event') return json(1);
     if (name === 'service_accept_refund_gift_card_offer') return json(gift);
-    if (name === 'service_issue_refund_status_capability') return json({ id: caseId, expires_at: '2030-01-01T00:00:00Z' });
+    if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });
     if (name === 'admin_resend_refund_gift_card' || name === 'admin_decide_refund_gift_card') {
       if (rpcError) return json({ code: rpcError, message: 'Synthetic denied or unresolved delivery' }, 403);
       return json(gift);
@@ -36,6 +37,8 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
   }
   if (path === '/rest/v1/reporting_machines') return json({ id: machineId, machine_label: 'Synthetic machine', machine_type: 'commercial',
     location_id: poolId, refund_public_display_label: null, reporting_locations: { id: poolId, name: 'Synthetic location', timezone: 'UTC', status: 'active' } });
+  if (path === '/rest/v1/refund_machine_qr_codes') return json({ id: poolId, reporting_machine_id: machineId });
+  if (path === '/rest/v1/refund_qr_claim_contexts') return json({ id: caseId, opened_at: new Date().toISOString(), expires_at: '2030-01-01T00:00:00Z' });
   if (path === '/rest/v1/refund_gift_card_pools') return json({ face_value_cents: templateValue });
   if (path === '/rest/v1/refund_cases') return json({ id: caseId, public_reference: 'RF-EDGE-SYNTHETIC', status: 'needs_review', correlation_status: 'not_started' });
   unexpected.push(`${req.method} ${path}`);
@@ -45,8 +48,9 @@ const dbUrl = `http://127.0.0.1:${db.addr.port}`;
 Deno.env.set('SUPABASE_URL', dbUrl);
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-key');
 Deno.env.set('SUPABASE_ANON_KEY', 'synthetic-anon-key');
+Deno.env.set('REFUND_STATUS_LINKS_ENABLED', 'true');
 Deno.env.set('PUBLIC_INTAKE_ABUSE_HASH_SALT', 'synthetic-intake-hash-salt');
-const post = async (server: Deno.HttpServer, body: unknown, authenticated = false) => {
+const post = async (server: Deno.HttpServer<Deno.NetAddr>, body: unknown, authenticated = false) => {
   const response = await fetch(`http://127.0.0.1:${server.addr.port}`, { method: 'POST',
     headers: { 'content-type': 'application/json', ...(authenticated ? { 'x-supabase-auth-token': 'synthetic-manager-token' } : {}) },
     body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
@@ -62,6 +66,14 @@ try {
     assertEquals(result.status, 200); assertEquals(result.data.gift_card_enabled, active);
     assertEquals(result.data.offer, active ? offer : null);
   }
+  const qr = { action: 'startQrClaim', qrCode: 'synthetic-qr-' + 'a'.repeat(32) };
+  enabled = true;
+  assertEquals((await post(intake, qr)).data.qrClaim.machine.gift_card_enabled, true);
+  activationError = 'PGRST202';
+  assertEquals((await post(intake, qr)).data.qrClaim.machine.gift_card_enabled, false);
+  activationError = '42501';
+  assertEquals((await post(intake, qr)).status, 500);
+  activationError = null;
   enabled = true; quoteAvailable = false;
   assertEquals((await post(intake, { action: 'giftCardOffer', machineId, amount: '11.00' })).data, { gift_card_enabled: true, offer: null });
   quoteAvailable = true;
@@ -72,6 +84,7 @@ try {
     requests.length = 0;
     const result = await post(intake, { ...submission, paymentMethod: tender });
     assertEquals(result.status, 200, JSON.stringify(result.data)); assertEquals(result.data.gift_card.state, 'issued');
+    assertEquals(typeof result.data.statusToken, 'string');
     const insert = requests.find((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST');
     assert(insert); assertEquals(insert.body.gift_card_value_cents, 1500); assertEquals(insert.body.payment_amount_cents, 1100);
     assertEquals(insert.body.payment_method, tender); assertEquals(insert.body.card_last4, null);

@@ -204,6 +204,7 @@ export default function RefundRequestPage() {
             ),
             selectionKind: 'exact_machine' as const,
             machineId: qrClaim.machine.machineId,
+            giftCardEnabled: qrClaim.machine.giftCardEnabled,
             locationTimezone: qrClaim.machine.locationTimezone,
           }]
         : isDemoMode
@@ -235,7 +236,9 @@ export default function RefundRequestPage() {
     [form.selectionKey, machines]
   );
 
-  const choosesGiftCard = form.resolutionMethod === 'gift_card';
+  const giftCardAvailable = selectedMachine?.cashMachineOptions?.find((machine) => machine.machineId === form.cashMachineId)?.giftCardEnabled
+    ?? selectedMachine?.giftCardEnabled === true;
+  const choosesGiftCard = giftCardAvailable && form.resolutionMethod === 'gift_card';
   const offerMachineId = qrClaim?.machine.machineId ??
     (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || choosesGiftCard)
       ? form.cashMachineId : selectedMachine?.machineId);
@@ -251,7 +254,7 @@ export default function RefundRequestPage() {
   });
   // Only an explicit server response can preserve the pre-launch cash process.
   // Errors, stockouts and missing denominations never imply a disabled pool.
-  const legacyCash = form.paymentMethod === 'cash' && offerQuery.data?.giftCardEnabled === false;
+  const legacyCash = form.paymentMethod === 'cash' && (!giftCardAvailable || offerQuery.data?.giftCardEnabled === false);
   const wantsGiftCard = choosesGiftCard && !legacyCash;
   const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
   const resolutionMethod: RefundResolutionMethod = wantsGiftCard ? 'gift_card' : 'original_payment';
@@ -843,7 +846,7 @@ export default function RefundRequestPage() {
 
                 <section aria-labelledby="resolution-heading" className="space-y-3 border-t border-border pt-5">
                   <h2 id="resolution-heading" className="text-lg font-semibold">How can we make it right?</h2>
-                  {form.paymentMethod === 'card' && <RadioGroup value={form.resolutionMethod}
+                  {form.paymentMethod === 'card' && giftCardAvailable && <RadioGroup value={form.resolutionMethod}
                     onValueChange={(value) => { updateForm('resolutionMethod', value); setFieldErrors((current) => ({ ...current, cardLast4: undefined })); }}
                     aria-label="Resolution" className="gap-3">
                     <Label htmlFor="resolution-gift-card" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">

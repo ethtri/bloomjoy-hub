@@ -35,7 +35,7 @@ try {
         if (new URL(url).origin === new URL(base).origin) return route.continue();
         if (!url.startsWith(`${backend}/`)) return route.fulfill({ status: 200, body: '' });
         if (url.includes('/rest/v1/rpc/public_refund_selections_v2')) return route.fulfill({ json: [{
-          selection_key: 'synthetic-machine', display_label: 'Bloomjoy Test Mall', selection_kind: 'exact_machine',
+          selection_key: 'synthetic-machine', display_label: 'Bloomjoy Test Mall', selection_kind: 'exact_machine', gift_card_enabled: true,
           machine_id: 'synthetic-machine', location_timezone: 'America/Los_Angeles', cash_machine_options: [],
         }] });
         if (!url.includes('/functions/v1/refund-case-intake')) return route.fulfill({ json: [] });
@@ -101,19 +101,20 @@ try {
       await context.close();
     }
   }
-  for (const width of [1280, 375, 320]) for (const mode of ['disabled', 'stockout', 'error', 'missing-mode']) {
+  for (const width of [1280, 375, 320]) for (const mode of ['disabled', 'stockout', 'error', 'missing-mode', 'old-catalog']) {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage(), submissions = [];
     await page.route('**/*', async (route) => {
       const url = route.request().url();
       if (new URL(url).origin === new URL(base).origin) return route.continue();
       if (url.includes('/rest/v1/rpc/public_refund_selections_v2')) return route.fulfill({ json: [{
-        selection_key: 'synthetic-machine', display_label: 'Bloomjoy Test Mall', selection_kind: 'exact_machine',
+        selection_key: 'synthetic-machine', display_label: 'Bloomjoy Test Mall', selection_kind: 'exact_machine', ...(mode === 'old-catalog' ? {} : { gift_card_enabled: true }),
         machine_id: 'synthetic-machine', location_timezone: 'America/Los_Angeles', cash_machine_options: [],
       }] });
       if (!url.includes('/functions/v1/refund-case-intake')) return route.fulfill({ json: [] });
       const input = route.request().postDataJSON();
       if (input.action === 'giftCardOffer') {
+        assert.notEqual(mode, 'old-catalog', 'Old backend catalog must keep original intake without calling an unsupported action');
         if (mode === 'error') return route.fulfill({ status: 503, json: { error: 'Synthetic unavailable' } });
         return route.fulfill({ json: mode === 'missing-mode' ? { offer: null } : { offer: null, gift_card_enabled: mode !== 'disabled' } });
       }
@@ -129,7 +130,7 @@ try {
     await page.locator('#payment-amount').fill('11.00');
     await page.locator('#customer-email').fill('synthetic@example.test');
     await page.locator('#issue-category').selectOption('charged_no_product');
-    if (mode === 'disabled') {
+    if (mode === 'disabled' || mode === 'old-catalog') {
       const button = page.getByRole('button', { name: 'Send refund request', exact: true });
       await button.waitFor(); await button.click(); await page.waitForURL('**/refunds/thank-you');
       assert.equal(submissions.length, 1);

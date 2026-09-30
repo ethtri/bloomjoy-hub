@@ -102,6 +102,7 @@ const buildClaim = (claimNumber) => ({
     machine: {
       machineId,
       machineLabel: 'Cotton Candy 01',
+      gift_card_enabled: true,
       locationId,
       locationName: 'Mall Atrium',
       locationTimezone: 'America/Los_Angeles',
@@ -126,7 +127,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: 'c'.repeat(64),
           display_label: 'Mall Atrium',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: machineId,
           cash_machine_options: [],
@@ -134,7 +135,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: eastridgeSelectionKey,
           display_label: 'Eastridge Center',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: eastridgeMachineId,
           cash_machine_options: [],
@@ -142,7 +143,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: livermoreSelectionKey,
           display_label: 'San Francisco Premium Outlets — Cotton candy',
-          selection_kind: 'livermore_pair',
+          selection_kind: 'livermore_pair', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: null,
           cash_machine_options: [
@@ -166,14 +167,14 @@ const installPublicRefundRoutes = async (
         {
           selection_key: 'c'.repeat(64),
           display_label: 'Mall Atrium',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_id: locationId,
           location_timezone: 'America/Los_Angeles',
         },
         {
           selection_key: eastridgeSelectionKey,
           display_label: 'Eastridge Center',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_id: eastridgeLocationId,
           location_timezone: 'America/Los_Angeles',
         },
