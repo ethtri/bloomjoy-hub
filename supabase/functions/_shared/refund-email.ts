@@ -673,7 +673,7 @@ export const buildRefundPurchaseCorrectionEmail = (input: RefundCustomerEmailInp
   const spanish = sanitizeRefundCustomerLocale(input.customerLocale) === "es";
   const reference = sanitizeText(input.publicReference, 80);
   const { subject, paragraphs } = refundCorrectionCopy(fields, reference, spanish);
-  const label = spanish ? "Actualizar su solicitud / Update your refund request" : "Update your refund request";
+  const label = spanish ? "Actualizar su solicitud / Update your request" : "Update your request";
   const replyLine = spanish
     ? "Puede responder a este correo si necesita ayuda. / You can reply to this email if you need help."
     : "You can reply to this email if you need help.";
