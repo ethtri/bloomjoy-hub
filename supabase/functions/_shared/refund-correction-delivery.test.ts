@@ -4,7 +4,7 @@ import { buildRefundCustomerEmail, redactRefundStatusLinksForStorage } from './r
 import { buildNayaxCustomerCorrectionEmail } from './refund-nayax-customer-correction.ts';
 import { deliverRefundManualMessageClaim } from './refund-manual-message-outbox.ts';
 import { refundCorrectionCopy, refundCorrectionReason } from './refund-correction-copy.ts';
-import { correctionFields, type CorrectionField } from './refund-correction.ts';
+import { correctionFields, correctionLabels, type CorrectionField } from './refund-correction.ts';
 
 const messageId = 'b2000000-0000-4000-8000-000000000001';
 const secret = 'synthetic-correction-test-secret-01234567890123456789';
@@ -17,6 +17,10 @@ Deno.test('scoped email and manager preview share the form reason for each suppo
       const email = buildRefundCustomerEmail({...input, missingFields: fields, customerLocale: locale, correctionUrl: STORED_CORRECTION_LINK_MARKER});
       assert(reason.length > 0 && preview.paragraphs.includes(reason));
       assert(email.text.includes(reason) && email.html.includes(reason));
+      for (const field of fields) {
+        assert(email.text.includes(correctionLabels[field][locale === 'es' ? 1 : 0]));
+        assert(email.html.includes(correctionLabels[field][locale === 'es' ? 1 : 0]));
+      }
       assertEquals(email.subject, preview.subject);
       assertEquals(preview.paragraphs.filter((paragraph) => paragraph === reason).length, 1);
     }
@@ -78,7 +82,7 @@ Deno.test('only approved correction fragment URLs can become actionable email li
   const prepared=buildRefundCustomerEmail({...input,missingFields:[...input.missingFields],correctionUrl:STORED_CORRECTION_LINK_MARKER});
   assert(prepared.text.includes(STORED_CORRECTION_LINK_MARKER)); assert(!prepared.html.includes('#token='));
   const wallet=buildNayaxCustomerCorrectionEmail({...input,missingFields:['card_last4'],cardWalletUsed:true,correctionUrl:url});
-  assert(wallet.text.includes('Update your refund request'));
+  assert(wallet.text.includes('Update your request'));
   const legacy=buildRefundCustomerEmail({...input,missingFields:[...input.missingFields]});
   assert(legacy.text.includes('Approximate purchase time (include AM or PM):'));
 });

@@ -473,7 +473,7 @@ export const deliverRefundManualMessageClaim = async ({
       const correctionText = baseBody.replaceAll(STORED_CORRECTION_LINK_MARKER, correctionUrl);
       email = { subject: message.subject, text: correctionText, html: renderBloomjoyRefundStoredText({
         headline: message.subject, text: baseBody.replaceAll(STORED_CORRECTION_LINK_MARKER, ''),
-        primaryLink: { label: message.subject.startsWith('Actualice') ? 'Actualizar su solicitud / Update your refund request' : 'Update your refund request', url: correctionUrl },
+        primaryLink: { label: message.subject.startsWith('Actualice') ? 'Actualizar su solicitud / Update your request' : 'Update your request', url: correctionUrl },
       }) };
     }
     await markProviderAttempt(supabase, reference);

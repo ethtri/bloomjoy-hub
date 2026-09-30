@@ -35,6 +35,12 @@ historical fixtures cannot add product gates that the workflow does not contain.
   creates no new case or repeated request for settled facts. Preserved useful
   email replies/assisted exceptions are not treated as silence or dependent on
   routine free-text extraction/LLM interpretation.
+- [ ] On a verified submitted/expired link, **Update your request** opens the
+  current saved case without sending another question or creating a case/cycle.
+  The original receipt remains saved, settled fields are optional, and a lost
+  renewal response retries the same capability. Stale facts, changed recipient,
+  unknown delivery, intentional revocation and newer replacement access cannot
+  resurrect the old link or extend an expired child through ancestor retries.
 - [ ] Card matching compares the exact machine and timezone-normalized time, uses
   comparable card details when available, treats contactless digit differences
   according to provenance, and keeps the customer's amount advisory.

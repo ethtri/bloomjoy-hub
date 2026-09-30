@@ -113,6 +113,10 @@ jobs:
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
       - name: Verify existing-refund recovery at desktop and mobile widths
         run: node scripts/refunds/validate-refund-external-recovery-ui.mjs
+      - name: Verify same-case structured update access at desktop and mobile widths
+        env:
+          REFUND_FORM_UAT_URL: http://127.0.0.1:8081
+        run: node scripts/refunds/refund-form-update-access-uat.mjs
       - name: Run Machine Manager synthetic UAT
         run: |
           set -o pipefail

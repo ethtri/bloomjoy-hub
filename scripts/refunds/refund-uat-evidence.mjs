@@ -33,6 +33,10 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-qr-intake-mobile.png',
   'refund-qr-intake-mobile-wallet.png',
   'refund-qr-intake-retired.png',
+  'same-case-update-submitted-1280.png',
+  'same-case-update-submitted-390.png',
+  'same-case-update-expired-1280.png',
+  'same-case-update-expired-390.png',
 ];
 
 export const EXPECTED_MACHINE_READABLE_ARTIFACTS = [
