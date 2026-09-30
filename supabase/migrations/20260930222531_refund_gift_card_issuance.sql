@@ -574,6 +574,14 @@ begin
   if strpos(definition,'if new.payment_method = ''card''')=0 then raise exception 'Card settlement guard changed'; end if;
   execute replace(definition,'if new.payment_method = ''card''',
     'if new.payment_method = ''card'' and new.resolution_method=''original_payment''');
+  -- Inferred proximity is a money-refund investigation rule. Gift-card repeats
+  -- are decided by the serialized annual allowance; confirmed duplicates still
+  -- hit the unchanged explicit duplicate guard and the gift settlement guard.
+  definition:=pg_get_functiondef('public.assert_refund_case_reconciliation_safe()'::regprocedure);
+  if strpos(definition,'if public.refund_case_has_unresolved_reconciliation(new.id) then')=0 then
+    raise exception 'Refund reconciliation guard changed'; end if;
+  execute replace(definition,'if public.refund_case_has_unresolved_reconciliation(new.id) then',
+    'if new.resolution_method=''original_payment'' and public.refund_case_has_unresolved_reconciliation(new.id) then');
 end $patch$;
 
 -- An explicitly accepted gift card is transactional fulfillment. The switch

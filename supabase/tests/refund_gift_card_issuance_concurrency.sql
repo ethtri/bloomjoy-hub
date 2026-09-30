@@ -46,6 +46,8 @@ begin
 end $$;
 commit;
 select no_plan();
+select ok(public.refund_case_has_unresolved_reconciliation('fb760000-0000-4000-8000-000000000001'),
+ 'Same-email simultaneous purchases exercise the inherited inferred-duplicate boundary');
 select dblink_exec('gift_race_a','begin');
 insert into gift_race_test.results select 'first',payload from dblink('gift_race_a',
  $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
