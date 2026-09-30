@@ -83,7 +83,8 @@ begin
   response_complete := not exists (
     select 1
     from jsonb_each(context_row.correction_response) answer
-    where answer.value ->> 'disposition' not in ('changed', 'confirmed')
+    where coalesce(answer.value ->> 'disposition', '')
+        not in ('changed', 'confirmed')
       or case
         when answer.value ->> 'disposition' = 'changed' then
           public.refund_purchase_correction_values(case_row) ->> answer.key

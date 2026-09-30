@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(61);
+select plan(63);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -243,5 +243,30 @@ select isnt(
   'review_customer_reply',
   'Completed recheck resumes the ordinary current-fact lifecycle without another reply review'
 );
+savepoint malformed_form_answer;
+update public.refund_wallet_correction_contexts
+set correction_response = correction_response ||
+  '{"legacy_missing_disposition":{}}'::jsonb
+where token_hash=lpad('1',64,'0');
+select isnt(
+  public.refund_customer_outreach_contract(
+    'dd000000-0000-4000-8001-000000000001'
+  ) ->> 'reasonCode',
+  'verified_form_response_applied',
+  'Malformed persisted answer with missing disposition cannot pass through NULL snapshot equality'
+);
+rollback to savepoint malformed_form_answer;
+savepoint stale_form_answer;
+update public.refund_wallet_correction_contexts
+set correction_resulting_fact_version = correction_resulting_fact_version - 1
+where token_hash=lpad('1',64,'0');
+select isnt(
+  public.refund_customer_outreach_contract(
+    'dd000000-0000-4000-8001-000000000001'
+  ) ->> 'reasonCode',
+  'verified_form_response_applied',
+  'Completed form recheck cannot continue after its resulting fact version becomes stale'
+);
+rollback to savepoint stale_form_answer;
 select * from finish();
 rollback;
