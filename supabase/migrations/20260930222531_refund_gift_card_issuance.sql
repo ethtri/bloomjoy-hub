@@ -340,6 +340,7 @@ begin
   if email_key !~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$' or length(email_key)>320 then
     raise exception 'Valid customer email required';
   end if;
+  perform pg_advisory_xact_lock(hashtextextended('refund-gift-card:'||email_key,0));
   select * into m from public.refund_case_messages where manual_delivery_intent_id=p_intent_id;
   if m.id is not null then
     if m.gift_card_issuance_id is distinct from i.id or m.recipient_email<>email_key then
@@ -429,7 +430,7 @@ begin
   end if;
   select * into strict p from public.refund_gift_card_pools where id=p_pool_id for share;
   if not p.enabled or p_value<>p.face_value_cents or p_value<>ceil(c.payment_amount_cents::numeric/500)*500
-    or p_expires_at<>p.expires_at or p_expires_at<=statement_timestamp()
+    or p_expires_at>p.expires_at or p_expires_at<=statement_timestamp()
     or not c.reporting_machine_id=any(p.eligible_machine_ids) then raise exception 'Current compatible offer required'; end if;
   update public.refund_cases set resolution_method='gift_card',gift_card_pool_id=p.id,
     gift_card_value_cents=p_value,gift_card_expires_at=p_expires_at,gift_card_state='pending_inventory',
@@ -464,6 +465,11 @@ begin
         and current_setting('bloomjoy.giftcard.delivery_recovery_case_id',true)=old.id::text))
       or new.payment_amount_cents<>old.payment_amount_cents
       or new.reporting_machine_id<>old.reporting_machine_id or new.payment_method<>old.payment_method
+      or (old.gift_card_state='denied' and new.gift_card_state<>'denied')
+      or ((new.status in ('denied','closed') or new.decision='denied') and new.gift_card_state<>'denied')
+      or (old.gift_card_state is distinct from 'denied' and new.gift_card_state='denied'
+        and (current_user in ('anon','authenticated','service_role') or auth.uid() is null
+          or public.refund_official_action_authority(auth.uid(),old.id) is null))
       or (old.gift_card_state='issued' and (new.gift_card_state<>'issued' or new.status<>'completed'
         or new.decision is not null or new.refund_amount_cents is distinct from old.refund_amount_cents
         or new.duplicate_of_refund_case_id is distinct from old.duplicate_of_refund_case_id))
