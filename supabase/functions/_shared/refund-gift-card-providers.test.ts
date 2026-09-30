@@ -10,7 +10,7 @@ const claim = (provider = "kemore"): SupplyClaim => ({
 });
 const credentials = () => "synthetic-only";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
-const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, scopes: [{ scopeType: 1, scopeValue: ["machine-synthetic"] }] });
+const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, useMerchantScope: [], scopes: [{ scopeType: 1, scopeValue: ["machine-synthetic"] }] });
 const kemoreCode = (c: SupplyClaim) => ({ id: "synthetic-code-id", couponId: "coupon", merchantId: 42, code: "000000123", status: 0, availableCount: 1, usedCount: 0, startTime: providerClock(c.attemptedAt!, "America/Los_Angeles"), endTime: providerClock(c.pool.expires_at, "America/Los_Angeles") });
 const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => Record<string, unknown> = (v) => v) => {
   const calls: { path: string; method: string; body: Record<string, unknown> }[] = [];
@@ -49,6 +49,8 @@ Deno.test("KeMore reconciliation reads exact attempt name without another creati
 for (const [name, transform] of [
   ["wrong face value", (v: Record<string, unknown>) => "discountValue" in v ? { ...v, discountValue: "10.00" } : v],
   ["wrong device", (v: Record<string, unknown>) => "scopes" in v ? { ...v, scopes: [{ scopeType: 1, scopeValue: ["wrong"] }] } : v],
+  ["extra category scope", (v: Record<string, unknown>) => "scopes" in v ? { ...v, scopes: [...v.scopes as unknown[], { scopeType: 2, scopeValue: ["unexpected-category"] }] } : v],
+  ["extra merchant scope", (v: Record<string, unknown>) => "useMerchantScope" in v ? { ...v, useMerchantScope: ["unexpected-merchant"] } : v],
   ["used code", (v: Record<string, unknown>) => "usedCount" in v ? { ...v, usedCount: 1 } : v],
   ["numeric code loses zeros", (v: Record<string, unknown>) => "code" in v ? { ...v, code: 123 } : v],
   ["shortened expiry", (v: Record<string, unknown>) => "endTime" in v ? { ...v, endTime: "2026-10-01 00:00:00" } : v],
