@@ -158,7 +158,12 @@ returns jsonb language sql stable security definer set search_path='' as $$
     'currency',p.currency,'expires_at',c.gift_card_expires_at,
     'eligible_locations',coalesce(i.eligible_locations,p.eligible_locations),
     'redemption_instructions',coalesce(i.redemption_instructions,p.redemption_instructions),
-    'issued_at',i.issued_at,'delivery_state',coalesce(m.delivery_state,m.manual_delivery_state,'not_queued'),
+    'issued_at',i.issued_at,'delivery_state',case
+      -- The existing provider ledger defaults to unknown before any attempt.
+      -- A fresh outbox intent is queued, not an unknown transport effect.
+      when m.delivery_state='unknown' and m.manual_delivery_provider_attempted_at is null
+        and m.manual_delivery_state in ('queued','claimed','failed') then m.manual_delivery_state
+      else coalesce(m.delivery_state,m.manual_delivery_state,'not_queued') end,
     'payloadRedacted',true)
   from public.refund_cases c join public.refund_gift_card_pools p on p.id=c.gift_card_pool_id
   left join public.refund_gift_card_issuances i on i.refund_case_id=c.id
@@ -374,7 +379,8 @@ begin
   if c.gift_card_state<>'issued' or code_row.status<>'issued' or i.expires_at<=statement_timestamp()
     or code_row.expires_at<=statement_timestamp() then raise exception 'Existing valid unused code required'; end if;
   if exists(select 1 from public.refund_case_messages prior where (prior.id=i.message_id or prior.gift_card_issuance_id=i.id)
-      and (prior.manual_delivery_state='delivery_unknown' or prior.delivery_state='unknown'
+      and (prior.manual_delivery_state='delivery_unknown'
+        or (prior.delivery_state='unknown' and prior.manual_delivery_provider_attempted_at is not null)
         or (prior.manual_delivery_state='claimed' and prior.manual_delivery_provider_attempted_at is not null))) then
     raise exception 'Unknown delivery must be reconciled before resending' using errcode='P4672';
   end if;
