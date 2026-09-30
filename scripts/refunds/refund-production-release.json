@@ -291,7 +291,8 @@
     "20260930160608_refund_same_machine_catalog_binding.sql",
     "20260930180654_refund_selected_wallet_next_work.sql",
     "20260930185520_refund_customer_same_case_update_access.sql",
-    "20260930195800_refund_recovered_selection_recommendation.sql"
+    "20260930195800_refund_recovered_selection_recommendation.sql",
+    "20260930214655_refund_nayax_exact_source_reporting_recovery.sql"
   ],
   "migrationFilesSha256": "ca243fff307fe5bdae92b17b8355c791ecf502b1681143961b147109f2c1d895",
   "migrationVersionSetSha256": "dbdb798a78a642a5970f9f1cc1dc3af51beeaa2915771f917de7aa293e43f2c9",
