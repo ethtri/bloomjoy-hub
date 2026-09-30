@@ -469,7 +469,7 @@ def build_sale_agreement() -> Path:
         ),
         (
             "7. Site Readiness and Installation.",
-            "Buyer is responsible for the site and for completing Exhibit C before delivery, including approved electrical service, stable network connectivity, level floor space, ventilation and clearances, venue authorization, sanitation access, loading access, and all permits not expressly covered by a separate signed agreement. Bloomjoy is not responsible for delay, damage, or service failure caused by an unready site, unauthorized installation, incompatible service, or Buyer’s contractors. Services beyond those listed in the Order Form require a written change order.",
+            "Buyer is responsible for preparing the site before delivery, including approved electrical service, stable network connectivity, level floor space, ventilation and clearances, venue authorization, sanitation access, loading access, and all permits not expressly covered by a separate signed agreement. Bloomjoy is not responsible for delay, damage, or service failure caused by an unready site, unauthorized installation, incompatible service, or Buyer’s contractors. Services beyond those listed in the Order Form require a written change order.",
         ),
         (
             "8. Embedded Software and Connectivity.",
@@ -578,40 +578,6 @@ def build_sale_agreement() -> Path:
             ("5. Labor, Travel, and Shipping.", "Included labor, freight, duties, travel, and on-site services are limited to: [Describe included services or None]. Any amount not expressly included requires Buyer approval before charge, except reasonable emergency measures requested by Buyer."),
             ("6. Support Boundaries.", "The manufacturer provides first-line technical support through its designated 24/7 WeChat channel, subject to actual availability, time zone, and issue context. Bloomjoy provides onboarding guidance and reasonable escalation coordination during U.S. business hours. Bloomjoy does not promise continuous uptime, a fixed response time, or on-site service unless the Order Form states otherwise."),
             ("7. Bloomjoy Plus.", "Optional Bloomjoy Plus training, playbooks, portal features, or concierge benefits are governed only by the online subscription terms. Subscription status does not expand or reduce the express machine warranty unless a signed order expressly says so."),
-        ],
-    )
-
-    add_page_break(doc)
-    add_heading(doc, "EXHIBIT C — SITE READINESS CHECKLIST", level=1)
-    add_paragraph(doc, "Buyer must complete and return this checklist no later than [10] business days before the requested delivery date. A checked item confirms completion, not merely an intention to complete it.")
-    add_grid_table(
-        doc,
-        ["Ready", "Requirement", "Owner / notes"],
-        [
-            ["☐", "Final placement and venue authorization confirmed", "[ ]"],
-            ["☐", "Required permits, licenses, and food-safety approvals confirmed", "[ ]"],
-            ["☐", "Level floor space, clearances, guest flow, and service access confirmed", "[ ]"],
-            ["☐", "Correct dedicated electrical service and surge protection available", "[ ]"],
-            ["☐", "Stable network / cellular service tested at placement", "[ ]"],
-            ["☐", "Payment account, reader, and transaction settlement plan ready", "[ ]"],
-            ["☐", "Loading path, dock/elevator, doorway dimensions, and unloading labor confirmed", "[ ]"],
-            ["☐", "Cleaning, handwashing, water, waste, pest-control, and sanitation plan ready", "[ ]"],
-            ["☐", "Approved sugar, sticks, tools, and initial stock available", "[ ]"],
-            ["☐", "Authorized operators identified and training scheduled", "[ ]"],
-            ["☐", "Insurance and site-required certificates delivered", "[ ]"],
-            ["☐", "Secure storage and after-hours access plan confirmed", "[ ]"],
-        ],
-        [0.55, 4.4, 1.75],
-        font_size=8.8,
-    )
-    add_field_table(
-        doc,
-        [
-            ("Known exceptions", "[Insert or “None”]"),
-            ("Buyer readiness contact", "[Name | email | phone]"),
-            ("Buyer certification", "I certify that the information above is accurate and will promptly report any change before delivery."),
-            ("Name / title", "[Insert]"),
-            ("Signature / date", "__________________________________   __________________"),
         ],
     )
 
