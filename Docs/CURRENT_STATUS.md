@@ -362,6 +362,17 @@ orientation snapshot; it is not a backlog or release ledger.
   UTC health run resolved the durable workflow incident with
   `stable_recovery`; its one recovery action was recorded for the technical
   agent and did not create another raw executive email.
+- The secure payout-destination form currently saves a valid Zelle destination
+  but demotes an already-approved cash case into reply review. The bounded
+  `20260930031500` repair keeps only an exact changed, validated destination on
+  the existing protected `cash_zelle_pending` path, records that the bound
+  payout follow-up was satisfied by its submitted correction context, and
+  exposes the existing Manager cash-confirmation action without sending or
+  recording payment. A cannot-provide response and every undecided cash case
+  stay in Agent review. The same migration can recover only the observed stuck
+  tuple when its current submitted context, bound request, saved destination,
+  and zero-payment evidence still agree; this is prospective until the release
+  passes hosted migration/UAT validation and production readback.
 - A September 29 audit found 55 independent open case-work identities after
   excluding one open duplicate. The existing scheduled sweep and reply worker
   do not perform the broader purchase research, provider setup, reply review,

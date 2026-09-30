@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(48);
+select plan(56);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -131,10 +131,75 @@ select public.service_mark_refund_manual_message_provider_attempt((select refund
 select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from cash_claim),(select claim_token from cash_claim),'sent','gmail_thread',null,1,'mapped_manager');
 select is(public.service_get_refund_purchase_correction(lpad('b',64,'0'))->'allowedFields','["zelle_payment_contact"]'::jsonb,'Approved cash capability exposes only the missing payout destination');
 select throws_like($$select pg_temp.submit(11,'{"zelle_payment_contact":{"disposition":"changed","value":"refund@example.invalid"},"amount":{"disposition":"changed","value":"9.00"}}')$$,'%Unsupported correction answer%','Approved cash scope cannot rewrite approved purchase facts');
+savepoint approved_cash_cannot_provide;
+select lives_ok($$select pg_temp.submit(11,'{"zelle_payment_contact":{"disposition":"cannot_provide"}}')$$,
+ 'A customer can truthfully report that the payout destination is unavailable');
+select ok((select status='needs_review' and automation_state='customer_replied'
+    and decision='approved' and zelle_payment_contact is null
+    from public.refund_cases where id='dd000000-0000-4000-8001-000000000011')
+  and (select status='manual_review' and satisfied_by_correction_context_id is null
+      and satisfied_at is null from public.refund_payout_destination_follow_ups
+    where refund_case_id='dd000000-0000-4000-8001-000000000011')
+  and public.refund_lifecycle_contract('dd000000-0000-4000-8001-000000000011')#>>'{nextWork,actionCode}'
+      <> 'send_cash_refund_and_confirm',
+ 'Cannot-provide evidence stays in internal review and cannot expose cash payment');
+rollback to savepoint approved_cash_cannot_provide;
 select lives_ok($$select pg_temp.submit(11,'{"zelle_payment_contact":{"disposition":"changed","value":"refund@example.invalid"}}')$$,'Exact destination is saved through the existing approved case');
+select ok((select status='cash_zelle_pending' and automation_state='under_review'
+  and decision='approved' and refund_amount_cents=700
+  and zelle_payment_contact='refund@example.invalid'
+  and nayax_refund_execution_status='not_requested'
+  and refund_completed_at is null and reporting_adjustment_id is null
+  and manual_refund_reference is null
+  from public.refund_cases where id='dd000000-0000-4000-8001-000000000011'),
+ 'Destination response preserves the protected approved payout path without paying');
+select ok((select count(*)=0 from public.refund_case_nayax_refund_attempts
+  where refund_case_id='dd000000-0000-4000-8001-000000000011')
+ and (select count(*)=0 from public.refund_authoritative_receipts
+  where refund_case_id='dd000000-0000-4000-8001-000000000011'),
+ 'Destination response creates no payment attempt or settlement receipt');
+select ok((select status='satisfied' and reminder_claim_token is null
+    and request_message_id=(select correction_message_id
+      from public.refund_wallet_correction_contexts where token_hash=lpad('b',64,'0'))
+    and satisfied_by_correction_context_id=(select id
+      from public.refund_wallet_correction_contexts where token_hash=lpad('b',64,'0'))
+    and satisfied_by_gmail_message_id is null and satisfied_at is not null
+    from public.refund_payout_destination_follow_ups
+    where refund_case_id='dd000000-0000-4000-8001-000000000011'),
+ 'Only the exact bound payout reminder is satisfied by the secure-form response');
 select ok((select decision='approved' and refund_amount_cents=700 and zelle_payment_contact='refund@example.invalid' from public.refund_cases where id='dd000000-0000-4000-8001-000000000011')
- and (select status='manual_review' and reminder_claim_token is null from public.refund_payout_destination_follow_ups where refund_case_id='dd000000-0000-4000-8001-000000000011'),
+ and (select status='satisfied' and reminder_claim_token is null from public.refund_payout_destination_follow_ups where refund_case_id='dd000000-0000-4000-8001-000000000011'),
  'Destination response preserves approval and stops the existing payout reminder without paying');
+select set_config('request.jwt.claim.sub','dd000000-0000-4000-8000-000000000004',true);
+select is(public.refund_lifecycle_contract('dd000000-0000-4000-8001-000000000011')#>>'{nextWork,actionCode}',
+ 'send_cash_refund_and_confirm','Verified destination exposes only the existing Manager cash-confirmation action');
+select set_config('request.jwt.claim.sub','',true);
+insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,
+ issue_summary,incident_at,incident_timezone,incident_time_resolution,payment_method,
+ payment_amount_cents,refund_amount_cents,status,correlation_status,correlation_source,intake_source)
+values('dd000000-0000-4000-8001-000000000015','dd000000-0000-4000-8000-000000000003',
+ 'dd000000-0000-4000-8000-000000000002','scope-customer-15@example.invalid',
+ 'Undecided cash correction fixture',statement_timestamp()-interval '2 hours',
+ 'America/Los_Angeles','exact','cash',700,700,'needs_review','manual_review','manual','form');
+create temp table undecided_cash_message as select public.service_enqueue_refund_manual_message_intent(
+ 'dd000000-0000-4000-8001-000000000015',(select official_action_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'),
+ gen_random_uuid(),'dd000000-0000-4000-8000-000000000004','more_info','scope-customer-15@example.invalid','One destination detail','Reply with your Zelle email or phone.',
+ 'refund_more_info_editable_v1','manager_authored','missing_information',array['zelle_payment_contact'],null,false,null) as value;
+select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from undecided_cash_message),lpad('f',64,'0'),
+ (select deterministic_fact_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'));
+create temp table undecided_cash_claim as select * from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from undecided_cash_message),1);
+select public.service_mark_refund_manual_message_provider_attempt((select refund_case_message_id from undecided_cash_claim),(select claim_token from undecided_cash_claim));
+select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from undecided_cash_claim),(select claim_token from undecided_cash_claim),'sent','gmail_thread',null,1,'mapped_manager');
+select lives_ok($$select pg_temp.submit(15,'{"zelle_payment_contact":{"disposition":"changed","value":"undecided@example.invalid"}}')$$,
+ 'Undecided cash destination still uses the existing internal-review path');
+select ok((select status='needs_review' and automation_state='customer_replied'
+    and decision is null and zelle_payment_contact='undecided@example.invalid'
+    and refund_completed_at is null from public.refund_cases
+    where id='dd000000-0000-4000-8001-000000000015')
+  and (select status='manual_review' and satisfied_by_correction_context_id is null
+    and satisfied_at is null from public.refund_payout_destination_follow_ups
+    where refund_case_id='dd000000-0000-4000-8001-000000000015'),
+ 'Undecided cash response cannot enter the protected Manager cash-confirmation state');
 select pg_temp.make_scope(12,true);
 select is((select correction_requested_fields from public.refund_wallet_correction_contexts where token_hash=lpad('c',64,'0')),array['card_last4']::text[],'Fixture requests missing card digits before payment context changes');
 select lives_ok($$select pg_temp.submit(12,'{"payment_method":{"disposition":"changed","value":"cash"}}')$$,'Customer can correct card purchase to cash without answering inapplicable card question');
