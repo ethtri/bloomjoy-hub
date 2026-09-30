@@ -17,7 +17,8 @@ orientation snapshot; it is not a backlog or release ledger.
   from local source checks; production activation remains pending.
   The owner confirmed touchscreen redemption via **Enter coupon/code** for
   both cotton candy and SnapCase. Pools remain disabled until provider setup,
-  actual code creation and one-use/no-leftover-balance redemption are verified.
+  actual code creation and working machine redemption are verified. The one-use
+  terms follow the owner-approved conservative assumption.
   Fixtures do not prove live creation, hardware redemption or inbox timing.
   Unactivated machines keep the existing cash intake. Activated cash requests stay on the gift-card path.
 
