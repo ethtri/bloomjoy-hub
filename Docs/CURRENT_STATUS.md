@@ -26,10 +26,12 @@ orientation snapshot; it is not a backlog or release ledger.
   continuation accepts only the current delivered request with no newer form,
   no unresolved requested field, and either a completed read-only recheck or the
   exact changed payout destination. It changes no stored case, decision, message,
-  or payment. A rolled-back production rehearsal moved the card case to its real
-  provider-mapping repair and the cash case to internal purchase research while
-  preserving both delivered requests as history. Deployment and live readback
-  remain required.
+  or payment. PR #1644 was deployed on September 30. Authenticated production
+  readback confirmed provider-mapping repair for the card case and internal
+  purchase research for the cash case. Stored case, message, provider-attempt,
+  and receipt fingerprints remained unchanged; both delivered requests remain
+  history. The deployment dry run showed no pending migrations. These internal
+  next actions still require their existing case work.
 - The cross-case Nayax card blocker is removed: another refund case's
   reference to the same purchase is audit context rather than a payment veto.
   Nayax owns the original-purchase total limit; same-case replay protection,
