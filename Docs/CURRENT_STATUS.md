@@ -225,6 +225,25 @@ orientation snapshot; it is not a backlog or release ledger.
   #1592 now targets named location/field/effective-date corrections; it is not a
   blanket blocker for the interim activation and does not supply an Oklahoma
   exception that can be guessed.
+- Production activation followed merged compatibility PR #1628 at
+  `2026-09-30 01:03:14.491153 UTC`. The one-time activation created 38 opening
+  events with zero unresolved events; production now has one rollout row and 40
+  recognition events in total. Authenticated browser checks passed for the
+  fixed sales-report scope, cash/card reconciliation, PDF export, and a
+  month-to-date view showing the opening request deductions. A temporary,
+  owner-approved commission-only rollback restored `$123.30` across four
+  previously positive scopes after six undated historical adjustment/context
+  rows across five machines blocked their technician allocation. PR #1631 and
+  production migration `20260930013500` replaced that rollback with the active
+  rollout-aware calculation. Production verification retains all six rows and
+  `$143.10` in machine reporting while excluding them from technician segments;
+  allocation and cross-rate publication blockers are both zero, and the four
+  positive shared-basis scopes total `$129.34`. The rollout row, 40 recognition
+  events, 38 openings, and empty issued-statement/snapshot set remain unchanged.
+  The difference from the temporary `$123.30` value comes from the corrected
+  shared sales basis and original dated refund scope under the existing rate
+  bands; no commission rate changed. This completes the technician commission
+  rollout. Finance follow-up #1592 remains open.
 - Machine-app cash can remain incomplete while a machine is offline. Sunze's
   daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
   twice-daily 34-day overlap and bounded manual recovery, can ingest late rows
