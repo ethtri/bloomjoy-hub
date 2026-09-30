@@ -15,6 +15,19 @@ const cardInput = {
   walletProviderProvided: false,
 };
 
+Deno.test("card gift-card acceptance preserves tender without collecting card details or starting Nayax", () => {
+  const result = validateRefundIntakePayment({ ...cardInput, resolutionMethod: "gift_card",
+    cardLast4: "", cardNetwork: null, paymentInteraction: "unsure", submittedPaymentInteraction: "" });
+  assertEquals(result, { ok: true, paymentMethod: "card", amountCents: 700,
+    cardLast4: null, cardNetwork: null, cardWalletUsed: false, paymentInteraction: "unsure",
+    walletProvider: null, shouldRunNayaxLookup: false });
+});
+
+Deno.test("gift-card acceptance still requires positive purchase amount and cash/card tender", () => {
+  assertEquals(validateRefundIntakePayment({ ...cardInput, resolutionMethod: "gift_card", amountCents: 0 }).ok, false);
+  assertEquals(validateRefundIntakePayment({ ...cardInput, resolutionMethod: "gift_card", paymentMethod: "zelle" }).ok, false);
+});
+
 Deno.test("valid card intake preserves the Nayax evidence path", () => {
   assertEquals(validateRefundIntakePayment(cardInput), {
     ok: true,
