@@ -64,6 +64,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
   'get_refund_manager_work_projection',
+  'get_refund_portal_queue_projection',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
