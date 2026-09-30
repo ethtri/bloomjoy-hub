@@ -104,6 +104,9 @@ delete from public.refund_gift_card_pools where id='fb750000-0000-4000-8000-0000
 delete from public.reporting_machines where id='fb740000-0000-4000-8000-000000000001';
 delete from public.reporting_locations where id='fb730000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='fb720000-0000-4000-8000-000000000001';
+-- Drain deferred receipt/FK checks after deleting the full fixture, before
+-- altering tables to restore their normal triggers.
+set constraints all immediate;
 alter table public.refund_gift_card_issuances enable trigger refund_gift_card_issuances_immutable;
 alter table public.refund_case_messages enable trigger aa_refund_gift_card_message_identity;
 alter table public.refund_case_messages enable trigger refund_completion_outbox_postcommit_wakeup;

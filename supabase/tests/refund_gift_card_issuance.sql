@@ -36,6 +36,8 @@ select results_eq($$select purchase_amount_cents,face_value_cents,goodwill_amoun
  from public.refund_gift_card_issuances where refund_case_id='fc760000-0000-4000-8000-000000000001'$$,
  $$select 1100::integer,1500::integer,400::integer,'gift-fixture@example.invalid'::text$$,'Receipt separates purchase, face and goodwill and normalizes email');
 select is((select count(*) from public.refund_case_messages where refund_case_id='fc760000-0000-4000-8000-000000000001'),1::bigint,'Exactly one existing outbox message');
+select is(public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001')->>'delivery_state','queued',
+ 'Fresh provider-ledger default unknown is correctly projected as queued before an attempt');
 select lives_ok($$select public.service_issue_refund_gift_card('fc760000-0000-4000-8000-000000000001')$$,'Same-case replay works');
 select is((select count(*) from public.refund_gift_card_issuances),1::bigint,'Replay never creates another issuance');
 select ok(not (public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001') ? 'code'),'Status projection hides assigned code');
