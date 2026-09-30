@@ -253,7 +253,7 @@ orientation snapshot; it is not a backlog or release ledger.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a
-  missing sale. Production migration `20260930004634` keeps that negative rule
+  missing sale. PR #1630 and production migration `20260930004634` keep that negative rule
   while allowing successful cash rows from the latest machine-complete import
   and the exact machine/provider sale date to appear for explicit review. These
   rows remain marked with unvalidated coverage and timestamp semantics, never
