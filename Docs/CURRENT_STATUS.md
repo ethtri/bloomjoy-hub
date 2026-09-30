@@ -74,8 +74,16 @@ orientation snapshot; it is not a backlog or release ledger.
   candidates remain actor-bound, and the existing case version, generation,
   evidence, safety, and authority checks remain. This change does not select a
   purchase, rerun the provider lookup, make a decision, send a message, or move
-  money; production acceptance still requires hosted replay checks and a live
-  readback of the already-saved candidates.
+  money. Hosted replay checks, the production migration/function deployment,
+  and exact-main drift passed. The existing saved candidate was then selected
+  once through the governed action with `provider_call_made=false`; the failed
+  scheduler action remains immutable, the lookup was not replayed, and the
+  case still has no decision or financial action. That readback exposed one
+  remaining projection mismatch: the selection proof names the authorized
+  Manager, while the System-generated candidate correctly remains unowned.
+  The next bounded repair accepts that exact proof from a currently authorized
+  machine Manager or Super-admin without rewriting candidate ownership,
+  assigning the case, or changing the decision boundary.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before

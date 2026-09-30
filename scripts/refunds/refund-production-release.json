@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "a088aa674012ce41869c09d0986c428cadbc2b21",
+  "sourceGitCommit": "263a1cbf4fbbb079819df05e665f0fba32dd5a9c",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -279,10 +279,11 @@
     "20260929164000_refund_completion_customer_only.sql",
     "20260929175500_refund_manager_route_consistency.sql",
     "20260929193000_refund_reconciliation_clarification.sql",
-    "20260929221500_refund_system_candidate_review.sql"
+    "20260929221500_refund_system_candidate_review.sql",
+    "20260929231500_refund_system_selection_preparation.sql"
   ],
-  "migrationFilesSha256": "3fc9b90cc6607604db5f1d3aae5ad9d0db9639861025bfa031af3aa97be9ae99",
-  "migrationVersionSetSha256": "0a6c3dd14f7b323979e7cb073749e5a19f81deac0727206d4277d0593a9b2e7e",
+  "migrationFilesSha256": "471659ade9b21aa0a3d5ec995944a04f7b1d689b1260202744aaac9638014c09",
+  "migrationVersionSetSha256": "b1d6cdd65b17bffaf1814860a88cac9e28ad24825a35a8eba40ca80fe2bbbd49",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -392,9 +393,9 @@
       "verifyJwt": false,
       "sourceSha256": "25a6cec07f0be5f590abfc76f73f60259ad3aec6930e7a409c7b4af7a392065c",
       "production": {
-      "version": 171,
-      "ezbrSha256": "a40e017014aabd25c3020c1aea738b3cc3040b66f9e06f579e5af945fc99299f",
-      "sourceSha256": "25a6cec07f0be5f590abfc76f73f60259ad3aec6930e7a409c7b4af7a392065c",
+        "version": 171,
+        "ezbrSha256": "a40e017014aabd25c3020c1aea738b3cc3040b66f9e06f579e5af945fc99299f",
+        "sourceSha256": "25a6cec07f0be5f590abfc76f73f60259ad3aec6930e7a409c7b4af7a392065c",
         "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },

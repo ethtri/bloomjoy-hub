@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(72);
+select plan(79);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -30,7 +30,9 @@ insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,r
 values('SINGLE_GATE_ACCOUNT','SINGLE-GATE-MACHINE','a3440000-0000-4000-8000-000000000001');
 insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('a3450000-0000-4000-8000-000000000001','a3440000-0000-4000-8000-000000000001',
-  'a3410000-0000-4000-8000-000000000002','manager-b@example.invalid','Fixture');
+  'a3410000-0000-4000-8000-000000000002','manager-b@example.invalid','Fixture'),
+('a3450000-0000-4000-8000-000000000002','a3440000-0000-4000-8000-000000000001',
+  'a3410000-0000-4000-8000-000000000003','manager-c@example.invalid','Fixture');
 insert into public.admin_scoped_access_grants(id,user_id,grant_reason)
 values('a3460000-0000-4000-8000-000000000001','a3410000-0000-4000-8000-000000000001','Triage fixture');
 insert into public.admin_scoped_access_scopes(grant_id,scope_type,machine_id,grant_reason)
@@ -109,7 +111,7 @@ declare one_click boolean:=p_recommendation_state='high_confidence';
 begin
   insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
-    incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+    incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
     card_last4_provenance,payment_interaction,status,correlation_status,
     deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
     nayax_lookup_status,nayax_refund_execution_status,customer_request_received_at,
@@ -117,7 +119,7 @@ begin
   values(p_case_id,'RF-'||upper(right(replace(p_case_id::text,'-',''),12)),
     'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
     right(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
-    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',fixture_amount,'4242',
+    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',fixture_amount,fixture_amount,'4242',
     'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
     'checking','not_requested','2026-09-12T21:00:00Z','hosted_refund_intake');
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -129,10 +131,33 @@ begin
     pg_temp.request_bound_evidence()||jsonb_build_object(
       'amount_cents',fixture_amount,'amount_delta_cents',0,
       'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
-      'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
+      'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end,
+      'policy_version',case when p_trigger='scheduled'
+        then '2026-09-13.v12' else '2026-09-05.v11' end,
+      'request_time_boundary',case when p_trigger='scheduled'
+        then 'occurrence_time_uncertain' else 'before_or_at_request' end,
+      'transaction_occurrence_semantics',case when p_trigger='scheduled'
+        then 'unknown' else 'online_purchase_occurrence' end,
+      'transaction_occurrence_comparable',p_trigger<>'scheduled',
+      'time_delta_minutes',case when p_trigger='scheduled' then null else 0 end,
+      'transaction_occurrence_proof_source',case when p_trigger='scheduled'
+        then null else 'verified_provider_purchase_occurrence_v1' end,
+      'transaction_occurrence_timestamp_source',case when p_trigger='scheduled'
+        then null else 'authorization_gmt' end,
+      'transaction_occurrence_timezone_basis',case when p_trigger='scheduled'
+        then null else 'utc' end,
+      'transaction_occurrence_lower_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T20:00:00Z' end,
+      'transaction_occurrence_upper_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T20:00:00Z' end,
+      'request_receipt_lower_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T21:00:00Z' end,
+      'request_receipt_upper_bound_at',case when p_trigger='scheduled'
+        then null else '2026-09-12T21:00:00Z' end),
     now()+interval '1 hour');
   return public.service_commit_refund_nayax_lookup_and_preselect_v1(
-    p_case_id,1,1,p_lookup_status,p_recommendation_state,'2026-09-05.v11',
+    p_case_id,1,1,p_lookup_status,p_recommendation_state,
+    case when p_trigger='scheduled' then '2026-09-13.v12' else '2026-09-05.v11' end,
     statement_timestamp(),'Provider lookup fixture','a3440000-0000-4000-8000-000000000001',
     1,p_trigger,p_actor_user_id,null);
 end;
@@ -213,6 +238,44 @@ select ok((select matched_nayax_transaction_id='LOOKUP-000000000015'
       and actor_user_id='a3410000-0000-4000-8000-000000000002'
       and metadata->>'provider_call_made'='false'),
   'System evidence selection remains actor-attributed and makes no provider call');
+reset role;
+select is(public.can_perform_refund_official_action(
+    'a3410000-0000-4000-8000-000000000002',
+    'a3470000-0000-4000-8000-000000000015'),true,
+  'the selecting machine Manager retains current official-action authority');
+select is(public.refund_case_nayax_manager_readiness(
+    null,'a3470000-0000-4000-8000-000000000015')->>'transactionConfirmed','true',
+  'the exact selected System candidate satisfies transaction preparation truth');
+select is(public.refund_manager_preparation_snapshot(
+    'a3470000-0000-4000-8000-000000000015',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015'))->>'evidenceBasis',
+  'card_exact_selected',
+  'the current exact selection event is the Manager preparation proof');
+select ok((select assigned_manager_id is null
+      from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015')
+    and public.refund_decision_recommendation_for_case(
+      'a3470000-0000-4000-8000-000000000015')->>'kind'='refund',
+  'an exact System selection by a current machine Manager needs no single case assignee');
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+    'a3470000-0000-4000-8000-000000000015')#>>'{nextWork,actionCode}',
+  'approve_or_deny_request',
+  'the authorized System selection reaches the existing Manager decision path');
+reset role;
+update public.reporting_machine_refund_managers
+set status='revoked',revoked_at=statement_timestamp(),revoke_reason='Fixture authority check'
+where id='a3450000-0000-4000-8000-000000000001';
+select is(public.refund_decision_recommendation_for_case(
+    'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'a stale System selection proof cannot prepare a recommendation after authority is revoked');
+update public.reporting_machine_refund_managers
+set status='active',revoked_at=null,revoke_reason=null
+where id='a3450000-0000-4000-8000-000000000001';
+select is(public.refund_decision_recommendation_for_case(
+    'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
+  'restoring the current machine Manager mapping restores the same evidence-only recommendation');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
@@ -352,8 +415,6 @@ where id='a3440000-0000-4000-8000-000000000001';
 update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),
   revoke_reason='Fixture manager reassignment'
 where id='a3450000-0000-4000-8000-000000000001';
-insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
-values('a3440000-0000-4000-8000-000000000001','a3410000-0000-4000-8000-000000000003','manager-c@example.invalid','Reassignment fixture');
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000003');
 select is((public.admin_get_refund_nayax_resolution_readiness('a3470000-0000-4000-8000-000000000001')->>'visible'),'true',
   'manager reassignment preserves case status visibility after approval');
