@@ -1521,6 +1521,116 @@ select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
     'I do not use Zelle.','customer_cannot_provide')$$,
   '%supported reply fact cannot be discarded%',
   'A payout limitation cannot silently discard a supported amount correction');
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from payout_mixed_fact_task),
+    (select (task->>'claimToken')::uuid from payout_mixed_fact_task),pg_temp.gid(63),
+    (select (task->>'factVersion')::bigint from payout_mixed_fact_task),
+    (select task->>'bodySha256' from payout_mixed_fact_task),
+    jsonb_build_array(jsonb_build_object('field','amount','messageId',pg_temp.gid(63),
+      'quote','The amount should be $12.00.')),
+    '{"payment_amount_cents":1200,"refund_amount_cents":1200}'::jsonb,
+    array['amount'])->>'payoutDestinationUnavailable','false',
+  'An affirmative Zelle statement prevents a contradictory limitation from being recorded');
+rollback to savepoint payout_limitation_mixed_fact;
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(64),gmail_thread_id,refund_case_id,'scoped-reply-64',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,'I cannot',received_at-interval '20 seconds',
+  retention_expires_at from public.refund_gmail_messages where id=pg_temp.gid(63);
+update public.refund_gmail_messages set plain_body='use Zelle. The amount should be $12.00.'
+  where id=pg_temp.gid(63);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(63),pg_temp.gid(63))
+  ->>'outcome','received','Two verified replies bind to the same current request');
+create temp table payout_cross_message_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(63)::text;
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from payout_cross_message_task),
+    (select (task->>'claimToken')::uuid from payout_cross_message_task),pg_temp.gid(63),
+    (select (task->>'factVersion')::bigint from payout_cross_message_task),
+    (select task->>'bodySha256' from payout_cross_message_task),
+    jsonb_build_array(jsonb_build_object('field','amount','messageId',pg_temp.gid(63),
+      'quote','The amount should be $12.00.')),
+    '{"payment_amount_cents":1200,"refund_amount_cents":1200}'::jsonb,
+    array['amount'])->>'payoutDestinationUnavailable','false',
+  'A limitation cannot be synthesized across two separate verified messages');
+rollback to savepoint payout_limitation_mixed_fact;
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(64),gmail_thread_id,refund_case_id,'scoped-reply-64',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,'I do not use Zelle.',received_at-interval '20 seconds',
+  retention_expires_at from public.refund_gmail_messages where id=pg_temp.gid(63);
+update public.refund_gmail_messages set plain_body=
+  'I can use Zelle. The amount should be $12.00.' where id=pg_temp.gid(63);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(63),pg_temp.gid(63))
+  ->>'outcome','received','Contradictory verified payout replies bind to one review task');
+create temp table payout_cross_message_contradiction_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(63)::text;
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from payout_cross_message_contradiction_task),
+    (select (task->>'claimToken')::uuid from payout_cross_message_contradiction_task),pg_temp.gid(63),
+    (select (task->>'factVersion')::bigint from payout_cross_message_contradiction_task),
+    (select task->>'bodySha256' from payout_cross_message_contradiction_task),
+    jsonb_build_array(jsonb_build_object('field','amount','messageId',pg_temp.gid(63),
+      'quote','The amount should be $12.00.')),
+    '{"payment_amount_cents":1200,"refund_amount_cents":1200}'::jsonb,
+    array['amount'])->>'payoutDestinationUnavailable','false',
+  'An affirmative Zelle statement anywhere in the verified set suppresses unavailability');
+rollback to savepoint payout_limitation_mixed_fact;
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(64),gmail_thread_id,refund_case_id,'scoped-reply-64',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,'I am not able to use Zelle.',received_at-interval '20 seconds',
+  retention_expires_at from public.refund_gmail_messages where id=pg_temp.gid(63);
+update public.refund_gmail_messages set plain_body='The amount should be $12.00.'
+  where id=pg_temp.gid(63);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(63),pg_temp.gid(63))
+  ->>'outcome','received','Mixed payout limitation and amount bind to the exact request');
+create temp table payout_mixed_supported_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(63)::text;
+create temp table payout_mixed_supported_result on commit drop as
+  select public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from payout_mixed_supported_task),
+    (select (task->>'claimToken')::uuid from payout_mixed_supported_task),pg_temp.gid(63),
+    (select (task->>'factVersion')::bigint from payout_mixed_supported_task),
+    (select task->>'bodySha256' from payout_mixed_supported_task),
+    jsonb_build_array(jsonb_build_object('field','amount','messageId',pg_temp.gid(63),
+      'quote','The amount should be $12.00.')),
+    '{"payment_amount_cents":1200,"refund_amount_cents":1200}'::jsonb,
+    array['amount']) as result;
+select is((select result->>'outcome' from payout_mixed_supported_result),'applied',
+  'One protected settlement applies the supported amount');
+select ok((select payment_amount_cents=1200 and refund_amount_cents=1200
+      and zelle_payment_contact is null and decision is null
+      and refund_completed_at is null
+    from public.refund_cases where id=pg_temp.cid(63)),
+  'Supported amount application preserves destination, decision and payment ownership');
+select ok((select reply_review_state='resolved'
+      and reply_review_result_code='facts_applied_with_payout_destination_unavailable'
+      and reply_directional_evidence->>'payoutDestinationUnavailable'='true'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(63)),
+  'One protected settlement retains the direct payout limitation');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(63) and applied_fields=array['amount']::text[]),1,
+  'One immutable application receipt records the supported amount');
+select ok((select count(*)=1 from public.refund_case_events
+    where refund_case_id=pg_temp.cid(63)
+      and event_type='refund_verified_reply_research_completed'
+      and metadata->>'result_code'='facts_applied_with_payout_destination_unavailable'
+      and metadata->>'source_message_id'=pg_temp.gid(64)::text
+      and metadata->>'payload_redacted'='true'),
+  'Mixed settlement binds the redacted limitation event to its exact earlier message');
 rollback to savepoint payout_limitation_mixed_fact;
 update public.refund_gmail_messages set plain_body='I do not use Zelle.'
   where id=pg_temp.gid(63);
