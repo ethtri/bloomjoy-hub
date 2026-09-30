@@ -160,7 +160,7 @@ begin
   select count(*),max(issued_at) into issued_count,latest from public.refund_gift_card_issuances i
     where (normalized_email=lower(btrim(c.customer_email)) or exists(select 1 from public.refund_case_messages m
       where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(c.customer_email))))
-      and refund_case_id<>c.id and issued_at>statement_timestamp()-interval '12 months';
+      and refund_case_id<>c.id and issued_at+interval '12 months'>statement_timestamp();
   select jsonb_build_object('value',i.face_value_cents,'currency',i.currency,'issued_at',i.issued_at,
     'public_reference',prior.public_reference,'eligible_locations',i.eligible_locations) into previous
     from public.refund_gift_card_issuances i join public.refund_cases prior on prior.id=i.refund_case_id
@@ -195,7 +195,7 @@ returns boolean language sql stable security definer set search_path='' as $$
   select not exists(select 1 from public.refund_gift_card_issuances i
     where (i.normalized_email=lower(btrim(p_email)) or exists(select 1 from public.refund_case_messages m
       where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(p_email))))
-      and i.issued_at>p_at-interval '12 months');
+      and i.issued_at+interval '12 months'>p_at);
 $$;
 
 create function public.service_issue_refund_gift_card(p_case_id uuid)
@@ -229,8 +229,8 @@ begin
   end if;
   email_key:=lower(btrim(c.customer_email));
   perform pg_advisory_xact_lock(hashtextextended('refund-gift-card:'||email_key,0));
-  -- Strict greater-than convention: an issuance exactly 12 calendar months ago
-  -- is outside the allowance window. PostgreSQL handles leap-year clamping.
+  -- Anniversary arithmetic clamps Feb 29 to Feb 28 in the following year;
+  -- subtracting 12 months from the current date is not its inverse.
   if c.gift_card_approved_at is null and not public.refund_gift_card_automatic_eligible(email_key,statement_timestamp()) then
     update public.refund_cases set gift_card_state='manager_review' where id=c.id;
     return public.refund_gift_card_case_projection(c.id);

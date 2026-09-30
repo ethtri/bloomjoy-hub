@@ -30,6 +30,9 @@ test('source-derived runtime proof includes exact current core delegates and rec
   );
   assert(manualMark.includes('assert_no_active_refund_owner_resolution(case_id)'));
   assert(manualMark.indexOf('for update;') < manualMark.indexOf('assert_no_active_refund_owner_resolution(case_id)'));
+  assert(sql.includes('if not public.is_refund_gift_card_message(to_jsonb(message_row))\n      and not exists(select 1 from public.refund_customer_contact_settings settings'));
+  assert(sql.includes('if not public.is_refund_receipt_automatic_completion_message(message_row.id) then'));
+  assert(sql.includes("raise exception 'Refund manual-message delivery claim changed' using errcode='P4659'"));
   assert.doesNotMatch(sql, /disable\s+trigger|session_replication_role/iu);
   assert(sql.endsWith('rollback;\n'));
 });
