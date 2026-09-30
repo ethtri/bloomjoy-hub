@@ -1422,6 +1422,7 @@ const getSweepCase = async (refundCaseId: string) => {
   const { data, error } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .eq("id", refundCaseId)
     .maybeSingle();
   if (error) throw error;
@@ -1999,6 +2000,7 @@ const runMissingInformationSweep = async (
   const { data, error } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .eq("status", "draft")
     .eq("intake_source", "gmail")
     .in("automation_state", ["customer_replied", "submitted", "under_review"])
@@ -2148,6 +2150,7 @@ const runCashNoSafeMatchSweep = async (
   const { data, error } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .eq("payment_method", "cash")
     .eq("status", "needs_review")
     .eq("correlation_status", "no_match")
@@ -2583,6 +2586,7 @@ const runCardNayaxLookupSweep = async (
   const { data: lookupCases, error: lookupCasesError } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .in("id", claimedCaseIds);
 
   if (lookupCasesError) throw lookupCasesError;
@@ -3019,6 +3023,7 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
   const { data: correctionCases, error: correctionCasesError } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .eq("payment_method", "card")
     .eq("status", "needs_review")
     .in("nayax_recommendation_state", ["no_safe_match", "manual_exception"])
@@ -3306,6 +3311,7 @@ const runWalletCorrectionExpirySweep = async (
   const { data: dueCases, error: dueError } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .eq("payment_method", "card")
     .eq("card_wallet_used", true)
     .eq("status", "waiting_on_customer")
@@ -3927,6 +3933,7 @@ const runSlaAtRiskCustomerStatusSweep = async (
   const { data, error } = await supabase
     .from("refund_cases")
     .select(caseSelect)
+    .eq("resolution_method", "original_payment")
     .in("status", ["submitted", "needs_review", "correlated"])
     .lte("created_at", earliestCandidate.toISOString())
     .order("created_at", { ascending: true })

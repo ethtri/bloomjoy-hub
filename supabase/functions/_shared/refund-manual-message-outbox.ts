@@ -16,6 +16,7 @@ import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 import { issueRefundCorrectionForMessage, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 import { renderBloomjoyRefundStoredText } from "./refund-email-brand.ts";
 import { renderRefundGiftCardEmail } from "./refund-gift-card-email.ts";
+import { refundCustomerLocaleFromIntakeMeta } from "./refund-language.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,8 +29,9 @@ const refundAutomationEnabled = () =>
   Deno.env.get("REFUND_AUTOMATION_ENABLED")?.trim().toLowerCase() === "true";
 export const refundOutboxAutomaticSendGate = (
   deliveryKind: "manual" | "automatic",
+  customerAcceptedGiftCard = false,
 ) => {
-  if (deliveryKind === "manual") return null;
+  if (deliveryKind === "manual" || customerAcceptedGiftCard) return null;
   if (!refundAutomationEnabled()) return "refund_automation_disabled" as const;
   if (!automaticRefundCustomerContactEnabled()) {
     return "automatic_contact_disabled" as const;
@@ -64,6 +66,7 @@ type RefundManualMessageRow = {
   refund_case_id: string;
   message_type: string;
   template_version: string | null;
+  gift_card_issuance_id: string | null;
   status: string;
   recipient_email: string;
   subject: string;
@@ -202,6 +205,7 @@ const getClaimedMessage = async (
       refund_case_id,
       message_type,
       template_version,
+      gift_card_issuance_id,
       status,
       recipient_email,
       subject,
@@ -374,7 +378,7 @@ export const deliverRefundManualMessageClaim = async ({
   const message = await getClaimedMessage(supabase, reference);
   const { data: currentCase, error: caseError } = await supabase
     .from("refund_cases")
-    .select("official_action_version,case_population,customer_email,deterministic_fact_version")
+    .select("official_action_version,case_population,customer_email,customer_name,intake_meta,deterministic_fact_version")
     .eq("id", message.refund_case_id)
     .maybeSingle();
   if (caseError) throw caseError;
@@ -430,18 +434,20 @@ export const deliverRefundManualMessageClaim = async ({
     text: storedEmail.text,
     html: storedEmail.html,
   };
-  if (message.template_version === "refund_gift_card_v1") {
+  if (message.template_version === "refund_gift_card_v1" && !transactionalRecovery) {
     const { data: issuance, error: issuanceError } = await supabase
       .from("refund_gift_card_issuances")
       .select("code_id,face_value_cents,currency,expires_at,eligible_locations,redemption_instructions")
-      .eq("message_id", message.id).single();
+      .eq(message.gift_card_issuance_id ? "id" : "message_id", message.gift_card_issuance_id ?? message.id).single();
     if (issuanceError || !issuance) throw new Error("Gift-card delivery receipt is unavailable.");
     const { data: card, error: codeError } = await supabase.from("refund_gift_card_codes")
       .select("code,status").eq("id", issuance.code_id).single();
-    if (codeError || !card || !["issued", "used"].includes(card.status)) {
+    if (codeError || !card || card.status !== "issued" || Date.parse(issuance.expires_at) <= Date.now()) {
       throw new Error("Assigned gift-card code is unavailable.");
     }
-    email = renderRefundGiftCardEmail({ value: issuance.face_value_cents, currency: issuance.currency,
+    email = renderRefundGiftCardEmail({ customerName: currentCase.customer_name,
+      customerLocale: refundCustomerLocaleFromIntakeMeta(currentCase.intake_meta),
+      value: issuance.face_value_cents, currency: issuance.currency,
       code: card.code, expiresAt: issuance.expires_at, eligibleLocations: issuance.eligible_locations,
       redemptionInstructions: issuance.redemption_instructions });
   }
@@ -483,6 +489,7 @@ export const deliverRefundManualMessageClaim = async ({
     ) {
       const automaticGate = refundOutboxAutomaticSendGate(
         message.delivery_kind,
+        message.template_version === "refund_gift_card_v1",
       );
       if (automaticGate) throw new RefundOutboxGateError(automaticGate);
     }
@@ -496,7 +503,9 @@ export const deliverRefundManualMessageClaim = async ({
     }
     await markProviderAttempt(supabase, reference);
     providerAttemptStarted = true;
-    const gmailDelivery = await dispatchRefundCaseGmailReply({
+    const gmailDelivery = message.template_version === "refund_gift_card_v1"
+      ? { usedGmail: false, managerCcEmails: [], managerCcCount: 0, recipientResolutionStatus: "resolved" }
+      : await dispatchRefundCaseGmailReply({
       supabase,
       refundCaseId: message.refund_case_id,
       refundCaseMessageId: message.id,
@@ -511,6 +520,7 @@ export const deliverRefundManualMessageClaim = async ({
     if (!gmailDelivery.usedGmail) {
       const automaticGate = refundOutboxAutomaticSendGate(
         message.delivery_kind,
+        message.template_version === "refund_gift_card_v1",
       );
       if (automaticGate) throw new RefundOutboxGateError(automaticGate);
       await markRefundTransactionalDeliveryAttempt({

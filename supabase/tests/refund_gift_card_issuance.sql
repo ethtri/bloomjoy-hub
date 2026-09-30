@@ -22,8 +22,9 @@ insert into public.refund_gift_card_codes(pool_id,provider,provider_account_id,p
  now()-interval '1 day',now()+interval '30 days' from generate_series(1,4)n;
 select is(public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1100)->>'value','1500','Launch rounds $11 to $15');
 select is(public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1500)->>'value','1500','Exact $5 multiple stays the same');
-select is(public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1501),null::jsonb,'No higher wrong denomination is substituted');
-select ok(not (public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1100)::text like '%000000001%'),'Public terms never contain codes');
+select is(public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1501),null::jsonb,'Unverified template cannot promise a new denomination');
+select is((select count(*) from public.refund_gift_card_pools),1::bigint,'Quote never materializes a pool or provider value');
+select ok(not (public.service_get_refund_gift_card_offer('fc740000-0000-4000-8000-000000000001',1100) ? 'code'),'Public terms never contain codes');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
  resolution_method,gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state)
@@ -37,9 +38,13 @@ select results_eq($$select purchase_amount_cents,face_value_cents,goodwill_amoun
 select is((select count(*) from public.refund_case_messages where refund_case_id='fc760000-0000-4000-8000-000000000001'),1::bigint,'Exactly one existing outbox message');
 select lives_ok($$select public.service_issue_refund_gift_card('fc760000-0000-4000-8000-000000000001')$$,'Same-case replay works');
 select is((select count(*) from public.refund_gift_card_issuances),1::bigint,'Replay never creates another issuance');
-select ok(not (public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001')::text like '%000000001%'),'Status projection hides assigned code');
-select ok(public.refund_gift_card_automatic_eligible('gift-fixture@example.invalid',now()+interval '12 months'),'Exact calendar anniversary permits automatic issuance');
-select ok(not public.refund_gift_card_automatic_eligible('gift-fixture@example.invalid',now()+interval '12 months'-interval '1 microsecond'),'Just before anniversary still requires approval');
+select ok(not (public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001') ? 'code'),'Status projection hides assigned code');
+select ok(public.refund_gift_card_automatic_eligible('gift-fixture@example.invalid',
+ (select issued_at+interval '12 months' from public.refund_gift_card_issuances where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+ 'Exact calendar anniversary permits automatic issuance');
+select ok(not public.refund_gift_card_automatic_eligible('gift-fixture@example.invalid',
+ (select issued_at+interval '12 months'-interval '1 microsecond' from public.refund_gift_card_issuances where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+ 'Just before anniversary still requires approval');
 select ok(not public.refund_gift_card_automatic_eligible(' GIFT-FIXTURE@example.invalid ',now()+interval '4 months'),'Same-year normalized-email repeat requires approval');
 select ok(public.refund_gift_card_automatic_eligible('gift-fixture+new@example.invalid',now()),'No aggressive plus-alias collapsing');
 select throws_ok($$update public.refund_cases set status='denied',decision='denied' where id='fc760000-0000-4000-8000-000000000001'$$,
@@ -48,6 +53,8 @@ select throws_ok($$update public.refund_cases set refund_completed_at=now(),manu
  'P4670',null,'Stale cash completion cannot settle issued gift card');
 select throws_ok($$update public.refund_cases set resolution_method='original_payment' where id='fc760000-0000-4000-8000-000000000001'$$,
  'P4670',null,'Accepted resolution cannot switch to money settlement');
+select throws_ok($$update public.refund_cases set duplicate_of_refund_case_id=id where id='fc760000-0000-4000-8000-000000000001'$$,
+ 'P4670',null,'Issued gift card cannot be marked duplicate to reverse its purchase deduction');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
  resolution_method,gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state)
@@ -66,5 +73,19 @@ select is((select count(*) from public.sales_adjustment_facts where refund_case_
  ('fc760000-0000-4000-8000-000000000001','fc760000-0000-4000-8000-000000000002')),0::bigint,'Issuance creates no cash-paid adjustment');
 select ok(not has_table_privilege('authenticated','public.refund_gift_card_codes','SELECT'),'Private stock is not exposed to signed-in customer clients');
 select ok(not has_function_privilege('anon','public.service_issue_refund_gift_card(uuid)','EXECUTE'),'Anonymous clients cannot allocate');
+select lives_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000001','corrected-gift@example.invalid')$$,'Assigned Manager corrects delivery destination using the same gift');
+select lives_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000001','corrected-gift@example.invalid')$$,'Same delivery intent retry is idempotent');
+select is((select count(*) from public.refund_gift_card_issuances),2::bigint,'Recovery preserves original issuance count');
+select is((select count(*) from public.refund_case_messages where gift_card_issuance_id is not null),1::bigint,'Delivery recovery creates one linked intent');
+select ok(not public.refund_gift_card_automatic_eligible('corrected-gift@example.invalid',now()),'Corrected recipient retains the same annual allowance history');
+select is(public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001')->>'delivery_state','queued','Status follows latest recovery message');
+update public.refund_case_messages set status='failed',manual_delivery_state='delivery_unknown',delivery_state='unknown'
+ where manual_delivery_intent_id='fc770000-0000-4000-8000-000000000001';
+select throws_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000002')$$,'P4672',null,'Unknown delivery cannot blindly create another send');
+select ok(strpos(pg_get_functiondef('public.refund_completion_outbox_postcommit_wakeup()'::regprocedure),'refund_gift_card_v1')>0,
+ 'Immediate postcommit wakeup includes the same immutable gift message');
 select * from finish();
 rollback;

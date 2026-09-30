@@ -66,6 +66,9 @@ create table public.refund_gift_card_issuances (
   check((approved_by is null)=(approved_at is null))
 );
 create index refund_gift_card_email_history_idx on public.refund_gift_card_issuances(normalized_email,issued_at desc);
+alter table public.refund_case_messages
+  add column gift_card_issuance_id uuid references public.refund_gift_card_issuances(id),
+  add column gift_card_message_identity_digest text;
 alter table public.refund_gift_card_pools enable row level security;
 alter table public.refund_gift_card_codes enable row level security;
 alter table public.refund_gift_card_issuances enable row level security;
@@ -93,17 +96,38 @@ end $$;
 create trigger refund_gift_card_code_scope before insert or update on public.refund_gift_card_codes
   for each row execute function public.guard_refund_gift_card_code();
 
+create function public.refund_gift_card_quote_template_verified(p_pool_id uuid)
+returns boolean language plpgsql stable security definer set search_path='' as $$
+declare verified boolean:=false;
+begin
+  if to_regclass('public.refund_gift_card_refill_rules') is null then return false; end if;
+  execute 'select exists(select 1 from public.refund_gift_card_refill_rules where pool_id=$1
+    and provider_config->>''scope_verified''=''true'' and provider_config->>''currency_verified''=''true'')'
+    into verified using p_pool_id;
+  return verified;
+end $$;
 create function public.service_get_refund_gift_card_offer(p_machine_id uuid,p_amount_cents integer)
 returns jsonb language sql stable security definer set search_path='' as $$
-  select jsonb_build_object('pool_id',p.id,'value',p.face_value_cents,'currency',p.currency,
+  select jsonb_build_object('pool_id',p.id,'value',ceil(p_amount_cents::numeric/500)*500,'currency',p.currency,
     'eligible_locations',p.eligible_locations,'expires_at',p.expires_at,'one_use',true,
     'redemption_instructions',p.redemption_instructions)
   from public.refund_gift_card_pools p
   where p.enabled and p.expires_at>statement_timestamp() and p_amount_cents>0
-    and p.face_value_cents=ceil(p_amount_cents::numeric/500)*500
+    and (p.face_value_cents=ceil(p_amount_cents::numeric/500)*500
+      or public.refund_gift_card_quote_template_verified(p.id))
     and p_machine_id=any(p.eligible_machine_ids)
     and exists(select 1 from public.reporting_machines m where m.id=p_machine_id and m.status='active')
-  order by p.expires_at,p.id limit 1;
+  order by case when p.face_value_cents=ceil(p_amount_cents::numeric/500)*500 then 0 else 1 end,
+    (select min(code.expires_at) from public.refund_gift_card_codes code
+    where code.pool_id=p.id and code.status='available' and code.issued_case_id is null
+      and code.valid_from<=statement_timestamp() and code.expires_at>=p.expires_at) nulls last,
+    p.expires_at,p.id limit 1;
+$$;
+
+create function public.service_refund_gift_card_enabled(p_machine_id uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.refund_gift_card_pools p
+    where p.enabled and p_machine_id=any(p.eligible_machine_ids));
 $$;
 
 create function public.refund_gift_card_case_projection(p_case_id uuid)
@@ -117,7 +141,9 @@ returns jsonb language sql stable security definer set search_path='' as $$
     'payloadRedacted',true)
   from public.refund_cases c join public.refund_gift_card_pools p on p.id=c.gift_card_pool_id
   left join public.refund_gift_card_issuances i on i.refund_case_id=c.id
-  left join public.refund_case_messages m on m.id=i.message_id
+  left join lateral (select message.* from public.refund_case_messages message
+    where message.id=i.message_id or message.gift_card_issuance_id=i.id
+    order by message.created_at desc,message.id desc limit 1) m on true
   where c.id=p_case_id and c.resolution_method='gift_card';
 $$;
 
@@ -131,16 +157,20 @@ begin
   end if;
   select * into c from public.refund_cases where id=p_case_id;
   if c.resolution_method<>'gift_card' then return null; end if;
-  select count(*),max(issued_at) into issued_count,latest from public.refund_gift_card_issuances
-    where normalized_email=lower(btrim(c.customer_email)) and refund_case_id<>c.id
-      and issued_at>statement_timestamp()-interval '12 months';
+  select count(*),max(issued_at) into issued_count,latest from public.refund_gift_card_issuances i
+    where (normalized_email=lower(btrim(c.customer_email)) or exists(select 1 from public.refund_case_messages m
+      where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(c.customer_email))))
+      and refund_case_id<>c.id and issued_at>statement_timestamp()-interval '12 months';
   select jsonb_build_object('value',i.face_value_cents,'currency',i.currency,'issued_at',i.issued_at,
     'public_reference',prior.public_reference,'eligible_locations',i.eligible_locations) into previous
     from public.refund_gift_card_issuances i join public.refund_cases prior on prior.id=i.refund_case_id
-    where i.normalized_email=lower(btrim(c.customer_email)) and i.refund_case_id<>c.id
+    where (i.normalized_email=lower(btrim(c.customer_email)) or exists(select 1 from public.refund_case_messages m
+      where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(c.customer_email)))) and i.refund_case_id<>c.id
     order by i.issued_at desc limit 1;
   return public.refund_gift_card_case_projection(p_case_id)||jsonb_build_object(
     'prior_issued_count',issued_count,'latest_issued_at',latest,'previous_issuance',previous,
+    'customer_email',c.customer_email,
+    'can_resend',c.gift_card_state='issued' and public.refund_official_action_authority(auth.uid(),p_case_id) is not null,
     'can_decide',c.gift_card_state='manager_review'
       and public.refund_official_action_authority(auth.uid(),p_case_id) is not null);
 end $$;
@@ -150,17 +180,22 @@ end $$;
 create function public.is_refund_gift_card_message(p_message jsonb)
 returns boolean language sql stable security definer set search_path='' as $$
   select exists(select 1 from public.refund_gift_card_issuances i join public.refund_cases c on c.id=i.refund_case_id
-    where i.message_id::text=p_message->>'id' and i.refund_case_id::text=p_message->>'refund_case_id'
-      and i.message_identity_digest=public.refund_receipt_completion_message_digest(p_message)
+    where i.refund_case_id::text=p_message->>'refund_case_id'
+      and ((i.message_id::text=p_message->>'id'
+          and i.normalized_email=p_message->>'recipient_email'
+          and i.message_identity_digest=public.refund_receipt_completion_message_digest(p_message))
+        or (i.id::text=p_message->>'gift_card_issuance_id'
+          and p_message->>'gift_card_message_identity_digest'=public.refund_receipt_completion_message_digest(p_message)))
       and c.case_population='customer' and c.resolution_method='gift_card' and c.gift_card_state='issued'
-      and i.normalized_email=lower(btrim(c.customer_email))
       and p_message->>'template_version'='refund_gift_card_v1');
 $$;
 
 create function public.refund_gift_card_automatic_eligible(p_email text,p_at timestamptz)
 returns boolean language sql stable security definer set search_path='' as $$
   select not exists(select 1 from public.refund_gift_card_issuances i
-    where i.normalized_email=lower(btrim(p_email)) and i.issued_at>p_at-interval '12 months');
+    where (i.normalized_email=lower(btrim(p_email)) or exists(select 1 from public.refund_case_messages m
+      where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(p_email))))
+      and i.issued_at>p_at-interval '12 months');
 $$;
 
 create function public.service_issue_refund_gift_card(p_case_id uuid)
@@ -229,10 +264,10 @@ begin
       public.refund_receipt_completion_message_digest(to_jsonb(m)));
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
     template_key,template_version,content_source,delivery_kind,requested_fields,manual_delivery_intent_id,
-    manual_delivery_state,manual_delivery_expected_case_version)
+    manual_delivery_state,manual_delivery_expected_case_version,created_at)
     values(m.id,c.id,m.message_type,m.status,m.recipient_email,m.subject,m.body,m.template_key,
       m.template_version,m.content_source,m.delivery_kind,m.requested_fields,m.manual_delivery_intent_id,
-      m.manual_delivery_state,m.manual_delivery_expected_case_version);
+      m.manual_delivery_state,m.manual_delivery_expected_case_version,statement_timestamp());
   insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
     values(c.id,'gift_card_issued','A gift card was assigned and queued for customer delivery.',
       jsonb_build_object('purchase_amount_cents',c.payment_amount_cents,'face_value_cents',p.face_value_cents,
@@ -283,6 +318,76 @@ begin
     if result->>'state'='manager_review' then reviewed_count:=reviewed_count+1; end if;
   end loop;
   return jsonb_build_object('issued',issued_count,'managerReview',reviewed_count,'payloadRedacted',true);
+end $$;
+
+-- Authorized delivery recovery creates a new intent in the SAME outbox and
+-- links it to the original issuance. It never allocates another code or resets
+-- allowance history. Unknown sends must be reconciled before another attempt.
+create function public.admin_resend_refund_gift_card(p_case_id uuid,p_intent_id uuid,p_email text default null)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare c public.refund_cases; i public.refund_gift_card_issuances; code_row public.refund_gift_card_codes;
+  m public.refund_case_messages; email_key text;
+begin
+  if auth.uid() is null or coalesce((auth.jwt()->>'is_anonymous')::boolean,false) then
+    raise exception 'Assigned Manager access required' using errcode='42501';
+  end if;
+  select * into strict c from public.refund_cases where id=p_case_id for update;
+  if public.refund_official_action_authority(auth.uid(),c.id) is null or p_intent_id is null then
+    raise exception 'Assigned Manager and stable delivery intent required' using errcode='42501';
+  end if;
+  select * into strict i from public.refund_gift_card_issuances where refund_case_id=c.id;
+  email_key:=lower(btrim(coalesce(nullif(btrim(p_email),''),c.customer_email)));
+  if email_key !~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$' or length(email_key)>320 then
+    raise exception 'Valid customer email required';
+  end if;
+  select * into m from public.refund_case_messages where manual_delivery_intent_id=p_intent_id;
+  if m.id is not null then
+    if m.gift_card_issuance_id is distinct from i.id or m.recipient_email<>email_key then
+      raise exception 'Delivery intent is already bound to different facts';
+    end if;
+    return public.refund_gift_card_case_projection(c.id);
+  end if;
+  select * into strict code_row from public.refund_gift_card_codes where id=i.code_id for share;
+  if c.gift_card_state<>'issued' or code_row.status<>'issued' or i.expires_at<=statement_timestamp()
+    or code_row.expires_at<=statement_timestamp() then raise exception 'Existing valid unused code required'; end if;
+  if exists(select 1 from public.refund_case_messages prior where (prior.id=i.message_id or prior.gift_card_issuance_id=i.id)
+      and (prior.manual_delivery_state='delivery_unknown' or prior.delivery_state='unknown'
+        or (prior.manual_delivery_state='claimed' and prior.manual_delivery_provider_attempted_at is not null))) then
+    raise exception 'Unknown delivery must be reconciled before resending' using errcode='P4672';
+  end if;
+  if email_key=lower(btrim(c.customer_email)) and exists(select 1 from public.refund_case_messages prior
+    where (prior.id=i.message_id or prior.gift_card_issuance_id=i.id) and prior.manual_delivery_state in ('queued','claimed')) then
+    return public.refund_gift_card_case_projection(c.id);
+  end if;
+  -- Cancel only definite pre-provider work; never erase transport evidence.
+  update public.refund_case_messages prior set status='failed',manual_delivery_state='failed',
+    manual_delivery_claim_token=null,manual_delivery_claimed_at=null,error_message='gift_card_delivery_recipient_corrected'
+    where (prior.id=i.message_id or prior.gift_card_issuance_id=i.id)
+      and prior.manual_delivery_state in ('queued','claimed') and prior.manual_delivery_provider_attempted_at is null;
+  if email_key<>lower(btrim(c.customer_email)) then
+    perform set_config('bloomjoy.giftcard.delivery_recovery_case_id',c.id::text,true);
+    update public.refund_cases set customer_email=email_key where id=c.id returning * into c;
+    perform set_config('bloomjoy.giftcard.delivery_recovery_case_id','',true);
+  end if;
+  m:=null; m.id:=gen_random_uuid(); m.refund_case_id:=c.id; m.message_type:='completed'; m.status:='pending';
+  m.recipient_email:=email_key; m.subject:='Your Bloomjoy gift card is ready';
+  m.body:='Your one-use Bloomjoy gift card is ready. Your code and redemption details are included at delivery.';
+  m.template_key:='refund_gift_card_v1'; m.template_version:='refund_gift_card_v1';
+  m.created_by:=auth.uid(); m.content_source:='deterministic_template'; m.delivery_kind:='automatic';
+  m.requested_fields:='{}'::text[]; m.manual_delivery_intent_id:=p_intent_id; m.manual_delivery_state:='queued';
+  m.manual_delivery_expected_case_version:=c.official_action_version;
+  m.manual_delivery_status_link_requested:=false; m.gift_card_issuance_id:=i.id;
+  m.gift_card_message_identity_digest:=public.refund_receipt_completion_message_digest(to_jsonb(m));
+  insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
+    template_key,template_version,created_by,content_source,delivery_kind,requested_fields,manual_delivery_intent_id,
+    manual_delivery_state,manual_delivery_expected_case_version,gift_card_issuance_id,gift_card_message_identity_digest,created_at)
+    values(m.id,c.id,m.message_type,m.status,m.recipient_email,m.subject,m.body,m.template_key,m.template_version,
+      m.created_by,m.content_source,m.delivery_kind,m.requested_fields,m.manual_delivery_intent_id,m.manual_delivery_state,
+      m.manual_delivery_expected_case_version,m.gift_card_issuance_id,m.gift_card_message_identity_digest,statement_timestamp());
+  insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
+    values(c.id,auth.uid(),'gift_card_delivery_requeued','The original gift card was queued for delivery recovery.',
+      jsonb_build_object('issuance_id',i.id,'new_issuance',false,'recipient_corrected',email_key<>i.normalized_email,'payload_redacted',true));
+  return public.refund_gift_card_case_projection(c.id);
 end $$;
 
 create function public.service_renew_refund_gift_card_pool(p_pool_id uuid,p_expires_at timestamptz)
@@ -343,6 +448,9 @@ create trigger zz_refund_gift_card_after_intake after insert on public.refund_ca
 create function public.guard_refund_gift_card_settlement() returns trigger language plpgsql set search_path='' as $$
 begin
   if tg_table_name='refund_cases' then
+    if tg_op='INSERT' and (new.gift_card_approved_by is not null or new.gift_card_approved_at is not null) then
+      raise exception 'Gift-card approval cannot be supplied at intake' using errcode='42501';
+    end if;
     if (tg_op='UPDATE' and row(new.gift_card_approved_by,new.gift_card_approved_at)
       is distinct from row(old.gift_card_approved_by,old.gift_card_approved_at))
       and current_user in ('anon','authenticated','service_role') then
@@ -352,10 +460,13 @@ begin
       new.resolution_method<>old.resolution_method or new.gift_card_pool_id<>old.gift_card_pool_id
       or new.gift_card_value_cents<>old.gift_card_value_cents or new.gift_card_expires_at<old.gift_card_expires_at
       or (old.gift_card_state='issued' and new.gift_card_expires_at<>old.gift_card_expires_at)
-      or new.customer_email<>old.customer_email or new.payment_amount_cents<>old.payment_amount_cents
+      or (new.customer_email<>old.customer_email and not(current_user not in ('anon','authenticated','service_role')
+        and current_setting('bloomjoy.giftcard.delivery_recovery_case_id',true)=old.id::text))
+      or new.payment_amount_cents<>old.payment_amount_cents
       or new.reporting_machine_id<>old.reporting_machine_id or new.payment_method<>old.payment_method
       or (old.gift_card_state='issued' and (new.gift_card_state<>'issued' or new.status<>'completed'
-        or new.decision is not null or new.refund_amount_cents is distinct from old.refund_amount_cents))
+        or new.decision is not null or new.refund_amount_cents is distinct from old.refund_amount_cents
+        or new.duplicate_of_refund_case_id is distinct from old.duplicate_of_refund_case_id))
       or new.decision='approved' or new.refund_completed_at is not null
       or new.nayax_refund_execution_status<>'not_requested' or new.manual_refund_reference is not null) then
       raise exception 'Gift-card resolution prevents a second settlement or changed accepted terms' using errcode='P4670';
@@ -366,7 +477,7 @@ begin
   if found then raise exception 'Gift-card resolution prevents money settlement' using errcode='P4670'; end if;
   return new;
 end $$;
-create trigger aa_refund_gift_card_case_settlement before update on public.refund_cases
+create trigger aa_refund_gift_card_case_settlement before insert or update on public.refund_cases
   for each row execute function public.guard_refund_gift_card_settlement();
 create trigger aa_refund_gift_card_attempt_settlement before insert on public.refund_case_nayax_refund_attempts
   for each row execute function public.guard_refund_gift_card_settlement();
@@ -424,16 +535,48 @@ begin
   definition:=pg_get_functiondef('public.refund_case_lifecycle_integrity_code(uuid)'::regprocedure);
   execute replace(definition,'when refund_case.case_population = ''internal_test'' then null',
     'when refund_case.case_population = ''internal_test'' or refund_case.resolution_method=''gift_card'' then null');
+  definition:=pg_get_functiondef('public.guard_refund_case_active_nayax_attempt()'::regprocedure);
+  if strpos(definition,'if new.payment_method = ''card''')=0 then raise exception 'Card settlement guard changed'; end if;
+  execute replace(definition,'if new.payment_method = ''card''',
+    'if new.payment_method = ''card'' and new.resolution_method=''original_payment''');
+end $patch$;
+
+-- An explicitly accepted gift card is transactional fulfillment. The switch
+-- for unsolicited follow-up remains unchanged for every other refund message.
+do $patch$ declare definition text; begin
+  definition:=pg_get_functiondef('public.guard_refund_follow_up_message()'::regprocedure);
+  if strpos(definition,'if attempting_automatic_delivery then')=0 then raise exception 'Follow-up guard changed'; end if;
+  execute replace(definition,'if attempting_automatic_delivery then',
+    'if attempting_automatic_delivery and not public.is_refund_gift_card_message(to_jsonb(new)) then');
+  definition:=pg_get_functiondef('public.service_authorize_refund_customer_outbound(uuid,text,text[],text)'::regprocedure);
+  if strpos(definition,'if not coalesce(settings_row.automatic_customer_contact_enabled, false) then')=0 then
+    raise exception 'Customer delivery switch changed'; end if;
+  execute replace(definition,'if not coalesce(settings_row.automatic_customer_contact_enabled, false) then',
+    'if not coalesce(settings_row.automatic_customer_contact_enabled, false)
+      and not exists(select 1 from public.refund_case_messages gift_message
+        where gift_message.refund_case_id=case_row.id and gift_message.status=''pending''
+          and gift_message.recipient_email=normalized_recipient
+          and public.is_refund_gift_card_message(to_jsonb(gift_message))) then');
+  definition:=pg_get_functiondef('public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)'::regprocedure);
+  if strpos(definition,'if not exists(select 1 from public.refund_customer_contact_settings settings')=0 then
+    raise exception 'Provider attempt switch changed'; end if;
+  execute replace(definition,'if not exists(select 1 from public.refund_customer_contact_settings settings',
+    'if not public.is_refund_gift_card_message(to_jsonb(message_row))
+      and not exists(select 1 from public.refund_customer_contact_settings settings');
 end $patch$;
 
 -- Own-message identity is append-only; provider bookkeeping remains mutable.
 create function public.guard_refund_gift_card_message() returns trigger language plpgsql set search_path='' as $$
 begin
   if tg_op='INSERT' then
-    if new.template_version='refund_gift_card_v1' and (current_user in ('anon','authenticated','service_role')
-      or not public.is_refund_gift_card_message(to_jsonb(new))) then raise exception 'Gift-card receipt required'; end if;
+    if new.template_version='refund_gift_card_v1' then
+      if current_user in ('anon','authenticated','service_role') then raise exception 'Gift-card receipt required'; end if;
+      if not public.is_refund_gift_card_message(to_jsonb(new)) then raise exception 'Gift-card receipt required'; end if;
+    end if;
   elsif old.template_version='refund_gift_card_v1' then
-    if tg_op='DELETE' or public.refund_receipt_completion_message_digest(to_jsonb(old))
+    if tg_op='DELETE' or new.gift_card_issuance_id is distinct from old.gift_card_issuance_id
+      or new.gift_card_message_identity_digest is distinct from old.gift_card_message_identity_digest
+      or public.refund_receipt_completion_message_digest(to_jsonb(old))
       is distinct from public.refund_receipt_completion_message_digest(to_jsonb(new)) then
       raise exception 'Gift-card delivery identity is immutable';
     end if;
@@ -447,23 +590,24 @@ create trigger aa_refund_gift_card_message_identity before insert or update or d
 -- and decision entrypoints, and exact service issuance/offer/recovery functions.
 do $$ declare f record; begin
   for f in select oid::regprocedure signature from pg_proc where pronamespace='public'::regnamespace
-    and proname in ('guard_refund_gift_card_code','service_get_refund_gift_card_offer',
+    and proname in ('guard_refund_gift_card_code','service_get_refund_gift_card_offer','service_refund_gift_card_enabled','refund_gift_card_quote_template_verified',
       'refund_gift_card_case_projection','get_refund_gift_card_case','is_refund_gift_card_message',
       'refund_gift_card_automatic_eligible',
       'service_issue_refund_gift_card','admin_decide_refund_gift_card','service_resume_refund_gift_card_cases',
       'service_renew_refund_gift_card_pool','service_accept_refund_gift_card_offer',
+      'admin_resend_refund_gift_card',
       'issue_refund_gift_card_after_intake','guard_refund_gift_card_settlement','guard_refund_gift_card_message',
       'enforce_refund_gift_card_receipt',
       'is_refund_receipt_completion_message','is_refund_receipt_automatic_completion_message') loop
     execute format('revoke all on function %s from public,anon,authenticated,service_role',f.signature);
   end loop;
 end $$;
-grant execute on function public.service_get_refund_gift_card_offer(uuid,integer),
+grant execute on function public.service_get_refund_gift_card_offer(uuid,integer),public.service_refund_gift_card_enabled(uuid),
   public.service_issue_refund_gift_card(uuid),public.service_resume_refund_gift_card_cases() to service_role;
 grant execute on function public.service_renew_refund_gift_card_pool(uuid,timestamptz),
   public.service_accept_refund_gift_card_offer(uuid,uuid,integer,timestamptz) to service_role;
 grant execute on function public.get_refund_gift_card_case(uuid),
-  public.admin_decide_refund_gift_card(uuid,boolean,text) to authenticated;
+  public.admin_decide_refund_gift_card(uuid,boolean,text),public.admin_resend_refund_gift_card(uuid,uuid,text) to authenticated;
 select pg_notify('pgrst','reload schema');
 
 -- Reuse the established lifecycle vocabulary and queue. The distinct gift-card
@@ -478,7 +622,7 @@ begin
   select * into c from public.refund_cases where id=p_refund_case_id;
   if c.resolution_method<>'gift_card' then return base; end if;
   g:=public.refund_gift_card_case_projection(c.id);
-  notice_state:=coalesce(base#>>'{messageState,state}','none');
+  notice_state:=coalesce(g->>'delivery_state','not_queued');
   is_terminal:=c.gift_card_state='denied' or (c.gift_card_state='issued' and notice_state in ('sent','delivered'));
   return base||jsonb_build_object('resolutionMethod','gift_card','gift_card',g,
     'paymentState','not_requested','paymentWorkComplete',c.gift_card_state='issued',
@@ -505,22 +649,29 @@ revoke all on function public.refund_lifecycle_pre_gift_card(uuid),public.refund
   from public,anon,authenticated,service_role;
 grant execute on function public.refund_lifecycle_contract(uuid) to service_role;
 
-alter function public.admin_get_refund_operations_overview() rename to admin_refund_overview_pre_gift_card;
-create function public.admin_get_refund_operations_overview() returns jsonb
+create function public.refund_project_gift_card_overview(p_base jsonb) returns jsonb
 language plpgsql stable security definer set search_path='' as $$
-declare base jsonb; cases jsonb;
+declare base jsonb:=p_base; cases jsonb; field_name text;
 begin
-  base:=public.admin_refund_overview_pre_gift_card();
+  foreach field_name in array array['cases','internalTestCases'] loop
+  if jsonb_typeof(base->field_name)='array' then
   select coalesce(jsonb_agg(case when c.resolution_method='gift_card' then item.value||jsonb_build_object(
     'resolutionMethod','gift_card','gift_card',public.refund_gift_card_case_projection(c.id),
     'lifecycle',public.refund_lifecycle_contract(c.id)) else item.value end order by item.ordinality),'[]'::jsonb)
-    into cases from jsonb_array_elements(base->'cases') with ordinality item
-    join public.refund_cases c on c.id=(item.value->>'id')::uuid;
-  return jsonb_set(base,'{cases}',cases,true);
+    into cases from jsonb_array_elements(base->field_name) with ordinality item
+    left join public.refund_cases c on c.id=(item.value->>'id')::uuid;
+  base:=jsonb_set(base,array[field_name],cases,true);
+  end if;
+  end loop;
+  return base;
 end $$;
-revoke all on function public.admin_refund_overview_pre_gift_card(),public.admin_get_refund_operations_overview()
+revoke all on function public.refund_project_gift_card_overview(jsonb)
   from public,anon,authenticated,service_role;
-grant execute on function public.admin_get_refund_operations_overview() to authenticated;
+do $$ declare definition text; begin
+  definition:=pg_get_functiondef('public.admin_get_refund_operations_overview()'::regprocedure);
+  if strpos(definition,'return base;')=0 then raise exception 'Overview projection changed'; end if;
+  execute replace(definition,'return base;','return public.refund_project_gift_card_overview(base);');
+end $$;
 
 -- Keep lightweight queue ordering/counts and the existing four view buckets.
 do $patch$ declare definition text; begin
