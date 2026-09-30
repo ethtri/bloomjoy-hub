@@ -325,7 +325,13 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 31, 'Evidence keeps only 31 human-review screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 35, 'Evidence keeps only 35 human-review screenshots');
+  assert.deepEqual(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('same-case-update-')),
+    ['same-case-update-submitted-1280.png', 'same-case-update-submitted-390.png',
+      'same-case-update-expired-1280.png', 'same-case-update-expired-390.png'],
+    'Submitted and expired same-case form evidence is explicitly reviewed at both widths',
+  );
   assert.deepEqual(
     EXPECTED_SCREENSHOTS.filter((name) => REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS.includes(name)),
     REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS,

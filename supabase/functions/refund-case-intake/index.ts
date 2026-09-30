@@ -1275,7 +1275,7 @@ serve(async (req) => {
     if (action === "inspectWalletCorrection") {
       return await inspectWalletCorrection(req, body);
     }
-    if (action === "inspectPurchaseCorrection" || action === "submitPurchaseCorrection") {
+    if (action === "inspectPurchaseCorrection" || action === "submitPurchaseCorrection" || action === "renewPurchaseCorrection") {
       if (!(await checkWalletCorrectionRateLimit(req))) {
         return new Response(JSON.stringify({ errorCode: "correction_rate_limited" }), {
           status: 429, headers: { ...refundStatusResponseHeaders },

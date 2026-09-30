@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1';
 import { corsHeaders } from './cors.ts';
-import { hashCorrectionToken, isCorrectionToken, validateCorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
+import { hashCorrectionToken, isCorrectionToken, renewalCorrectionToken, validateCorrectionAnswers, type CorrectionContext } from './refund-correction.ts';
 import { runAutomaticNayaxLookupIfReady } from './automatic-nayax-lookup.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: {
@@ -72,9 +72,23 @@ async function currentSavedResponse(supabase: SupabaseClient, tokenHash: string,
 
 export async function handlePurchaseCorrection(body: Record<string, unknown>, supabase: SupabaseClient) {
   const submitting = body.action === 'submitPurchaseCorrection';
+  const renewing = body.action === 'renewPurchaseCorrection';
   const allowed = submitting ? ['action','token','version','answers'] : ['action','token'];
   if (Object.keys(body).some((key) => !allowed.includes(key)) || typeof body.token !== 'string' || !isCorrectionToken(body.token)) return unavailable();
   const hash = await hashCorrectionToken(body.token);
+  if (renewing) {
+    const token = await renewalCorrectionToken(body.token);
+    let result: Awaited<ReturnType<typeof supabase.rpc>>;
+    try {
+      result = await supabase.rpc('service_renew_refund_purchase_correction', {
+        p_token_hash: hash, p_renewed_token_hash: await hashCorrectionToken(token),
+      });
+    } catch { return temporarilyUnavailable(); }
+    const { data, error } = result;
+    if (error) return temporarilyUnavailable();
+    if (!data || !['ready', 'received'].includes(data.state)) return unavailable();
+    return json({ correction: data, token });
+  }
   const { data, error } = await supabase.rpc('service_get_refund_purchase_correction', { p_token_hash: hash });
   if (error) return json({ errorCode: 'correction_temporarily_unavailable' }, 503);
   const context = data as CorrectionContext;
