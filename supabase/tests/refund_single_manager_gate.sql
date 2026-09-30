@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(89);
+select plan(110);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -354,6 +354,108 @@ select ok((select to_jsonb(c)=b.case_row
   from public.refund_cases c cross join selected_authority_baseline b
   where c.id='a3470000-0000-4000-8000-000000000015'),
   'authority checks and rolled-back probes preserve case, selection, payment and message evidence');
+
+-- Reproduce RF-26DB7861's exact proof shape without invoking the global legacy
+-- recovery operation: actor-bound candidate and guarded System-recovered event.
+create temp table recovered_fixture_original on commit drop as
+select e.id,e.actor_user_id,e.event_type,e.metadata,k.actor_user_id candidate_actor
+from public.refund_case_events e join public.refund_nayax_lookup_candidates k
+  on k.token='a3480000-0000-4000-8000-000000000015'
+where e.refund_case_id='a3470000-0000-4000-8000-000000000015'
+  and e.event_type='nayax_match_selected';
+insert into public.refund_nayax_lookup_candidates
+select (jsonb_populate_record(null::public.refund_nayax_lookup_candidates,
+  to_jsonb(k)||jsonb_build_object(
+    'token','a3480000-0000-4000-8000-000000000016',
+    'actor_user_id','a3410000-0000-4000-8000-000000000002'))).*
+from public.refund_nayax_lookup_candidates k
+where k.token='a3480000-0000-4000-8000-000000000015';
+update public.refund_case_events e
+set event_type='nayax_match_selection_proof_recovered',actor_user_id=null,
+  metadata=e.metadata||jsonb_build_object(
+    'candidate_token',k.token,
+    'candidate_evidence_hash',public.refund_nayax_candidate_evidence_hash(
+      k.refund_case_id,k.actor_user_id,k.provider_transaction_id,k.site_id,
+      k.machine_authorization_time,k.amount_cents,k.card_last4,k.currency_code,
+      k.evidence_summary,k.expires_at,k.created_at),
+    'recovery_contract_version','refund_legacy_selection_proof_recovery_v1',
+    'source_selection_event_digest',encode(extensions.digest(e.id::text,'sha256'),'hex'),
+    'source_selection_created_at',e.created_at,'execution_eligible',true,
+    'approval_created',false)
+from public.refund_nayax_lookup_candidates k
+where e.id=(select id from recovered_fixture_original)
+  and k.token='a3480000-0000-4000-8000-000000000016';
+select ok((select e.actor_user_id is null and k.actor_user_id is not null
+    and e.event_type='nayax_match_selection_proof_recovered'
+  from public.refund_case_events e join public.refund_nayax_lookup_candidates k
+    on k.token=(e.metadata->>'candidate_token')::uuid
+  where e.id=(select id from recovered_fixture_original)),
+  'the regression uses the real recovered System-proof and actor-bound candidate shape');
+select is(public.refund_case_nayax_manager_readiness(
+  null,'a3470000-0000-4000-8000-000000000015')->>'transactionConfirmed','true',
+  'the existing preparation contract accepts the guarded recovered proof');
+select is(public.refund_decision_recommendation_for_case(
+  'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
+  'the same guarded recovered proof supplies the decision recommendation');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000003');
+select is(public.refund_lifecycle_contract(
+  'a3470000-0000-4000-8000-000000000015')#>>'{decisionRecommendation,decisionReady}',
+  'true','a current mapped Manager has usable controls for the recovered proof');
+select ok(pg_temp.probe_selected_approval(
+  'a3470000-0000-4000-8000-000000000015')->>'decidedBy'=
+  'a3410000-0000-4000-8000-000000000003',
+  'the unchanged protected approval accepts the recovered proof in a rolled-back probe');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000002');
+select matches(pg_temp.capture_error($sql$
+  select public.admin_approve_selected_nayax_refund_for_system_v1(
+    'a3470000-0000-4000-8000-000000000015',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015'))
+$sql$),'^42501:Only the assigned machine Manager or a Super-admin',
+  'recovery never gives the revoked current actor decision authority');
+select is(public.refund_lifecycle_contract(
+  'a3470000-0000-4000-8000-000000000015')#>>'{decisionRecommendation,decisionReady}',
+  'false','the recovered proof does not expose usable controls to an unauthorized actor');
+select is(pg_temp.probe_recommendation(format($sql$
+  update public.refund_case_events set metadata=jsonb_set(metadata,array[%L],to_jsonb(%L::text))
+  where id=(select id from recovered_fixture_original)
+$sql$,key,bad_value),'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'recovered proof rejects altered '||key)
+from (values
+  ('recovery_contract_version','unsupported'),
+  ('source_selection_event_digest','invalid'),
+  ('execution_eligible','false'),('approval_created','true'),
+  ('provider_call_made','true'),('customer_message_created','true'),
+  ('payload_redacted','false'),
+  ('candidate_token','a3480000-0000-4000-8000-000000000014'),
+  ('candidate_evidence_hash',repeat('0',64)),
+  ('lookup_generation','0'),('deterministic_fact_version','0')
+) invalid(key,bad_value);
+select is(pg_temp.probe_recommendation($sql$
+  update public.refund_case_events set actor_user_id='a3410000-0000-4000-8000-000000000002'
+  where id=(select id from recovered_fixture_original)
+$sql$,'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'the recovered proof must retain the protected System actor');
+select is(pg_temp.probe_recommendation($sql$
+  update public.refund_case_events set event_type='nayax_match_selected'
+  where id=(select id from recovered_fixture_original)
+$sql$,'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'a native actor-bound selection still requires the matching historical actor');
+update public.refund_case_events e
+set event_type=o.event_type,actor_user_id=o.actor_user_id,metadata=o.metadata
+from recovered_fixture_original o where e.id=o.id;
+delete from public.refund_nayax_lookup_candidates
+where token='a3480000-0000-4000-8000-000000000016';
+select ok((select to_jsonb(c)=b.case_row
+    and (select md5(jsonb_agg(to_jsonb(e) order by e.id)::text)
+      from public.refund_case_events e where e.refund_case_id=c.id)=b.event_hash
+    and (select md5(jsonb_agg(to_jsonb(k) order by k.token)::text)
+      from public.refund_nayax_lookup_candidates k where k.refund_case_id=c.id)=b.candidate_hash
+    and not exists(select 1 from public.refund_case_nayax_refund_attempts a where a.refund_case_id=c.id)
+    and not exists(select 1 from public.refund_case_messages m where m.refund_case_id=c.id)
+  from public.refund_cases c cross join selected_authority_baseline b
+  where c.id='a3470000-0000-4000-8000-000000000015'),
+  'recovered-proof probes restore all case/evidence and leave no approval, attempt or message');
 update public.reporting_machine_refund_managers
 set status='active',revoked_at=null,revoke_reason=null
 where id='a3450000-0000-4000-8000-000000000001';
