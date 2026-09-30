@@ -8,6 +8,15 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- #1429: an exact Nayax API success can remain held locally when another
+  original purchase shares the reporting machine/day/amount fingerprint.
+  The bounded repair retains that fingerprint for audit and uses the existing
+  service-only receipt reconciler for exact first-generation System success,
+  without another provider request or customer message. RF-423906B2 remains
+  held until that supported path is deployed, independently verified and used
+  under current authority. Later continuation-generation reporting collisions
+  are outside this slice; broader refund readiness is not claimed.
+
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
   source. The email must name the exact fields, explain why and link to matching
