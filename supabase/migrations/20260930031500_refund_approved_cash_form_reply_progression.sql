@@ -19,6 +19,8 @@ do $migration$
 declare
   source_definition text := pg_catalog.pg_get_functiondef(
     'public.service_submit_refund_purchase_correction(text,bigint,jsonb)'::regprocedure);
+  old_declaration text := $old_decl$payout_only boolean; required_fields text[];$old_decl$;
+  new_declaration text := $new_decl$payout_only boolean; protected_payout_response boolean := false; required_fields text[];$new_decl$;
   old_branch text := $old$
   if payout_only then
     update public.refund_cases set zelle_payment_contact=case when 'zelle_payment_contact'=any(changed_fields) then vals->>'zelle_payment_contact' else c.zelle_payment_contact end,
@@ -28,58 +30,61 @@ declare
     needs_human:=true;
   else$old$;
   new_branch text := $new$
+  protected_payout_response:=payout_only
+    and c.status in ('cash_zelle_pending','waiting_on_customer','needs_review')
+    and c.decision='approved'
+    and c.payment_method='cash'
+    and c.nayax_refund_execution_status='not_requested'
+    and c.refund_completed_at is null
+    and c.refund_completed_by is null
+    and c.reporting_adjustment_id is null
+    and nullif(btrim(coalesce(c.manual_refund_reference,'')),'') is null
+    and 'zelle_payment_contact'=any(changed_fields)
+    and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+    and exists(select 1 from public.refund_payout_destination_follow_ups follow_up
+      where follow_up.refund_case_id=c.id
+        and follow_up.request_message_id=r.correction_message_id
+        and follow_up.status in ('waiting','reminder_claimed','reminder_sent'))
+    and not exists(select 1 from public.refund_authoritative_receipts receipt
+      where receipt.refund_case_id=c.id)
+    and not exists(select 1 from public.refund_case_nayax_refund_attempts attempt
+      where attempt.refund_case_id=c.id);
   if payout_only then
     update public.refund_cases set
       zelle_payment_contact=case when 'zelle_payment_contact'=any(changed_fields)
         then vals->>'zelle_payment_contact' else c.zelle_payment_contact end,
-      status=case when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+      status=case when protected_payout_response
         then 'cash_zelle_pending' else 'needs_review' end,
-      automation_state=case when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+      automation_state=case when protected_payout_response
         then 'under_review' else 'customer_replied' end,
       automation_follow_up_due_at=null
       where id=c.id returning * into next_case;
     update public.refund_payout_destination_follow_ups set
-      status=case when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+      status=case when protected_payout_response
         then 'satisfied' else 'manual_review' end,
-      manual_review_at=case when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+      manual_review_at=case when protected_payout_response
         then null else statement_timestamp() end,
       satisfied_by_correction_context_id=case
-        when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+        when protected_payout_response
         then r.id else null end,
-      satisfied_at=case when c.status='cash_zelle_pending' and c.decision='approved'
-          and c.payment_method='cash'
-          and 'zelle_payment_contact'=any(changed_fields)
-          and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null
+      satisfied_at=case when protected_payout_response
         then statement_timestamp() else null end,
       reminder_claim_token=null,updated_at=statement_timestamp()
       where request_message_id=r.correction_message_id
         and refund_case_id=c.id
         and status in ('waiting','reminder_claimed','reminder_sent');
-    needs_human:=not (c.status='cash_zelle_pending' and c.decision='approved'
-      and c.payment_method='cash'
-      and 'zelle_payment_contact'=any(changed_fields)
-      and nullif(btrim(coalesce(vals->>'zelle_payment_contact','')),'') is not null);
+    needs_human:=not protected_payout_response;
   else$new$;
 begin
+  if cardinality(pg_catalog.string_to_array(source_definition,old_declaration))<>2 then
+    raise exception 'Unexpected payout-only correction declaration';
+  end if;
   if cardinality(pg_catalog.string_to_array(source_definition,old_branch))<>2 then
     raise exception 'Unexpected payout-only correction submit source';
   end if;
-  execute pg_catalog.replace(source_definition,old_branch,new_branch);
+  execute pg_catalog.replace(
+    pg_catalog.replace(source_definition,old_declaration,new_declaration),
+    old_branch,new_branch);
 end;
 $migration$;
 
