@@ -62,6 +62,9 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  'fc730000-0000-4000-8000-000000000001','gift-fixture@example.invalid','Synthetic repeat',now(),'cash',1200,1200,
  'gift_card','fc750000-0000-4000-8000-000000000001',1500,now()+interval '30 days','pending_inventory');
 select is((select gift_card_state from public.refund_cases where id='fc760000-0000-4000-8000-000000000002'),'manager_review','Cash and card share annual allowance');
+select throws_ok($$update public.refund_cases set status='denied',decision='denied',decision_reason='customer_nonresponse'
+ where id='fc760000-0000-4000-8000-000000000002'$$,'P4670',null,
+ 'A system or Manager waiting state cannot be denied as customer nonresponse');
 select throws_ok($$select public.admin_decide_refund_gift_card('fc760000-0000-4000-8000-000000000002',true)$$,'42501',null,'No anonymous Manager decision');
 select set_config('request.jwt.claims','{"role":"authenticated","sub":"fc710000-0000-4000-8000-000000000001"}',true);
 select is(public.get_refund_gift_card_case('fc760000-0000-4000-8000-000000000002')->>'prior_issued_count','1','Authorized case view shows previous issuance');
