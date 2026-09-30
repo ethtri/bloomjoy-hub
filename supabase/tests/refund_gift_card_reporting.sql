@@ -162,18 +162,20 @@ select is((select count(*) from private.machine_sales_calculation_candidates(
   'fc630000-0000-4000-8000-000000000002',current_date-1,current_date-1)
   where component_kind='refund_gift_card'),0::bigint,'Historical candidates contain no future gift-card receipt');
 
--- A later duplicate classification moves resolution to the canonical request,
--- preserving the immutable receipt and avoiding another deduction/paid fact.
+-- Accepted issuance cannot be reparented. A later ordinary duplicate points to
+-- that canonical gift-card request and contributes no second deduction/receipt.
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
-  status,customer_request_received_at,customer_request_received_source)
-values ('fc640000-0000-4000-8000-000000000004','RF-GIFT-REPORT-CANONICAL','fc630000-0000-4000-8000-000000000002',
-  'fc620000-0000-4000-8000-000000000001','gift-history@example.invalid','Canonical synthetic request',
-  now()-interval '1 day','cash',1100,1100,'needs_review',now(),'hosted_refund_intake');
-update public.refund_cases set duplicate_of_refund_case_id='fc640000-0000-4000-8000-000000000004'
-where id='fc640000-0000-4000-8000-000000000003';
-select is(private.refund_gift_card_resolved_purchase_cents('fc640000-0000-4000-8000-000000000004',current_date),
-  1100::bigint,'Canonical request includes its duplicate child receipt exactly once');
+  status,customer_request_received_at,customer_request_received_source,duplicate_of_refund_case_id)
+values ('fc640000-0000-4000-8000-000000000004','RF-GIFT-REPORT-DUPLICATE','fc630000-0000-4000-8000-000000000002',
+  'fc620000-0000-4000-8000-000000000001','gift-history@example.invalid','Duplicate synthetic request',
+  now()-interval '1 day','cash',1100,1100,'needs_review',now(),'hosted_refund_intake',
+  'fc640000-0000-4000-8000-000000000003');
+select throws_ok($$update public.refund_cases set duplicate_of_refund_case_id='fc640000-0000-4000-8000-000000000004'
+  where id='fc640000-0000-4000-8000-000000000003'$$,'P4670',null::text,
+  'Accepted gift-card terms and canonical identity cannot be changed by late reparenting');
+select is(private.refund_gift_card_resolved_purchase_cents('fc640000-0000-4000-8000-000000000003',current_date),
+  1100::bigint,'Canonical request retains one receipt when an ordinary duplicate points to it');
 select is((select count(*) from private.machine_sales_calculation_candidates(
   'fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
   where component_kind='refund_gift_card'),1::bigint,'Duplicate lineage produces one canonical gift-card component');
