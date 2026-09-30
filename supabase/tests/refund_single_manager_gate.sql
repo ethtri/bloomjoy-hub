@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(79);
+select plan(89);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -12,6 +12,29 @@ begin
 end $$;
 create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
 begin execute statement; return null; exception when others then return sqlstate||':'||sqlerrm; end $$;
+
+create function pg_temp.probe_selected_approval(p_case_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result jsonb;
+begin
+  begin
+    result:=public.admin_approve_selected_nayax_refund_for_system_v1(p_case_id,
+      (select official_action_version from public.refund_cases where id=p_case_id));
+    result:=result||jsonb_build_object('decidedBy',
+      (select decided_by from public.refund_cases where id=p_case_id));
+    raise exception 'rollback approval probe' using errcode='P0001';
+  exception when sqlstate 'P0001' then return result; end;
+end $$;
+create function pg_temp.probe_recommendation(p_mutation text,p_case_id uuid)
+returns jsonb language plpgsql as $$
+declare result jsonb;
+begin
+  begin
+    execute p_mutation;
+    result:=public.refund_decision_recommendation_for_case(p_case_id);
+    raise exception 'rollback recommendation probe' using errcode='P0001';
+  exception when sqlstate 'P0001' then return result; end;
+end $$;
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values
 ('a3410000-0000-4000-8000-000000000001','authenticated','authenticated','triage@example.invalid','{}','{}'),
@@ -264,18 +287,79 @@ select is(public.refund_lifecycle_contract(
   'approve_or_deny_request',
   'the authorized System selection reaches the existing Manager decision path');
 reset role;
+create temp table selected_authority_baseline on commit drop as
+select to_jsonb(c) case_row,
+  (select md5(jsonb_agg(to_jsonb(e) order by e.id)::text)
+    from public.refund_case_events e where e.refund_case_id=c.id) event_hash,
+  (select md5(jsonb_agg(to_jsonb(k) order by k.token)::text)
+    from public.refund_nayax_lookup_candidates k where k.refund_case_id=c.id) candidate_hash
+from public.refund_cases c where c.id='a3470000-0000-4000-8000-000000000015';
 update public.reporting_machine_refund_managers
 set status='revoked',revoked_at=statement_timestamp(),revoke_reason='Fixture authority check'
 where id='a3450000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case(
-    'a3470000-0000-4000-8000-000000000015'),null::jsonb,
-  'a stale System selection proof cannot prepare a recommendation after authority is revoked');
+    'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
+  'historical selector reassignment preserves the exact immutable purchase recommendation');
+select is(public.can_perform_refund_official_action(
+    'a3410000-0000-4000-8000-000000000002',
+    'a3470000-0000-4000-8000-000000000015'),false,
+  'the historical selecting Manager no longer has current decision authority');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000003');
+select is(public.can_perform_refund_official_action(
+    'a3410000-0000-4000-8000-000000000003',
+    'a3470000-0000-4000-8000-000000000015'),true,
+  'the other current machine Manager retains the independent decision authority');
+select is(public.refund_lifecycle_contract(
+    'a3470000-0000-4000-8000-000000000015')#>>'{decisionRecommendation,decisionReady}',
+  'true','the current deciding Manager receives a usable decision recommendation');
+select ok(pg_temp.probe_selected_approval(
+    'a3470000-0000-4000-8000-000000000015')->>'decidedBy'=
+    'a3410000-0000-4000-8000-000000000003',
+  'a different current Manager can approve the exact saved purchase in a rolled-back probe');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000002');
+select matches(pg_temp.capture_error($sql$
+  select public.admin_approve_selected_nayax_refund_for_system_v1(
+    'a3470000-0000-4000-8000-000000000015',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015'))
+$sql$),'^42501:Only the assigned machine Manager or a Super-admin',
+  'the revoked selecting actor cannot make the current final decision');
+select is(public.refund_lifecycle_contract(
+    'a3470000-0000-4000-8000-000000000015')#>>'{decisionRecommendation,decisionReady}',
+  'false','the unauthorized current actor receives no usable decision recommendation');
+select is(pg_temp.probe_recommendation($sql$
+  update public.refund_case_events set metadata=jsonb_set(metadata,
+    '{candidate_evidence_hash}',to_jsonb(repeat('0',64)))
+  where refund_case_id='a3470000-0000-4000-8000-000000000015'
+    and event_type='nayax_match_selected'
+$sql$,'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'a corrupted selection evidence hash still invalidates the recommendation');
+select is(pg_temp.probe_recommendation($sql$
+  update public.refund_cases set nayax_lookup_generation=nayax_lookup_generation+1
+  where id='a3470000-0000-4000-8000-000000000015'
+$sql$,'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'a newer lookup generation still invalidates the historical selection proof');
+select is(pg_temp.probe_recommendation($sql$
+  update public.refund_cases set payment_amount_cents=payment_amount_cents+1
+  where id='a3470000-0000-4000-8000-000000000015'
+$sql$,'a3470000-0000-4000-8000-000000000015'),null::jsonb,
+  'changed customer facts still invalidate the historical selection proof');
+select ok((select to_jsonb(c)=b.case_row
+    and (select md5(jsonb_agg(to_jsonb(e) order by e.id)::text)
+      from public.refund_case_events e where e.refund_case_id=c.id)=b.event_hash
+    and (select md5(jsonb_agg(to_jsonb(k) order by k.token)::text)
+      from public.refund_nayax_lookup_candidates k where k.refund_case_id=c.id)=b.candidate_hash
+    and not exists(select 1 from public.refund_case_nayax_refund_attempts a where a.refund_case_id=c.id)
+    and not exists(select 1 from public.refund_case_messages m where m.refund_case_id=c.id)
+  from public.refund_cases c cross join selected_authority_baseline b
+  where c.id='a3470000-0000-4000-8000-000000000015'),
+  'authority checks and rolled-back probes preserve case, selection, payment and message evidence');
 update public.reporting_machine_refund_managers
 set status='active',revoked_at=null,revoke_reason=null
 where id='a3450000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case(
     'a3470000-0000-4000-8000-000000000015')->>'kind','refund',
-  'restoring the current machine Manager mapping restores the same evidence-only recommendation');
+  'restoring the historical Manager mapping leaves the same evidence-only recommendation');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
