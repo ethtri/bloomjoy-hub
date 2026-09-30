@@ -713,6 +713,23 @@ const caseSelect = `
   reporting_locations(name)
 `;
 
+let giftCardSchemaPresent = true;
+const checkGiftCardSchema = async () => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const { data, error } = await supabase.rpc("service_refund_gift_card_enabled", {
+    p_machine_id: "00000000-0000-0000-0000-000000000000",
+  });
+  if (error?.code === "PGRST202" || error?.code === "42883") { giftCardSchemaPresent = false; return; }
+  if (error) throw error;
+  if (typeof data !== "boolean") throw new Error("Refund resolution schema could not be checked.");
+  giftCardSchemaPresent = true;
+};
+const selectOriginalPaymentCases = () => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const query = supabase.from("refund_cases").select(caseSelect);
+  return giftCardSchemaPresent ? query.eq("resolution_method", "original_payment") : query;
+};
+
 const startRun = async (
   runKey: string,
   triggerSource: "scheduled" | "manual" | "health_check" | "failure_test",
@@ -1419,10 +1436,7 @@ const sendCustomerStatusUpdate = async (
 
 const getSweepCase = async (refundCaseId: string) => {
   if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data, error } = await selectOriginalPaymentCases()
     .eq("id", refundCaseId)
     .maybeSingle();
   if (error) throw error;
@@ -1997,10 +2011,7 @@ const runMissingInformationSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase || !automaticCustomerContactEnabled) return;
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data, error } = await selectOriginalPaymentCases()
     .eq("status", "draft")
     .eq("intake_source", "gmail")
     .in("automation_state", ["customer_replied", "submitted", "under_review"])
@@ -2147,10 +2158,7 @@ const runCashNoSafeMatchSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase || !automaticCustomerContactEnabled) return;
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data, error } = await selectOriginalPaymentCases()
     .eq("payment_method", "cash")
     .eq("status", "needs_review")
     .eq("correlation_status", "no_match")
@@ -2583,10 +2591,7 @@ const runCardNayaxLookupSweep = async (
     .filter(Boolean);
   if (claimedCaseIds.length === 0) return;
 
-  const { data: lookupCases, error: lookupCasesError } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data: lookupCases, error: lookupCasesError } = await selectOriginalPaymentCases()
     .in("id", claimedCaseIds);
 
   if (lookupCasesError) throw lookupCasesError;
@@ -3020,10 +3025,7 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
-  const { data: correctionCases, error: correctionCasesError } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data: correctionCases, error: correctionCasesError } = await selectOriginalPaymentCases()
     .eq("payment_method", "card")
     .eq("status", "needs_review")
     .in("nayax_recommendation_state", ["no_safe_match", "manual_exception"])
@@ -3308,10 +3310,7 @@ const runWalletCorrectionExpirySweep = async (
   if (!customerContactAllowed) {
     addReason(counters, "automatic_customer_contact_disabled");
   }
-  const { data: dueCases, error: dueError } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data: dueCases, error: dueError } = await selectOriginalPaymentCases()
     .eq("payment_method", "card")
     .eq("card_wallet_used", true)
     .eq("status", "waiting_on_customer")
@@ -3930,10 +3929,7 @@ const runSlaAtRiskCustomerStatusSweep = async (
 ) => {
   if (!supabase || !automaticCustomerContactEnabled) return;
   const earliestCandidate = new Date(observedAt.getTime() - 4 * 24 * 60 * 60 * 1000);
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("resolution_method", "original_payment")
+  const { data, error } = await selectOriginalPaymentCases()
     .in("status", ["submitted", "needs_review", "correlated"])
     .lte("created_at", earliestCandidate.toISOString())
     .order("created_at", { ascending: true })
@@ -4849,6 +4845,7 @@ serve(async (req) => {
       return jsonResponse({ status: "ready_wakeup_processed", claimedCount,
         ...redactedSummary(counters) });
     }
+    await checkGiftCardSchema();
     const now = new Date();
     const scheduledAtCandidate = typeof body?.scheduledAt === "string" ? new Date(body.scheduledAt) : now;
     const scheduledAt = Number.isFinite(scheduledAtCandidate.getTime()) ? scheduledAtCandidate : now;
