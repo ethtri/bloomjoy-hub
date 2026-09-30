@@ -22,10 +22,11 @@ Deno.test('transport acceptance, inbox delivery, and delivery recovery stay dist
   const status = requireRefundGiftCardStatus(card)!;
   assertEquals(giftCardStatusCopy(status).next.includes('have sent'), true);
   assertEquals(giftCardStatusCopy({ ...status, delivery_state: 'delivered' }).next.includes('was delivered'), true);
-  for (const delivery_state of ['pending', 'failed', 'bounced', 'delivery_unknown', 'delivery_unconfirmed']) {
+  for (const delivery_state of ['pending', 'failed', 'bounced', 'delivery_unknown', 'delivery_unconfirmed', 'unknown']) {
     assertEquals(giftCardStatusCopy({ ...status, delivery_state }).next.includes('was delivered'), false);
     assertEquals(giftCardStatusCopy({ ...status, delivery_state }).next.includes('same request again'), false);
   }
+  assertEquals(giftCardStatusCopy({ ...status, delivery_state: 'unknown' }).next.includes('needs attention'), true);
   for (const state of ['pending_inventory', 'manager_review'] as const) {
     assertEquals(giftCardStatusCopy({ ...status, state }).next.includes('submit again'), state === 'manager_review');
     assertEquals(giftCardStatusCopy({ ...status, state }).detail.includes('saved'), true);

@@ -226,6 +226,11 @@ const installPublicRefundRoutes = async (
       return;
     }
 
+    if (body.action === 'giftCardOffer') {
+      await route.fulfill(jsonResponse({ gift_card_enabled: true, offer: { pool_id: '86000000-0000-4000-8000-000000000010', value: 1000, currency: 'USD', eligible_locations: ['Fixture location'], expires_at: '2028-01-01T00:00:00Z', one_use: true, redemption_instructions: 'Enter the code at the fixture machine.' } }));
+      return;
+    }
+
     if (rejectSubmit) {
       await route.fulfill(expectedQrErrorResponse({
         error:
@@ -329,6 +334,7 @@ const fillOrdinaryRefundFields = async (page) => {
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
+  await page.locator('#resolution-original').click();
   await fillOrdinaryRefundFields(page);
 
   if (wallet) {
@@ -555,6 +561,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   });
 
   await page.getByRole('radio', { name: /^Card/ }).click();
+  await page.locator('#resolution-original').click();
   assert.equal(await page.getByLabel('How did you use the card? (optional)').inputValue(), '');
   assert.equal(await page.getByLabel('Last 4 digits shown for this payment').inputValue(), '');
   assert.equal(await page.getByLabel('Which machine did you use?').count(), 0);
@@ -570,6 +577,8 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   assert.equal(submissions.length, 1, 'Cash direct intake must create one request');
   const submission = submissions[0];
   assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.resolutionMethod, 'gift_card');
+  assert.equal(submission.giftCardOffer.value, 1000);
   assert.equal(submission.paymentInteraction, 'cash');
   assert.equal(submission.machineId, livermoreTt33MachineId);
   assert.equal('selectionKey' in submission, false);
@@ -642,6 +651,8 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submissions.length, 1, 'Cash QR intake must create one request');
   const submission = submissions[0];
   assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.resolutionMethod, 'gift_card');
+  assert.equal(submission.giftCardOffer.value, 1000);
   assert.equal(submission.paymentInteraction, 'cash');
   assert.equal(submission.machineId, machineId);
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);

@@ -111,6 +111,11 @@ jobs:
         run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments --real-projection-seed-file output/refund-uat-seed/refund-real-preparation-seed.json
       - name: Run Refund QR intake synthetic UAT
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Verify gift-card customer, manager and supply journeys
+        env:
+          REFUND_GIFT_CARD_UAT_URL: http://127.0.0.1:8081
+          REFUND_GIFT_CARD_UAT_SUPABASE_URL: http://127.0.0.1:54321
+        run: node scripts/refunds/refund-gift-card-browser.mjs
       - name: Verify existing-refund recovery at desktop and mobile widths
         run: node scripts/refunds/validate-refund-external-recovery-ui.mjs
       - name: Verify same-case structured update access at desktop and mobile widths

@@ -57,6 +57,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
     );
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
     await page.getByRole('radio', { name: /^Card/ }).click();
+    await page.locator('#resolution-original').click();
     await page.getByLabel('Amount paid').fill('7.00');
     await page.getByLabel('Last 4 digits shown for this payment').fill('4242');
     await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');

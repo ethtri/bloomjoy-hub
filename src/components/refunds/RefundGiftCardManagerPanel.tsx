@@ -3,8 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { RefundGiftCardTerms } from './RefundGiftCardTerms';
-import { fetchRefundGiftCardManagerContext, decideRefundGiftCard } from '@/lib/refundGiftCardApi';
+import { fetchRefundGiftCardManagerContext, decideRefundGiftCard, resendRefundGiftCard } from '@/lib/refundGiftCardApi';
 import { giftCardAmount, giftCardExpiry, giftCardStatusCopy } from '@/lib/refundGiftCard';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 
@@ -16,6 +17,21 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [decided, setDecided] = useState(false);
+  const [recipient, setRecipient] = useState<string | null>(null);
+  const [resendIntent, setResendIntent] = useState(() => crypto.randomUUID());
+  const [resent, setResent] = useState(false);
+  const resend = async () => {
+    if (pending || query.data?.can_resend !== true) return;
+    const email = (recipient ?? query.data.customer_email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid customer email.'); return; }
+    setPending(true); setError(''); setResent(false);
+    try {
+      await resendRefundGiftCard(refundCase.id, resendIntent, email);
+      setResent(true); setResendIntent(crypto.randomUUID());
+      await queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to resend this gift card.'); }
+    finally { setPending(false); }
+  };
   const decide = async (approve: boolean) => {
     if (pending || decided || query.data?.can_decide !== true) return;
     setPending(true); setError('');
@@ -56,6 +72,14 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
           <Button variant="outline" className="min-h-11" disabled={pending || !notes.trim()} onClick={() => void decide(false)}>Deny request</Button>
         </div>
       </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided ? 'Decision saved. The system will finish automatically.' : giftCardStatusCopy(card).next}</p>}
+      {card.state === 'issued' && card.can_resend && <div className="space-y-3 border-t border-border pt-4">
+        <Label htmlFor="gift-card-recipient">Customer email</Label>
+        <Input id="gift-card-recipient" type="email" value={recipient ?? card.customer_email} disabled={pending}
+          onChange={(event) => { setRecipient(event.target.value); setResendIntent(crypto.randomUUID()); setResent(false); }} />
+        <p className="text-sm text-muted-foreground">Send the same gift card again, or correct the email. This does not issue another card.</p>
+        <Button className="min-h-11" variant="outline" disabled={pending} onClick={() => void resend()}>{pending ? 'Sending…' : 'Resend gift card email'}</Button>
+        {resent && <p role="status" className="text-sm">The same gift card email is queued.</p>}
+      </div>}
     </>}
   </section>;
 }

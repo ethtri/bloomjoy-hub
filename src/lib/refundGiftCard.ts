@@ -58,7 +58,7 @@ export const giftCardAmount = (value: number, currency: string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value / 100);
 
 export const giftCardExpiry = (value: string) =>
-  new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(value));
+  new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value));
 
 export const giftCardStatusCopy = (card: RefundGiftCardStatus) => {
   if (card.state === 'manager_review') return {
@@ -78,7 +78,7 @@ export const giftCardStatusCopy = (card: RefundGiftCardStatus) => {
   };
   const delivered = card.delivery_state === 'delivered';
   const accepted = ['sent', 'accepted'].includes(card.delivery_state);
-  const delayed = ['failed', 'bounced', 'complained', 'delivery_unknown', 'delivery_unconfirmed'].includes(card.delivery_state);
+  const delayed = ['failed', 'bounced', 'complained', 'delivery_unknown', 'delivery_unconfirmed', 'unknown'].includes(card.delivery_state);
   return {
     title: 'A little sweetness is on its way',
     detail: `Your ${giftCardAmount(card.value, card.currency)} Bloomjoy gift card is ready.`,

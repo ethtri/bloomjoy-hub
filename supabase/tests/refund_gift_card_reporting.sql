@@ -2,6 +2,8 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 select no_plan();
+-- Synthetic delivery only; the transaction rolls this policy change back.
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
 
 insert into public.customer_accounts(id,name,account_type)
 values ('fc610000-0000-4000-8000-000000000001','Gift-card reporting fixture','internal');
@@ -12,7 +14,10 @@ values ('fc630000-0000-4000-8000-000000000001','fc610000-0000-4000-8000-00000000
   'fc620000-0000-4000-8000-000000000001','Fixture machine','active');
 insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
 values ('fc631000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-000000000001',10,'2020-01-01','active');
-select private.activate_refund_request_recognition('Gift-card synthetic reporting test');
+-- Seed an already-active synthetic rollout so yesterday's request is recognized
+-- on its real request date. No production row or immutable event is changed.
+insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
+values (true,now()-interval '2 days','Gift-card synthetic reporting test');
 
 insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,
   eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
@@ -114,6 +119,70 @@ select is((select net_sales_cents from public.machine_sales_facts
   'Original provider evidence remains stored unchanged');
 select is(has_function_privilege('anon','private.refund_gift_card_resolved_purchase_cents(uuid,date)','EXECUTE'),false,
   'Anonymous callers cannot read gift-card resolution history');
+
+-- A request yesterday and issuance today prove historical report totals, rather
+-- than only the helper's date filter. Keep this machine isolated from above.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status)
+values ('fc630000-0000-4000-8000-000000000002','fc610000-0000-4000-8000-000000000001',
+  'fc620000-0000-4000-8000-000000000001','Historical fixture machine','active');
+insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
+values ('fc631000-0000-4000-8000-000000000002','fc630000-0000-4000-8000-000000000002',10,'2020-01-01','active');
+update public.refund_gift_card_pools set eligible_machine_ids=array[
+  'fc630000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-000000000002']::uuid[]
+where id='fc650000-0000-4000-8000-000000000001';
+insert into public.refund_gift_card_codes(id,pool_id,provider,provider_account_id,provider_code_id,
+  code,valid_from,expires_at)
+values ('fc660000-0000-4000-8000-000000000002','fc650000-0000-4000-8000-000000000001',
+  'kemore','synthetic-reporting-account','synthetic-code-2','000000002',now()-interval '2 days',now()+interval '30 days');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  status,customer_request_received_at,customer_request_received_source)
+values ('fc640000-0000-4000-8000-000000000003','RF-GIFT-REPORT-HISTORY','fc630000-0000-4000-8000-000000000002',
+  'fc620000-0000-4000-8000-000000000001','gift-history@example.invalid','Synthetic historical request',
+  now()-interval '1 day','cash',1100,1100,'needs_review',now()-interval '1 day','hosted_refund_intake');
+update public.refund_cases set resolution_method='gift_card',
+  gift_card_pool_id='fc650000-0000-4000-8000-000000000001',gift_card_value_cents=1500,
+  gift_card_expires_at=now()+interval '30 days',gift_card_state='pending_inventory'
+where id='fc640000-0000-4000-8000-000000000003';
+select lives_ok($$select public.service_issue_refund_gift_card('fc640000-0000-4000-8000-000000000003')$$,
+  'A previous-day request can receive a gift card today');
+select results_eq($$
+  select sum(request_deduction_ex_tax_cents),sum(outstanding_context_ex_tax_cents),
+    sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
+  from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date-1)
+$$,$$values (1000::numeric,1000::numeric,0::numeric,-1000::numeric)$$,
+  'Historical full report retains outstanding purchase and original deduction before issuance');
+select results_eq($$
+  select sum(request_deduction_ex_tax_cents),sum(outstanding_context_ex_tax_cents),
+    sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
+  from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
+$$,$$values (1000::numeric,0::numeric,0::numeric,-1000::numeric)$$,
+  'Current full report resolves the purchase without paying money or charging goodwill');
+select is((select count(*) from private.machine_sales_calculation_candidates(
+  'fc630000-0000-4000-8000-000000000002',current_date-1,current_date-1)
+  where component_kind='refund_gift_card'),0::bigint,'Historical candidates contain no future gift-card receipt');
+
+-- A later duplicate classification moves resolution to the canonical request,
+-- preserving the immutable receipt and avoiding another deduction/paid fact.
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  status,customer_request_received_at,customer_request_received_source)
+values ('fc640000-0000-4000-8000-000000000004','RF-GIFT-REPORT-CANONICAL','fc630000-0000-4000-8000-000000000002',
+  'fc620000-0000-4000-8000-000000000001','gift-history@example.invalid','Canonical synthetic request',
+  now()-interval '1 day','cash',1100,1100,'needs_review',now(),'hosted_refund_intake');
+update public.refund_cases set duplicate_of_refund_case_id='fc640000-0000-4000-8000-000000000004'
+where id='fc640000-0000-4000-8000-000000000003';
+select is(private.refund_gift_card_resolved_purchase_cents('fc640000-0000-4000-8000-000000000004',current_date),
+  1100::bigint,'Canonical request includes its duplicate child receipt exactly once');
+select is((select count(*) from private.machine_sales_calculation_candidates(
+  'fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
+  where component_kind='refund_gift_card'),1::bigint,'Duplicate lineage produces one canonical gift-card component');
+select results_eq($$
+  select sum(request_deduction_ex_tax_cents)-sum(refund_reversal_ex_tax_cents),
+    sum(outstanding_context_ex_tax_cents),sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
+  from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
+$$,$$values (1000::numeric,0::numeric,0::numeric,-1000::numeric)$$,
+  'Duplicate lineage full report deducts the purchase once, with no outstanding amount or money paid');
 
 select * from finish();
 rollback;

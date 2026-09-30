@@ -235,22 +235,27 @@ export default function RefundRequestPage() {
     [form.selectionKey, machines]
   );
 
-  const wantsGiftCard = form.resolutionMethod === 'gift_card';
-  const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
+  const choosesGiftCard = form.resolutionMethod === 'gift_card';
   const offerMachineId = qrClaim?.machine.machineId ??
-    (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || wantsGiftCard)
+    (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || choosesGiftCard)
       ? form.cashMachineId : selectedMachine?.machineId);
   const offerQuery = useQuery({
     queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, form.paymentAmount],
     queryFn: () => fetchRefundGiftCardOffer({ machineId: offerMachineId || undefined,
       selectionKey: offerMachineId ? undefined : form.selectionKey,
       amount: form.paymentAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash' }),
-    enabled: !isDemoMode && wantsGiftCard && Boolean(form.selectionKey) && Number(form.paymentAmount) > 0 &&
-      !((form.paymentMethod === 'cash' || wantsGiftCard) && selectedMachine?.selectionKind === 'livermore_pair' && !form.cashMachineId),
+    enabled: !isDemoMode && choosesGiftCard && Boolean(form.selectionKey) && Number(form.paymentAmount) > 0 &&
+      !((form.paymentMethod === 'cash' || choosesGiftCard) && selectedMachine?.selectionKind === 'livermore_pair' && !form.cashMachineId),
     retry: false,
     staleTime: 30000,
   });
-  const giftCardOffer = offerQuery.data ?? null;
+  // Only an explicit server response can preserve the pre-launch cash process.
+  // Errors, stockouts and missing denominations never imply a disabled pool.
+  const legacyCash = form.paymentMethod === 'cash' && offerQuery.data?.giftCardEnabled === false;
+  const wantsGiftCard = choosesGiftCard && !legacyCash;
+  const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
+  const resolutionMethod: RefundResolutionMethod = wantsGiftCard ? 'gift_card' : 'original_payment';
+  const giftCardOffer = offerQuery.data?.offer ?? null;
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -382,7 +387,7 @@ export default function RefundRequestPage() {
         incidentDate,
         incidentTime,
         paymentMethod: form.paymentMethod,
-        resolutionMethod: form.resolutionMethod,
+        resolutionMethod,
         giftCardOffer: wantsGiftCard && giftCardOffer ? { poolId: giftCardOffer.pool_id, value: giftCardOffer.value, expiresAt: giftCardOffer.expires_at } : undefined,
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: needsCardDetails ? form.cardLast4.trim() : undefined,
@@ -428,7 +433,7 @@ export default function RefundRequestPage() {
         statusToken: refundCase.statusToken,
         statusExpiresAt: refundCase.statusExpiresAt,
         paymentMethod: form.paymentMethod,
-        resolutionMethod: form.resolutionMethod,
+        resolutionMethod,
       });
       if (receiptPersisted && clearRefundSubmissionAttempt(storage)) {
         setForm(emptyForm);
@@ -441,7 +446,7 @@ export default function RefundRequestPage() {
           statusToken: refundCase.statusToken,
           statusExpiresAt: refundCase.statusExpiresAt,
           paymentMethod: form.paymentMethod,
-          resolutionMethod: form.resolutionMethod,
+          resolutionMethod,
         },
       });
     } catch (error) {
