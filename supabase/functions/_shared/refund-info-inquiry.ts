@@ -68,7 +68,11 @@ export const infoInquiryNonCustomerSkipped = (
 const INFO_RECIPIENTS = new Set([
   "info@bloomjoysweets.com",
   "support@bloomjoysweets.com",
+  "refunds@bloomjoysweets.com",
 ]);
+
+export const refundInquiryRecipient = (toEmails: string[], ccEmails: string[]) =>
+  [...toEmails, ...ccEmails].find((email) => INFO_RECIPIENTS.has(email));
 
 const currentMessageText = (value: string) => value
   .split(/(?:^|\n)(?:On .{4,160} wrote:|-----Original Message-----|From:\s*.+@.+)/i, 1)[0]
