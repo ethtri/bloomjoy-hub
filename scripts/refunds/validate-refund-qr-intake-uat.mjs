@@ -569,7 +569,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   await page.getByRole('radio', { name: /^Cash/ }).click();
   assert.equal(await page.getByLabel('Which machine did you use?').inputValue(), '');
   await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
-  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.getByRole('button', { name: 'Accept gift card & send request' }).click();
   await page.waitForURL('**/refunds/thank-you');
   await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
 
@@ -644,7 +644,7 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
     path: path.join(artifactDir, 'refund-qr-intake-cash-mobile.png'),
   });
 
-  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.getByRole('button', { name: 'Accept gift card & send request' }).click();
   await page.waitForURL('**/refunds/thank-you');
   await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submissions = functionBodies.filter((body) => !body.action);
