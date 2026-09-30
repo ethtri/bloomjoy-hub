@@ -8,13 +8,19 @@ original-payment Nayax approval or claim that gift-card issuance is live.
 
 - Reuse the existing form: cash gets a gift-card offer; card gets the recommended
   gift card or an original-payment refund. Collect card details only for the latter.
-- One automatic issuance per normalized email in rolling 12 months; every extra
-  issuance needs one Manager approval. Same-quarter repeats use that same rule.
+- One automatic gift card per customer per year; repeat requests need Manager
+  approval. Apply this using email and the preceding 12 months.
   Declining an offer, card refunds and resending the same code do not consume it.
 - Assume one use and no surviving balance; show value, scope and expiry clearly.
   Target 1–2 minute email delivery for ordinary eligible requests from stock.
-- Use batch-imported Sunzee/KeMore codes, compatible earliest-expiry allocation
-  and low-stock replenishment. Reuse cases, Manager review and the existing outbox.
+- The System manages stock, expiry, allocation and replenishment by rules,
+  without routine agent or named-operator work. Vendor automation capability
+  must be verified in #1637; batch import is setup/recovery, not ongoing staffing.
+- Intake includes Info, Support and Refunds mailboxes. The 95% resolution rate
+  is an improvement target, not a hard requirement. The updated flow collects
+  no Zelle/Venmo details. Use Sunze for cotton candy and Kexiaozhan for SnapCase.
+- Make the gift-card email joyful and on-brand, with prominent value/code and
+  simple redemption instructions readable on mobile and with images blocked.
 - Preserve payment history, unknown-outcome protection and one resolution per
   case. Keep purchase value, voucher value and goodwill distinct; rounding and
   financial treatment remain scoped implementation decisions in #1637–#1640.
