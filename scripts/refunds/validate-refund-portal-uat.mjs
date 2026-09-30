@@ -2628,6 +2628,8 @@ const installMockSupabaseRoutes = async (
     internalTestClassificationHandler = null,
     refundOverviewReadStatuses = null,
     refundOverviewReadLog = [],
+    refundOverviewReadBarrier = null,
+    refundPortalQueueProjection = null,
     onRefundOverviewFailedRead = null,
   } = {}
 ) => {
@@ -3721,6 +3723,7 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
+      await refundOverviewReadBarrier;
       const overviewReadIndex = refundOverviewReadLog.length;
       const overviewReadStatus = Array.isArray(refundOverviewReadStatuses) && refundOverviewReadStatuses.length > 0
         ? refundOverviewReadStatuses[Math.min(overviewReadIndex, refundOverviewReadStatuses.length - 1)]
@@ -3882,6 +3885,10 @@ const installMockSupabaseRoutes = async (
           }
         : overviewAfterPreselectionDispute;
       return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
+    }
+
+    if (url.includes('/get_refund_portal_queue_projection')) {
+      return route.fulfill(jsonResponse(refundPortalQueueProjection));
     }
 
     if (url.includes('/get_refund_manager_work_projection')) {
@@ -4450,7 +4457,76 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
   await closeRefundPortalContext(context);
 };
 
+const runQueueHydrationChecks = async ({ browser, appUrl, recorder }) => {
+  for (const scenario of [
+    { width: 1440, status: 200 },
+    { width: 390, status: 200 },
+    { width: 390, status: 503 },
+  ]) {
+    const context = await browser.newContext({ viewport: { width: scenario.width, height: 844 } });
+    const overview = buildManagerReadyRefundOverview();
+    overview.cases = [overview.cases[0]];
+    const refundCase = overview.cases[0];
+    let releaseOverview;
+    const readBarrier = new Promise((resolve) => { releaseOverview = resolve; });
+    const rpcCalls = [];
+    const functionCalls = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => overview,
+      refundOverviewReadBarrier: readBarrier,
+      refundOverviewReadStatuses: [scenario.status],
+      rpcCalls,
+      functionCalls,
+      refundPortalQueueProjection: {
+        schemaVersion: 'refund_portal_queue_v1', observedAt: now.toISOString(),
+        counts: { allOpen: 1, decisions: 1, waitingOnCustomer: 0, completed: 0, internalTest: 0 },
+        refundOperationsAccess: false, payloadRedacted: true,
+        items: [{
+          caseId: refundCase.id, publicReference: refundCase.publicReference,
+          amountCents: refundCase.refundAmountCents ?? refundCase.paymentAmountCents,
+          currencyCode: 'USD', machineLabel: refundCase.machineLabel,
+          locationName: refundCase.locationName, createdAt: refundCase.createdAt,
+          view: 'decisions', isOpen: true, decisionReady: true,
+          nextWorkActor: 'manager', nextWorkActionCode: 'approve_or_deny',
+          nextWorkActionLabel: 'Approve or deny the researched refund.', payloadRedacted: true,
+        }],
+      },
+    });
+    const page = await context.newPage();
+    try {
+      await signInRefundUser(page, appUrl);
+      await queueCase(page, refundCase.publicReference).waitFor({ state: 'visible', timeout: 10000 });
+      recorder.assert(`Queue renders before full evidence at ${scenario.width}px`,
+        await page.getByRole('button', { name: /^Decision needed 1$/ }).isVisible() &&
+          (await page.getByRole('heading', { name: refundCase.publicReference, exact: true }).count()) === 0);
+      await queueCase(page, refundCase.publicReference).click();
+      await page.getByText('Loading the current case details and available actions…', { exact: true }).waitFor();
+      recorder.assert(`Lightweight selection cannot expose decisions at ${scenario.width}px`,
+        (await page.getByTestId('refund-primary-action').count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+      releaseOverview();
+      if (scenario.status === 200) {
+        await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
+        recorder.assert(`Full evidence hydrates the selected case at ${scenario.width}px`,
+          await page.getByRole('heading', { name: refundCase.publicReference, exact: true }).isVisible() &&
+            (await page.getByTestId('refund-overview-read-status').innerText()).trim() === '');
+      } else {
+        await page.getByText('Current case details are temporarily unavailable. Refresh to try again.', { exact: true }).waitFor({ timeout: 10000 });
+        recorder.assert('Failed full evidence keeps truthful queue counts and no action',
+          await page.getByRole('button', { name: /^Decision needed 1$/ }).isVisible() &&
+            (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+      }
+      recorder.assert(`Queue hydration performs only read navigation at ${scenario.width}px/${scenario.status}`,
+        rpcCalls.every((rpc) => NAVIGATION_READ_ONLY_RPCS.has(rpc)) && functionCalls.length === 0);
+    } finally {
+      releaseOverview();
+      await closeRefundPortalContext(context);
+    }
+  }
+};
+
 const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realProjectionSeed }) => {
+  await runQueueHydrationChecks({ browser, appUrl, recorder });
   for (const withNextWork of [false, true]) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const functionCalls = [];
