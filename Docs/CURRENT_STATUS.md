@@ -8,6 +8,17 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- The gift-card implementation in PR #1658 uses the existing request, status,
+  Manager workspace and email outbox. It rounds purchases up to $5, records
+  Bloomjoy-funded goodwill separately, and keeps one original purchase deduction.
+  Local desktop/mobile synthetic checks cover acceptance, repeat decisions,
+  same-code email recovery, activation boundaries and Super-admin supply settings.
+  Integrated disposable database verification and final review are in progress.
+  Pools remain disabled until the real provider account, machine scope, expiry
+  and one-use/no-leftover-balance redemption are verified; fixtures do not prove
+  live creation, hardware redemption or inbox timing. Unactivated machines keep
+  the existing cash intake. Activated cash requests stay on the gift-card path.
+
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
   source. The email must name the exact fields, explain why and link to matching
