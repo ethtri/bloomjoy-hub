@@ -51,11 +51,15 @@ select is(
   null::bigint,
   'An unknown amount basis does not masquerade as tax-exclusive'
 );
-select is(
-  (select tax_cents
-   from private.normalize_financial_amount_cents(11000, 'tax_inclusive', null, null)),
-  null::bigint,
-  'Missing verified tax rate remains unresolved'
+select results_eq($$
+  select tax_exclusive_amount_cents, tax_cents, normalization_status,
+    normalization_reason
+  from private.normalize_financial_amount_cents(11000, 'tax_inclusive', null, null)
+$$, $$values (
+  11000::bigint, 0::bigint, 'estimated'::text,
+  'configured_tax_rate_missing_no_deduction'::text
+)$$,
+  'Missing configured rate preserves numeric display without claiming a proved zero rate'
 );
 select is(
   (select tax_exclusive_amount_cents

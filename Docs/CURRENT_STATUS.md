@@ -215,13 +215,16 @@ orientation snapshot; it is not a backlog or release ledger.
   already posted paid deductions, recognize eligible opening unpaid requests
   once at cutover, and leave issued Pay Stubs unchanged for ordinary later
   refund events.
-- The owner authorized merging the independently reviewed request-month helper,
-  consumer bindings, and contract documentation. That authorization does not
-  activate the dormant calculation or supply the missing location-specific tax
-  facts: production keeps the legacy calculation until the ordered database,
-  report/export, scheduler, and frontend release is deployed and the one-shot
-  activation is deliberately recorded. Finance issue #1592 remains an
-  activation dependency rather than a merge permission gate.
+- The reviewed request-month helper, consumer bindings, and contract
+  documentation are deployed. The owner authorized the one-shot interim
+  activation using the existing source split and configured tax treatment:
+  Nayax customer charges are provisionally tax-inclusive, Sunze remains
+  tax-exclusive, and explicit row metadata wins. A missing configured rate
+  keeps the recorded amount numeric with no provisional deduction while the
+  existing incomplete-tax publication behavior remains in force. Finance issue
+  #1592 now targets named location/field/effective-date corrections; it is not a
+  blanket blocker for the interim activation and does not supply an Oklahoma
+  exception that can be guessed.
 - Machine-app cash can remain incomplete while a machine is offline. Sunze's
   daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
   twice-daily 34-day overlap and bounded manual recovery, can ingest late rows

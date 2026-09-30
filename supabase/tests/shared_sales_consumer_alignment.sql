@@ -667,5 +667,139 @@ select ok(exists (
     and audit.meta ->> 'reporting_machine_id' = 'ca300000-0000-4000-8000-000000000001'
 ), 'Actual evidence change retains the targeted snapshot regeneration audit signal');
 
+update public.reporting_machine_partnership_assignments
+set effective_end_date = current_date-1
+where partnership_id = 'ca700000-0000-4000-8000-000000000001'
+  and machine_id = 'ca300000-0000-4000-8000-000000000004';
+
+insert into public.reporting_machines (
+  id, account_id, location_id, machine_label, machine_type, status
+) values (
+  'ca300000-0000-4000-8000-000000000006',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca200000-0000-4000-8000-000000000001',
+  'Missing-rate compatibility machine', 'commercial', 'active'
+), (
+  'ca300000-0000-4000-8000-000000000007',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca200000-0000-4000-8000-000000000001',
+  'Refund-only compatibility machine', 'commercial', 'active'
+);
+insert into public.operator_machine_assignments (
+  id, operator_profile_id, account_id, reporting_machine_id,
+  effective_start_date, effective_end_date, grant_reason
+) values (
+  'ca620000-0000-4000-8000-000000000007',
+  'ca610000-0000-4000-8000-000000000001',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca300000-0000-4000-8000-000000000006',
+  current_date-30, null, 'Missing-rate compatibility fixture'
+);
+insert into public.compensation_rules (
+  id, account_id, operator_profile_id, reporting_machine_id,
+  commission_basis_points, effective_start_date, status
+) values (
+  'ca630000-0000-4000-8000-000000000007',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca610000-0000-4000-8000-000000000001',
+  'ca300000-0000-4000-8000-000000000006',
+  1000, current_date-30, 'active'
+);
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, item_quantity, source, source_order_hash,
+  source_row_hash, tax_cents, raw_payload
+) values (
+  'ca400000-0000-4000-8000-000000000008',
+  'ca300000-0000-4000-8000-000000000006',
+  'ca200000-0000-4000-8000-000000000001', current_date, 'credit',
+  1100, 1, 1, 'nayax_scheduled_report', repeat('8',32), repeat('8',64), 0, '{}'
+);
+insert into public.reporting_machine_partnership_assignments (
+  machine_id, partnership_id, assignment_role, effective_start_date, status
+) values (
+  'ca300000-0000-4000-8000-000000000006',
+  'ca700000-0000-4000-8000-000000000001',
+  'primary_reporting', current_date-30, 'active'
+);
+select results_eq($$
+  select (value ->> 'grossSalesCents')::bigint,
+    (value ->> 'taxCents')::bigint,
+    (value ->> 'netRevenueCents')::bigint,
+    (value ->> 'commissionableSalesCents')::bigint,
+    (value ->> 'commissionEarningsCents')::bigint,
+    (value ->> 'taxRateCompleteForSales')::boolean
+  from (select private.operator_machine_tax_commission_shared(
+    'ca100000-0000-4000-8000-000000000001',
+    'ca610000-0000-4000-8000-000000000001',
+    'ca300000-0000-4000-8000-000000000006', current_date, current_date
+  ) value) calculation
+$$, $$values (
+  1100::bigint,0::bigint,1100::bigint,1100::bigint,0::bigint,false
+)$$,
+  'Missing-rate commission stays numeric, incomplete, and unpublished at zero earnings');
+select ok(not exists (
+  select 1
+  from jsonb_array_elements(private.operator_machine_tax_commission_shared(
+    'ca100000-0000-4000-8000-000000000001',
+    'ca610000-0000-4000-8000-000000000001',
+    'ca300000-0000-4000-8000-000000000006', current_date, current_date
+  ) -> 'segments') segment(value)
+  where (segment.value ->> 'commissionEarningsCents')::bigint <> 0
+), 'Missing-rate commission segments cannot expose nonzero earnings');
+
+select ok(exists (
+  select 1
+  from jsonb_array_elements(public.admin_preview_partner_period_report_internal(
+    'ca700000-0000-4000-8000-000000000001', current_date, current_date,
+    'calendar_month'
+  ) -> 'warnings') warning(value)
+  where warning.value ->> 'warning_type' = 'missing_machine_tax_rate'
+), 'Partner preview retains the existing missing-machine-tax-rate blocker');
+
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, item_quantity, source, source_order_hash,
+  source_row_hash, tax_cents, raw_payload
+) values (
+  'ca400000-0000-4000-8000-000000000009',
+  'ca300000-0000-4000-8000-000000000001',
+  'ca200000-0000-4000-8000-000000000001', current_date-4, 'other',
+  1100, 1, 1, 'manual_csv', null, repeat('9',64), 0,
+  '{"amountBasis":"legacy_percentage_of_gross_estimate"}'
+);
+select results_eq($$
+  select (value ->> 'grossSalesCents')::bigint,
+    (value ->> 'taxCents')::bigint,
+    (value ->> 'commissionableSalesCents')::bigint,
+    (value ->> 'commissionEarningsCents')::bigint,
+    (value ->> 'taxRateCompleteForSales')::boolean
+  from (select private.operator_machine_tax_commission_shared(
+    'ca100000-0000-4000-8000-000000000001',
+    'ca610000-0000-4000-8000-000000000001',
+    'ca300000-0000-4000-8000-000000000001', current_date-4, current_date-4
+  ) value) calculation
+$$, $$values (990::bigint,110::bigint,990::bigint,99::bigint,true)$$,
+  'Configured legacy estimates remain tax-complete and commissionable');
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status,
+  customer_request_received_at, customer_request_received_source
+) values (
+  'ca500000-0000-4000-8000-000000000007', 'RF-CONSUMER-7',
+  'ca300000-0000-4000-8000-000000000007',
+  'ca200000-0000-4000-8000-000000000001',
+  'refund-only@example.invalid', 'Refund-only estimated context', clock_timestamp(),
+  'card', 1100, 1100, 'needs_review', clock_timestamp(), 'hosted_refund_intake'
+);
+select is((
+  private.operator_machine_tax_snapshot_shared(
+    'ca300000-0000-4000-8000-000000000007', current_date, current_date
+  ) ->> 'taxRateCompleteForSales'
+)::boolean, true,
+  'Estimated refund-only context does not create a missing-sales-tax blocker');
+
 select * from finish();
 rollback;

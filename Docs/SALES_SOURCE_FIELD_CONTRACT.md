@@ -286,11 +286,15 @@ and do not create a location identity, date, rate or zero-tax rule.
 
 ## Minimum remaining evidence questions
 
-No additional owner choice is needed for the interim mixed source authority.
-Consumer activation still needs the finance SOP details above for the reported
-Nayax location exceptions. The reviewed implementation and documentation may
-merge while activation remains dormant; merging does not select a missing tax
-rule. A future vendor-card switch would be a separate recorded decision.
+No additional owner choice is needed for the interim mixed source authority or
+activation. Nayax customer charges provisionally use the existing configured
+machine rate as embedded tax, explicit per-row basis metadata wins, and Sunze
+remains tax-exclusive. Missing configured rates retain numeric display with no
+provisional deduction and keep the existing incomplete-tax publication state;
+that compatibility treatment is not proof of exemption or a 0% rate. The
+finance SOP details above remain necessary only to introduce a named
+location/field/effective-date exception. A future vendor-card switch would be a
+separate recorded decision.
 Sunze still needs an independently known timestamp pair for its account-wide
 timezone rule.
 
