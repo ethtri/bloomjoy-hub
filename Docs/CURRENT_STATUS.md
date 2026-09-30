@@ -30,6 +30,13 @@ orientation snapshot; it is not a backlog or release ledger.
   contains an amount, method, card, network, or wallet fact stays in ordinary
   fact review; the amount, decision, completion state, and alternate payment
   policy remain unchanged until that review finishes.
+- The follow-up repair keeps that mixed reply on the same protected fact path:
+  every supported fact must still be applied from its exact verified source,
+  while a direct no-Zelle statement from one exact bound message is retained as
+  internal payout research evidence in the same settlement. It does not infer
+  a limitation across messages, add another customer question, approve a refund,
+  or authorize payment. This remains prospective until the migration and hosted
+  replay checks pass and production readback confirms the current task advances.
 - On September 29 a governed confirmed-refund receipt reached the customer in
   the existing Gmail thread but also copied two mapped Managers because manual
   `completed` outbox rows still inherited the general Manager-copy policy. A

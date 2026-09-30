@@ -282,7 +282,8 @@
     "20260929221500_refund_system_candidate_review.sql",
     "20260929231500_refund_system_selection_preparation.sql",
     "20260930000509_provisional_nayax_tax_inclusive_basis.sql",
-    "20260930004634_refund_cash_positive_evidence_without_coverage.sql"
+    "20260930004634_refund_cash_positive_evidence_without_coverage.sql",
+    "20260930020251_refund_mixed_payout_reply_facts.sql"
   ],
   "migrationFilesSha256": "b1f14bf82e9c28d4978afcd2093f3ffdc0df7936106bbcf18753291d80168620",
   "migrationVersionSetSha256": "33926dd279b05e2777ae2785b5ee52942b69871deda0019c4c6335cfb71aba4f",
