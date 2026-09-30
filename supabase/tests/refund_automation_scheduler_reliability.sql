@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(29);
+select plan(33);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -100,6 +100,84 @@ select is(
   public.service_dispatch_refund_automation_scheduler('run') ->> 'status',
   'disabled',
   'A disabled primary scheduler performs no HTTP dispatch'
+);
+
+select lives_ok(
+  $$
+    insert into public.refund_automation_scheduler_dispatches (
+      mode,
+      bucket_at,
+      run_key,
+      status,
+      request_id,
+      dispatched_at
+    ) values
+      (
+        'run',
+        '2099-01-01 00:00:00+00'::timestamptz,
+        'scheduled:20990101T0000Z',
+        'dispatched',
+        9223372036854770000,
+        statement_timestamp()
+      ),
+      (
+        'health_check',
+        '2099-01-01 00:30:00+00'::timestamptz,
+        'health_check:20990101T0030Z',
+        'dispatched',
+        9223372036854770000,
+        statement_timestamp()
+      )
+  $$,
+  'Transport request identifiers may repeat across durable scheduler runs'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.refund_automation_scheduler_dispatches
+    where request_id = 9223372036854770000
+  ),
+  2,
+  'Both durable dispatch identities remain recorded when pg_net reuses an identifier'
+);
+
+select throws_like(
+  $$
+    insert into public.refund_automation_scheduler_dispatches (
+      mode,
+      bucket_at,
+      run_key,
+      status
+    ) values (
+      'run',
+      '2099-01-01 01:00:00+00'::timestamptz,
+      'scheduled:20990101T0000Z',
+      'dispatching'
+    )
+  $$,
+  '23505',
+  '%refund_automation_scheduler_dispatches_run_key_key%',
+  'The stable scheduler run key remains unique'
+);
+
+select throws_like(
+  $$
+    insert into public.refund_automation_scheduler_dispatches (
+      mode,
+      bucket_at,
+      run_key,
+      status
+    ) values (
+      'run',
+      '2099-01-01 00:00:00+00'::timestamptz,
+      'scheduled:20990101T0130Z',
+      'dispatching'
+    )
+  $$,
+  '23505',
+  '%refund_automation_scheduler_dispatches_pkey%',
+  'The mode and bucket identity remains unique'
 );
 
 select ok(
