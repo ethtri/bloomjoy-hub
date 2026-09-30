@@ -39,6 +39,13 @@ redemption to that subset. Credentials must belong to the configured account.
 The current KeMore machine inventory reports USD on 22 devices under five
 merchants. The application explicitly sends `X-App-TimeZone` from the caller's
 IANA timezone, so configure that timezone rather than infer one from date text.
+The Hub's existing authoritative mapping table verifies 21 exact provider-device
+to Hub-machine links with location IANA timezones. KeMore mapping, USD and caller
+timezone setup are therefore resolved from existing records; they do not require
+the owner to supply technical settings. Configure only exact mapped devices and
+their observed merchant scope. First positive created-scope verification and a
+real machine redemption test remain outstanding. Sunzee account-wide machine
+eligibility and USD basis have not been established by the bounded evidence.
 
 Hardware redemption instructions have not been demonstrated by this research.
 Require accurate, verified pool instructions; do not invent a machine button or
