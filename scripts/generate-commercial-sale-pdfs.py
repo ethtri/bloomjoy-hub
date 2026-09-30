@@ -166,6 +166,17 @@ def page_field_specs(page, page_index: int, prefix: str, counter_start: int) -> 
             for rect, placeholder in spans:
                 counter += 1
                 context = context_for_rect(page_words, rect, cell_text.replace(placeholder, ""))
+                if prefix == "sale":
+                    for row in table.rows:
+                        if cell in row.cells:
+                            col = row.cells.index(cell)
+                            row_label = page.crop(row.cells[0]).extract_text() or "" if row.cells[0] else ""
+                            header_cell = table.rows[0].cells[col]
+                            header_label = page.crop(header_cell).extract_text() or "" if header_cell else ""
+                            context = re.sub(r"\s+", " ", row_label).strip()
+                            if len(row.cells) > 2:
+                                context += ": " + re.sub(r"\s+", " ", header_label).strip()
+                            break
                 multiline = rect[3] - rect[1] > 17 or cell[3] - cell[1] > 25
                 fields.append(
                     FieldSpec(
@@ -173,7 +184,7 @@ def page_field_specs(page, page_index: int, prefix: str, counter_start: int) -> 
                         "text",
                         rect,
                         unique_name(prefix, page_index + 1, "text", context, counter),
-                        f"{context.strip() or 'Complete field'}",
+                        f"{context.strip() or 'Complete field'} — {placeholder.strip('[]').strip()}" if prefix == "sale" else f"{context.strip() or 'Complete field'}",
                         multiline,
                         default_value="None" if placeholder.strip() == "[None]" else "",
                     )
@@ -215,6 +226,12 @@ def page_field_specs(page, page_index: int, prefix: str, counter_start: int) -> 
         counter += 1
         rect = (float(char["x0"]), float(char["top"]), float(char["x1"]), float(char["bottom"]))
         context = context_for_rect(page_words, rect, "Select option")
+        if prefix == "sale":
+            next_boxes = [float(c["x0"]) for c in page.chars if c.get("text") == "☐" and float(c["x0"]) > rect[2] and abs(float(c["top"]) - rect[1]) < 3]
+            right_edge = min(next_boxes) if next_boxes else float(page.width)
+            option_words = [w for w in page_words if float(w["x0"]) >= rect[2] - 1 and float(w["x1"]) < right_edge and abs(float(w["top"]) - rect[1]) < 4]
+            if option_words:
+                context = "Select " + " ".join(str(w["text"]) for w in sorted(option_words, key=lambda w: float(w["x0"])))
         fields.append(
             FieldSpec(
                 page_index,

@@ -14,7 +14,9 @@ Before sending a document for signature:
 
 - Complete every applicable field and delete unused options.
 - Attach the final quote, confirmed equipment specifications, wrap proof, and freight scope.
-- Confirm the warranty term and included support for that order.
+- The sale template states that the remaining 50% is due within 5 calendar days after Confirmed Delivery, inspection problems must be reported within 7 business days, and the limited warranty lasts one year from the Agreement date. Verify the date and included services for the order; the warranty begins before delivery if signing occurs earlier.
+- Select the deposit refund policy before sending the sale agreement for signature.
+- Bloomjoy completes Exhibit A from the order and manufacturer information. Buyers should not have to supply technical specifications. Hover over a PDF text field for its completion instructions.
 - For the 6% program, confirm the legal permit holder, merchant of record, settlement flow, tax responsibility, insurance, and written local-agency/commissary approvals for the exact site and operator.
 - Obtain California counsel review before first use and local counsel review for a site outside California.
 

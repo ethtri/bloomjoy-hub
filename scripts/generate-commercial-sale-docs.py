@@ -308,15 +308,15 @@ def add_numbered_terms(doc: Document, terms: list[tuple[str, str]]) -> None:
         p.add_run(body)
 
 
-def add_signature_table(doc: Document, left_label: str, right_label: str) -> None:
+def add_signature_table(doc: Document, left_label: str, right_label: str, *, plain_english=False) -> None:
     table = doc.add_table(rows=5, cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
     rows = [
         (left_label, right_label),
-        ("By: __________________________________", "By: __________________________________"),
-        ("Name: ________________________________", "Name: ________________________________"),
-        ("Title: _________________________________", "Title: _________________________________"),
+        ("Signature: ____________________________" if plain_english else "By: __________________________________", "Signature: ____________________________" if plain_english else "By: __________________________________"),
+        ("Printed name: __________________________" if plain_english else "Name: ________________________________", "Printed name: __________________________" if plain_english else "Name: ________________________________"),
+        ("Job title: _____________________________" if plain_english else "Title: _________________________________", "Job title: _____________________________" if plain_english else "Title: _________________________________"),
         ("Date: __________________________________", "Date: __________________________________"),
     ]
     for ridx, values in enumerate(rows):
@@ -345,13 +345,13 @@ def build_sale_agreement() -> Path:
     doc = Document()
     configure_document(doc, "Commercial Machine Sale Agreement")
     add_brand_block(doc, "Commercial Machine Documents")
-    add_title(doc, "COMMERCIAL MACHINE SALE AGREEMENT", "Reusable order form, sale terms, and operating exhibits")
+    add_title(doc, "COMMERCIAL MACHINE SALE AGREEMENT", "Your machine order, delivery details, and sale terms")
 
     add_paragraph(
         doc,
         f"This Commercial Machine Sale Agreement (the “Agreement”) is entered into as of the Effective Date in the Order Form by {SELLER_LEGAL_NAME} (“Bloomjoy”), and the buyer identified in the Order Form (“Buyer”). The Order Form, these Standard Terms, and all attached exhibits are one agreement. If they conflict, the Order Form controls for that transaction, followed by the exhibits and then the Standard Terms.",
     )
-    p = add_paragraph(doc, "Complete every applicable unfilled field before signature. Delete any option that does not apply.")
+    p = add_paragraph(doc, "Bloomjoy completes the order details before sending this agreement. Buyer confirms their information and signs. Use “None” for extras that are not included.")
     for run in p.runs:
         run.bold = True
         run.font.color.rgb = RGBColor.from_string(PINK)
@@ -360,33 +360,33 @@ def build_sale_agreement() -> Path:
     add_field_table(
         doc,
         [
-            ("Agreement / Quote No.", "[Insert]"),
-            ("Effective Date", "[Month Day, Year]"),
+            ("Quote or order number", "[Number from the Bloomjoy quote or order]"),
+            ("Agreement date", "[Month Day, Year; this is the Effective Date]"),
             ("Seller", f"{SELLER_LEGAL_NAME} (“Bloomjoy”)"),
-            ("Bloomjoy notice address", BLOOMJOY_NOTICE_ADDRESS),
-            ("Bloomjoy notice email", BLOOMJOY_LEGAL_EMAIL),
-            ("Buyer legal name", "[Insert exact legal name and entity type]"),
-            ("Buyer notice address", "[Insert street address, city, state, ZIP]"),
-            ("Buyer notice email", "[Insert]"),
-            ("Buyer billing contact", "[Name | email | phone]"),
-            ("Buyer delivery contact", "[Name | email | phone]"),
+            ("Bloomjoy mailing address", BLOOMJOY_NOTICE_ADDRESS),
+            ("Bloomjoy legal email", BLOOMJOY_LEGAL_EMAIL),
+            ("Buyer full legal name", "[Company's registered name, or individual's full name]"),
+            ("Buyer mailing address", "[Street address, city, state, ZIP for formal notices]"),
+            ("Buyer email for notices", "[Email address for notices about this agreement]"),
+            ("Billing contact name email and phone", "[Person who receives invoices; write Same as buyer if applicable]"),
         ],
     )
 
     add_heading(doc, "1. Equipment and Price", level=2)
     add_grid_table(
         doc,
-        ["Item", "Description / configuration", "Qty.", "Unit price", "Extended price"],
+        ["Item", "What is included", "Qty.", "Price each", "Line total"],
         [
-            ["Commercial Machine", "[Model, finish, pattern package, payment reader, connectivity]", "[ ]", "$[ ]", "$[ ]"],
-            ["Custom wrap", "☐ Not included   ☐ Included; artwork requirements attached", "[ ]", "$[ ]", "$[ ]"],
-            ["Opening supplies", "[Sugar, sticks, tools, spare parts, other]", "[ ]", "$[ ]", "$[ ]"],
-            ["Freight / delivery", "[Method, accessorial charges, insurance]", "—", "—", "$[ ]"],
-            ["Sales or use tax", "[Estimated; final tax may adjust invoice]", "—", "—", "$[ ]"],
+            ["Commercial Machine", "[Machine model and selected options; full details in Exhibit A]", "[Number]", "$[Amount]", "$[Amount]"],
+            ["Custom machine wrap", "☐ Not included   ☐ Included; approved design attached", "[Number]", "$[Amount]", "$[Amount]"],
+            ["Starter supplies", "[List included sugar, sticks, tools, or spare parts; or None]", "[Number]", "$[Amount]", "$[Amount]"],
+            ["Shipping and delivery", "[Describe included delivery service and any extra charges]", "—", "—", "$[Amount]"],
+            ["Sales tax", "Estimated; final invoice may adjust tax", "—", "—", "$[Amount]"],
             ["TOTAL PURCHASE PRICE", "", "", "", "$[ ]"],
         ],
         [1.15, 3.05, 0.5, 0.85, 1.1],
     )
+    add_paragraph(doc, "Line total = quantity × price each. Enter $0 for included items with no separate charge. Add the item line totals plus shipping and tax to calculate the Total Purchase Price.")
 
     add_heading(doc, "2. Payment Schedule", level=2)
     doc.paragraphs[-1].paragraph_format.page_break_before = True
@@ -395,37 +395,35 @@ def build_sale_agreement() -> Path:
         ["Payment", "Amount", "Due"],
         [
             ["Order deposit", "50%: $[Amount]", "At signing / purchase"],
-            ["Delivery balance", "50% plus approved adjustments: $[Amount]", "Within [3] business days after Confirmed Delivery"],
+            ["Remaining payment", "50% plus approved adjustments: $[Amount]", "Within 5 calendar days after Confirmed Delivery"],
         ],
         [1.35, 2.35, 3.0],
         font_size=9.1,
     )
-    add_field_table(doc, [("Payment / invoice instructions", "[Insert payment method and invoice instructions]")])
-    add_paragraph(doc, "Deposit treatment — select one: ☐ Refundable until Bloomjoy commits the order to production, less documented nonrecoverable costs. ☐ Nonrefundable upon receipt. ☐ Other: [Describe other treatment].")
+    add_field_table(doc, [("How to pay", "[Payment link, invoice instructions, or other agreed payment method]")])
+    add_paragraph(doc, "Deposit refund policy — Bloomjoy selects one before signing: ☐ Refundable until Bloomjoy commits the order to production, less documented costs that cannot be recovered. ☐ Not refundable once received. ☐ Other: [Describe the agreed refund policy].")
 
-    add_heading(doc, "3. Delivery and Commissioning", level=2)
+    add_heading(doc, "3. Delivery Details", level=2)
     add_field_table(
         doc,
         [
-            ("Delivery point", "[Full address, suite/loading instructions]"),
-            ("Requested delivery window", "[Insert; estimate only unless expressly guaranteed]"),
-            ("Delivery method / Incoterm", "[Carrier / white-glove / customer pickup / other]"),
-            ("Included installation support", "[Remote setup; on-site services, if any]"),
-            ("Included training", "[Participants, format, duration]"),
-            ("Acceptance review period", "[5] business days after Confirmed Delivery"),
-            ("Balance timing override", "[Leave blank unless different from Section 2]"),
+            ("Delivery address", "[Street address, unit or suite, city, state, ZIP; this is the Delivery Point]"),
+            ("Delivery address type", "☐ Commercial / business   ☐ Residential / home"),
+            ("Receiving contact name and phone", "[Person the driver should call about delivery]"),
+            ("Delivery instructions (optional)", "[Loading access, stairs, restricted hours, or other instructions; or None]"),
         ],
     )
 
-    add_heading(doc, "4. Warranty, Support, and Optional Services", level=2)
+    add_heading(doc, "4. Warranty and Support", level=2)
     add_field_table(
         doc,
         [
-            ("Limited warranty term", "[Insert manufacturer-backed term and start date rule]"),
-            ("Manufacturer support", "24/7 first-line remote technical support via WeChat, subject to manufacturer availability and policies"),
-            ("Bloomjoy included support", "Onboarding and reasonable escalation coordination during U.S. business hours, as described in Exhibit B"),
+            ("Warranty coverage period", "One year from the Agreement date, not the delivery date. Coverage is described in Exhibit B."),
+            ("Inspection period", "7 business days after Confirmed Delivery to report a material equipment problem. This does not waive later claims for hidden defects or problems covered by the warranty."),
+            ("Manufacturer support", "Remote technical help via WeChat, available 24/7 subject to manufacturer availability and policies"),
+            ("Bloomjoy support", "Help getting started and coordinating further support during U.S. business hours, as described in Exhibit B"),
             ("Bloomjoy Plus", "Not included. Optional, separately purchased, and governed by the online terms described below."),
-            ("Additional paid services", "[On-site labor, travel, extended coverage, storage, other—or “None”]"),
+            ("Other included services", "[List any included on-site setup, training, labor, travel, or shipping for warranty claims; or None]"),
         ],
     )
 
@@ -438,7 +436,7 @@ def build_sale_agreement() -> Path:
 
     add_heading(doc, "5. Signatures", level=2)
     add_paragraph(doc, "Each signer represents that the signer is authorized to bind the identified party. Electronic signatures and counterparts are effective.")
-    add_signature_table(doc, SELLER_LEGAL_NAME, "BUYER: [Legal name]")
+    add_signature_table(doc, SELLER_LEGAL_NAME, "BUYER", plain_english=True)
 
     add_page_break(doc)
     add_heading(doc, "PART II — STANDARD TERMS", level=1)
@@ -449,11 +447,11 @@ def build_sale_agreement() -> Path:
         ),
         (
             "2. Price, Taxes, and Payment.",
-            "Buyer will pay the Total Purchase Price on the schedule in the Order Form. The initial payment is a deposit applied to the purchase price; its refundability is governed by the selected deposit treatment. Buyer is responsible for sales, use, excise, and similar transaction taxes, excluding taxes on Bloomjoy’s net income. Approved change orders, carrier adjustments, storage, redelivery, and buyer-caused accessorial charges may be added to the final invoice. Overdue amounts accrue interest at the lesser of 1.0% per month or the maximum lawful rate, plus reasonable collection costs. Buyer may not set off unrelated claims against an amount due.",
+            "Buyer will pay the Total Purchase Price on the schedule in the Order Form. The initial payment is a deposit applied to the purchase price; its refundability is governed by the selected deposit refund policy. Buyer is responsible for sales, use, excise, and similar transaction taxes, excluding taxes on Bloomjoy’s net income. Approved change orders, carrier adjustments, storage, redelivery, and buyer-caused accessorial charges may be added to the final invoice. Overdue amounts accrue interest at the lesser of 1.0% per month or the maximum lawful rate, plus reasonable collection costs. Buyer may not set off unrelated claims against an amount due.",
         ),
         (
             "3. Order Changes and Cancellation.",
-            "Changes require written approval and may affect price and schedule. If Buyer cancels after Bloomjoy or its supplier commits the order, Buyer is responsible for documented nonrecoverable production, customization, freight, storage, and cancellation costs, subject to the deposit treatment in the Order Form. Bloomjoy will return any remaining refundable balance after those amounts are determined.",
+            "Changes require written approval and may affect price and schedule. If Buyer cancels after Bloomjoy or its supplier commits the order, Buyer is responsible for documented nonrecoverable production, customization, freight, storage, and cancellation costs, subject to the deposit refund policy in the Order Form. Bloomjoy will return any remaining refundable balance after those amounts are determined.",
         ),
         (
             "4. Delivery; Confirmed Delivery.",
@@ -461,11 +459,11 @@ def build_sale_agreement() -> Path:
         ),
         (
             "5. Risk of Loss; Title; Security Interest.",
-            "Risk of loss passes to Buyer at Confirmed Delivery, except to the extent a carrier claim is controlled by Bloomjoy under the selected delivery method. Title passes only after Bloomjoy receives all amounts due for the Equipment. Until then, Buyer grants Bloomjoy a purchase-money security interest in the Equipment and its proceeds, will keep the Equipment identifiable and free of other liens, and authorizes Bloomjoy to file financing statements reasonably necessary to perfect that interest. Buyer may operate the Equipment in the ordinary course but may not sell, pledge, or relocate it outside the United States without Bloomjoy’s written consent before full payment.",
+            "Risk of loss passes to Buyer at Confirmed Delivery, except to the extent a carrier claim is controlled by Bloomjoy under the agreed shipping and delivery service. Title passes only after Bloomjoy receives all amounts due for the Equipment. Until then, Buyer grants Bloomjoy a purchase-money security interest in the Equipment and its proceeds, will keep the Equipment identifiable and free of other liens, and authorizes Bloomjoy to file financing statements reasonably necessary to perfect that interest. Buyer may operate the Equipment in the ordinary course but may not sell, pledge, or relocate it outside the United States without Bloomjoy’s written consent before full payment.",
         ),
         (
             "6. Inspection and Acceptance.",
-            "Buyer will inspect promptly. Visible damage, missing items, and material delivery discrepancies must be listed on the Delivery and Commissioning Certificate. Buyer has the Acceptance Review Period to report a material nonconformity in reasonable detail with photographs, video, logs, or other available evidence. Bloomjoy may inspect and, at its option, repair, replace, complete, or credit the affected item. Acceptance does not waive latent defects or an express warranty claim. A minor punch-list item does not permit rejection of the Equipment or withholding of the entire delivery balance.",
+            "Buyer will inspect promptly. Visible damage, missing items, and material delivery discrepancies must be listed on the Delivery and Commissioning Certificate. Buyer has 7 business days after Confirmed Delivery (the Acceptance Review Period) to report a material nonconformity in reasonable detail with photographs, video, logs, or other available evidence. Bloomjoy may inspect and, at its option, repair, replace, complete, or credit the affected item. Acceptance does not waive latent defects or an express warranty claim. A minor punch-list item does not permit rejection of the Equipment or withholding of the entire delivery balance.",
         ),
         (
             "7. Site Readiness and Installation.",
@@ -532,26 +530,21 @@ def build_sale_agreement() -> Path:
     add_numbered_terms(doc, terms[14:])
 
     add_page_break(doc)
-    add_heading(doc, "EXHIBIT A — EQUIPMENT AND DELIVERY SPECIFICATIONS", level=1)
+    add_heading(doc, "EXHIBIT A — MACHINE DETAILS", level=1)
+    add_paragraph(doc, "Bloomjoy completes these details from the final order and manufacturer information. Attach the specification sheet rather than asking Buyer to supply technical measurements. Record serial numbers when assigned, no later than delivery.")
     add_field_table(
         doc,
         [
-            ("Agreement / Quote No.", "[Insert]"),
-            ("Machine model", "[Insert]"),
-            ("Quantity", "[Insert]"),
             ("Serial number(s)", "[Assign before or at delivery]"),
-            ("Cabinet finish / wrap", "[Insert]"),
-            ("Payment reader / processor", "[Insert; merchant account owner]"),
-            ("Connectivity", "[Wi-Fi / cellular / Ethernet; owner of service]"),
-            ("Electrical requirements", "[Voltage, amperage, outlet, dedicated circuit]"),
-            ("Dimensions / weight", "[Insert confirmed specifications]"),
-            ("Included accessories", "[Insert]"),
-            ("Included opening supplies", "[Insert]"),
-            ("Documentation / credentials", "[Manuals, admin access, support channel]"),
-            ("Packaging / freight", "[Insert]"),
-            ("Unloading responsibility", "[Bloomjoy / Buyer / carrier]"),
-            ("Installation responsibility", "[Insert]"),
-            ("Commissioning test", "[Insert required test and responsible person]"),
+            ("Machine color and design", "[Selected color, wrap, and cotton-candy designs included]"),
+            ("Card reader and payment account", "[Reader model, payment provider, and who owns the payment account]"),
+            ("Internet connection", "[Wi-Fi, cellular, or Ethernet; who supplies and pays for service]"),
+            ("Power and machine size", "[Name or date of attached manufacturer specification sheet]"),
+            ("Included accessories", "[List accessories; do not repeat starter supplies from page 1]"),
+            ("Manuals and account access", "[Manuals, login access, and manufacturer support contact provided]"),
+            ("Who unloads the machine", "[Buyer, carrier, or Bloomjoy; match the quoted delivery service]"),
+            ("Who sets up the machine", "[Person or company responsible; any included help is listed on page 2]"),
+            ("Startup test", "[Test to confirm the machine works, and who performs it]"),
         ],
     )
     add_heading(doc, "Approved Attachments", level=2)
@@ -561,7 +554,7 @@ def build_sale_agreement() -> Path:
             "☐ Final quote or invoice",
             "☐ Final wrap proof and approved artwork",
             "☐ Confirmed manufacturer specification sheet",
-            "☐ Freight quote and delivery instructions",
+            "☐ Shipping quote and delivery instructions",
             "☐ Additional written scope or change order",
         ],
     )
@@ -571,11 +564,11 @@ def build_sale_agreement() -> Path:
     add_numbered_terms(
         doc,
         [
-            ("1. Warranty Term.", "The limited warranty begins on [Confirmed Delivery / successful commissioning] and continues for the period stated in the Order Form. Any “up to” public warranty statement is not a substitute for the completed Order Form."),
+            ("1. Warranty Term.", "The limited warranty begins on the Agreement date (the Effective Date) and lasts one year. It does not begin again at delivery or setup. Any “up to” public warranty statement is not a substitute for this stated warranty period."),
             ("2. Covered Defects.", "During the warranty term, Bloomjoy will coordinate the manufacturer-backed repair or replacement process for a material defect in parts or workmanship under normal intended use. The remedy may include remote diagnosis, software adjustment, shipment of a replacement part, or another commercially reasonable correction. Replaced parts may be new or functionally equivalent."),
             ("3. Exclusions.", "The warranty does not cover consumables, ordinary wear, cosmetic conditions that do not impair operation, improper cleaning, unauthorized repair or modification, incompatible supplies, vandalism, pests, accident, unsuitable power or network service, environmental conditions, relocation damage, failure to follow manuals or safety instructions, or a third-party payment or connectivity service."),
-            ("4. Claim Process.", "Buyer will stop use if continued operation may worsen damage or create a safety risk; contact the designated manufacturer support channel; provide the serial number, photographs or video, logs, and requested diagnostic information; and reasonably cooperate with remote troubleshooting. Buyer must notify Bloomjoy at [support email address] if escalation or parts coordination is needed."),
-            ("5. Labor, Travel, and Shipping.", "Included labor, freight, duties, travel, and on-site services are limited to: [Describe included services or None]. Any amount not expressly included requires Buyer approval before charge, except reasonable emergency measures requested by Buyer."),
+            ("4. Claim Process.", "Buyer will stop use if continued operation may worsen damage or create a safety risk; contact the designated manufacturer support channel; provide the serial number, photographs or video, logs, and requested diagnostic information; and reasonably cooperate with remote troubleshooting. Buyer must notify Bloomjoy using its contact details in the Order Form if escalation or parts coordination is needed."),
+            ("5. Labor, Travel, and Shipping.", "Included labor, freight, duties, travel, and on-site services are limited to the Other included services listed in the Order Form. Any amount not expressly included requires Buyer approval before charge, except reasonable emergency measures requested by Buyer."),
             ("6. Support Boundaries.", "The manufacturer provides first-line technical support through its designated 24/7 WeChat channel, subject to actual availability, time zone, and issue context. Bloomjoy provides onboarding guidance and reasonable escalation coordination during U.S. business hours. Bloomjoy does not promise continuous uptime, a fixed response time, or on-site service unless the Order Form states otherwise."),
             ("7. Bloomjoy Plus.", "Optional Bloomjoy Plus training, playbooks, portal features, or concierge benefits are governed only by the online subscription terms. Subscription status does not expand or reduce the express machine warranty unless a signed order expressly says so."),
         ],
