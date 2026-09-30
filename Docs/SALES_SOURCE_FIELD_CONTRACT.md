@@ -63,9 +63,10 @@ cash_ex_tax = sum(cash amounts normalized exactly once)
 card_ex_tax = sum(card amounts normalized exactly once)
 
 paid_refund_ex_tax = authoritative cumulative paid refund amount, normalized
+gift_card_purchase_ex_tax = original purchase resolved by an issued gift card, normalized
 request_target_ex_tax = current positive canonical request amount, normalized
-outstanding_request_ex_tax = max(request_target_ex_tax - paid_refund_ex_tax, 0)
-combined_refund_ex_tax = paid_refund_ex_tax + outstanding_request_ex_tax
+outstanding_request_ex_tax = max(request_target_ex_tax - paid_refund_ex_tax - gift_card_purchase_ex_tax, 0)
+combined_refund_ex_tax = paid_refund_ex_tax + gift_card_purchase_ex_tax + outstanding_request_ex_tax
 already_reflected_ex_tax = portion already removed from the selected sales input
 applied_refund_deduction_ex_tax = max(combined_refund_ex_tax - already_reflected_ex_tax, 0)
 
@@ -77,7 +78,14 @@ they are not the monthly expense formula. For each machine-local reporting
 period, commissionable sales use sales in that period minus new request
 deductions and request-amount increases, plus unpaid denials, withdrawals and
 amount decreases recorded in that period. A later payment changes requested and
-paid context but contributes zero additional deduction.
+paid context but contributes zero additional deduction. A gift-card issuance
+resolves the original purchase amount without becoming cash/card paid. Its
+separate receipt records purchase amount, face value and Bloomjoy-funded goodwill.
+The launch value rounds up to a $5 increment; goodwill creates no additional
+technician or partner deduction. Issuance, email retry and later redemption do
+not add another request deduction. A report dated before issuance does not treat
+that purchase as gift-card resolved. Redemption remains unknown until supported
+provider evidence establishes it; the issued value is not new sales revenue.
 
 ```text
 period_refund_impact_ex_tax = new_requests + amount_increases
