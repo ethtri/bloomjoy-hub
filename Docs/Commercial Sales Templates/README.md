@@ -8,7 +8,7 @@ This package is structured for repeat use with Commercial Machine sales.
 
 The sale template intentionally treats Bloomjoy Plus as an optional online subscription rather than a machine license fee. The permitted-operations template intentionally does not transfer or “rent” a health permit; activation depends on the local agency, commissary, venue, insurance, and site documents identified in the schedule.
 
-The Word templates and interactive PDFs prefill Bloomjoy's legal name, notice address, and legal email. Pink-outlined areas in the PDFs are fillable; square controls are clickable checkboxes.
+The Word templates and interactive PDFs prefill Bloomjoy's legal name, notice address, and legal email. Lightly outlined areas in the PDFs are fillable; square controls are clickable checkboxes. The coordinated layouts use consistent typography, generous answer fields, and compact checklist columns for repeat use.
 
 Before sending a document for signature:
 

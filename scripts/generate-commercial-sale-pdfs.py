@@ -32,8 +32,8 @@ PDFS = {
     ),
 }
 
-PINK = HexColor("#F672A2")
-PALE_PINK = HexColor("#FFF7FA")
+PINK = HexColor("#B8AAB0")
+PALE_PINK = HexColor("#FCFAFB")
 TEXT = HexColor("#202020")
 MULTILINE_FLAG = 1 << 12
 

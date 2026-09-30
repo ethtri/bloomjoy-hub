@@ -55,7 +55,7 @@ def set_cell_border(cell, color: str = LIGHT_GRAY, size: str = "6") -> None:
         element.set(qn("w:color"), color)
 
 
-def set_cell_margins(cell, top=45, start=95, bottom=45, end=95) -> None:
+def set_cell_margins(cell, top=85, start=120, bottom=85, end=120) -> None:
     tc_pr = cell._tc.get_or_add_tcPr()
     tc_mar = tc_pr.first_child_found_in("w:tcMar")
     if tc_mar is None:
@@ -84,6 +84,9 @@ def prevent_row_split(row) -> None:
 
 
 def set_table_widths(table, widths: list[float]) -> None:
+    widths = [width * 6.8 / sum(widths) for width in widths]
+    for column, width in zip(table.columns, widths):
+        column.width = Inches(width)
     for row in table.rows:
         for idx, width in enumerate(widths):
             if idx < len(row.cells):
@@ -180,9 +183,9 @@ def configure_document(doc: Document, title: str) -> None:
     styles = doc.styles
     normal = styles["Normal"]
     normal.font.name = "Arial"
-    normal.font.size = Pt(10.25)
+    normal.font.size = Pt(11)
     normal.font.color.rgb = RGBColor.from_string(BLACK)
-    normal.paragraph_format.space_after = Pt(5)
+    normal.paragraph_format.space_after = Pt(7)
     normal.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
     for style_name, size in (("Title", 17), ("Heading 1", 13), ("Heading 2", 11.5), ("Heading 3", 10.5)):
@@ -194,6 +197,10 @@ def configure_document(doc: Document, title: str) -> None:
         style.paragraph_format.keep_with_next = True
         style.paragraph_format.space_before = Pt(9 if style_name != "Title" else 0)
         style.paragraph_format.space_after = Pt(4)
+        if style_name == "Title":
+            border = style.element.get_or_add_pPr().find(qn("w:pBdr"))
+            if border is not None:
+                border.getparent().remove(border)
 
     footer = section.footer
     p = footer.paragraphs[0]
@@ -247,21 +254,21 @@ def add_brand_block(doc: Document, descriptor: str) -> None:
 
 
 def add_title(doc: Document, title: str, subtitle: str | None = None) -> None:
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_after = Pt(3)
+    p = doc.add_paragraph(style="Title")
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_after = Pt(7)
     p.paragraph_format.keep_with_next = True
-    run = p.add_run(title)
+    run = p.add_run(title.title().replace(" And ", " and "))
     run.bold = True
     run.font.name = "Arial"
-    run.font.size = Pt(17)
+    run.font.size = Pt(22)
     run.font.color.rgb = RGBColor.from_string(BLACK)
     if subtitle:
         p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_after = Pt(9)
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.paragraph_format.space_after = Pt(14)
         run = p.add_run(subtitle)
-        run.italic = True
+        run.italic = False
         run.font.size = Pt(9.5)
         run.font.color.rgb = RGBColor.from_string(GRAY)
 
@@ -284,7 +291,7 @@ def add_paragraph(doc: Document, text: str, *, bold_lead: str | None = None, ita
 
 def add_bullets(doc: Document, items: list[str]) -> None:
     for item in items:
-        p = doc.add_paragraph(style="List Bullet")
+        p = doc.add_paragraph(style="Normal" if item.startswith("☐") else "List Bullet")
         p.paragraph_format.left_indent = Inches(0.25)
         p.paragraph_format.first_line_indent = Inches(-0.15)
         p.paragraph_format.space_after = Pt(2)
@@ -294,7 +301,7 @@ def add_bullets(doc: Document, items: list[str]) -> None:
 def add_numbered_terms(doc: Document, terms: list[tuple[str, str]]) -> None:
     for heading, body in terms:
         p = doc.add_paragraph()
-        p.paragraph_format.keep_together = False
+        p.paragraph_format.keep_together = True
         p.paragraph_format.widow_control = True
         run = p.add_run(f"{heading}  ")
         run.bold = True
@@ -325,7 +332,13 @@ def add_signature_table(doc: Document, left_label: str, right_label: str) -> Non
 
 def add_page_break(doc: Document) -> None:
     p = doc.add_paragraph()
-    p.add_run().add_break(WD_BREAK.PAGE)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    p.paragraph_format.line_spacing = Pt(1)
+    run = p.add_run()
+    run.font.size = Pt(1)
+    run.add_break(WD_BREAK.PAGE)
 
 
 def build_sale_agreement() -> Path:
@@ -376,6 +389,7 @@ def build_sale_agreement() -> Path:
     )
 
     add_heading(doc, "2. Payment Schedule", level=2)
+    doc.paragraphs[-1].paragraph_format.page_break_before = True
     add_grid_table(
         doc,
         ["Payment", "Amount", "Due"],
@@ -386,8 +400,8 @@ def build_sale_agreement() -> Path:
         [1.35, 2.35, 3.0],
         font_size=9.1,
     )
-    add_paragraph(doc, "Payment method / invoice instructions: [Insert].")
-    add_paragraph(doc, "Deposit treatment: [Select one] ☐ Refundable until Bloomjoy commits the order to production, less documented nonrecoverable costs. ☐ Nonrefundable upon receipt. ☐ Other: [Insert].")
+    add_field_table(doc, [("Payment / invoice instructions", "[Insert payment method and invoice instructions]")])
+    add_paragraph(doc, "Deposit treatment — select one: ☐ Refundable until Bloomjoy commits the order to production, less documented nonrecoverable costs. ☐ Nonrefundable upon receipt. ☐ Other: [Describe other treatment].")
 
     add_heading(doc, "3. Delivery and Commissioning", level=2)
     add_field_table(
@@ -564,8 +578,8 @@ def build_sale_agreement() -> Path:
             ("1. Warranty Term.", "The limited warranty begins on [Confirmed Delivery / successful commissioning] and continues for the period stated in the Order Form. Any “up to” public warranty statement is not a substitute for the completed Order Form."),
             ("2. Covered Defects.", "During the warranty term, Bloomjoy will coordinate the manufacturer-backed repair or replacement process for a material defect in parts or workmanship under normal intended use. The remedy may include remote diagnosis, software adjustment, shipment of a replacement part, or another commercially reasonable correction. Replaced parts may be new or functionally equivalent."),
             ("3. Exclusions.", "The warranty does not cover consumables, ordinary wear, cosmetic conditions that do not impair operation, improper cleaning, unauthorized repair or modification, incompatible supplies, vandalism, pests, accident, unsuitable power or network service, environmental conditions, relocation damage, failure to follow manuals or safety instructions, or a third-party payment or connectivity service."),
-            ("4. Claim Process.", "Buyer will stop use if continued operation may worsen damage or create a safety risk; contact the designated manufacturer support channel; provide the serial number, photographs or video, logs, and requested diagnostic information; and reasonably cooperate with remote troubleshooting. Buyer must notify Bloomjoy at [support email] if escalation or parts coordination is needed."),
-            ("5. Labor, Travel, and Shipping.", "Included labor, freight, duties, travel, and on-site services are limited to: [Insert]. Any amount not expressly included requires Buyer approval before charge, except reasonable emergency measures requested by Buyer."),
+            ("4. Claim Process.", "Buyer will stop use if continued operation may worsen damage or create a safety risk; contact the designated manufacturer support channel; provide the serial number, photographs or video, logs, and requested diagnostic information; and reasonably cooperate with remote troubleshooting. Buyer must notify Bloomjoy at [support email address] if escalation or parts coordination is needed."),
+            ("5. Labor, Travel, and Shipping.", "Included labor, freight, duties, travel, and on-site services are limited to: [Describe included services or None]. Any amount not expressly included requires Buyer approval before charge, except reasonable emergency measures requested by Buyer."),
             ("6. Support Boundaries.", "The manufacturer provides first-line technical support through its designated 24/7 WeChat channel, subject to actual availability, time zone, and issue context. Bloomjoy provides onboarding guidance and reasonable escalation coordination during U.S. business hours. Bloomjoy does not promise continuous uptime, a fixed response time, or on-site service unless the Order Form states otherwise."),
             ("7. Bloomjoy Plus.", "Optional Bloomjoy Plus training, playbooks, portal features, or concierge benefits are governed only by the online subscription terms. Subscription status does not expand or reduce the express machine warranty unless a signed order expressly says so."),
         ],
@@ -867,7 +881,7 @@ def build_permitted_operations_agreement() -> Path:
         [
             ("Commissary / approved facility", "[Legal name and full address]"),
             ("Commissary permit / contact", "[Number | contact | phone]"),
-            ("Authorized services", "☐ Cleaning   ☐ Water   ☐ Waste   ☐ Ingredient storage   ☐ Equipment storage   ☐ Other: [ ]"),
+            ("Authorized services", "☐ Cleaning   ☐ Water   ☐ Waste   ☐ Ingredient storage   ☐ Equipment storage   ☐ Other: [Other services]"),
             ("Access days / hours", "[Insert]"),
             ("Storage assignment", "[Insert]"),
             ("Reporting frequency", "[Daily / weekly / other]"),
@@ -936,7 +950,7 @@ def build_permitted_operations_agreement() -> Path:
             ("Bloomjoy permit / program contact", "[Insert]"),
             ("Operator", "[Insert]"),
             ("Active Site / machine", "[Insert site and serial]"),
-            ("Authorized services", "☐ Cleaning   ☐ Water   ☐ Waste   ☐ Ingredient storage   ☐ Equipment storage   ☐ Other: [ ]"),
+            ("Authorized services", "☐ Cleaning   ☐ Water   ☐ Waste   ☐ Ingredient storage   ☐ Equipment storage   ☐ Other: [Other services]"),
             ("Access schedule", "[Insert]"),
             ("Assigned storage / restrictions", "[Insert]"),
             ("Fees / payer", "[Insert]"),
