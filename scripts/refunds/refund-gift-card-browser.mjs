@@ -53,6 +53,8 @@ try {
       await page.locator('#issue-category').selectOption('charged_no_product');
       await page.getByTestId('refund-gift-card-terms').waitFor();
       assert.match(await page.getByTestId('refund-gift-card-terms').innerText(), /\$15\.00/);
+      assert.equal(await page.locator('#customer-name').isVisible(), false);
+      await page.screenshot({ path: `${artifacts}/request-initial-${width}.png`, fullPage: true });
       if (tender === 'cash') await page.locator('#payment-method-cash').click();
       if (tender === 'original') {
         await page.locator('#resolution-original').click();
@@ -162,6 +164,76 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       }
       assert.deepEqual(errors, []);
       evidence.push({ width, managerMode: mode, oneDecision: true, noOverflow: true });
+      await context.close();
+    }
+  }
+  await writeFile(`${artifacts}/supply-fixture.html`, '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/output/playwright/gift-card/supply-fixture.tsx"></script></body></html>');
+  await writeFile(`${artifacts}/supply-fixture.tsx`, `import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthContext } from '/src/contexts/auth-context';
+import { RefundGiftCardSupplySection } from '/src/components/refunds/RefundGiftCardSupplySection';
+import '/src/index.css';
+const isSuperAdmin = new URLSearchParams(location.search).get('role') === 'super';
+createRoot(document.getElementById('root')).render(<AuthContext.Provider value={{isSuperAdmin,isAuthenticated:true}}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
+<main style={{maxWidth:800,margin:'24px auto',padding:12}}><h1>Refund workspace</h1><RefundGiftCardSupplySection /></main>
+</QueryClientProvider></AuthContext.Provider>);`);
+  for (const width of [1280, 375, 320]) {
+    for (const mode of ['save', 'empty', 'manager', 'server-denied']) {
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      const page = await context.newPage();
+      const reads = [], writes = [], errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', async (route) => {
+        const url = route.request().url();
+        if (new URL(url).origin === new URL(base).origin) return route.continue();
+        if (url.includes('/rest/v1/rpc/admin_get_refund_gift_card_supply')) {
+          reads.push(url);
+          if (mode === 'server-denied') return route.fulfill({ status: 403, json: { message: 'Super-admin required' } });
+          return route.fulfill({ json: { payloadRedacted: true, pools: mode === 'empty' ? [] : [{
+            id: 'synthetic-pool', provider: 'sunzee', providerAccountId: 'PRIVATE-ACCOUNT', currency: 'USD', faceValueCents: 1500,
+            expiresAt: offer.expires_at, enabled: true, eligibleLocations: ['Bloomjoy Test Mall'], usableCount: 8,
+            expiredCount: 2, minAvailable: writes.length ? 6 : 5, targetAvailable: 20, maxBatchSize: 10,
+            configured: true, lastCheckAt: null, lastReason: 'healthy_stock', refillState: 'not_started',
+            credential: 'PRIVATE-SECRET', code: 'PRIVATE-CODE',
+          }] } });
+        }
+        if (url.includes('/rest/v1/rpc/admin_configure_refund_gift_card_supply')) {
+          writes.push(route.request().postDataJSON());
+          return route.fulfill({ json: { configured: true, payloadRedacted: true } });
+        }
+        return route.fulfill({ json: [] });
+      });
+      await page.goto(`${base}/${artifacts}/supply-fixture.html?role=${mode === 'manager' ? 'manager' : 'super'}`);
+      await page.getByRole('heading', { name: 'Refund workspace' }).waitFor();
+      assert.equal(reads.length, 0);
+      if (mode === 'manager') {
+        assert.equal(await page.getByTestId('refund-gift-card-supply').count(), 0);
+        assert.equal(await page.getByRole('button', { name: 'Save stock settings' }).count(), 0);
+      } else {
+        await page.getByText('Gift card supply', { exact: true }).click();
+        if (mode === 'empty') await page.getByText('Gift-card supply is being set up.', { exact: true }).waitFor();
+        else if (mode === 'server-denied') {
+          await page.getByRole('alert').waitFor();
+          assert.equal(await page.getByText('Stock settings', { exact: true }).count(), 0);
+        } else {
+          await page.getByText('8 ready to use', { exact: true }).waitFor();
+          await page.getByText('Stock settings', { exact: true }).click();
+          await page.locator('#supply-min-synthetic-pool').fill('20');
+          assert.equal(await page.getByRole('button', { name: 'Save stock settings' }).isDisabled(), true);
+          await page.locator('#supply-min-synthetic-pool').fill('6');
+          await page.getByRole('button', { name: 'Save stock settings' }).click();
+          await page.getByText('Stock settings saved.', { exact: true }).waitFor();
+          assert.equal(writes.length, 1);
+          assert.deepEqual(writes[0], { p_pool_id: 'synthetic-pool', p_min_available: 6, p_target_available: 20,
+            p_max_batch_size: 10, p_provider_config: null, p_validity_days: null, p_renew_before_days: null });
+        }
+        assert.equal((await page.locator('main').innerText()).includes('PRIVATE'), false);
+        await page.screenshot({ path: `${artifacts}/supply-${mode}-${width}.png`, fullPage: true });
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      assert.deepEqual(errors, []);
+      evidence.push({ width, supplyMode: mode, noManagerSettings: true, noOverflow: true });
       await context.close();
     }
   }

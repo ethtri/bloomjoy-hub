@@ -14,9 +14,18 @@ const browserUat = read('scripts/refunds/validate-refund-qr-intake-uat.mjs');
 assert.match(page, /paymentMethod: 'card' as RefundPaymentMethod/u);
 assert.match(page, /<RadioGroupItem id="payment-method-card" value="card"/u);
 assert.match(page, /<RadioGroupItem id="payment-method-cash" value="cash"/u);
-assert.match(page, /form\.paymentMethod === 'card' && \(/u);
+assert.match(page, /const wantsGiftCard = form\.resolutionMethod === 'gift_card'/u);
+assert.match(page, /const needsCardDetails = form\.paymentMethod === 'card' && !wantsGiftCard/u);
+assert.equal([...page.matchAll(/\{needsCardDetails && \(/gu)].length, 2,
+  'Both required card details and optional card metadata must be gated by original-payment resolution');
 assert.match(page, /form\.paymentMethod === 'cash' \? 'cash'/u);
-assert.match(page, /cardLast4: form\.paymentMethod === 'card'[\s\S]*: undefined/u);
+assert.match(page, /cardLast4: needsCardDetails \? form\.cardLast4\.trim\(\) : undefined/u);
+assert.match(page, /cardLast4Source:\s*needsCardDetails && form\.cardLast4Source \? form\.cardLast4Source : undefined/u);
+assert.match(page, /cardNetwork:\s*needsCardDetails && form\.cardNetwork \? form\.cardNetwork : undefined/u);
+assert.match(page, /cardWalletUsed: needsCardDetails \? form\.cardWalletUsed : undefined/u);
+assert.match(page, /if \(needsCardDetails && !\/\^\[0-9\]\{4\}\$\//u);
+assert.match(page, /resolutionMethod: form\.resolutionMethod/u);
+assert.match(page, /giftCardOffer: wantsGiftCard && giftCardOffer/u);
 assert.doesNotMatch(page, /Zelle|Venmo/iu);
 
 assert.match(client, /public_refund_selections_v2/u);
