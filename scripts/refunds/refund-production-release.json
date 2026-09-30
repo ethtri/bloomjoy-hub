@@ -284,7 +284,8 @@
     "20260930000509_provisional_nayax_tax_inclusive_basis.sql",
     "20260930004634_refund_cash_positive_evidence_without_coverage.sql",
     "20260930020251_refund_mixed_payout_reply_facts.sql",
-    "20260930024054_refund_scheduler_request_id_reuse.sql"
+    "20260930024054_refund_scheduler_request_id_reuse.sql",
+    "20260930031500_refund_approved_cash_form_reply_progression.sql"
   ],
   "migrationFilesSha256": "332262d496cc9e1aa3804d5731dec2a7b84e02fedbf561296b5e8d04c0031a7e",
   "migrationVersionSetSha256": "e1e63c3b0b35d82ed6934bc4f4352651cf6c08d9aa7b45cd2aa5bcefb6e8e26b",

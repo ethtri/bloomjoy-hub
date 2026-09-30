@@ -364,7 +364,7 @@ orientation snapshot; it is not a backlog or release ledger.
   agent and did not create another raw executive email.
 - The secure payout-destination form currently saves a valid Zelle destination
   but demotes an already-approved cash case into reply review. The bounded
-  `20260930023000` repair keeps only an exact changed, validated destination on
+  `20260930031500` repair keeps only an exact changed, validated destination on
   the existing protected `cash_zelle_pending` path, records that the bound
   payout follow-up was satisfied by its submitted correction context, and
   exposes the existing Manager cash-confirmation action without sending or
