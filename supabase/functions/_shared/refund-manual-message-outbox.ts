@@ -434,6 +434,9 @@ export const deliverRefundManualMessageClaim = async ({
     text: storedEmail.text,
     html: storedEmail.html,
   };
+  let providerAttemptStarted = false;
+  let providerAccepted = false;
+  try {
   if (message.template_version === "refund_gift_card_v1" && !transactionalRecovery) {
     const { data: issuance, error: issuanceError } = await supabase
       .from("refund_gift_card_issuances")
@@ -452,9 +455,6 @@ export const deliverRefundManualMessageClaim = async ({
       redemptionInstructions: issuance.redemption_instructions });
   }
 
-  let providerAttemptStarted = false;
-  let providerAccepted = false;
-  try {
     if (transactionalRecovery) {
       await markProviderAttempt(supabase, reference);
       providerAttemptStarted = true;

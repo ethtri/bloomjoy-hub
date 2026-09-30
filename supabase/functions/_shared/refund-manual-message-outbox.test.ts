@@ -100,6 +100,7 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
     let providerPayload: Record<string, unknown> = {};
     let idempotencyKey = "";
     let recovering = false;
+    let codeStatus = "issued";
     globalThis.fetch = ((_input,init) => {
       providerCalls++;
       providerPayload = JSON.parse(String(init?.body));
@@ -119,7 +120,7 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
         }));
         if (table === "refund_gift_card_issuances") return singleRowQuery({code_id:"private-code-id",face_value_cents:1500,
           currency:"USD",expires_at:"2030-10-30T22:15:00Z",eligible_locations:["Fixture shop"],redemption_instructions:"Enter the code."});
-        if (table === "refund_gift_card_codes") return singleRowQuery({code:"001234",status:"issued"});
+        if (table === "refund_gift_card_codes") return singleRowQuery({code:"001234",status:codeStatus});
         throw new Error(`Unexpected gift delivery table: ${table}`);
       },
       rpc: (name: string) => {
@@ -146,6 +147,11 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
       assertEquals(replay.outcome,"sent");
       assertEquals(providerCalls,1);
       assertEquals(calls.includes("refund_gift_card_codes"),false);
+      recovering = false;
+      codeStatus = "used";
+      const unavailable = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+      assertEquals(unavailable.outcome,"failed");
+      assertEquals(providerCalls,1);
     } finally {
       globalThis.fetch = originalFetch;
       for (const [key,value] of before) { if (value===undefined) Deno.env.delete(key); else Deno.env.set(key,value); }

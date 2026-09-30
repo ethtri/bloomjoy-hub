@@ -333,6 +333,7 @@ returns jsonb language plpgsql security definer set search_path='' as $$
 declare c record; result jsonb; issued_count integer:=0; reviewed_count integer:=0;
 begin
   for c in select id from public.refund_cases where resolution_method='gift_card'
+    and case_population='customer' and duplicate_of_refund_case_id is null
     and gift_card_state='pending_inventory' order by created_at,id limit 25 for update skip locked loop
     result:=public.service_issue_refund_gift_card(c.id);
     if result->>'state'='issued' then issued_count:=issued_count+1; end if;
