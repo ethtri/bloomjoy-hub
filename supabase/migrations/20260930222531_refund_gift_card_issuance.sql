@@ -478,25 +478,32 @@ begin
       and current_user in ('anon','authenticated','service_role') then
       raise exception 'Only the assigned Manager decision may approve a repeat gift card' using errcode='42501';
     end if;
-    if tg_op='UPDATE' and old.resolution_method='gift_card' and (
+    if tg_op='UPDATE' and old.resolution_method='gift_card' then
+    if old.gift_card_state is distinct from 'denied' and new.gift_card_state='denied' then
+      if current_user in ('anon','authenticated','service_role') or auth.uid() is null then
+        raise exception 'Only the assigned Manager may deny a gift-card exception' using errcode='P4670';
+      end if;
+      if public.refund_official_action_authority(auth.uid(),old.id) is null then
+        raise exception 'Only the assigned Manager may deny a gift-card exception' using errcode='P4670';
+      end if;
+    end if;
+    if (
       new.resolution_method<>old.resolution_method or new.gift_card_pool_id<>old.gift_card_pool_id
       or new.gift_card_value_cents<>old.gift_card_value_cents or new.gift_card_expires_at<old.gift_card_expires_at
       or (old.gift_card_state='issued' and new.gift_card_expires_at<>old.gift_card_expires_at)
       or (new.customer_email<>old.customer_email and not(current_user not in ('anon','authenticated','service_role')
-        and current_setting('bloomjoy.giftcard.delivery_recovery_case_id',true)=old.id::text))
+        and coalesce(current_setting('bloomjoy.giftcard.delivery_recovery_case_id',true)=old.id::text,false)))
       or new.payment_amount_cents<>old.payment_amount_cents
       or new.reporting_machine_id<>old.reporting_machine_id or new.payment_method<>old.payment_method
       or (old.gift_card_state='denied' and new.gift_card_state<>'denied')
       or ((new.status in ('denied','closed') or new.decision='denied') and new.gift_card_state<>'denied')
-      or (old.gift_card_state is distinct from 'denied' and new.gift_card_state='denied'
-        and (current_user in ('anon','authenticated','service_role') or auth.uid() is null
-          or public.refund_official_action_authority(auth.uid(),old.id) is null))
       or (old.gift_card_state='issued' and (new.gift_card_state<>'issued' or new.status<>'completed'
         or new.decision is not null or new.refund_amount_cents is distinct from old.refund_amount_cents
         or new.duplicate_of_refund_case_id is distinct from old.duplicate_of_refund_case_id))
       or new.decision='approved' or new.refund_completed_at is not null
       or new.nayax_refund_execution_status<>'not_requested' or new.manual_refund_reference is not null) then
       raise exception 'Gift-card resolution prevents a second settlement or changed accepted terms' using errcode='P4670';
+    end if;
     end if;
     return new;
   end if;
