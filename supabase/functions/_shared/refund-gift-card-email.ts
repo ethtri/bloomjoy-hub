@@ -18,7 +18,7 @@ export const renderRefundGiftCardEmail = (input: RefundGiftCardEmailInput) => {
       !input.eligibleLocations.length || !input.eligibleLocations.every((item) => item.trim()) ||
       !input.redemptionInstructions.trim()) throw new Error('Gift card email requires the assigned card and complete redemption terms.');
   const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: input.currency }).format(input.value / 100);
-  const expiry = new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(input.expiresAt));
+  const expiry = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(input.expiresAt));
   const greeting = input.customerName?.trim() ? `Hi ${input.customerName.trim()},` : 'Hi there,';
   const acknowledgement = 'We’re sorry your visit didn’t go as planned. Here’s a little sweetness for your next one.';
   const locations = `Use at ${input.eligibleLocations.join(', ')}.`;

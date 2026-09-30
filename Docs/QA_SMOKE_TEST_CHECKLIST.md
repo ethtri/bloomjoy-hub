@@ -979,3 +979,13 @@ npm run refunds:validate-portal-uat-lifecycle
   or sent effect, a different recipient/thread, or an incomplete payment is
   rejected; preparation makes no Nayax call or customer send. Any authorized
   delivery then settles only against exact original-thread Gmail proof.
+# Gift card resolution (synthetic checks)
+
+- Open `/refunds/request` at desktop, 375 px and 320 px. Cash offers a gift card; card offers the recommended gift card and an original-payment refund. Selecting an original-payment refund reveals card/wallet details; switching back hides and excludes them from submission.
+- Choose the machine and enter the purchase amount. Check the server offer's actual face value, eligible locations, exact expiry time/timezone, redemption instruction and one-use/no-leftover-balance terms before submission. A missing offer cannot be accepted. A grouped location uses its existing exact machine selector for gift cards.
+- Submit once to accept the displayed offer. Confirm original tender is retained, the normal thank-you/status link works after refresh, and a response-loss retry retains the same submission identity.
+- Check `/refunds/status` with synthetic manager-review, stock-wait, issued/pending-email, transport-accepted and delivery-recovery responses. Review and stock waits do not ask the customer to resubmit. Transport acceptance never claims inbox delivery. No code, other case reference or prior issuance appears in the public status.
+- In the existing manager refund workspace, review a repeat request with its proposed value and previous issuance together. One approval assigns/sends automatically; denial requires a note. A read-only actor sees the request without decision buttons. Gift-card cases do not show the old card-refund or cash-payout workbench.
+- Render the gift-card email at desktop, 375 px and 320 px with images blocked. Value, code, one redemption step, locations and exact expiry/one-use terms remain readable. All checks use synthetic codes and email addresses; do not send a customer email or perform a financial test.
+- Focused browser verification: start a local server with synthetic Supabase URL `http://127.0.0.1:59999` and a synthetic public key, then run `node scripts/refunds/refund-gift-card-browser.mjs` (default local URL `http://127.0.0.1:8097`; override with `REFUND_GIFT_CARD_UAT_URL`). Synthetic transport cannot certify real inbox timing or provider redemption.
+

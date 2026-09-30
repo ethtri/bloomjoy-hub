@@ -1,3 +1,4 @@
+import { RefundGiftCardManagerPanel } from '@/components/refunds/RefundGiftCardManagerPanel';
 import { searchRefundCases } from '@/lib/refundCaseSearch';
 import {
   type ConfirmedCardApprovalOutcome,
@@ -2996,7 +2997,7 @@ export default function AdminRefundsPage() {
   } = useQuery({
     queryKey: ['nayax-card-refund-availability', selectedId],
     queryFn: () => availabilityPolling.read(() => fetchNayaxCardRefundAvailability(selectedId)),
-    enabled: !forceDemoData && Boolean(selectedId),
+    enabled: !forceDemoData && Boolean(selectedId) && liveOverview.cases.find((item) => item.id === selectedId)?.resolutionMethod !== 'gift_card',
     staleTime: 1000 * 30,
     retry: false,
     refetchInterval: () => availabilityPolling.interval(selectedId && !availabilityCaseIsTerminal ? 5_000 : false),
@@ -3314,7 +3315,7 @@ export default function AdminRefundsPage() {
   const { data: selectedCashCorrelation } = useQuery<RefundSunzeCashCorrelation | null>({
     queryKey: ['refund-sunze-cash-correlation', selectedCase?.id],
     queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(selectedCase?.id ?? '', signal),
-    enabled: !isUsingDemoData && selectedCase?.paymentMethod === 'cash' && Boolean(selectedCase?.id),
+    enabled: !isUsingDemoData && selectedCase?.resolutionMethod !== 'gift_card' && selectedCase?.paymentMethod === 'cash' && Boolean(selectedCase?.id),
     staleTime: 10_000,
     retry: false,
   });
@@ -8008,7 +8009,9 @@ export default function AdminRefundsPage() {
                       />
                     )}
 
-                    {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
+                    {!selectedCaseIsInternalTest && (selectedCase.resolutionMethod === 'gift_card' ? (
+                      <RefundGiftCardManagerPanel key={selectedCase.id} refundCase={selectedCase} />
+                    ) : selectedCaseIsTerminal ? (
                       <RefundTerminalHistory
                         presentation={{
                           primaryAction: primaryAction?.label,

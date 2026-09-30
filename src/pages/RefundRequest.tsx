@@ -1,3 +1,6 @@
+import { fetchRefundGiftCardOffer } from '@/lib/refundGiftCardApi';
+import { type RefundResolutionMethod } from '@/lib/refundGiftCard';
+import { RefundGiftCardTerms } from '@/components/refunds/RefundGiftCardTerms';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Clock3, Loader2, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -46,6 +49,7 @@ const emptyForm = {
   incidentTime: '',
   paymentAmount: '',
   paymentMethod: 'card' as RefundPaymentMethod,
+  resolutionMethod: 'gift_card' as RefundResolutionMethod,
   cardLast4: '',
   cardLast4Source: '' as RefundCardLast4Source | '',
   cardNetwork: '' as RefundCardNetwork | '',
@@ -231,6 +235,23 @@ export default function RefundRequestPage() {
     [form.selectionKey, machines]
   );
 
+  const wantsGiftCard = form.resolutionMethod === 'gift_card';
+  const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
+  const offerMachineId = qrClaim?.machine.machineId ??
+    (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || wantsGiftCard)
+      ? form.cashMachineId : selectedMachine?.machineId);
+  const offerQuery = useQuery({
+    queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, form.paymentAmount],
+    queryFn: () => fetchRefundGiftCardOffer({ machineId: offerMachineId || undefined,
+      selectionKey: offerMachineId ? undefined : form.selectionKey,
+      amount: form.paymentAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash' }),
+    enabled: !isDemoMode && wantsGiftCard && Boolean(form.selectionKey) && Number(form.paymentAmount) > 0 &&
+      !((form.paymentMethod === 'cash' || wantsGiftCard) && selectedMachine?.selectionKind === 'livermore_pair' && !form.cashMachineId),
+    retry: false,
+    staleTime: 30000,
+  });
+  const giftCardOffer = offerQuery.data ?? null;
+
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (Object.prototype.hasOwnProperty.call(fieldElementId, key)) {
@@ -243,6 +264,7 @@ export default function RefundRequestPage() {
     setForm((current) => ({
       ...current,
       paymentMethod,
+      resolutionMethod: 'gift_card',
       cashMachineId: '',
       cardLast4: '',
       cardLast4Source: '',
@@ -295,11 +317,11 @@ export default function RefundRequestPage() {
       errors.paymentAmount = 'Enter the amount you paid.';
     }
     if (
-      form.paymentMethod === 'cash' &&
+      (form.paymentMethod === 'cash' || wantsGiftCard) &&
       selectedMachine?.selectionKind === 'livermore_pair' &&
       !form.cashMachineId
-    ) errors.cashMachineId = 'Choose the cash machine you used.';
-    if (form.paymentMethod === 'card' && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
+    ) errors.cashMachineId = 'Choose the machine you used.';
+    if (needsCardDetails && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
       errors.cardLast4 = 'Enter only the last 4 digits shown for this payment.';
     }
     if (!form.issueCategory) {
@@ -319,6 +341,12 @@ export default function RefundRequestPage() {
     }
     if (!hasValidIncidentLocalTime(incidentDate, incidentTime)) return;
 
+    if (wantsGiftCard && !giftCardOffer && !isDemoMode) {
+      setSubmissionError('Please wait for your gift card terms to load, then try again.');
+      requestAnimationFrame(() => submissionErrorRef.current?.focus());
+      return;
+    }
+
     submissionLockRef.current = true;
     setIsSubmitting(true);
     setSubmissionError('');
@@ -335,12 +363,12 @@ export default function RefundRequestPage() {
         selectionKey:
           qrClaim ||
           selectedMachine?.selectionKind === 'legacy_exact_machine' ||
-          (form.paymentMethod === 'cash' && selectedMachine?.selectionKind === 'livermore_pair')
+          ((form.paymentMethod === 'cash' || wantsGiftCard) && selectedMachine?.selectionKind === 'livermore_pair')
             ? undefined
             : form.selectionKey,
         machineId:
           qrClaim?.machine.machineId ??
-          (form.paymentMethod === 'cash' && selectedMachine?.selectionKind === 'livermore_pair'
+          ((form.paymentMethod === 'cash' || wantsGiftCard) && selectedMachine?.selectionKind === 'livermore_pair'
             ? form.cashMachineId
             : selectedMachine?.selectionKind === 'legacy_exact_machine'
               ? selectedMachine.machineId
@@ -354,23 +382,25 @@ export default function RefundRequestPage() {
         incidentDate,
         incidentTime,
         paymentMethod: form.paymentMethod,
+        resolutionMethod: form.resolutionMethod,
+        giftCardOffer: wantsGiftCard && giftCardOffer ? { poolId: giftCardOffer.pool_id, value: giftCardOffer.value, expiresAt: giftCardOffer.expires_at } : undefined,
         paymentAmount: form.paymentAmount.trim(),
-        cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,
+        cardLast4: needsCardDetails ? form.cardLast4.trim() : undefined,
         cardLast4Source:
-          form.paymentMethod === 'card' && form.cardLast4Source ? form.cardLast4Source : undefined,
+          needsCardDetails && form.cardLast4Source ? form.cardLast4Source : undefined,
         cardNetwork:
-          form.paymentMethod === 'card' && form.cardNetwork ? form.cardNetwork : undefined,
-        cardWalletUsed: form.paymentMethod === 'card' ? form.cardWalletUsed : undefined,
+          needsCardDetails && form.cardNetwork ? form.cardNetwork : undefined,
+        cardWalletUsed: needsCardDetails ? form.cardWalletUsed : undefined,
         paymentInteraction:
-          form.paymentMethod === 'cash' ? 'cash' : form.paymentInteraction || 'unsure',
+          form.paymentMethod === 'cash' ? 'cash' : needsCardDetails ? form.paymentInteraction || 'unsure' : 'unsure',
         walletProvider:
-          form.paymentMethod === 'card' &&
+          needsCardDetails &&
           form.paymentInteraction === 'phone_watch_wallet' &&
           form.walletProvider
             ? form.walletProvider
             : undefined,
         walletDeviceKind:
-          form.paymentMethod === 'card' &&
+          needsCardDetails &&
           form.paymentInteraction === 'phone_watch_wallet' &&
           form.walletDeviceKind
             ? form.walletDeviceKind
@@ -398,6 +428,7 @@ export default function RefundRequestPage() {
         statusToken: refundCase.statusToken,
         statusExpiresAt: refundCase.statusExpiresAt,
         paymentMethod: form.paymentMethod,
+        resolutionMethod: form.resolutionMethod,
       });
       if (receiptPersisted && clearRefundSubmissionAttempt(storage)) {
         setForm(emptyForm);
@@ -410,6 +441,7 @@ export default function RefundRequestPage() {
           statusToken: refundCase.statusToken,
           statusExpiresAt: refundCase.statusExpiresAt,
           paymentMethod: form.paymentMethod,
+          resolutionMethod: form.resolutionMethod,
         },
       });
     } catch (error) {
@@ -450,8 +482,8 @@ export default function RefundRequestPage() {
                 Request a refund
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Tell us about one purchase. Most requests are reviewed within 5 business days.
-                We will email you if we need anything else.
+                Let’s make your next visit a little sweeter. Tell us about one purchase and
+                choose a Bloomjoy gift card, or an original-payment refund for a card purchase.
               </p>
             </div>
 
@@ -715,7 +747,7 @@ export default function RefundRequestPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-foreground">Payment</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Share only the limited payment details below.
+                      Cash purchases receive a Bloomjoy gift card. For card purchases, you can choose a gift card or a refund to your original payment.
                     </p>
                   </div>
 
@@ -736,7 +768,7 @@ export default function RefundRequestPage() {
                       <span>
                         <span className="block font-semibold text-foreground">Card</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          We will use limited card details to find the purchase.
+                          Gift card or original-payment refund.
                         </span>
                       </span>
                     </Label>
@@ -748,7 +780,7 @@ export default function RefundRequestPage() {
                       <span>
                         <span className="block font-semibold text-foreground">Cash</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          No card details are needed.
+                          Bloomjoy gift card. No payment details needed.
                         </span>
                       </span>
                     </Label>
@@ -774,7 +806,7 @@ export default function RefundRequestPage() {
                   )}
                 </div>
 
-                {form.paymentMethod === 'cash' &&
+                {(form.paymentMethod === 'cash' || wantsGiftCard) &&
                   selectedMachine?.selectionKind === 'livermore_pair' && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                       <Label htmlFor="cash-machine">Which machine did you use?</Label>
@@ -804,7 +836,34 @@ export default function RefundRequestPage() {
                     </div>
                   )}
 
-                {form.paymentMethod === 'card' && (
+                <section aria-labelledby="resolution-heading" className="space-y-3 border-t border-border pt-5">
+                  <h2 id="resolution-heading" className="text-lg font-semibold">How can we make it right?</h2>
+                  {form.paymentMethod === 'card' && <RadioGroup value={form.resolutionMethod}
+                    onValueChange={(value) => { updateForm('resolutionMethod', value); setFieldErrors((current) => ({ ...current, cardLast4: undefined })); }}
+                    aria-label="Resolution" className="gap-3">
+                    <Label htmlFor="resolution-gift-card" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
+                      <RadioGroupItem id="resolution-gift-card" value="gift_card" />
+                      <span><span className="font-semibold">Bloomjoy gift card</span> <span className="text-xs text-pink-800">Recommended</span></span>
+                    </Label>
+                    <Label htmlFor="resolution-original" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
+                      <RadioGroupItem id="resolution-original" value="original_payment" />
+                      <span>Refund to my original card payment</span>
+                    </Label>
+                  </RadioGroup>}
+                  {wantsGiftCard && <div className="space-y-2 rounded-lg border border-pink-200 bg-pink-50 p-4" aria-live="polite">
+                    {giftCardOffer ? <><RefundGiftCardTerms offer={giftCardOffer} />
+                      <p className="text-sm leading-6">{giftCardOffer.redemption_instructions}</p>
+                      <p className="text-xs leading-5 text-pink-900">Submitting accepts this gift card and its terms. One automatic gift card per email in 12 months; repeat requests are reviewed by our team.</p>
+                    </> : <p className="text-sm leading-6">{!form.selectionKey || Number(form.paymentAmount) <= 0
+                      ? 'Choose the machine and enter your purchase amount to see your gift card value and terms.'
+                      : offerQuery.isFetching ? 'Loading your gift card value and terms…'
+                      : 'We could not load a gift card offer for this purchase right now. Please try again, or contact us using the same email conversation.'}</p>}
+                    {offerQuery.isError && <Button type="button" variant="outline" onClick={() => void offerQuery.refetch()}>Try loading the offer again</Button>}
+                  </div>}
+                  {!wantsGiftCard && <p className="text-sm leading-6 text-muted-foreground">We’ll find your payment and send it to our team for a refund decision. Most requests are reviewed within 5 business days.</p>}
+                </section>
+
+                {needsCardDetails && (
                   <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
                     <div>
                       <Label htmlFor="card-last4">
@@ -939,8 +998,7 @@ export default function RefundRequestPage() {
                     Add optional details
                   </summary>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    These can help with unusual purchases. You can submit a normal card request
-                    without them.
+                    These can help with unusual purchases. You can submit your request without them.
                   </p>
                   <div className="mt-4 grid gap-4">
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -1007,7 +1065,7 @@ export default function RefundRequestPage() {
                       </p>
                     </div>
 
-                    {form.paymentMethod === 'card' && (
+                    {needsCardDetails && (
                       <div className="grid gap-4 sm:grid-cols-2">
                         {!form.cardWalletUsed && (
                           <div>
@@ -1108,7 +1166,7 @@ export default function RefundRequestPage() {
                       type="submit"
                       className="min-h-11"
                       disabled={
-                        isSubmitting || isLoadingMachineContext || hasNoLiveMachineOptions
+                        isSubmitting || isLoadingMachineContext || hasNoLiveMachineOptions || (wantsGiftCard && !giftCardOffer && !isDemoMode)
                       }
                     >
                       {isSubmitting ? (
@@ -1117,7 +1175,7 @@ export default function RefundRequestPage() {
                           Sending your request...
                         </>
                       ) : (
-                        'Send refund request'
+                        wantsGiftCard ? 'Accept gift card & send request' : 'Send refund request'
                       )}
                     </Button>
                   </div>
