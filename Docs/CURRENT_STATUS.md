@@ -234,9 +234,16 @@ orientation snapshot; it is not a backlog or release ledger.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a
-  missing sale. Match confidence and coverage state explain the evidence; they
-  do not decide whether a Manager may complete a reviewed cash refund. When an
-  exact sale is selected, it cannot support a second non-duplicate completion.
+  missing sale. The pending positive-evidence repair keeps that negative rule
+  while allowing successful cash rows from the latest machine-complete import
+  and the exact machine/provider sale date to appear for explicit review. These
+  rows remain marked with unvalidated coverage and timestamp semantics, never
+  auto-select, and use no minute-delta claim. A production rollback rehearsal
+  found one reviewable positive row across ten current watermark-missing cases;
+  the other nine remained unavailable rather than becoming no-sale evidence.
+  Match confidence and coverage state explain the evidence; they do not decide
+  whether a Manager may complete a reviewed cash refund. When an exact sale is
+  selected, it cannot support a second non-duplicate completion.
 - The production Nayax request and approval contract is proved with the current
   credentials. Use
   [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md) for exact

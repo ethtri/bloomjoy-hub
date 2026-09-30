@@ -74,10 +74,12 @@ const SaleDetails = ({
   sale,
   heading,
   venueTimezone,
+  sourceTimeUnvalidated = false,
 }: {
   sale: RefundSunzeCashCandidate | RefundSunzeCashSelectedSale;
   heading: string;
   venueTimezone: string | null;
+  sourceTimeUnvalidated?: boolean;
 }) => (
   <div className="rounded-lg border border-border bg-background p-3">
     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -86,10 +88,12 @@ const SaleDetails = ({
     </div>
     <dl className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
       <div>
-        <dt>Sale time (venue time)</dt>
+        <dt>{sourceTimeUnvalidated ? 'Reported sale time (timezone unverified)' : 'Sale time (venue time)'}</dt>
         <dd className="mt-1 font-medium text-foreground">{formatSaleTime(sale.paymentTime, venueTimezone)}</dd>
         <dd className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {venueTimezone ? `Shown in venue time · ${venueTimezone}` : 'Venue time unavailable'}
+          {sourceTimeUnvalidated
+            ? `Interpreted in ${venueTimezone ?? 'the venue timezone'} for review; Sunze's timestamp basis is not validated.`
+            : venueTimezone ? `Shown in venue time · ${venueTimezone}` : 'Venue time unavailable'}
         </dd>
       </div>
       <div>
@@ -143,6 +147,11 @@ export function CashRefundEvidencePanel({
   const selectedSale = correlation?.selectedSale ?? (
     selectedId ? candidates.find((candidate) => candidate.salesFactId === selectedId) ?? null : null
   );
+  const unvalidatedCandidateIds = new Set(
+    candidates
+      .filter((candidate) => candidate.evidenceCodes.includes('source_time_unvalidated'))
+      .map((candidate) => candidate.salesFactId),
+  );
 
   useEffect(() => {
     if (refundSunzeCashSelectionRefreshIsAuthoritative(
@@ -186,6 +195,7 @@ export function CashRefundEvidencePanel({
             salesFactId: candidate.salesFactId,
             paymentTime: candidate.paymentTime,
             actualAmountCents: candidate.actualAmountCents,
+            sourceTimeUnvalidated: candidate.evidenceCodes.includes('source_time_unvalidated'),
             machineLabel: candidate.machineLabel,
             locationName: candidate.locationName,
             tradeLabel: candidate.tradeLabel,
@@ -268,7 +278,14 @@ export function CashRefundEvidencePanel({
 
       {selectedSale && (
         <div className="mt-3 space-y-2">
-          <SaleDetails sale={selectedSale} heading="Selected sale evidence" venueTimezone={venueTimezone} />
+          <SaleDetails
+            sale={selectedSale}
+            heading="Selected sale evidence"
+            venueTimezone={venueTimezone}
+            sourceTimeUnvalidated={
+              selectedSale.sourceTimeUnvalidated || unvalidatedCandidateIds.has(selectedSale.salesFactId)
+            }
+          />
           <p className="text-xs text-muted-foreground">
             Customer estimate: <span className="font-medium text-foreground">{formatCurrency(refundCase.paymentAmountCents)}</span> · Supported sale: <span className="font-medium text-foreground">{formatCurrency(selectedSale.actualAmountCents)}</span>. The final completion amount is derived from this selected sale on the server.
           </p>
@@ -306,6 +323,11 @@ export function CashRefundEvidencePanel({
                     {formatSaleTime(candidate.paymentTime, venueTimezone)} · {candidate.machineLabel ?? 'Machine unavailable'} · {candidate.locationName ?? 'Location unavailable'}
                   </span>
                   {candidate.tradeLabel && <span className="mt-1 block text-xs text-muted-foreground">Product: {candidate.tradeLabel}</span>}
+                  {candidate.evidenceCodes.includes('source_time_unvalidated') && (
+                    <span className="mt-1 block text-xs text-amber-800">
+                      Sunze's timestamp basis and complete coverage are not validated. Use this as positive review evidence only.
+                    </span>
+                  )}
                 </span>
               </label>
             );
@@ -315,7 +337,12 @@ export function CashRefundEvidencePanel({
 
       {!selectedSale && state === 'sale_found' && candidates[0] && (
         <div className="mt-3 space-y-2">
-          <SaleDetails sale={candidates[0]} heading="Supported sale" venueTimezone={venueTimezone} />
+          <SaleDetails
+            sale={candidates[0]}
+            heading="Supported sale"
+            venueTimezone={venueTimezone}
+            sourceTimeUnvalidated={candidates[0].evidenceCodes.includes('source_time_unvalidated')}
+          />
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
             This evidence is preselected when safe. It supports review but does not approve or deny the refund.

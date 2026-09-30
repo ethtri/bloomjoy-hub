@@ -68,6 +68,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] A timezone-less workbook value remains explicitly unvalidated and cannot
   advance a refund coverage watermark. Validated IANA fixtures cover workbook
   dates, strings, explicit offsets, midnight, and both DST transitions.
+- [ ] Without a validated watermark, a positive exact-machine successful-cash
+  row from the latest machine-complete import is review-only, explicitly marks
+  its source time and coverage unvalidated, has no minute-delta claim, and never
+  auto-selects. Zero rows stays unavailable and never claims no sale.
 - [ ] Amount and confidence remain advisory evidence. A reviewed Manager can
   complete a cash refund from any match state after sending Zelle; selecting an
   exact Sunze sale cannot complete a second non-duplicate case.
