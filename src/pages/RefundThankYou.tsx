@@ -14,7 +14,7 @@ export default function RefundThankYouPage() {
   const [searchParams] = useSearchParams();
   const navigationState = location.state as RefundThankYouNavigationState | null;
   const savedReceipt = readRefundSubmissionReceipt(getRefundSessionStorage());
-  const { reference, statusToken, paymentMethod } = resolveRefundThankYouContext({
+  const { reference, statusToken, paymentMethod, resolutionMethod } = resolveRefundThankYouContext({
     navigationState,
     hasQueryReference: searchParams.has('ref'),
     queryReference: searchParams.get('ref'),
@@ -36,11 +36,12 @@ export default function RefundThankYouPage() {
               Request received
             </div>
             <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-              We received your refund request.
+              {resolutionMethod === 'gift_card' ? 'A sweeter visit starts here.' : 'We received your refund request.'}
             </h1>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-muted-foreground">
-              We are sorry the machine did not work as expected. Most requests are reviewed within
-              5 business days, and we will email you if we need one specific detail.
+              {resolutionMethod === 'gift_card'
+                ? 'Thanks for letting us make it right. We have your gift card request and will email you with the next update.'
+                : 'We are sorry the machine did not work as expected. Most requests are reviewed within 5 business days, and we will email you if we need one specific detail.'}
             </p>
 
             <div className="mx-auto mt-6 max-w-sm rounded-xl border border-pink-200 bg-pink-50 p-4">
@@ -62,9 +63,11 @@ export default function RefundThankYouPage() {
               <div className="space-y-2">
                 <p>
                   Keep this reference handy. You do not need to submit another form for this
-                  purchase. We will compare your details with the machine's records.
+                  purchase.
                 </p>
-                {paymentMethod === 'cash' ? (
+                {resolutionMethod === 'gift_card' ? (
+                  <p>Your gift card request is saved. We aim to send ordinary eligible, in-stock gift cards within 1–2 minutes. If review or delivery takes longer, your status page will keep you updated.</p>
+                ) : paymentMethod === 'cash' ? (
                   <p>
                     A manager will review the cash purchase details before deciding what happens
                     next.

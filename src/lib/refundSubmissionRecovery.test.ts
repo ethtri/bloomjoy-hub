@@ -114,17 +114,23 @@ Deno.test('explicit navigation and URL context take precedence over a stale save
     hasQueryReference: false,
     queryReference: null,
     savedReceipt,
-  }), { reference: 'RF-CURRENT', statusToken: null, paymentMethod: 'card' });
+  }), { reference: 'RF-CURRENT', statusToken: null, paymentMethod: 'card', resolutionMethod: undefined });
   assertEquals(resolveRefundThankYouContext({
     navigationState: null,
     hasQueryReference: true,
     queryReference: 'RF-URL',
     savedReceipt,
-  }), { reference: 'RF-URL', statusToken: null, paymentMethod: undefined });
+  }), { reference: 'RF-URL', statusToken: null, paymentMethod: undefined, resolutionMethod: undefined });
   assertEquals(resolveRefundThankYouContext({
     navigationState: null,
     hasQueryReference: false,
     queryReference: null,
     savedReceipt,
-  }), { reference: 'RF-STALE', statusToken: 's'.repeat(43), paymentMethod: 'cash' });
+  }), { reference: 'RF-STALE', statusToken: 's'.repeat(43), paymentMethod: 'cash', resolutionMethod: undefined });
+});
+
+Deno.test('gift card thank-you context survives refresh without changing original tender', () => {
+  assertEquals(resolveRefundThankYouContext({ navigationState: null, hasQueryReference: false, queryReference: null,
+    savedReceipt: { publicReference: 'RF-GIFT', statusToken: 'g'.repeat(43), statusExpiresAt: '2099-01-01T00:00:00Z', paymentMethod: 'card', resolutionMethod: 'gift_card' } }),
+    { reference: 'RF-GIFT', statusToken: 'g'.repeat(43), paymentMethod: 'card', resolutionMethod: 'gift_card' });
 });

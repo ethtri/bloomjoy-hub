@@ -1,3 +1,5 @@
+import { giftCardStatusCopy } from '@/lib/refundGiftCard';
+import { RefundGiftCardTerms } from '@/components/refunds/RefundGiftCardTerms';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
@@ -107,7 +109,7 @@ export default function RefundStatusPage() {
     retryDelay: (attempt) => Math.min(15_000, 1_000 * 2 ** attempt),
     refetchInterval: (query) => {
       const lifecycle = query.state.data?.lifecycle;
-      return lifecycle ? getRefundCustomerRefreshMs(lifecycle) : false;
+      return query.state.data?.giftCard ? 5000 : lifecycle ? getRefundCustomerRefreshMs(lifecycle) : false;
     },
     refetchIntervalInBackground: false,
     refetchOnReconnect: true,
@@ -115,6 +117,8 @@ export default function RefundStatusPage() {
   });
 
   const lifecycle = demoLifecycle ?? statusQuery.data?.lifecycle ?? null;
+  const giftCard = statusQuery.data?.giftCard ?? null;
+  const giftCopy = giftCard ? giftCardStatusCopy(giftCard) : null;
   const copy = useMemo(
     () => lifecycle ? getRefundCustomerStatusCopy(lifecycle) : null,
     [lifecycle],
@@ -183,11 +187,13 @@ export default function RefundStatusPage() {
                   Current status
                 </p>
                 <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                  {copy.title}
+                  {giftCopy?.title ?? copy.title}
                 </h1>
-                <p className="mt-3 text-base leading-7 text-foreground">{copy.detail}</p>
+                <p className="mt-3 text-base leading-7 text-foreground">{giftCopy?.detail ?? copy.detail}</p>
 
-                {copy.milestone === 'denied' ? (
+                {giftCard ? (
+                  <div className="mt-6 border-t border-border pt-5"><RefundGiftCardTerms offer={giftCard} /></div>
+                ) : copy.milestone === 'denied' ? (
                   <div className="mt-6 rounded-xl border border-border bg-muted/25 p-4">
                     <p className="font-semibold text-foreground">Review complete</p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -225,7 +231,7 @@ export default function RefundStatusPage() {
 
                 <section className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950">
                   <h2 className="font-semibold">What happens next</h2>
-                  <p className="mt-1 text-sm leading-6">{copy.nextExpectation}</p>
+                  <p className="mt-1 text-sm leading-6">{giftCopy?.next ?? copy.nextExpectation}</p>
                 </section>
 
                 <div className="mt-5 flex flex-col gap-2 border-t border-border pt-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -233,7 +239,7 @@ export default function RefundStatusPage() {
                     <Clock3 className="h-4 w-4" aria-hidden="true" />
                     Last updated {formatLastUpdated(lifecycle.lastUpdatedAt)}
                   </p>
-                  {!lifecycle.terminal && (
+                  {(!lifecycle.terminal || Boolean(giftCard && giftCard.delivery_state !== 'delivered' && giftCard.state !== 'denied')) && (
                     <p role="status">
                       {statusQuery.isFetching ? 'Checking for updates…' : 'Updates automatically'}
                     </p>

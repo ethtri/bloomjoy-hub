@@ -1,3 +1,4 @@
+import { requireRefundGiftCardStatus, type RefundGiftCardStatus, type RefundResolutionMethod } from './refundGiftCard';
 import { parseRefundPortalQueueProjection, type RefundPortalQueueProjection } from './refundPortalQueue';
 export type { RefundPortalQueueItem, RefundPortalQueueProjection } from './refundPortalQueue';
 import {
@@ -190,6 +191,8 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
+  resolutionMethod?: RefundResolutionMethod;
+  giftCardOffer?: { poolId: string; value: number; expiresAt: string };
   submissionId?: string;
   selectionKey?: string;
   machineId?: string;
@@ -236,6 +239,7 @@ export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['r
 };
 
 type RefundCustomerStatusResponse = {
+  gift_card?: unknown;
   error?: string;
   errorCode?: string;
   lifecycle?: unknown;
@@ -853,6 +857,7 @@ const requireRefundGmailCaseLinkReview = (
 };
 
 export type RefundCaseRecord = {
+  resolutionMethod?: RefundResolutionMethod;
   payoutDestinationRequest?: {
     state: 'not_started' | 'waiting' | 'reminder_claimed' | 'reminder_sent' | 'satisfied' | 'manual_review';
     canRequest: boolean;
@@ -1826,7 +1831,7 @@ export const submitRefundRequest = async (
 
 export const fetchRefundCustomerStatus = async (
   token: string,
-): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null }> => {
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null }> => {
   const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
     action: 'readStatus',
     token,
@@ -1836,6 +1841,7 @@ export const fetchRefundCustomerStatus = async (
   }
   return {
     lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
+    giftCard: requireRefundGiftCardStatus(data.gift_card),
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
   };
 };
