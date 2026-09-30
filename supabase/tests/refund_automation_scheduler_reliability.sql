@@ -142,8 +142,9 @@ select is(
   'Both durable dispatch identities remain recorded when pg_net reuses an identifier'
 );
 
-select throws_like(
-  $$
+select ok(
+  pg_temp.capture_error(
+    $$
     insert into public.refund_automation_scheduler_dispatches (
       mode,
       bucket_at,
@@ -155,14 +156,14 @@ select throws_like(
       'scheduled:20990101T0000Z',
       'dispatching'
     )
-  $$,
-  '23505',
-  '%refund_automation_scheduler_dispatches_run_key_key%',
+    $$
+  ) like '23505:%refund_automation_scheduler_dispatches_run_key_key%',
   'The stable scheduler run key remains unique'
 );
 
-select throws_like(
-  $$
+select ok(
+  pg_temp.capture_error(
+    $$
     insert into public.refund_automation_scheduler_dispatches (
       mode,
       bucket_at,
@@ -174,9 +175,8 @@ select throws_like(
       'scheduled:20990101T0130Z',
       'dispatching'
     )
-  $$,
-  '23505',
-  '%refund_automation_scheduler_dispatches_pkey%',
+    $$
+  ) like '23505:%refund_automation_scheduler_dispatches_pkey%',
   'The mode and bucket identity remains unique'
 );
 
