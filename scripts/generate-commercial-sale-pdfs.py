@@ -46,6 +46,7 @@ class FieldSpec:
     name: str
     tooltip: str
     multiline: bool = False
+    default_value: str = ""
 
 
 def slugify(value: str, fallback: str) -> str:
@@ -174,6 +175,7 @@ def page_field_specs(page, page_index: int, prefix: str, counter_start: int) -> 
                         unique_name(prefix, page_index + 1, "text", context, counter),
                         f"{context.strip() or 'Complete field'}",
                         multiline,
+                        default_value="None" if placeholder.strip() == "[None]" else "",
                     )
                 )
 
@@ -272,7 +274,7 @@ def draw_text_field(form, page_height: float, field: FieldSpec) -> None:
         y=y,
         width=width + 2.0,
         height=height,
-        value="",
+        value=field.default_value,
         borderColor=PINK,
         fillColor=PALE_PINK,
         textColor=TEXT,

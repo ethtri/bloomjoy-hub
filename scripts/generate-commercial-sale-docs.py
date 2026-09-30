@@ -429,18 +429,14 @@ def build_sale_agreement() -> Path:
         ],
     )
 
-    add_heading(doc, "5. Transaction-Specific Terms", level=2)
     add_field_table(
         doc,
         [
-            ("Governing law", "[California, unless another state is inserted]"),
-            ("Exclusive venue", "[County and state; default is Santa Clara County, California]"),
-            ("Buyer insurance requirement", "[Insert limits, if any]"),
-            ("Special terms", "[Insert or attach; write “None” if none]"),
+            ("Special terms / agreed exceptions", "[None]"),
         ],
     )
 
-    add_heading(doc, "6. Signatures", level=2)
+    add_heading(doc, "5. Signatures", level=2)
     add_paragraph(doc, "Each signer represents that the signer is authorized to bind the identified party. Electronic signatures and counterparts are effective.")
     add_signature_table(doc, SELLER_LEGAL_NAME, "BUYER: [Legal name]")
 
@@ -521,7 +517,7 @@ def build_sale_agreement() -> Path:
         ),
         (
             "19. Governing Law and Forum.",
-            "The law identified in the Order Form governs without regard to conflict-of-law rules. The parties consent to the exclusive state and federal courts in the venue identified in the Order Form. If either field is blank, California law and the courts located in Santa Clara County, California apply. Before filing a claim other than for emergency injunctive relief or collection of an undisputed amount, an executive from each party will attempt in good faith to resolve the dispute for at least 15 days after written notice.",
+            "California law governs without regard to conflict-of-law rules, and the parties consent to the exclusive state and federal courts located in Santa Clara County, California, unless the Special terms / agreed exceptions in the Order Form expressly state otherwise. Before filing a claim other than for emergency injunctive relief or collection of an undisputed amount, an executive from each party will attempt in good faith to resolve the dispute for at least 15 days after written notice.",
         ),
         (
             "20. General.",
