@@ -19,6 +19,21 @@ orientation snapshot; it is not a backlog or release ledger.
   live creation, hardware redemption or inbox timing. Unactivated machines keep
   the existing cash intake. Activated cash requests stay on the gift-card path.
 
+- PR #1652 restored existing Manager recommendations and decision controls for
+  guarded recovered purchase selections. The deployed RF-26DB7861 appears in
+  Decision needed with enabled Approve/Deny controls under the current
+  authorized operator; case, purchase evidence, messages and payment records
+  were unchanged during verification. No decision or payment was made.
+
+- #1429: an exact Nayax API success can remain held locally when another
+  original purchase shares the reporting machine/day/amount fingerprint.
+  The bounded repair retains that fingerprint for audit and uses the existing
+  service-only receipt reconciler for exact first-generation System success,
+  without another provider request or customer message. RF-423906B2 remains
+  held until that supported path is deployed, independently verified and used
+  under current authority. Later continuation-generation reporting collisions
+  are outside this slice; broader refund readiness is not claimed.
+
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
   source. The email must name the exact fields, explain why and link to matching
