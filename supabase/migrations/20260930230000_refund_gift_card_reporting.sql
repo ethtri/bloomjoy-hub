@@ -36,6 +36,15 @@ declare
 begin
   definition := replace(pg_get_functiondef(
     'private.machine_sales_calculation_candidates(uuid,date,date)'::regprocedure), E'\r\n', E'\n');
+  original := 'and fact.net_sales_cents > 0';
+  replacement := 'and fact.net_sales_cents > 0
+      and not (fact.source = ''sunze_browser'' and fact.payment_method = ''other''
+        and lower(btrim(coalesce(fact.raw_payload ->> ''payment_method_source'', '''')))
+          in (''free'', ''no-pay'', ''no pay''))';
+  if cardinality(string_to_array(definition, original)) <> 2 then
+    raise exception 'Expected one canonical positive-sales filter';
+  end if;
+  definition := replace(definition, original, replacement);
   original := 'greatest(candidate.target_cents - candidate.linked_paid_cents, 0)';
   replacement := 'greatest(candidate.target_cents - candidate.linked_paid_cents
           - private.refund_gift_card_resolved_purchase_cents(candidate.id, p_date_to), 0)';
@@ -69,6 +78,15 @@ begin
 
   definition := replace(pg_get_functiondef(
     'private.machine_sales_daily_components(uuid,date,date)'::regprocedure), E'\r\n', E'\n');
+  original := 'and fact.net_sales_cents > 0';
+  replacement := 'and fact.net_sales_cents > 0
+      and not (fact.source = ''sunze_browser'' and fact.payment_method = ''other''
+        and lower(btrim(coalesce(fact.raw_payload ->> ''payment_method_source'', '''')))
+          in (''free'', ''no-pay'', ''no pay''))';
+  if cardinality(string_to_array(definition, original)) <> 2 then
+    raise exception 'Expected one daily positive-sales filter';
+  end if;
+  definition := replace(definition, original, replacement);
   original := 'paid_amount.tax_exclusive_amount_cents as paid_ex_tax_cents,';
   replacement := 'paid_amount.tax_exclusive_amount_cents as paid_ex_tax_cents,
       gift_card_amount.tax_exclusive_amount_cents as gift_card_resolved_ex_tax_cents,';

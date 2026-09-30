@@ -98,6 +98,20 @@ select is((select count(*) from private.refund_request_recognition_events
 select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components(
   'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3000::numeric,
   'Replay and redemption leave commission treatment unchanged');
+insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,
+  payment_method,net_sales_cents,transaction_count,source,source_order_hash,source_row_hash,tax_cents,raw_payload)
+values ('fc670000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-000000000001',
+  'fc620000-0000-4000-8000-000000000001',current_date,'other',1500,1,'sunze_browser',
+  repeat('fc67',8),repeat('fc67',16),0,'{"payment_method_source":"Free","order_amount_cents":1500}');
+select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components(
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3000::numeric,
+  'A provider-labelled Free order is not new money revenue even if it carries a product value');
+select is((select count(*) from private.machine_sales_calculation_candidates(
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date) where source='sunze_browser'),0::bigint,
+  'The canonical candidate contract also excludes Free product value from sales money');
+select is((select net_sales_cents from public.machine_sales_facts
+  where id='fc670000-0000-4000-8000-000000000001'),1500,
+  'Original provider evidence remains stored unchanged');
 select is(has_function_privilege('anon','private.refund_gift_card_resolved_purchase_cents(uuid,date)','EXECUTE'),false,
   'Anonymous callers cannot read gift-card resolution history');
 
