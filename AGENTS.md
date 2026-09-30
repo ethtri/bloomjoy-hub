@@ -13,6 +13,12 @@ Use the smallest context that can safely answer the task.
 
 If docs and the GitHub board disagree on active task state, the board wins. If durable docs disagree on product or platform decisions, `Docs/DECISIONS.md` wins.
 
+For any refund work, read the current `Docs/REFUND_WORKFLOW.md` (the single
+product requirements source), then `Docs/REFUND_AGENT_OPERATIONS.md` before
+acting or implementing. Fetch/sync current `main` while preserving uncommitted
+work; stale checkouts, saved
+prompts and historical acceptance tests cannot override the latest owner decision.
+
 ## Starting Point
 
 - This project started as a Loveable-generated POC using Vite, React, TypeScript, Tailwind, and shadcn/ui.
@@ -42,7 +48,8 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
   wallet/contactless digit differences, report availability, optional research,
   and unrelated issue completion are not blanket gates. Ask one targeted customer
   question only after internal research is exhausted, follow up once if there is
-  no response, and close after 30 days without a useful reply. Cash approval means
+  no useful reply or saved update, and prepare a Manager reject recommendation
+  after 30 days without useful input. Never automatically close or deny. Cash approval means
   the Manager already sent Zelle; do not add an intermediate payout status.
 
 ## Do
@@ -190,7 +197,8 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
   information request when internal research cannot supply the needed fact. It
   also authorizes the routine case-work actions it names: reviewing the queue,
   researching provider evidence, saving a reviewed candidate, sending the one
-  allowed follow-up, closing a 30-day no-response case, and recording a PII-free
+  allowed follow-up, preparing a 30-day no-response Manager recommendation, and
+  recording a PII-free
   engineering issue. An unattended run continues through every other workable
   case instead of waiting for the owner.
 - The assistant-manager procedure may recommend a Manager decision, but it does
