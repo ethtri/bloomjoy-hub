@@ -15,7 +15,13 @@ export async function runRefundGiftCardSupply(client: Client, dependencies: Depe
     if (error) throw new SupplyError("supply_database_failure");
     return data;
   };
-  await rpc("service_rollover_refund_gift_card_supply");
+  // Edge deployment can precede the additive schema migration. Only absence
+  // of the first RPC is a compatibility skip, before any provider work. Once
+  // that seam exists, real database errors must remain visible.
+  const rollover = await client.rpc("service_rollover_refund_gift_card_supply");
+  if (rollover.error && typeof rollover.error === "object" &&
+    "code" in rollover.error && rollover.error.code === "PGRST202") return result;
+  if (rollover.error) throw new SupplyError("supply_database_failure");
   for (let index = 0; index < 10; index++) {
     const claim = await rpc("service_claim_refund_gift_card_refill", { p_excluded_attempt_ids: excluded }) as SupplyClaim & { claimed: boolean };
     if (claim?.claimed !== true) break;
