@@ -6,11 +6,11 @@ import ts from 'typescript';
 // Transpile the existing checked-in deterministic parser in memory so the
 // subscription runner and Gmail intake share one value parser on that host.
 const parserSource = fs.readFileSync(new URL('../../supabase/functions/_shared/refund-email-fact-extraction.ts', import.meta.url), 'utf8');
-const parserJavaScript = ts.transpileModule(parserSource, {
+const parserJavaScript = ts.transpileModule(`${parserSource}\nexport { currentReplyOnly };`, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   fileName: fileURLToPath(new URL('../../supabase/functions/_shared/refund-email-fact-extraction.ts', import.meta.url)),
 }).outputText;
-const { extractLabeledRefundEmailFacts } = await import(`data:text/javascript;base64,${Buffer.from(parserJavaScript).toString('base64')}`);
+const { extractLabeledRefundEmailFacts, currentReplyOnly } = await import(`data:text/javascript;base64,${Buffer.from(parserJavaScript).toString('base64')}`);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const digest = /^[0-9a-f]{64}$/u;
@@ -136,7 +136,8 @@ const findSource = (input, messageId, quote) => {
 
 export const findKnownFactDirectionalTime = (input) => {
   for (const message of input.replyMessages ?? []) {
-    const match = message.body?.match(roughTimeSource);
+    const body = currentReplyOnly(message.body ?? '');
+    const match = body.match(/\b(?:around|about|roughly|approximately)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\s+eastern(?:\s+time)?\b/iu) ?? body.match(roughTimeSource);
     if (match) return { messageId: message.messageId, quote: match[0].trim() };
   }
   return null;
@@ -261,20 +262,40 @@ export const validateDeferral = (proposal) => {
 };
 
 // The database resolves this customer-supplied wall-clock time against the
-// case's existing date and canonical location timezone. The runner supplies
-// only an exact verified quote, never a UTC instant or a replacement date.
+// case's existing date and canonical location timezone, or the timezone
+// explicitly named by the customer. Only the database resolves an instant.
 export const validateIncidentTime = (input, proposal) => {
   if (proposal?.kind !== 'incident_time')
     throw new Error('unsupported_incident_time_proposal');
-  findSource(input, proposal.messageId, proposal.quote);
-  const match = proposal.quote.match(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/iu);
+  const source = findSource(input, proposal.messageId, proposal.quote);
+  const freshBodies = input.replyMessages.map((message) => currentReplyOnly(message.body ?? ''));
+  if (!currentReplyOnly(source.body).includes(proposal.quote))
+    throw new Error('incident_time_source_not_supported');
+  let match = proposal.quote.match(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/iu);
+  if (!match) {
+    const approximate = proposal.quote.match(/^(?:around|about|roughly|approximately)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+eastern(?:\s+time)?$/iu);
+    if (!approximate) throw new Error('incident_time_source_not_supported');
+    match = [approximate[0], approximate[1], approximate[2] ?? '00', approximate[3]];
+    if (freshBodies.some((body) =>
+      /\b(?:not|never|maybe|perhaps|possibly|or|before|after)\s+(?:around|about|roughly|approximately|\d)/iu.test(body) ||
+      /\?|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}|\b(?:yesterday|tomorrow|last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d|\b(?:pacific|central|mountain|utc|gmt|est|edt|pst|pdt)\b/iu.test(body)))
+      throw new Error('ambiguous_incident_time_source');
+    const observed = new Set(freshBodies.flatMap((body) =>
+      [...body.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/giu)]
+        .map((item) => `${Number(item[1])}:${item[2] ?? '00'} ${item[3].toLowerCase()}`)));
+    if (observed.size !== 1 || !observed.has(`${Number(match[1])}:${match[2]} ${match[3].toLowerCase()}`))
+      throw new Error('ambiguous_incident_time_source');
+  } else {
+    if (!currentReplyOnly(source.body).split(/\r?\n/u).some((line) => line.trim() === proposal.quote))
+      throw new Error('incident_time_source_not_supported');
+    const observed = new Set(freshBodies.flatMap((body) =>
+      [...body.matchAll(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/gimu)]
+        .map((item) => `${Number(item[1])}:${item[2]} ${item[3].toLowerCase()}`)));
+    if (observed.size !== 1 || !observed.has(`${Number(match[1])}:${match[2]} ${match[3].toLowerCase()}`))
+      throw new Error('ambiguous_incident_time_source');
+  }
   if (!match || Number(match[1]) < 1 || Number(match[1]) > 12 ||
     Number(match[2]) > 59) throw new Error('incident_time_source_not_supported');
-  const observed = new Set(input.replyMessages.flatMap((message) =>
-    [...(message.body ?? '').matchAll(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/gimu)]
-      .map((item) => `${Number(item[1])}:${item[2]} ${item[3].toLowerCase()}`)));
-  if (observed.size !== 1 || !observed.has(`${Number(match[1])}:${match[2]} ${match[3].toLowerCase()}`))
-    throw new Error('ambiguous_incident_time_source');
   return { evidenceMessageId: proposal.messageId, sourceQuote: proposal.quote };
 };
 

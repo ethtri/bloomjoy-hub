@@ -8,6 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Issue #1361 also covers verified replies received after a secure form was
+  submitted. The pending-only reply path leaves a later explicit approximate
+  purchase time unapplied. The bounded repair keeps the submitted form and its
+  receipt intact, binds the existing reply review to current facts, and accepts
+  an approximate Eastern clock only from the verified current message while
+  preserving the original incident date. Stale, superseded, quoted, or ambiguous
+  evidence stays out of the fact writer. Live case repair remains separate from
+  this source and synthetic verification slice.
 - PR #1645 was deployed on September 30. The refund portal shows an actor-scoped
   lightweight queue before full details, with correct counts and read-only
   navigation; actions still require the existing full case. Production desktop

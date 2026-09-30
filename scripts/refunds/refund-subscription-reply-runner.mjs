@@ -142,6 +142,15 @@ export const submitResult = async (client, runId, requestId, proposal) => {
         messageId: fact.fieldEvidence[0].messageId,
         quote: fact.fieldEvidence[0].quote,
       };
+      if (directionalTime) {
+        const timeProposal = { kind: 'incident_time', ...directionalTime };
+        try {
+          validateIncidentTime(input, timeProposal);
+          proposal = timeProposal;
+        } catch {
+          // Unsupported or competing times retain the existing research path.
+        }
+      }
     }
   }
   if (proposal?.kind === 'reviewed_no_fact') {

@@ -104,6 +104,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
   purchase date and location timezone, records one source-bound fact receipt,
   and restarts System research. A conflicting time, stale claim, or DST fold/gap
   changes no facts; no Manager decision or provider payment is made by this step.
+- [ ] A verified later reply after a submitted secure form can update the same
+  case from an explicit approximate Eastern time, preserving its purchase date
+  and rough confidence. Quoted mail-header times, stale/superseded requests and
+  conflicting clocks cannot become facts; the old form remains submitted.
 - [ ] After that source-bound reply settles, the portal shows System purchase
   recheck as next work while the new lookup is due or checking. It does not
   still say to review the settled reply or wait for a customer answer. Once the
