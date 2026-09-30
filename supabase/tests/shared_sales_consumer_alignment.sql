@@ -234,8 +234,8 @@ select results_eq($$
   ) value) result
   cross join lateral jsonb_array_elements(result.value -> 'segments') segment(value)
   group by result.value
-$$, $$values (12000::bigint,1000::bigint,11000::bigint,1100::bigint,true,0)$$,
-  'Assigned sale and dated request earn commission without the null-date legacy adjustment');
+$$, $$values (12500::bigint,1000::bigint,11500::bigint,1150::bigint,true,0)$$,
+  'Assigned dated sales and request earn commission without the null-date legacy adjustment');
 
 select is((
   select count(*)::integer
