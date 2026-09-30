@@ -571,6 +571,17 @@ const refundSubmissionIdentityConflictResponse = () =>
     },
   );
 
+const giftCardsEnabledForMachine = async (machineId: string) => {
+  if (!supabase) throw new Error("Refund intake is not configured.");
+  const { data, error } = await supabase.rpc("service_refund_gift_card_enabled", { p_machine_id: machineId });
+  // Missing RPC is the exact pre-migration capability boundary. Network and
+  // authorization failures never turn an activated machine into cash fallback.
+  if (error?.code === "PGRST202" || error?.code === "42883") return false;
+  if (error) throw error;
+  if (typeof data !== "boolean") throw new Error("Gift-card activation could not be checked.");
+  return data;
+};
+
 const startRefundQrClaim = async (
   req: Request,
   body: Record<string, unknown>,
@@ -726,6 +737,7 @@ const startRefundQrClaim = async (
           locationId: machineRecord.location_id,
           locationName: publicLabels.locationName,
           locationTimezone: locationRecord.timezone,
+          gift_card_enabled: await giftCardsEnabledForMachine(machineRecord.id),
         },
       },
     }),
@@ -1283,10 +1295,8 @@ serve(async (req) => {
         offerMachineId = ids?.length === 1 ? ids[0] : "";
       }
       if (!isUuid(offerMachineId)) return new Response(JSON.stringify({ offer: null }), { headers: refundStatusResponseHeaders });
-      const { data: enabled, error: enabledError } = await supabase.rpc("service_refund_gift_card_enabled", {
-        p_machine_id: offerMachineId,
-      });
-      if (enabledError) throw enabledError;
+      const enabled = await giftCardsEnabledForMachine(offerMachineId);
+      if (!enabled) return new Response(JSON.stringify({ gift_card_enabled: false, offer: null }), { headers: refundStatusResponseHeaders });
       const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
         p_machine_id: offerMachineId, p_amount_cents: centsFromAmount(body.amount),
       });
@@ -1969,10 +1979,7 @@ serve(async (req) => {
 
     let acceptedGiftCardOffer: Record<string, unknown> | null = null;
     if (resolutionMethod === "original_payment" && paymentValidation.paymentMethod === "cash") {
-      const { data: enabled, error } = await supabase.rpc("service_refund_gift_card_enabled", {
-        p_machine_id: machineRecord.id,
-      });
-      if (error) throw error;
+      const enabled = await giftCardsEnabledForMachine(String(machineRecord.id));
       if (enabled === true) throw new RequestValidationError("Please choose the gift-card offer for this cash purchase.");
     }
     if (resolutionMethod === "gift_card") {
@@ -2011,11 +2018,13 @@ serve(async (req) => {
       return data;
     };
     const insertValues = {
-      resolution_method: resolutionMethod,
-      gift_card_pool_id: acceptedGiftCardOffer?.pool_id ?? null,
-      gift_card_value_cents: acceptedGiftCardOffer?.value ?? null,
-      gift_card_expires_at: acceptedGiftCardOffer?.expires_at ?? null,
-      gift_card_state: acceptedGiftCardOffer ? "pending_inventory" : null,
+      ...(acceptedGiftCardOffer ? {
+        resolution_method: "gift_card",
+        gift_card_pool_id: acceptedGiftCardOffer.pool_id,
+        gift_card_value_cents: acceptedGiftCardOffer.value,
+        gift_card_expires_at: acceptedGiftCardOffer.expires_at,
+        gift_card_state: "pending_inventory",
+      } : {}),
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
       intake_selection_key: intakeSelectionKey,
