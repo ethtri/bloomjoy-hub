@@ -128,6 +128,12 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] System, mapping, timezone, provider, and delivery defects route to an
   internal issue without asking the customer to troubleshoot or repeat known
   facts.
+- [ ] On a fresh `/refunds` load, the small authorized queue may appear before
+  full case evidence. The four counts match the hydrated overview; internal/test
+  records stay out of customer history. Selecting a queue row shows loading
+  detail until current evidence arrives, retains that selection, and exposes no
+  decision/payment action from the small projection. A failed detail read says
+  temporarily unavailable instead of showing an empty queue or endless loading.
 - [ ] `/refunds` shows exactly four wrapping views: Decision needed, Waiting on
   customer, All active, and All closed. At 390px there is no horizontal page or
   tab scrolling. Search remains available below the views.

@@ -52,7 +52,11 @@ import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecyclePro
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
 import { RefundCashDecisionWorkbench } from '@/components/refunds/RefundCashDecisionWorkbench';
 import { RefundTransactionCandidateReview } from '@/components/refunds/RefundTransactionCandidateReview';
-import { RefundCaseQueuePanel } from '@/components/refunds/RefundCaseQueuePanel';
+import {
+  RefundCaseQueuePanel,
+  type RefundCaseQueueListItem,
+} from '@/components/refunds/RefundCaseQueuePanel';
+import { filterRefundPortalQueue } from '@/lib/refundPortalQueue';
 import {
   RefundCardManagerDecisionPanel,
   type RefundCardManagerCapabilityAction,
@@ -149,6 +153,7 @@ import {
   fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
+  fetchRefundPortalQueueProjection,
   fetchRefundOperationsSupplements,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
@@ -174,6 +179,7 @@ import {
   type RefundCustomerLocaleCorrectionReason,
   type RefundInternalTestReason,
   type RefundOperationsOverview,
+  type RefundPortalQueueItem,
   type RefundReadiness,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
@@ -893,6 +899,33 @@ const managerStateBadgeClass = (tone: RefundManagerStateTone) =>
     tone === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
     tone === 'danger' && 'border-destructive/30 bg-destructive/10 text-destructive'
   );
+
+const portalQueueTaskLabel = (item: RefundPortalQueueItem) => {
+  if (item.decisionReady) return item.nextWorkActionCode === 'reject_request'
+    ? 'Review rejection' : 'Decision needed';
+  if (!item.isOpen || item.view === 'internal_test') return 'Closed';
+  switch (item.nextWorkActionCode) {
+    case 'send_cash_refund_and_confirm': return 'Send cash refund';
+    case 'answer_question': return 'Waiting on customer';
+    case 'deliver_customer_question':
+    case 'obtain_payout_destination': return 'Sending customer question';
+    case 'review_customer_reply': return 'Reviewing customer reply';
+    case 'recover_customer_delivery': return 'Fixing customer delivery';
+    case 'reconcile_provider_outcome': return 'Checking refund result';
+    case 'reconcile_integrity': return 'Checking payment record';
+    case 'continue_refund': return 'Completing refund';
+    case 'resolve_manager_assignment': return 'Assigning manager';
+    case 'repair_provider_setup': return 'Fixing purchase search';
+    default: return 'Finding the purchase';
+  }
+};
+
+const portalQueueTaskBadgeClass = (item: RefundPortalQueueItem) => {
+  if (item.decisionReady) return managerStateBadgeClass('info');
+  if (!item.isOpen || item.view === 'internal_test') return managerStateBadgeClass('success');
+  if (item.view === 'waiting_on_customer') return managerStateBadgeClass('warning');
+  return managerStateBadgeClass('neutral');
+};
 
 const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
   refundCase.messages?.[0] ?? null;
@@ -2892,6 +2925,17 @@ export default function AdminRefundsPage() {
   };
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
+    data: liveQueueProjection,
+    isLoading: queueProjectionIsLoading,
+  } = useQuery({
+    queryKey: ['refund-portal-queue-projection'],
+    queryFn: fetchRefundPortalQueueProjection,
+    retry: false,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: false,
+  });
+  const {
     data: liveOverviewSnapshot,
     isLoading: liveIsLoading,
     isFetching: liveIsFetching,
@@ -2983,7 +3027,10 @@ export default function AdminRefundsPage() {
     gmailHealth?.status === 'revoked';
   const gmailRecoveryActive = gmailHealth?.status === 'recovering';
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }),
+    ]);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-operations-supplements'] }),
@@ -2995,7 +3042,7 @@ export default function AdminRefundsPage() {
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
-  const overviewHasSnapshot = liveOverviewSnapshot !== undefined;
+  const overviewHasSnapshot = liveOverviewSnapshot !== undefined || liveQueueProjection !== undefined;
   const overviewConsecutiveFailures = overviewPolling.consecutiveFailures();
   useEffect(() => {
     setOverviewReadMessage((previous) => isUsingDemoData ? '' : refundOverviewReadMessage(
@@ -3013,7 +3060,10 @@ export default function AdminRefundsPage() {
     overviewHasSnapshot,
     overviewReadStatus,
   ]);
-  const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
+  const pageIsLoading = isUsingDemoData
+    ? false
+    : liveOverviewSnapshot === undefined && liveQueueProjection === undefined &&
+      (liveIsLoading || queueProjectionIsLoading);
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
   const overview = isUsingDemoData ? demoOverview : liveOverview;
@@ -3031,7 +3081,11 @@ export default function AdminRefundsPage() {
       }},
     });
   }, [overview.cases,pageIsLoading,error,isUsingDemoData]);
-  const refundOperationsAccess = overview.refundOperationsAccess === true;
+  const fullOverviewReady = isUsingDemoData || liveOverviewSnapshot !== undefined;
+  const queueProjectionActive = !fullOverviewReady && liveQueueProjection !== undefined;
+  const refundOperationsAccess = fullOverviewReady
+    ? overview.refundOperationsAccess === true
+    : liveQueueProjection?.refundOperationsAccess === true;
   const internalTestCases = useMemo(
     () => refundOperationsAccess ? overview.internalTestCases ?? [] : [],
     [overview.internalTestCases, refundOperationsAccess]
@@ -3084,7 +3138,22 @@ export default function AdminRefundsPage() {
     statusFilter,
   ]);
 
-  const primaryQueueCounts = useMemo(() => ({
+  const filteredPortalQueueItems = useMemo(() => {
+    if (!queueProjectionActive || !liveQueueProjection) return [];
+    return filterRefundPortalQueue(liveQueueProjection.items, statusFilter, search);
+  }, [liveQueueProjection, queueProjectionActive, search, statusFilter]);
+
+  const primaryQueueCounts = useMemo(() => queueProjectionActive && liveQueueProjection ? ({
+    all_open: liveQueueProjection.counts.allOpen,
+    decisions: liveQueueProjection.counts.decisions,
+    needs_action: 0,
+    ready_to_pay: liveQueueProjection.counts.decisions,
+    in_progress: 0,
+    waiting_on_customer: liveQueueProjection.counts.waitingOnCustomer,
+    provider_hold: 0,
+    completed: liveQueueProjection.counts.completed,
+    internal_test: refundOperationsAccess ? liveQueueProjection.counts.internalTest : 0,
+  }) : ({
     all_open: overview.cases.filter(isRefundCaseOpen).length,
     decisions: overview.cases.filter(refundNeedsDecision).length,
     needs_action: overview.cases.filter(isNeedsActionCase).length,
@@ -3094,11 +3163,19 @@ export default function AdminRefundsPage() {
     provider_hold: overview.cases.filter(isManagerReviewCase).length,
     completed: overview.cases.filter((refundCase) => !isRefundCaseOpen(refundCase)).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-  }), [internalTestCases, overview.cases, refundOperationsAccess]);
+  }), [
+    internalTestCases,
+    liveQueueProjection,
+    overview.cases,
+    queueProjectionActive,
+    refundOperationsAccess,
+  ]);
 
-  const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
+  const hasAnyCases = queueProjectionActive
+    ? (liveQueueProjection?.items.length ?? 0) > 0
+    : overview.cases.length + internalTestCases.length > 0;
   const refundQueueTruthUnavailable = !isUsingDemoData &&
-    overviewReadStatus === 'error' && !liveOverviewSnapshot;
+    overviewReadStatus === 'error' && !liveOverviewSnapshot && !liveQueueProjection;
   const isSearching = search.trim().length > 0;
   const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
   const emptyQueueTitle = refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
@@ -3116,6 +3193,7 @@ export default function AdminRefundsPage() {
 
     const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
+    if (queueProjectionActive && liveQueueProjection?.items.some((item) => item.caseId === selectedId)) return;
 
     setSelectedId(null);
     setEditor(null);
@@ -3130,10 +3208,17 @@ export default function AdminRefundsPage() {
     setIsCustomerDraftDirty(false);
     setIsInternalNoteDirty(false);
     setPendingCaseSelectionId(null);
-  }, [overview.cases, internalTestCases, selectedId]);
+  }, [
+    overview.cases,
+    internalTestCases,
+    liveQueueProjection,
+    queueProjectionActive,
+    selectedId,
+  ]);
 
   useEffect(() => {
     if (!selectedId || isSearching) return;
+    if (queueProjectionActive) return;
     if (filteredCases.some((refundCase) => refundCase.id === selectedId)) return;
     if (caseSelectionSafetyRef.current.actionInFlight) return;
 
@@ -3162,6 +3247,7 @@ export default function AdminRefundsPage() {
     internalTestCases,
     isSearching,
     overview.cases,
+    queueProjectionActive,
     refundOperationsAccess,
     selectedId,
   ]);
@@ -3952,6 +4038,31 @@ export default function AdminRefundsPage() {
     const override = managerTaskOverride(refundCase);
     return override ? managerStateBadgeClass(override.tone) : taskBadgeClass(managerDisplayCase(refundCase));
   };
+  const queuePanelCases: RefundCaseQueueListItem[] = queueProjectionActive
+    ? filteredPortalQueueItems.map((item) => ({
+        id: item.caseId,
+        publicReference: item.publicReference,
+        machineLabel: item.machineLabel,
+        locationName: item.locationName,
+        amountCents: item.amountCents,
+        createdAt: item.createdAt,
+        taskLabel: portalQueueTaskLabel(item),
+        taskBadgeClass: portalQueueTaskBadgeClass(item),
+        nextWorkActor: item.nextWorkActor,
+        nextWorkActionLabel: item.nextWorkActionLabel,
+      }))
+    : filteredCases.map((refundCase) => ({
+        id: refundCase.id,
+        publicReference: refundCase.publicReference,
+        machineLabel: refundCase.machineLabel,
+        locationName: refundCase.locationName,
+        amountCents: refundCase.refundAmountCents ?? refundCase.paymentAmountCents,
+        createdAt: refundCase.createdAt,
+        taskLabel: refundPlainStatus(refundCase),
+        taskBadgeClass: managerTaskBadgeClass(refundCase),
+        nextWorkActor: refundCase.lifecycle?.nextWork?.actor ?? null,
+        nextWorkActionLabel: refundCase.lifecycle?.nextWork?.actionLabel ?? null,
+      }));
 
   const readFreshNayaxSelection = async (
     caseId: string,
@@ -4119,6 +4230,19 @@ export default function AdminRefundsPage() {
     selectCase(refundCase);
   }
 
+  function handleSelectCaseById(caseId: string) {
+    const fullCase = [...overview.cases, ...internalTestCases]
+      .find((refundCase) => refundCase.id === caseId);
+    if (fullCase) {
+      handleSelectCase(fullCase);
+      return;
+    }
+    if (caseId === selectedId) return;
+    setSelectedId(caseId);
+    setEditor(null);
+    setIsMobileQueueExpanded(false);
+  }
+
   function handleShowMobileQueue() {
     setIsMobileQueueExpanded(true);
     window.requestAnimationFrame(() => {
@@ -4137,6 +4261,13 @@ export default function AdminRefundsPage() {
     });
   }
   caseSelectionRequestRef.current = handleSelectCase;
+
+  useEffect(() => {
+    if (!fullOverviewReady || !selectedId || editor) return;
+    const fullCase = [...overview.cases, ...internalTestCases]
+      .find((refundCase) => refundCase.id === selectedId);
+    if (fullCase) selectCase(fullCase);
+  }, [editor, fullOverviewReady, internalTestCases, overview.cases, selectedId]);
 
   const handleResolveInboundLink = async () => {
     const review = selectedCase?.inboundLinkReview;
@@ -7671,7 +7802,7 @@ export default function AdminRefundsPage() {
                     aria-label="Search refund cases"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Reference, customer, machine, or location"
+                    placeholder={queueProjectionActive ? 'Reference, machine, or location' : 'Reference, customer, machine, or location'}
                     aria-describedby="refund-search-scope"
                     className="pl-9"
                   />
@@ -7687,7 +7818,7 @@ export default function AdminRefundsPage() {
 
           <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
             <RefundCaseQueuePanel
-              cases={filteredCases}
+              cases={queuePanelCases}
               viewTitle={statusFilter === 'decisions' ? 'Decision needed' : statusFilter === 'waiting_on_customer' ? 'Waiting on customer' : statusFilter === 'all_open' ? 'All active' : statusFilter === 'completed' ? 'All closed' : undefined}
               showWorkflowSummary={statusFilter === 'all_open' && !isSearching}
               selectedCaseId={selectedId}
@@ -7699,9 +7830,7 @@ export default function AdminRefundsPage() {
               emptyTitle={emptyQueueTitle}
               emptyDescription={emptyQueueDescription}
               onToggleMobile={() => setIsMobileQueueExpanded((current) => !current)}
-              onSelectCase={handleSelectCase}
-              getTaskLabel={refundPlainStatus}
-              getTaskBadgeClass={managerTaskBadgeClass}
+              onSelectCase={handleSelectCaseById}
               formatCaseAge={formatAge}
               formatCaseAmount={formatCurrency}
             />
@@ -7715,7 +7844,11 @@ export default function AdminRefundsPage() {
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
-                    Select a refund case to review the details and choose the next step.
+                    {selectedId
+                      ? overviewReadStatus === 'error'
+                        ? 'Current case details are temporarily unavailable. Refresh to try again.'
+                        : 'Loading the current case details and available actions…'
+                      : 'Select a refund case to review the details and choose the next step.'}
                   </div>
                 ) : (
                   <div className="space-y-5">
