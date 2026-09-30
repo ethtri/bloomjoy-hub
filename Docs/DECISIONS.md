@@ -1,5 +1,31 @@
 # Decisions
 
+## 2026-09-30 - Form-first refund intake and field-specific same-case updates
+
+The owner confirmed this direction under #628 and #1361.
+
+- `Docs/REFUND_WORKFLOW.md` is the single refund product requirements source;
+  `Docs/REFUND_AGENT_OPERATIONS.md` implements that procedure, not another PRD.
+- Only genuine new refund/product-problem inquiries to Info receive one
+  original-thread reply with the intake link; create the case on submission.
+  Unrelated/vendor/marketing mail gets no refund response, and existing cases
+  get no new intake. Normal corrections use structured same-case updates.
+- The email names the exact human-readable fields, gives a brief reason and an
+  **Update your request** link. The form uses those same labels, highlights the
+  requested checks and preserves prior answers. Validate/save current facts once
+  and trigger automatic research; derive timezone from the venue internally.
+- Supply fresh targeted same-case update access when an old link is submitted or
+  expired. Preserve conversation and answers without creating another case or
+  repeating settled questions. Routine email fact parsing/LLM interpretation is
+  superseded; keep assisted exceptions without making customers repeat facts.
+- Provider/mapping defects stay internal. The current Manager final decision,
+  selected provider card total, cash sent confirmation, timezone/unknown-result
+  rules, four views, one question plus one follow-up, and 30-day Manager reject
+  recommendation remain unchanged. This decision does not authorize payment.
+- This docs alignment is not implementation evidence. The held #1648 email-time
+  parser direction is superseded; retain its work/evidence without deploying it.
+
+
 ## 2026-09-28 — Interim authority is Nayax card plus machine-app cash; tax basis is field and location specific
 
 This refines the amount-basis and period-timing parts of the September 28 source

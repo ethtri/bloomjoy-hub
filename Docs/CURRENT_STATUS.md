@@ -8,6 +8,17 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- On September 30 the owner confirmed form-first intake and field-specific
+  same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
+  source. The email must name the exact fields, explain why and link to matching
+  highlighted checks with prior answers preserved. Existing secure forms already
+  validate same-case structured answers and can trigger automatic purchase
+  rechecks. Fresh targeted access after a submitted/expired link and complete
+  notification/form alignment remain implementation gaps under #628/#1361;
+  this docs decision does not claim they are deployed. Emails/assisted exceptions
+  retain supplied facts. The #1648 free-text email-time parsing work is held and
+  superseded by this direction; no parser extension was deployed.
+
 - PR #1645 was deployed on September 30. The refund portal shows an actor-scoped
   lightweight queue before full details, with correct counts and read-only
   navigation; actions still require the existing full case. Production desktop
