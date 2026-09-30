@@ -79,11 +79,16 @@ orientation snapshot; it is not a backlog or release ledger.
   once through the governed action with `provider_call_made=false`; the failed
   scheduler action remains immutable, the lookup was not replayed, and the
   case still has no decision or financial action. That readback exposed one
-  remaining projection mismatch: the selection proof names the authorized
-  Manager, while the System-generated candidate correctly remains unowned.
-  The next bounded repair accepts that exact proof from a currently authorized
-  machine Manager or Super-admin without rewriting candidate ownership,
-  assigning the case, or changing the decision boundary.
+  remaining projection mismatch: the selection proof named the authorized
+  Manager, while the System-generated candidate correctly remained unowned.
+  Migration `20260929231500` now accepts that exact proof from a currently
+  authorized machine Manager or Super-admin without rewriting candidate
+  ownership, assigning the case, or changing the decision boundary. Production
+  readback on two independently reviewed System selections returned the refund
+  recommendation and Manager approve-or-deny next step with three and two active
+  machine Managers respectively. Both decisions remain unset, no provider call,
+  customer message, completion, or accounting change was introduced, and the
+  original failed scheduler action remains immutable.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
