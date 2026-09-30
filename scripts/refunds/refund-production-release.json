@@ -280,7 +280,9 @@
     "20260929175500_refund_manager_route_consistency.sql",
     "20260929193000_refund_reconciliation_clarification.sql",
     "20260929221500_refund_system_candidate_review.sql",
-    "20260929231500_refund_system_selection_preparation.sql"
+    "20260929231500_refund_system_selection_preparation.sql",
+    "20260930000509_provisional_nayax_tax_inclusive_basis.sql",
+    "20260930004634_refund_cash_positive_evidence_without_coverage.sql"
   ],
   "migrationFilesSha256": "471659ade9b21aa0a3d5ec995944a04f7b1d689b1260202744aaac9638014c09",
   "migrationVersionSetSha256": "b1d6cdd65b17bffaf1814860a88cac9e28ad24825a35a8eba40ca80fe2bbbd49",

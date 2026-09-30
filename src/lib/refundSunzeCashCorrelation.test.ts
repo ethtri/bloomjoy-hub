@@ -46,6 +46,7 @@ const overview = (overrides: Partial<Record<string, unknown>> = {}) => ({
     salesFactId: id('000000000201'),
     paymentTime: '2026-09-14T19:04:00.000Z',
     actualAmountCents: 825,
+    sourceTimeUnvalidated: false,
     machineLabel: 'Machine A',
     locationName: 'Synthetic Market',
     tradeLabel: 'Gummy Bears',
@@ -61,7 +62,57 @@ Deno.test('parses a unique selected sale and preserves safe display evidence', (
   assertEquals(parsed.candidates[0].machineLabel, 'Machine A');
   assertEquals(parsed.selectedSalesFactId, id('000000000201'));
   assertEquals(parsed.selectedSale?.actualAmountCents, 825);
+  assertEquals(parseRefundSunzeCashCorrelation(overview({
+    selectedSale: {
+      ...overview().selectedSale as Record<string, unknown>,
+      sourceTimeUnvalidated: undefined,
+    },
+  })).selectedSale?.sourceTimeUnvalidated, false);
   assertEquals(parsed.evidenceOnly, true);
+});
+
+Deno.test('keeps unvalidated source time reviewable without inventing a minute delta', () => {
+  const unvalidated = {
+    ...candidate('000000000203'),
+    timeDeltaSeconds: null,
+    evidenceCodes: [
+      'machine_exact',
+      'cash_payment',
+      'payment_success',
+      'same_venue_date',
+      'coverage_unvalidated',
+      'source_time_unvalidated',
+    ],
+  };
+  const parsed = parseRefundSunzeCashCorrelation(overview({
+    state: 'multiple_possible_sales',
+    reason: 'positive_sales_found_without_validated_coverage',
+    sourceReadiness: 'unavailable',
+    candidates: [unvalidated],
+    selectedSalesFactId: null,
+    selectedLinkVersion: 0,
+    expectedLinkVersion: 0,
+    selectedSale: null,
+  }));
+  assertEquals(parsed.candidates[0].timeDeltaSeconds, null);
+  assertEquals(parsed.sourceReadiness, 'unavailable');
+});
+
+Deno.test('preserves selected-sale source-time provenance without a current candidate row', () => {
+  const parsed = parseRefundSunzeCashCorrelation(overview({
+    state: 'multiple_possible_sales',
+    reason: 'selected_sale_conflict',
+    sourceReadiness: 'unavailable',
+    candidates: [],
+    candidateCount: 0,
+    returnedCandidateCount: 0,
+    selectedSale: {
+      ...overview().selectedSale as Record<string, unknown>,
+      sourceTimeUnvalidated: true,
+    },
+  }));
+  assertEquals(parsed.candidates.length, 0);
+  assertEquals(parsed.selectedSale?.sourceTimeUnvalidated, true);
 });
 
 Deno.test('parses multiple, checking, no-match, and unavailable without making them gates', () => {

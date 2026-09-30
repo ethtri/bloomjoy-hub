@@ -11,7 +11,7 @@ export type RefundSunzeCashCandidate = {
   paymentTime: string;
   amountCents: number;
   actualAmountCents: number;
-  timeDeltaSeconds: number;
+  timeDeltaSeconds: number | null;
   amountDeltaCents: number | null;
   evidenceCodes: string[];
   selectionConflict: boolean;
@@ -24,6 +24,7 @@ export type RefundSunzeCashSelectedSale = {
   salesFactId: string;
   paymentTime: string;
   actualAmountCents: number;
+  sourceTimeUnvalidated: boolean;
   machineLabel: string | null;
   locationName: string | null;
   tradeLabel: string | null;
@@ -132,7 +133,7 @@ const parseCandidate = (value: unknown): RefundSunzeCashCandidate => {
     !isInteger(value.rank, 1) ||
     typeof value.paymentTime !== 'string' || Number.isNaN(Date.parse(value.paymentTime)) ||
     !isInteger(value.amountCents) || !isInteger(value.actualAmountCents) ||
-    !isInteger(value.timeDeltaSeconds) ||
+    !(value.timeDeltaSeconds === null || isInteger(value.timeDeltaSeconds)) ||
     !(value.amountDeltaCents === null || isInteger(value.amountDeltaCents)) ||
     !Array.isArray(value.evidenceCodes) ||
     !value.evidenceCodes.every((code) => typeof code === 'string' && code.length <= 80) ||
@@ -145,7 +146,7 @@ const parseCandidate = (value: unknown): RefundSunzeCashCandidate => {
     paymentTime: value.paymentTime,
     amountCents: value.amountCents,
     actualAmountCents: value.actualAmountCents,
-    timeDeltaSeconds: value.timeDeltaSeconds,
+    timeDeltaSeconds: value.timeDeltaSeconds === null ? null : Number(value.timeDeltaSeconds),
     amountDeltaCents: value.amountDeltaCents === null ? null : Number(value.amountDeltaCents),
     evidenceCodes: value.evidenceCodes,
     selectionConflict: value.selectionConflict,
@@ -159,19 +160,21 @@ const parseSelectedSale = (value: unknown): RefundSunzeCashSelectedSale | null =
   if (value === null || value === undefined) return null;
   const selectedSaleKeys = new Set([
     'salesFactId', 'paymentTime', 'actualAmountCents', 'machineLabel',
-    'locationName', 'tradeLabel',
+    'locationName', 'tradeLabel', 'sourceTimeUnvalidated',
   ]);
   if (!isRecord(value) ||
     !Object.keys(value).every((key) => selectedSaleKeys.has(key)) ||
     typeof value.salesFactId !== 'string' || !UUID.test(value.salesFactId) ||
     typeof value.paymentTime !== 'string' || Number.isNaN(Date.parse(value.paymentTime)) ||
-    !isInteger(value.actualAmountCents)) {
+    !isInteger(value.actualAmountCents) ||
+    !(value.sourceTimeUnvalidated === undefined || typeof value.sourceTimeUnvalidated === 'boolean')) {
     throw new Error('Unsupported selected Sunze cash sale.');
   }
   return {
     salesFactId: value.salesFactId,
     paymentTime: value.paymentTime,
     actualAmountCents: value.actualAmountCents,
+    sourceTimeUnvalidated: value.sourceTimeUnvalidated === true,
     machineLabel: optionalText(value.machineLabel),
     locationName: optionalText(value.locationName),
     tradeLabel: optionalText(value.tradeLabel),
