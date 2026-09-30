@@ -4779,6 +4779,7 @@ serve(async (req) => {
   let runId: string | null = null;
   let runKey: string | null = null;
   let failureStage = "request_setup";
+  let giftCardSupplyFailed = false;
   const counters = createCounters();
 
   try {
@@ -4906,17 +4907,23 @@ serve(async (req) => {
     failureStage = "gift_card_supply";
     if (supabase && runId) {
       const supplyRunId = runId;
-      const supply = await runRefundGiftCardSupply(supabase, {
-        notify: async (incidentId, _poolId, reason) => {
-          const action = await claimAction(supplyRunId, null, `ops_alert:gift_card_supply:${incidentId}`,
-            "ops_alert", null, policyWindowStart, counters);
-          if (action.claimed) await finishAction(action, "completed", `gift_card_${reason}`, null, counters);
-        },
-      });
-      addReason(counters, "gift_card_refills_completed", supply.completed);
-      addReason(counters, "gift_card_refills_failed", supply.failed);
-      addReason(counters, "gift_card_refills_unknown", supply.unknown);
-      addReason(counters, "gift_card_stock_cases_resumed", supply.resumed);
+      try {
+        const supply = await runRefundGiftCardSupply(supabase, {
+          notify: async (incidentId, _poolId, reason) => {
+            const action = await claimAction(supplyRunId, null, `ops_alert:gift_card_supply:${incidentId}`,
+              "ops_alert", null, policyWindowStart, counters);
+            if (action.claimed) await finishAction(action, "completed", `gift_card_${reason}`, null, counters);
+          },
+        });
+        addReason(counters, "gift_card_refills_completed", supply.completed);
+        addReason(counters, "gift_card_refills_failed", supply.failed);
+        addReason(counters, "gift_card_refills_unknown", supply.unknown);
+        addReason(counters, "gift_card_stock_cases_resumed", supply.resumed);
+      } catch {
+        giftCardSupplyFailed = true;
+        addReason(counters, "gift_card_supply_failed");
+        console.error("refund gift-card supply unavailable", { errorType: "gift_card_supply_failure", payloadRedacted: true });
+      }
     }
     failureStage = "nayax_refund_attempt_queue";
     await runNayaxRefundAttemptSweep(counters);
@@ -5077,6 +5084,12 @@ serve(async (req) => {
     );
     failureStage = "manager_aging";
     await runManagerAgingSweep(runId, counters, policyWindowStart);
+    // Record the supply failure after independent routes finish. Do not make
+    // card execution, outbox recovery or ordinary follow-up depend on supply.
+    if (giftCardSupplyFailed) {
+      counters.actionsFailed += 1;
+      failureStage = "gift_card_supply";
+    }
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();
     }
