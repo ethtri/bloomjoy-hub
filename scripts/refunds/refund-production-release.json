@@ -285,7 +285,8 @@
     "20260930004634_refund_cash_positive_evidence_without_coverage.sql",
     "20260930020251_refund_mixed_payout_reply_facts.sql",
     "20260930024054_refund_scheduler_request_id_reuse.sql",
-    "20260930031500_refund_approved_cash_form_reply_progression.sql"
+    "20260930031500_refund_approved_cash_form_reply_progression.sql",
+    "20260930050000_refund_submitted_form_continuation.sql"
   ],
   "migrationFilesSha256": "6f4d4986d7e5a780d31f943d3c3e04e5115087dcce16f30a78ba3d3a0e721042",
   "migrationVersionSetSha256": "1049fd6bafece41755a6c601a1176ed2e448721abed307a9b0b44927e1e7d0ba",

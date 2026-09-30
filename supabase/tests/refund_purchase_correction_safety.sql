@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(56);
+select plan(61);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -200,9 +200,48 @@ select ok((select status='needs_review' and automation_state='customer_replied'
     and satisfied_at is null from public.refund_payout_destination_follow_ups
     where refund_case_id='dd000000-0000-4000-8001-000000000015'),
  'Undecided cash response cannot enter the protected Manager cash-confirmation state');
+select isnt(
+  public.refund_lifecycle_contract(
+    'dd000000-0000-4000-8001-000000000015'
+  ) #>> '{nextWork,actionCode}',
+  'review_customer_reply',
+  'Exact current payout destination continues to internal research without pretending the secure form is an unread email reply'
+);
+select is(
+  public.refund_customer_outreach_contract(
+    'dd000000-0000-4000-8001-000000000015'
+  ) ->> 'reasonCode',
+  'verified_form_response_applied',
+  'Secure-form continuation keeps the delivered request as history while marking its exact current facts applied'
+);
+select isnt(
+  public.refund_lifecycle_contract(
+    'dd000000-0000-4000-8001-000000000003'
+  ) #>> '{nextWork,actionCode}',
+  'research_purchase',
+  'Cannot-provide response remains internal review and is not mislabeled as completed form evidence'
+);
 select pg_temp.make_scope(12,true);
 select is((select correction_requested_fields from public.refund_wallet_correction_contexts where token_hash=lpad('c',64,'0')),array['card_last4']::text[],'Fixture requests missing card digits before payment context changes');
 select lives_ok($$select pg_temp.submit(12,'{"payment_method":{"disposition":"changed","value":"cash"}}')$$,'Customer can correct card purchase to cash without answering inapplicable card question');
 select ok((select payment_method='cash' and card_last4 is null and card_last4_provenance is null and card_wallet_used=false and wallet_provider is null and payment_amount_cents=700 and decision is null from public.refund_cases where id='dd000000-0000-4000-8001-000000000012'),'Cash context clears incompatible card facts while preserving amount and decision ownership');
+update public.refund_wallet_correction_contexts
+set correction_recheck_state='completed'
+where token_hash=lpad('1',64,'0')
+  and correction_next_action='recheck';
+select is(
+  public.refund_customer_outreach_contract(
+    'dd000000-0000-4000-8001-000000000001'
+  ) ->> 'reasonCode',
+  'verified_form_response_applied',
+  'Completed read-only recheck retires the exact secure-form response task'
+);
+select isnt(
+  public.refund_lifecycle_contract(
+    'dd000000-0000-4000-8001-000000000001'
+  ) #>> '{nextWork,actionCode}',
+  'review_customer_reply',
+  'Completed recheck resumes the ordinary current-fact lifecycle without another reply review'
+);
 select * from finish();
 rollback;
