@@ -43,8 +43,11 @@ orientation snapshot; it is not a backlog or release ledger.
   while a direct no-Zelle statement from one exact bound message is retained as
   internal payout research evidence in the same settlement. It does not infer
   a limitation across messages, add another customer question, approve a refund,
-  or authorize payment. This remains prospective until the migration and hosted
-  replay checks pass and production readback confirms the current task advances.
+  or authorize payment. Migration `20260930020251` is deployed, and the governed
+  runner resolved the exact task while preserving the corrected amount and the
+  bound no-Zelle evidence. The current next step is internal purchase research;
+  no outbound message, decision, payment, completion, or accounting adjustment
+  was created.
 - On September 29 a governed confirmed-refund receipt reached the customer in
   the existing Gmail thread but also copied two mapped Managers because manual
   `completed` outbox rows still inherited the general Manager-copy policy. A
