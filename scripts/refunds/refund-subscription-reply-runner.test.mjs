@@ -423,6 +423,33 @@ test('exact labeled reply time is source-bound and uses only the protected time 
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
+test('approximate Eastern time is source-bound and ignores the quoted mail header', () => {
+  const quote = 'around 1pm eastern time';
+  const body = `I paid ${quote}.\n\nOn Sep 21, 2026, at 1:37 PM, Synthetic Refunds wrote:\nTime: 4:59 pm\n2026-09-21`;
+  assert.deepEqual(validateIncidentTime({ ...input, replyMessages: [{ messageId, body }] },
+    { kind: 'incident_time', messageId, quote }),
+  { evidenceMessageId: messageId, sourceQuote: quote });
+  assert.throws(() => validateIncidentTime({ ...input, replyMessages: [{ messageId, body }] },
+    { kind: 'incident_time', messageId, quote: 'Time: 4:59 pm' }),
+  /incident_time_source_not_supported/);
+});
+
+test('approximate time rejects competing clocks, negation, dates and source zones', () => {
+  const quote = 'around 1pm eastern time';
+  for (const body of [
+    `It was not ${quote}.`, `${quote} or 2pm.`, `${quote}?`,
+    `I did not pay ${quote}.`, `It wasn't ${quote}.`, `I don't think it was ${quote}.`,
+    `${quote} on 2026-09-16.`, `${quote} yesterday.`, `${quote} on September 16.`,
+    `${quote} or Pacific time.`, `${quote}\nTime: 4:59 pm`,
+  ]) assert.throws(() => validateIncidentTime({ ...input, replyMessages: [{ messageId, body }] },
+    { kind: 'incident_time', messageId, quote }), /ambiguous_incident_time_source/, body);
+  for (const quote of ['around 13pm eastern time', 'around 1:99pm eastern time', 'around 1pm',
+    'around 1pm EST', 'Time: 13:00 pm']) {
+    assert.throws(() => validateIncidentTime({ ...input, replyMessages: [{ messageId, body: quote }] },
+      { kind: 'incident_time', messageId, quote }), /incident_time_source_not_supported/, quote);
+  }
+});
+
 test('an exact already-known amount settles without a redundant fact write', async () => {
   const knownInput = { ...input, currentFacts: {
     paymentAmountCents: 1090, paymentMethod: 'card',
@@ -488,6 +515,39 @@ test('a known amount plus uncertain time starts source-bound research without a 
     })).outcome, 'resolved');
     assert.ok(calls.includes('service_complete_refund_scoped_reply_no_fact'));
     assert.ok(!calls.includes('service_apply_refund_scoped_reply_semantic_fact'));
+  } finally { fs.rmSync(statePath, { force: true }); }
+});
+
+test('a known amount plus explicit approximate Eastern time uses the existing time receipt', async () => {
+  const quote = 'around 1pm eastern time';
+  const knownInput = { ...input, currentFacts: {
+    paymentAmountCents: 1090, paymentMethod: 'card',
+  }, replyMessages: [{ messageId, body: `I paid $10.90 ${quote}.` }] };
+  const calls = [];
+  const client = { rpc: async (name, args) => {
+    calls.push(name);
+    if (name === 'service_start_refund_reply_subscription_run')
+      return { data: { outcome: 'started', runId }, error: null };
+    if (name === 'service_claim_refund_scoped_reply_reviews')
+      return { data: { tasks: [task] }, error: null };
+    if (name === 'service_get_refund_scoped_reply_research_input')
+      return { data: knownInput, error: null };
+    if (name === 'service_apply_refund_scoped_reply_incident_time') {
+      assert.equal(args.p_source_quote, quote);
+      assert.equal(args.p_evidence_message_id, messageId);
+      assert.equal(args.p_expected_fact_version, Number(task.factVersion));
+      return { data: { outcome: 'applied' }, error: null };
+    }
+    throw new Error(`unexpected RPC ${name}`);
+  } };
+  try {
+    await beginRun(client, new Date('2026-09-25T15:36:00Z'));
+    assert.equal((await submitResult(client, runId, requestId, {
+      kind: 'fact', field: 'amount', messageId, quote: 'I paid $10.90',
+    })).outcome, 'resolved');
+    assert.ok(calls.includes('service_apply_refund_scoped_reply_incident_time'));
+    assert.ok(!calls.includes('service_apply_refund_scoped_reply_semantic_fact'));
+    assert.ok(!calls.includes('service_complete_refund_scoped_reply_no_fact'));
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
