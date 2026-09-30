@@ -68,7 +68,8 @@ returns jsonb language sql stable security definer set search_path='' as $$
   from ordered;
 $$;
 
-create or replace function public.service_receive_refund_scoped_email_reply(
+-- Keep the public receiver's exact reconciliation-clarification lane intact.
+create or replace function public.service_receive_refund_reply_pre_recon_v1(
   p_refund_case_id uuid, p_gmail_message_id uuid
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare
@@ -643,7 +644,8 @@ end;
 $reply_receipt$;
 
 
-create or replace function public.refund_customer_outreach_contract(
+-- Keep the public secure-form continuation projection around this reply lane.
+create or replace function public.refund_outreach_pre_form_continuation_v1(
   p_refund_case_id uuid
 ) returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare result jsonb; ctx public.refund_wallet_correction_contexts;
