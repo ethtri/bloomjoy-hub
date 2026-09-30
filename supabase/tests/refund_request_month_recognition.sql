@@ -428,6 +428,100 @@ select results_eq($$
 $$, $$values (1800::bigint,null::bigint,null::bigint,1::bigint)$$,
   'Known and unknown same-day facts never collapse into a known-only total');
 
+insert into public.reporting_machines (
+  id, account_id, location_id, machine_label, status
+) values
+  ('fd300000-0000-4000-8000-000000000012', 'fd100000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000002', 'Provisional Nayax machine', 'active'),
+  ('fd300000-0000-4000-8000-000000000013', 'fd100000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000002', 'Missing-rate machine', 'active');
+insert into public.reporting_machine_tax_rates (
+  id, machine_id, tax_rate_percent, effective_start_date, status
+) values (
+  'fd310000-0000-4000-8000-000000000012',
+  'fd300000-0000-4000-8000-000000000012', 10, '2020-01-01', 'active'
+);
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_order_hash,
+  source_row_hash, tax_cents, raw_payload
+) values
+  ('fd600000-0000-4000-8000-000000000012', 'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002', current_date-10, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('12',16), repeat('12',32), 0, '{}'),
+  ('fd600000-0000-4000-8000-000000000013', 'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002', current_date-9, 'cash', 1100, 1, 'sunze_browser', repeat('13',16), repeat('13',32), 0, '{}'),
+  ('fd600000-0000-4000-8000-000000000014', 'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002', current_date-8, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('14',16), repeat('14',32), 0, '{"amountBasis":"tax_exclusive"}'),
+  ('fd600000-0000-4000-8000-000000000015', 'fd300000-0000-4000-8000-000000000013', 'fd200000-0000-4000-8000-000000000002', current_date-10, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('15',16), repeat('15',32), 0, '{}');
+
+select results_eq($$
+  select sales_ex_tax_cents, sales_tax_cents, normalization_status
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000012', current_date-10, current_date-10
+  ) where source='nayax_scheduled_report'
+$$, $$values (1000::bigint,100::bigint,'proved'::text)$$,
+  'Nayax customer charges provisionally remove embedded tax with the configured rate');
+select results_eq($$
+  select sales_ex_tax_cents, sales_tax_cents, normalization_status
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000012', current_date-9, current_date-9
+  ) where source='sunze_browser'
+$$, $$values (1100::bigint,0::bigint,'proved'::text)$$,
+  'Sunze cash remains tax-exclusive under the established source contract');
+select results_eq($$
+  select sales_ex_tax_cents, sales_tax_cents
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000012', current_date-8, current_date-8
+  ) where source='nayax_scheduled_report'
+$$, $$values (1100::bigint,0::bigint)$$,
+  'Explicit per-row basis overrides the provisional Nayax source default');
+select results_eq($$
+  select sales_ex_tax_cents, sales_tax_cents, unresolved_sales_count,
+    normalization_status
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000013', current_date-10, current_date-10
+  ) where source='nayax_scheduled_report'
+$$, $$values (1100::bigint,0::bigint,0::bigint,'estimated'::text)$$,
+  'A missing configured rate retains numeric display without claiming proved tax');
+select results_eq($$
+  select (value ->> 'grossSalesCents')::bigint,
+    (value ->> 'taxCents')::bigint,
+    (value ->> 'commissionableSalesCents')::bigint,
+    (value ->> 'taxRateCompleteForSales')::boolean
+  from (select private.operator_machine_tax_snapshot_shared(
+    'fd300000-0000-4000-8000-000000000013', current_date-10, current_date-10
+  ) value) snapshot
+$$, $$values (1100::bigint,0::bigint,1100::bigint,false)$$,
+  'Missing-rate shared snapshots stay numeric while retaining incomplete-tax status');
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status, correlation_source,
+  intake_source, intake_meta, customer_request_received_at,
+  customer_request_received_source
+) values (
+  'fd400000-0000-4000-8000-000000000012', 'RF-PERIOD-12',
+  'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002',
+  'hosted-email@example.invalid', 'Hosted email-context request',
+  (current_date-10)::timestamp at time zone 'America/New_York', 'card',
+  1100, 1100, 'needs_review', 'nayax', 'gmail',
+  '{"source":"hosted_refund_intake","intake_path":"email_context_form"}',
+  clock_timestamp(), 'gmail_contact_ingested'
+);
+select results_eq($$
+  select amount_basis, amount_provenance
+  from private.refund_request_recognition_events
+  where refund_case_id='fd400000-0000-4000-8000-000000000012'
+$$, $$values (
+  'tax_inclusive'::text,
+  'hosted_email_context_form_customer_charge'::text
+)$$,
+  'Exact hosted email-context form provenance stores customer-charge basis at capture');
+select is((
+  select sum(commissionable_sales_ex_tax_cents)::bigint
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000012', current_date-10, current_date+1
+  )
+  where source in ('nayax_scheduled_report','refund_request')
+), 0::bigint,
+  'A full Nayax request uses the same embedded-tax basis as its sale and nets to zero');
+
 insert into public.customer_accounts (id, name, account_type)
 values ('fd100000-0000-4000-8000-000000000011', 'Recognition deletion fixture', 'internal');
 insert into public.reporting_locations (id, account_id, name, timezone)

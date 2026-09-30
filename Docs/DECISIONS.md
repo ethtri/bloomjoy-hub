@@ -36,11 +36,14 @@ decision below.
   name location/machine scope, source surface and field, amount basis, rate,
   effective dates, and offline recovery procedure. This dependency does not add
   a global payroll gate, warning dashboard or speculative schedule change.
-- The owner authorized merging the reviewed helper, consumer bindings and
-  documentation while leaving recognition inactive. Missing #1592 finance
-  evidence blocks the later one-shot activation and affected tax-rule rollout;
-  it is not a request for another merge approval and does not justify guessing
-  a location, field, rate or effective date.
+- The owner authorized the one-shot interim activation after the reviewed
+  helper and consumers were deployed. Until #1592 supplies a named exception,
+  Nayax customer charges use the existing configured rate as embedded tax,
+  Sunze remains tax-exclusive, and explicit row metadata wins. A missing rate
+  retains numeric display with no provisional deduction, incomplete-tax status,
+  and zero commission publication. #1592 remains the targeted correction path;
+  it does not justify guessing an Oklahoma location, field, rate or effective
+  date and is not a blanket activation block.
 - The owner selected request-month recognition. A later payment changes status
   only and posts no second deduction. A later unpaid denial, withdrawal or
   request-amount change posts only the unpaid difference in that change month;
