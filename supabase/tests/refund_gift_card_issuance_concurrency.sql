@@ -44,34 +44,44 @@ begin
   end loop;
   return false;
 end $$;
+-- Preserve assertion failures while allowing the committed disposable fixture
+-- to reach cleanup even when the function under test raises a runtime error.
+create function gift_race_test.issue(p_case_id uuid) returns jsonb language plpgsql as $$
+begin
+  return public.service_issue_refund_gift_card(p_case_id);
+exception when others then
+  return jsonb_build_object('state','test_runtime_error','sqlstate',sqlstate,'error',sqlerrm);
+end $$;
 commit;
 select no_plan();
 select ok(public.refund_case_has_unresolved_reconciliation('fb760000-0000-4000-8000-000000000001'),
  'Same-email simultaneous purchases exercise the inherited inferred-duplicate boundary');
 select dblink_exec('gift_race_a','begin');
 insert into gift_race_test.results select 'first',payload from dblink('gift_race_a',
- $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
+ $$select gift_race_test.issue('fb760000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
 select dblink_send_query('gift_race_b',
- $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000002')$$);
+ $$select gift_race_test.issue('fb760000-0000-4000-8000-000000000002')$$);
 select ok(gift_race_test.wait_for_lock(),'Concurrent normalized-email requests serialize on the annual allowance');
 select dblink_exec('gift_race_a','commit');
 insert into gift_race_test.results select 'repeat',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
 select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+select diag(payload::text) from gift_race_test.results where payload->>'state'='test_runtime_error';
 select is((select payload->>'state' from gift_race_test.results where lane='first'),'issued','First concurrent request issues');
 select is((select payload->>'state' from gift_race_test.results where lane='repeat'),'manager_review','Waiting request sees committed history and requires one Manager decision');
 select is((select count(*) from public.refund_gift_card_issuances where pool_id='fb750000-0000-4000-8000-000000000001'),1::bigint,'Same-email race produces exactly one issuance');
 select dblink_exec('gift_race_a','begin');
 insert into gift_race_test.results select 'stock_winner',payload from dblink('gift_race_a',
- $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000003')$$) as r(payload jsonb);
+ $$select gift_race_test.issue('fb760000-0000-4000-8000-000000000003')$$) as r(payload jsonb);
 insert into gift_race_test.results select 'stock_wait',payload from dblink('gift_race_b',
- $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000004')$$) as r(payload jsonb);
+ $$select gift_race_test.issue('fb760000-0000-4000-8000-000000000004')$$) as r(payload jsonb);
 select is((select payload->>'state' from gift_race_test.results where lane='stock_wait'),'pending_inventory','Locked final code is never assigned to two cases');
 select dblink_send_query('gift_race_b',
- $$select public.service_issue_refund_gift_card('fb760000-0000-4000-8000-000000000003')$$);
+ $$select gift_race_test.issue('fb760000-0000-4000-8000-000000000003')$$);
 select ok(gift_race_test.wait_for_lock(),'Same-case replay waits for the original allocation transaction');
 select dblink_exec('gift_race_a','commit');
 insert into gift_race_test.results select 'replay',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
 select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+select diag(payload::text) from gift_race_test.results where payload->>'state'='test_runtime_error';
 select is((select payload->>'state' from gift_race_test.results where lane='replay'),'issued','Replay returns the committed issuance');
 select is((select count(distinct code_id) from public.refund_gift_card_issuances where pool_id='fb750000-0000-4000-8000-000000000001'),2::bigint,'Two actual allocations preserve unique codes');
 select is((select count(*) from public.refund_case_messages where refund_case_id in
