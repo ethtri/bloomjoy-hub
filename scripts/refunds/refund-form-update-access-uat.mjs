@@ -10,11 +10,13 @@ const original='a'.repeat(43), child='b'.repeat(43);
 let scenarios=0;
 try {
   for (const width of [1280,390]) {
-    for (const mode of ['submitted','expired','revoked']) {
+    for (const mode of ['submitted','expired','revoked','superseded-during-renewal']) {
       const context=await browser.newContext({viewport:{width,height:900}});
       const page=await context.newPage(); const requests=[];const errors=[];
       page.on('pageerror',error=>errors.push(error.message));
       let renewed=false, saved=false, failedOnce=false;
+      let releaseRenew;
+      const renewalBarrier=new Promise(resolve=>{releaseRenew=resolve;});
       const receipt={state:'received',publicReference:'RF-SYNTHETIC',locale:'en',nextAction:'review',canRenew:true};
       const ready={state:'ready',publicReference:'RF-SYNTHETIC',locale:'en',version:4,
         requestedFields:mode==='submitted'?['incident_time','incident_time_source']:[],
@@ -27,9 +29,10 @@ try {
         const body=route.request().postDataJSON();requests.push(body);
         let json;
         if(body.action==='inspectPurchaseCorrection') {
-          json={correction:saved?{...receipt,canRenew:false}:renewed?ready:mode==='submitted'?receipt:{state:'unavailable',canRenew:mode==='expired'}};
+          json={correction:body.token==='c'.repeat(43)?{state:'unavailable'}:saved?{...receipt,canRenew:false}:renewed?ready:mode==='submitted'?receipt:{state:'unavailable',canRenew:mode!=='revoked'}};
         } else if(body.action==='renewPurchaseCorrection') {
           assert.equal(body.token,original);assert.deepEqual(Object.keys(body).sort(),['action','token']);
+          if(mode==='superseded-during-renewal') await renewalBarrier;
           if(mode==='expired'&&!failedOnce) {failedOnce=true;return route.fulfill({status:503,json:{errorCode:'correction_temporarily_unavailable'}});}
           renewed=true;json={token:child,correction:ready};
         } else if(body.action==='submitPurchaseCorrection') {
@@ -46,7 +49,17 @@ try {
         return route.fulfill({status:200,json});
       });
       await page.goto(`${base}/refunds/correct#token=${original}`);
-      if(mode==='revoked') {
+      if(mode==='superseded-during-renewal') {
+        await page.getByRole('button',{name:'Update your request',exact:true}).click();
+        await page.waitForFunction(()=>document.querySelector('button')?.textContent==='Opening update…');
+        await page.evaluate(()=>{window.location.hash=`token=${'c'.repeat(43)}`;});
+        await page.waitForFunction(()=>sessionStorage.getItem('bloomjoy-refund-correction-v1')==='c'.repeat(43));
+        const completed=page.waitForResponse(response=>response.url().includes('/functions/v1/refund-case-intake')&&response.request().postDataJSON()?.action==='renewPurchaseCorrection');
+        releaseRenew();await completed;await page.waitForTimeout(100);
+        assert.equal(await page.locator('form').count(),0);
+        assert.equal(await page.getByRole('button',{name:'Update your request',exact:true}).count(),0);
+        assert.equal(await page.evaluate(()=>sessionStorage.getItem('bloomjoy-refund-correction-v1')),'c'.repeat(43));
+      } else if(mode==='revoked') {
         await page.getByRole('heading',{name:'This link is no longer available.'}).waitFor();
         assert.equal(await page.getByRole('button',{name:'Update your request',exact:true}).count(),0);
         assert(page.url().includes('/refunds/correct'));assert.equal(requests.length,1);

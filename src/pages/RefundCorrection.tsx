@@ -50,6 +50,8 @@ const demoContext = (search: string): CorrectionContext => {
 export default function RefundCorrectionPage() {
   const location = useLocation();
   const [token, setToken] = useState(initialToken);
+  const currentToken = useRef(token);
+  currentToken.current = token;
   const demo = isLocalUatDemoForced();
   const [answers, setAnswers] = useState<CorrectionAnswers>({});
   const [reviewOthers, setReviewOthers] = useState(false);
@@ -89,7 +91,7 @@ export default function RefundCorrectionPage() {
     return () => meta.remove();
   }, [token]);
   useEffect(() => {
-    const openLink = () => { setToken(initialToken()); setAnswers({}); setReviewOthers(false); setReceived(null); setRenewed(null); setUnavailable(false); setError(''); };
+    const openLink = () => { const nextToken = initialToken(); currentToken.current = nextToken; setToken(nextToken); setAnswers({}); setReviewOthers(false); setReceived(null); setRenewed(null); setUnavailable(false); setSaving(false); setError(''); };
     window.addEventListener('hashchange', openLink);
     return () => window.removeEventListener('hashchange', openLink);
   }, []);
@@ -118,15 +120,19 @@ export default function RefundCorrectionPage() {
     (!cash || !['payment_interaction','card_last4','card_last4_source','card_network','wallet_provider','wallet_device_kind'].includes(field)) &&
     (wallet || !['wallet_provider','wallet_device_kind'].includes(field))));
   const renew = async () => {
+    const sourceToken = token;
+    let renewedToken: string | undefined;
     setSaving(true); setError('');
     try {
       const result = await invokeRefundCorrection<{ correction: CorrectionContext; token: string }>({ action: 'renewPurchaseCorrection', token });
+      if (currentToken.current !== sourceToken) return;
       if (!isCorrectionToken(result.token) || !['ready','received'].includes(result.correction?.state)) throw new Error('Update not confirmed');
-      setToken(result.token); setRenewed(result.correction); setReceived(result.correction.state === 'received' ? result.correction : null);
+      renewedToken = result.token;
+      currentToken.current = result.token; setToken(result.token); setRenewed(result.correction); setReceived(result.correction.state === 'received' ? result.correction : null);
       setAnswers({}); setUnavailable(false); setReviewOthers(!result.correction.requestedFields?.length);
     } catch {
-      setError(copy('We couldn’t open a fresh update. Your saved response is unchanged. Try again, or use the latest Bloomjoy email for help with this same request.', 'No pudimos abrir una actualización. Su respuesta guardada no cambió. Inténtelo de nuevo o use el último correo de Bloomjoy para recibir ayuda con esta misma solicitud.'));
-    } finally { setSaving(false); }
+      if (currentToken.current === sourceToken) setError(copy('We couldn’t open a fresh update. Your saved response is unchanged. Try again, or use the latest Bloomjoy email for help with this same request.', 'No pudimos abrir una actualización. Su respuesta guardada no cambió. Inténtelo de nuevo o use el último correo de Bloomjoy para recibir ayuda con esta misma solicitud.'));
+    } finally { if (currentToken.current === sourceToken || currentToken.current === renewedToken) setSaving(false); }
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
