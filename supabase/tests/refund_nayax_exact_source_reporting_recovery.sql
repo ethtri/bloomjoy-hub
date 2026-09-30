@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(40);
+select plan(42);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -372,8 +372,27 @@ select is((select count(*) from public.sales_adjustment_facts where refund_case_
  'failed proof paths leave no adjustment');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id='b7470000-0000-4000-8000-000000000001'),0::bigint,
  'failed proof paths leave no receipt');
+-- A previously imported source row cannot be reassigned or silently repriced.
+set local session_replication_role=replica;
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,
+ adjustment_date,adjustment_type,amount_cents,complaint_count,source,source_row_hash,
+ source_reference,source_row_reference,refund_case_id,match_status,match_confidence,raw_payload)
+values('b7440000-0000-4000-8000-000000000001','b7430000-0000-4000-8000-000000000001',
+ '2026-09-12','refund',1,1,'refund_case','b7470000-0000-4000-8000-000000000001',
+ 'refund_cases','RF-SINGLE-GATE','b7470000-0000-4000-8000-000000000001','unmatched',0,'{}');
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal(
+ 'b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),
+ '^P4670:','conflicting same-source reporting amount is never overwritten');
+set local session_replication_role=replica;
+delete from public.sales_adjustment_facts where source='refund_case'
+ and source_reference='refund_cases' and source_row_reference='RF-SINGLE-GATE';
+set local session_replication_role=origin;
+select set_config('bloomjoy.nayax_settlement_attempt_id','b7470000-0000-4000-8000-000000000099',true);
 create temp table recovery_result as select public.service_reconcile_proved_nayax_api_terminal(
  'b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result)) result;
+select is(current_setting('bloomjoy.nayax_settlement_attempt_id',true),
+ 'b7470000-0000-4000-8000-000000000099','reconciliation restores the prior internal authority marker');
 select is((select result->>'status' from recovery_result),'receipt_recorded','stored exact success repairs local reporting');
 select ok((select result->>'providerCallMade'='false' and result->>'customerMessageCreated'='false'
  and result->>'customerMessageSent'='false' from recovery_result),'receipt repair explicitly makes no provider call or customer message');
