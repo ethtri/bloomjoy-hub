@@ -199,16 +199,94 @@ $$, $$values (null::date,500::bigint)$$,
 
 select results_eq($$
   select (value ->> 'refundAdjustmentCents')::bigint,
+    (value ->> 'legacyPaidDeductionCents')::bigint
+  from (select private.operator_machine_tax_snapshot(
+    'ca300000-0000-4000-8000-000000000001', current_date-2, current_date-2
+  ) value) result
+$$, $$values (500::bigint,500::bigint)$$,
+  'Machine reporting retains the null-date legacy paid deduction');
+
+select results_eq($$
+  select (value ->> 'refundAdjustmentCents')::bigint,
     (value ->> 'commissionEarningsCents')::bigint,
     (value ->> 'commissionRateCompleteForPeriod')::boolean,
-    (value ->> 'commissionAllocationResolved')::boolean
+    (value ->> 'commissionAllocationResolved')::boolean,
+    jsonb_array_length(value -> 'segments')
   from (select private.operator_machine_tax_commission(
     'ca100000-0000-4000-8000-000000000001',
     'ca610000-0000-4000-8000-000000000001',
     'ca300000-0000-4000-8000-000000000001', current_date-2, current_date-2
   ) value) result
-$$, $$values (500::bigint,0::bigint,true,false)$$,
-  'Unknown original scope keeps legacy impact visible with only the allocation blocker');
+$$, $$values (0::bigint,0::bigint,true,true,0)$$,
+  'Null-date legacy paid impact is absent from assigned Technician commission');
+
+select results_eq($$
+  select (value ->> 'grossSalesCents')::bigint,
+    (value ->> 'refundAdjustmentCents')::bigint,
+    (value ->> 'commissionableSalesCents')::bigint,
+    (value ->> 'commissionEarningsCents')::bigint,
+    (value ->> 'commissionAllocationResolved')::boolean,
+    count(*) filter (where segment.value ->> 'purchaseAttributionDate' is null)::integer
+  from (select private.operator_machine_tax_commission(
+    'ca100000-0000-4000-8000-000000000001',
+    'ca610000-0000-4000-8000-000000000001',
+    'ca300000-0000-4000-8000-000000000001', current_date-2, current_date
+  ) value) result
+  cross join lateral jsonb_array_elements(result.value -> 'segments') segment(value)
+  group by result.value
+$$, $$values (12000::bigint,1000::bigint,11000::bigint,1100::bigint,true,0)$$,
+  'Assigned sale and dated request earn commission without the null-date legacy adjustment');
+
+select is((
+  select count(*)::integer
+  from jsonb_array_elements(private.calculate_technician_pay_report(
+    'ca100000-0000-4000-8000-000000000001',
+    'ca610000-0000-4000-8000-000000000001',
+    date_trunc('month', current_date)::date,
+    (date_trunc('month', current_date) + interval '1 month - 1 day')::date
+  ) -> 'blockers') blocker(value)
+  where blocker.value ->> 'code' = 'cross_rate_refund_allocation_ambiguous'
+), 0, 'Null-date adjustment does not create a Technician publication blocker');
+
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  raw_payload, created_at
+)
+select
+  'ca800000-0000-4000-8000-000000000004',
+  'ca300000-0000-4000-8000-000000000004',
+  'ca200000-0000-4000-8000-000000000001',
+  current_date-2, 'refund', 300, 1, 'manual', repeat('b',64),
+  '{"payment_method":"card","amountBasis":"tax_exclusive"}',
+  rollout.activated_at - interval '1 second'
+from private.refund_request_recognition_rollout rollout
+where rollout.singleton;
+
+select results_eq($$
+  select (snapshot ->> 'legacyPaidDeductionCents')::bigint,
+    (commission ->> 'legacyPaidDeductionCents')::bigint,
+    (commission ->> 'commissionEarningsCents')::bigint,
+    (commission ->> 'taxRateCompleteForSales')::boolean,
+    (commission ->> 'commissionAllocationResolved')::boolean,
+    count(*) filter (where segment.value ->> 'purchaseAttributionDate' is null)::integer
+  from (select
+    private.operator_machine_tax_snapshot(
+      'ca300000-0000-4000-8000-000000000004', current_date-2, current_date
+    ) snapshot,
+    private.operator_machine_tax_commission(
+      'ca100000-0000-4000-8000-000000000001',
+      'ca610000-0000-4000-8000-000000000001',
+      'ca300000-0000-4000-8000-000000000004', current_date-2, current_date
+    ) commission
+  ) calculation
+  cross join lateral jsonb_array_elements(calculation.commission -> 'segments') segment(value)
+  group by calculation.snapshot,calculation.commission
+$$, $$values (300::bigint,0::bigint,0::bigint,false,true,0)$$,
+  'Null-date adjustment stays out of incomplete-tax Technician scope without hiding the tax blocker');
+
+delete from public.sales_adjustment_facts
+where id='ca800000-0000-4000-8000-000000000004';
 
 select results_eq($$
   select (preview #>> '{summary,refund_amount_cents}')::bigint,
@@ -421,8 +499,8 @@ select results_eq($$
     'ca610000-0000-4000-8000-000000000001',
     'ca300000-0000-4000-8000-000000000001', current_date, current_date
   ) value) result
-$$, $$values (1700::bigint,1100::bigint,true)$$,
-  'Unlinked post-cutover paid context stays visible without blocking commission');
+$$, $$values (1000::bigint,1100::bigint,true)$$,
+  'Unlinked post-cutover paid context remains in reporting but outside Technician commission');
 
 select is((
   select count(*)::integer
