@@ -177,28 +177,28 @@ select set_config('request.jwt.claim.sub','',true);
 insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,incident_timezone,incident_time_resolution,payment_method,
  payment_amount_cents,refund_amount_cents,status,correlation_status,correlation_source,intake_source)
-values('dd000000-0000-4000-8001-000000000013','dd000000-0000-4000-8000-000000000003',
- 'dd000000-0000-4000-8000-000000000002','scope-customer-13@example.invalid',
+values('dd000000-0000-4000-8001-000000000015','dd000000-0000-4000-8000-000000000003',
+ 'dd000000-0000-4000-8000-000000000002','scope-customer-15@example.invalid',
  'Undecided cash correction fixture',statement_timestamp()-interval '2 hours',
  'America/Los_Angeles','exact','cash',700,700,'needs_review','manual_review','manual','form');
 create temp table undecided_cash_message as select public.service_enqueue_refund_manual_message_intent(
- 'dd000000-0000-4000-8001-000000000013',(select official_action_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000013'),
- gen_random_uuid(),'dd000000-0000-4000-8000-000000000004','more_info','scope-customer-13@example.invalid','One destination detail','Reply with your Zelle email or phone.',
+ 'dd000000-0000-4000-8001-000000000015',(select official_action_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'),
+ gen_random_uuid(),'dd000000-0000-4000-8000-000000000004','more_info','scope-customer-15@example.invalid','One destination detail','Reply with your Zelle email or phone.',
  'refund_more_info_editable_v1','manager_authored','missing_information',array['zelle_payment_contact'],null,false,null) as value;
-select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from undecided_cash_message),lpad('d',64,'0'),
- (select deterministic_fact_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000013'));
+select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from undecided_cash_message),lpad('f',64,'0'),
+ (select deterministic_fact_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'));
 create temp table undecided_cash_claim as select * from public.service_claim_refund_manual_message_deliveries((select(value->>'messageId')::uuid from undecided_cash_message),1);
 select public.service_mark_refund_manual_message_provider_attempt((select refund_case_message_id from undecided_cash_claim),(select claim_token from undecided_cash_claim));
 select public.service_finish_refund_manual_message_delivery((select refund_case_message_id from undecided_cash_claim),(select claim_token from undecided_cash_claim),'sent','gmail_thread',null,1,'mapped_manager');
-select lives_ok($$select pg_temp.submit(13,'{"zelle_payment_contact":{"disposition":"changed","value":"undecided@example.invalid"}}')$$,
+select lives_ok($$select pg_temp.submit(15,'{"zelle_payment_contact":{"disposition":"changed","value":"undecided@example.invalid"}}')$$,
  'Undecided cash destination still uses the existing internal-review path');
 select ok((select status='needs_review' and automation_state='customer_replied'
     and decision is null and zelle_payment_contact='undecided@example.invalid'
     and refund_completed_at is null from public.refund_cases
-    where id='dd000000-0000-4000-8001-000000000013')
+    where id='dd000000-0000-4000-8001-000000000015')
   and (select status='manual_review' and satisfied_by_correction_context_id is null
     and satisfied_at is null from public.refund_payout_destination_follow_ups
-    where refund_case_id='dd000000-0000-4000-8001-000000000013'),
+    where refund_case_id='dd000000-0000-4000-8001-000000000015'),
  'Undecided cash response cannot enter the protected Manager cash-confirmation state');
 select pg_temp.make_scope(12,true);
 select is((select correction_requested_fields from public.refund_wallet_correction_contexts where token_hash=lpad('c',64,'0')),array['card_last4']::text[],'Fixture requests missing card digits before payment context changes');
