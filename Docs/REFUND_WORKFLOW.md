@@ -1,6 +1,10 @@
 # Refund workflow
 
-Last updated: 2026-09-14. Owner decision: #1364.
+Last updated: 2026-09-30. Owner decisions: #1364, #628 and #1361.
+
+This is the single product requirements source for refunds. The September 30
+form-first decision below governs new work; implementation gaps are tracked in
+GitHub and summarized in `CURRENT_STATUS.md`, not assumed complete by this doc.
 
 ## What we are doing
 
@@ -10,8 +14,12 @@ authoritative limit that refund totals cannot exceed the original purchase.
 
 The ordinary flow is:
 
-1. The customer reports the problem once and receives a prompt, friendly
-   acknowledgement.
+1. The customer reports the problem once through the intake form and receives a
+   prompt, friendly acknowledgement. A genuine new refund or product-problem
+   inquiry to `info@bloomjoysweets.com` receives one reply in its original thread
+   linking to `https://app.bloomjoyusa.com/refunds/request`; the case is created
+   only when that form is submitted. Unrelated, vendor and marketing mail gets no
+   refund response. An existing-case email stays with that case, with no new intake.
 2. The System searches Bloomjoy and provider records and explains the best
    transaction match.
 3. The Manager makes one final decision. The Manager may choose a different
@@ -143,21 +151,80 @@ or equivalent status.
 Future payout automation may replace the manual Zelle step without changing the
 one-decision experience.
 
+## Customer forms and notifications
+
+Structured updates to the same case are the normal correction path. After
+internal research establishes that a customer fact is needed, the email names
+exactly which human-readable field or fields to check or update, briefly says
+why, and provides an **Update your request** link. Use the same field labels in
+the email and form; highlight those requested fields and retain prior answers.
+A generic "more information needed" alert does not satisfy this requirement.
+
+Illustrative notification text (not a sent email): "Please check **Approximate
+purchase time** and **How you found the time** so we can distinguish the possible
+purchases at this machine. Your earlier answers are saved. **Update your request**."
+The link opens only those targeted checks on the existing request, with other
+saved details available for review, rather than a blank new request.
+
+Validate structured values and their dependencies, preserve uncertainty and the
+original facts not changed by the customer, then save atomically to the current
+case and trigger the existing automatic purchase recheck. Saving is not a refund
+decision or payment. Derive local purchase time from the venue's canonical IANA
+timezone; customers need not select a technical timezone. Correct bad machine,
+location, provider, or timezone mappings internally.
+
+If the old link is submitted, expired, or superseded, provide fresh targeted
+update access for that same case when a genuine correction is needed. Preserve
+prior answers and request history; do not create another case, reopen an old
+capability blindly, or build an endless cycle of requests. A useful reply or
+saved update is not treated as silence for the follow-up or 30-day rule.
+
+Routine free-text email fact extraction and LLM interpretation are not part of
+the normal correction path. Preserve emails as case history and support assisted
+exceptions for customers who cannot use the form. Review already-supplied facts
+before handling such an exception; the backlog must not make customers repeat
+them. Assisted handling does not authorize guessing, a Manager decision, payment,
+or another routine customer question.
+
 ## Customer clarification and closure
 
 Ask the customer only after useful case history, portal, Nayax, Sunze, and
 existing-conversation research is exhausted.
 
-- Ask one targeted question for the specific fact needed to distinguish the
-  purchase or obtain the Zelle destination.
+- Ask one targeted question through the field-specific notification and
+  same-case update form for the fact needed to distinguish the purchase or obtain
+  the Zelle destination.
 - Do not make the customer restart the request, repeat settled information, or
   troubleshoot Bloomjoy's systems.
 - If the customer does not respond, send one follow-up in the same conversation.
 - Do not create repeated reminder loops.
-- A reply updates the same case and restarts matching automatically.
+- A validated form update saves to the same case and restarts matching
+  automatically. An email reply is retained for assisted handling, not silently
+  interpreted as a routine structured correction.
 - After 30 days without useful input, prepare a reject recommendation for the
   Manager. The Manager makes the final decision; the unattended case worker
   does not close or deny the request automatically.
+
+## Acceptance criteria
+
+- A genuine new refund/product-problem inquiry to Info gets one original-thread
+  reply with the intake link and no case before submission. Unrelated/vendor/
+  marketing mail gets no refund response; replay and existing-case replies create
+  no duplicate case or new intake.
+- A notification names the exact fields and brief reason, and its **Update your
+  request** link opens the same labels, highlighted checks and saved prior answers.
+- Invalid or stale updates do not overwrite current facts. A valid update saves
+  once on the original case, preserves approximation/date context and triggers
+  automatic recheck without another question, decision or payment.
+- A submitted/expired link has a supported fresh same-case update path; supplied
+  facts and useful replies are not lost or counted as non-response. No routine
+  email parser or LLM is required, and assisted exceptions retain their history.
+- System/provider/mapping defects stay internal. One targeted question, at most
+  one non-response follow-up, and a 30-day Manager reject recommendation remain.
+- The four customer-case views remain **Decision needed**, **Waiting on customer**,
+  **All active**, and **All closed**. The currently assigned Machine Manager
+  or Super-admin makes the final decision; selected card totals, cash sent confirmation, timezone handling and
+  unknown-result reconciliation retain the rules above.
 
 ## What not to add
 

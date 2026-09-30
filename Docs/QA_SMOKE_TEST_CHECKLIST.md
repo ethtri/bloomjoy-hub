@@ -19,7 +19,22 @@ historical fixtures cannot add product gates that the workflow does not contain.
   correctly scoped messages, and an unmapped admin gets none. Reassignment or
   changed case facts before provider start cancels a stale prepared message.
   An unknown provider outcome is held for reconciliation without a blind retry.
-- [ ] Intake records one case and sends one prompt, friendly acknowledgement.
+- [ ] Form-first acceptance (#628/#1361; implementation gaps are not implied
+  complete by this checklist): only a genuine new refund/product-problem inquiry
+  to Info gets one original-thread intake-link reply and no case before form
+  submission; replay creates no duplicate. Unrelated/vendor/marketing mail gets
+  no refund response, and existing-case replies get no new intake.
+- [ ] A targeted correction notification names exactly the human-readable fields
+  and brief reason and includes **Update your request**. Its same-case form uses
+  those labels, highlights the requested checks and shows saved prior answers.
+- [ ] Invalid/stale corrections change no facts; a valid structured update saves
+  once to the current case and automatically rechecks the purchase. Rough time
+  stays approximate, venue timezone is derived internally, and a mapping/provider
+  defect creates no customer homework, decision or payment.
+- [ ] A submitted/expired link has fresh targeted same-case update access; it
+  creates no new case or repeated request for settled facts. Preserved useful
+  email replies/assisted exceptions are not treated as silence or dependent on
+  routine free-text extraction/LLM interpretation.
 - [ ] Card matching compares the exact machine and timezone-normalized time, uses
   comparable card details when available, treats contactless digit differences
   according to provenance, and keeps the customer's amount advisory.
@@ -79,7 +94,8 @@ historical fixtures cannot add product gates that the workflow does not contain.
   or execute the server-owned matching RPC.
 - [ ] Customer clarification appears only after internal research is exhausted,
   asks one targeted question in the existing case, sends one follow-up only when
-  there is no reply, applies replies to the same case, and prepares a Manager
+  there is no useful reply/update, saves structured updates to the same case,
+  and prepares a Manager
   reject recommendation after 30 days without useful input. The unattended
   worker never closes or denies the case.
 - [ ] A clarification or payout-destination request sends only to the customer
@@ -97,6 +113,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
   message, or send evidence remains open Agent purchase research. It does not
   imply a customer question exists or offer a resend. Stale facts and any
   saved question stay on their actual workflow paths; the cycle is not changed.
+Existing assisted email compatibility checks below preserve prior implementation
+and receipts; they do not prescribe the normal correction path or authorize
+expanding email parsing. Form-first acceptance above governs new work.
+
 - [ ] A verified customer email reply with corrected Card type or
   wallet/device-token last-four provenance updates the same case and restarts
   matching without creating a duplicate request.

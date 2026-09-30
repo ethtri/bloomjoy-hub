@@ -49,6 +49,14 @@ machine or is a Super-admin. If an assigned Manager cannot act, treat that as a
 portal or machine-assignment defect; do not add a new approval step or tell the
 Manager to obtain another kind of access.
 
+Before case work or implementation, read the current workflow and this procedure
+from a checkout synced with `main`. A stale branch, saved prompt, historical test
+or handoff must not override the latest owner decision. Only genuine new refund/
+product-problem inquiries to `info@bloomjoysweets.com` get one original-thread
+reply linking to `https://app.bloomjoyusa.com/refunds/request`; a case begins on
+submission. Unrelated/vendor/marketing mail gets no refund response, and existing
+cases stay in their conversation without another intake.
+
 ## 1. Open the case
 
 Use the `bloomjoysweets.com` Chrome profile, signed in as
@@ -138,8 +146,10 @@ Only when the research above cannot distinguish the purchase or obtain a cash
 payout destination:
 
 1. Use the supported same-case clarification action and its approved template to
-   ask one friendly, targeted question for the exact missing fact in the existing
-   conversation. Do not compose a parallel message outside the workflow.
+   name the exact form field(s), briefly explain why they need checking, and
+   include **Update your request** for the existing case. Match the form labels
+   and highlighted fields, preserving earlier answers. Do not compose a parallel
+   message outside the workflow.
 2. Do not repeat information already requested, supplied, queued, or under
    delivery review.
 3. Never request a full card number, CVV, expiration date, PIN, password, bank
@@ -151,7 +161,14 @@ payout destination:
    clarification messages.
 5. If the customer does not reply, send one follow-up in the same conversation.
    Do not create another reminder cycle.
-6. A reply updates this case and restarts matching; never require a new form.
+6. A validated structured form update saves to this case and restarts automatic
+   matching. If the old link was submitted or expired, use fresh targeted update
+   access to the same case, not another intake or repeated settled question.
+   Preserve email replies and already-supplied facts for assisted exceptions; do
+   not routinely extract free-text facts or use an LLM to update the case. A useful
+   reply is not silence. If the supported update path is unavailable, record the
+   System defect and continue safe research rather than inventing a parser or
+   asking for the same facts again.
 7. After 30 days without useful input, prepare the reject recommendation for
    the Manager. Do not close or deny the request automatically.
 
