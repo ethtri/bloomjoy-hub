@@ -8,14 +8,18 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- On September 30 the primary database scheduler missed one health dispatch and
-  one refund sweep because pg_net reused transport request identifiers that the
+- On September 30 the primary database scheduler missed two health dispatches
+  and one refund sweep because pg_net reused transport request identifiers that the
   durable dispatch ledger incorrectly required to be globally unique. The
   failed transactions rolled back both their ledger rows and queued HTTP
   requests, so no unknown provider or customer effect escaped and the missed
   sweep must not be blindly replayed. The repair keeps `run_key` and
   `(mode, bucket_at)` as the stable dispatch identities while retaining the
   reusable pg_net request identifier as diagnostic evidence.
+  Existing incident tables did not surface these rolled-back cron failures;
+  closing that visibility gap remains separate work. A natural primary health
+  and sweep after deployment are still required to prove recovery; the pre-fix
+  03:07 sweep succeeding with a fresh identifier is not repair evidence.
 - The cross-case Nayax card blocker is removed: another refund case's
   reference to the same purchase is audit context rather than a payment veto.
   Nayax owns the original-purchase total limit; same-case replay protection,
