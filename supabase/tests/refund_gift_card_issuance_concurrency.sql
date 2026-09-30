@@ -74,6 +74,10 @@ select is((select payload->>'state' from gift_race_test.results where lane='repl
 select is((select count(distinct code_id) from public.refund_gift_card_issuances where pool_id='fb750000-0000-4000-8000-000000000001'),2::bigint,'Two actual allocations preserve unique codes');
 select is((select count(*) from public.refund_case_messages where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%')),2::bigint,'Concurrent replays create one outbox intent per issuance');
+update public.refund_cases set duplicate_of_refund_case_id='fb760000-0000-4000-8000-000000000003'
+ where id='fb760000-0000-4000-8000-000000000004';
+select lives_ok($$select public.service_resume_refund_gift_card_cases()$$,
+ 'An unissued duplicate cannot poison the automatic stock-resume sweep');
 select dblink_disconnect('gift_race_a');
 select dblink_disconnect('gift_race_b');
 begin;
