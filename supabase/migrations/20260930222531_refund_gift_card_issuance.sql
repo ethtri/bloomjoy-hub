@@ -130,6 +130,27 @@ returns boolean language sql stable security definer set search_path='' as $$
     where p.enabled and p_machine_id=any(p.eligible_machine_ids));
 $$;
 
+-- Existing catalog advertises activation; old deployments omit this column.
+-- Pools start disabled, so schema deployment alone never activates the offer.
+alter function public.public_refund_selections_v2() rename to public_refund_selections_pre_gift_card;
+revoke all on function public.public_refund_selections_pre_gift_card() from public,anon,authenticated,service_role;
+create function public.public_refund_selections_v2()
+returns table(selection_key text,display_label text,selection_kind text,location_timezone text,
+  machine_id uuid,cash_machine_options jsonb,gift_card_enabled boolean)
+language sql stable security definer set search_path='' as $$
+  select selection.selection_key,selection.display_label,selection.selection_kind,selection.location_timezone,
+    selection.machine_id,
+    coalesce((select jsonb_agg(option.value||jsonb_build_object('giftCardEnabled',
+      public.service_refund_gift_card_enabled((option.value->>'machineId')::uuid)) order by option.ordinality)
+      from jsonb_array_elements(selection.cash_machine_options) with ordinality option),'[]'::jsonb),
+    case when selection.machine_id is not null then public.service_refund_gift_card_enabled(selection.machine_id)
+      else exists(select 1 from jsonb_array_elements(selection.cash_machine_options) option
+        where public.service_refund_gift_card_enabled((option->>'machineId')::uuid)) end
+  from public.public_refund_selections_pre_gift_card() selection;
+$$;
+revoke all on function public.public_refund_selections_v2() from public;
+grant execute on function public.public_refund_selections_v2() to anon,authenticated;
+
 create function public.refund_gift_card_case_projection(p_case_id uuid)
 returns jsonb language sql stable security definer set search_path='' as $$
   select jsonb_build_object('state',c.gift_card_state,'value',c.gift_card_value_cents,
