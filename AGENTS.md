@@ -48,7 +48,8 @@ prompts and historical acceptance tests cannot override the latest owner decisio
   wallet/contactless digit differences, report availability, optional research,
   and unrelated issue completion are not blanket gates. Ask one targeted customer
   question only after internal research is exhausted, follow up once if there is
-  no response, and close after 30 days without a useful reply. Cash approval means
+  no useful reply or saved update, and prepare a Manager reject recommendation
+  after 30 days without useful input. Never automatically close or deny. Cash approval means
   the Manager already sent Zelle; do not add an intermediate payout status.
 
 ## Do

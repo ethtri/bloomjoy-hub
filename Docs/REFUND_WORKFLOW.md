@@ -168,7 +168,11 @@ saved details available for review, rather than a blank new request.
 
 Validate structured values and their dependencies, preserve uncertainty and the
 original facts not changed by the customer, then save atomically to the current
-case and trigger the existing automatic purchase recheck. Saving is not a refund
+case and trigger the existing automatic purchase recheck. Retire recommendations
+or selections made stale by changed purchase-matching facts before that recheck;
+unrelated contact or payout-destination changes do not discard valid purchase
+evidence. Preserve existing approved-payment and unknown-outcome protections.
+Saving is not a refund
 decision or payment. Derive local purchase time from the venue's canonical IANA
 timezone; customers need not select a technical timezone. Correct bad machine,
 location, provider, or timezone mappings internally.
@@ -196,7 +200,8 @@ existing-conversation research is exhausted.
   the Zelle destination.
 - Do not make the customer restart the request, repeat settled information, or
   troubleshoot Bloomjoy's systems.
-- If the customer does not respond, send one follow-up in the same conversation.
+- If there is no useful reply or saved update, send one follow-up in the same
+  conversation.
 - Do not create repeated reminder loops.
 - A validated form update saves to the same case and restarts matching
   automatically. An email reply is retained for assisted handling, not silently
@@ -215,7 +220,9 @@ existing-conversation research is exhausted.
   request** link opens the same labels, highlighted checks and saved prior answers.
 - Invalid or stale updates do not overwrite current facts. A valid update saves
   once on the original case, preserves approximation/date context and triggers
-  automatic recheck without another question, decision or payment.
+  automatic recheck without another question, decision or payment. Changed
+  matching facts retire only the purchase evidence they make stale; unrelated
+  contact changes and existing approved/unknown-payment boundaries are preserved.
 - A submitted/expired link has a supported fresh same-case update path; supplied
   facts and useful replies are not lost or counted as non-response. No routine
   email parser or LLM is required, and assisted exceptions retain their history.

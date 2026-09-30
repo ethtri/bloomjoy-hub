@@ -159,7 +159,8 @@ payout destination:
    visible in the portal before recording the case as waiting. Manager alerts
    and digests are for decision-needed work; do not routinely copy Managers on
    clarification messages.
-5. If the customer does not reply, send one follow-up in the same conversation.
+5. If there is no useful reply or saved update, send one follow-up in the same
+   conversation.
    Do not create another reminder cycle.
 6. A validated structured form update saves to this case and restarts automatic
    matching. If the old link was submitted or expired, use fresh targeted update
