@@ -90,5 +90,41 @@ select throws_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-40
  'fc770000-0000-4000-8000-000000000002')$$,'P4672',null,'Unknown delivery cannot blindly create another send');
 select ok(strpos(pg_get_functiondef('public.refund_completion_outbox_postcommit_wakeup()'::regprocedure),'refund_gift_card_v1')>0,
  'Immediate postcommit wakeup includes the same immutable gift message');
+-- Seed an immutable historical receipt as the disposable database owner. This
+-- exercises the actual eligibility query against the leap-day anniversary.
+update public.refund_gift_card_pools set enabled=false where id='fc750000-0000-4000-8000-000000000001';
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+ resolution_method,gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state)
+ values('fc760000-0000-4000-8000-000000000003','RF-GIFT-LEAP','fc740000-0000-4000-8000-000000000001',
+ 'fc730000-0000-4000-8000-000000000001','gift-leap@example.invalid','Historical synthetic leap-day receipt',
+ '2024-02-29T12:00:00Z','cash',1500,1500,'gift_card','fc750000-0000-4000-8000-000000000001',1500,
+ now()+interval '30 days','pending_inventory');
+update public.refund_gift_card_pools set enabled=true where id='fc750000-0000-4000-8000-000000000001';
+do $$ declare c public.refund_cases; m public.refund_case_messages; card public.refund_gift_card_codes; begin
+  select * into c from public.refund_cases where id='fc760000-0000-4000-8000-000000000003';
+  select * into card from public.refund_gift_card_codes where pool_id=c.gift_card_pool_id and status='available' order by id limit 1;
+  update public.refund_gift_card_codes set status='issued',issued_case_id=c.id where id=card.id;
+  update public.refund_cases set gift_card_state='issued',status='completed' where id=c.id returning * into c;
+  select message.* into m from public.refund_case_messages message join public.refund_gift_card_issuances i on i.message_id=message.id
+    where i.refund_case_id='fc760000-0000-4000-8000-000000000001';
+  m.id:=gen_random_uuid(); m.refund_case_id:=c.id; m.recipient_email:=c.customer_email;
+  m.manual_delivery_intent_id:=gen_random_uuid(); m.manual_delivery_expected_case_version:=c.official_action_version;
+  insert into public.refund_gift_card_issuances(refund_case_id,code_id,pool_id,normalized_email,purchase_amount_cents,
+    face_value_cents,goodwill_amount_cents,currency,eligible_locations,expires_at,redemption_instructions,
+    issued_at,message_id,message_identity_digest)
+    values(c.id,card.id,c.gift_card_pool_id,c.customer_email,1500,1500,0,'USD',array['Fixture location'],
+      c.gift_card_expires_at,'Enter your code at the fixture machine.','2024-02-29T12:00:00Z',m.id,
+      public.refund_receipt_completion_message_digest(to_jsonb(m)));
+  insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
+    template_key,template_version,content_source,delivery_kind,requested_fields,manual_delivery_intent_id,
+    manual_delivery_state,manual_delivery_expected_case_version,manual_delivery_status_link_requested)
+    values(m.id,c.id,'completed','pending',m.recipient_email,m.subject,m.body,m.template_key,m.template_version,
+      m.content_source,m.delivery_kind,m.requested_fields,m.manual_delivery_intent_id,'queued',c.official_action_version,false);
+end $$;
+select ok(public.refund_gift_card_automatic_eligible('gift-leap@example.invalid','2025-02-28T12:00:00Z'),
+ 'Leap-day issuance is eligible exactly at the clamped next-year anniversary');
+select ok(not public.refund_gift_card_automatic_eligible('gift-leap@example.invalid','2025-02-28T11:59:59.999999Z'),
+ 'Leap-day issuance remains approval-required just before the anniversary');
 select * from finish();
 rollback;

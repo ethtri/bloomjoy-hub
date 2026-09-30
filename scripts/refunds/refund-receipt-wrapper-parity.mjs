@@ -7,6 +7,7 @@ export const PRIOR_COMPLETION_MIGRATION = '20260903154800_refund_receipt_custome
 export const COMPLETION_MIGRATION = '20260906052200_refund_receipt_automatic_completion_kernel.sql';
 export const TERMINAL_API_MIGRATION = '20260908163714_refund_terminal_receipt_case_completion.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
+export const GIFT_CARD_MIGRATION = '20260930222531_refund_gift_card_issuance.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
@@ -64,7 +65,18 @@ export function buildReceiptWrapperParityTest(repoRoot) {
     }
   }
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
-    const body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
+    let body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
+    if (runtimeName === 'service_mark_refund_manual_message_provider_attempt' && files.includes(GIFT_CARD_MIGRATION)) {
+      // Preserve complete-body parity: apply only the reviewed transactional
+      // gift receipt exception. All original-payment and claim guards stay exact.
+      const anchor = 'if not exists(select 1 from public.refund_customer_contact_settings settings';
+      const replacement = 'if not public.is_refund_gift_card_message(to_jsonb(message_row))\n      and not exists(select 1 from public.refund_customer_contact_settings settings';
+      const giftSource = fs.readFileSync(path.join(migrationsDir, GIFT_CARD_MIGRATION), 'utf8').replaceAll('\r\n', '\n');
+      if (body.split(anchor).length !== 2 || !giftSource.includes(replacement)) {
+        throw new Error('Gift-card transactional provider boundary is not exact');
+      }
+      body = body.replace(anchor, replacement);
+    }
     const signature = `public.${runtimeName}(${args})`;
     return [
       `select is((select prosrc from pg_proc where oid='${signature}'::regprocedure), $receipt_parity$${body}$receipt_parity$, '${runtimeName} has the complete exact current source body');`,
