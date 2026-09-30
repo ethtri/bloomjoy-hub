@@ -490,8 +490,7 @@ export default function RefundRequestPage() {
                 Request a refund
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Let’s make your next visit a little sweeter. Tell us about one purchase and
-                choose a Bloomjoy gift card, or an original-payment refund for a card purchase.
+                {giftCardAvailable ? 'Let’s make your next visit a little sweeter. Tell us about one purchase and choose a Bloomjoy gift card, or an original-payment refund for a card purchase.' : 'Tell us about one purchase so our team can review your request.'}
               </p>
             </div>
 
@@ -755,7 +754,7 @@ export default function RefundRequestPage() {
                   <div>
                     <h2 className="text-lg font-semibold text-foreground">Payment</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Cash purchases receive a Bloomjoy gift card. For card purchases, you can choose a gift card or a refund to your original payment.
+                      {giftCardAvailable ? 'Cash purchases receive a Bloomjoy gift card. For card purchases, you can choose a gift card or a refund to your original payment.' : 'Tell us how you paid. Our team will review your request.'}
                     </p>
                   </div>
 
@@ -776,7 +775,7 @@ export default function RefundRequestPage() {
                       <span>
                         <span className="block font-semibold text-foreground">Card</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          Gift card or original-payment refund.
+                          {giftCardAvailable ? 'Gift card or original-payment refund.' : 'Refund to your original card payment.'}
                         </span>
                       </span>
                     </Label>
@@ -788,7 +787,7 @@ export default function RefundRequestPage() {
                       <span>
                         <span className="block font-semibold text-foreground">Cash</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          Bloomjoy gift card. No payment details needed.
+                          {giftCardAvailable ? 'Bloomjoy gift card. No payment details needed.' : 'Cash purchase. No card details needed.'}
                         </span>
                       </span>
                     </Label>
