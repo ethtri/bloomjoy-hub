@@ -71,6 +71,27 @@ select is((select count(*)::integer from public.refund_wallet_correction_context
 select is(public.service_renew_refund_purchase_correction(lpad('1',64,'0'),repeat('b',64))->>'state','unavailable','A retry cannot substitute a new capability');
 select is(public.service_get_refund_purchase_correction(repeat('a',64))#>>'{values,card_last4}','1234','Fresh form preserves saved card answer');
 select is(public.service_get_refund_purchase_correction(repeat('a',64))#>'{requestedFields}','["amount"]'::jsonb,'Fresh form asks only the current needed field');
+create function pg_temp.reply_source(n integer) returns uuid language plpgsql as $$
+declare cid uuid:=('dc100000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid;
+  mid uuid; tid uuid:=gen_random_uuid(); gid uuid:=gen_random_uuid();
+begin
+  select correction_message_id into mid from public.refund_wallet_correction_contexts where token_hash=lpad(to_hex(n),64,'0');
+  insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
+    values(tid,cid,repeat('f',64),'renewal-reply-'||n,'Synthetic request',statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '30 days');
+  insert into public.refund_gmail_messages(gmail_thread_id,refund_case_id,refund_case_message_id,provider_message_id,provider_message_header,
+    direction,message_kind,status,sender_email,recipient_email,subject,plain_body,received_at,sent_at,retention_expires_at)
+    values(tid,cid,mid,'renewal-outbound-'||n,'<renewal-outbound-'||n||'@example.invalid>','outbound','message','sent',
+      'info@bloomjoysweets.com','scope-customer-'||n||'@example.invalid','Synthetic request','Saved original request',statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '30 days');
+  insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,references_header,direction,message_kind,status,
+    sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+    values(gid,tid,cid,'renewal-inbound-'||n,'<renewal-outbound-'||n||'@example.invalid>','inbound','message','received',
+      'scope-customer-'||n||'@example.invalid','info@bloomjoysweets.com','customer','verified','Synthetic reply','Amount: 8.00',statement_timestamp()+interval '1 minute',statement_timestamp()+interval '30 days');
+  return gid;
+end;
+$$;
+select is(public.service_receive_refund_scoped_email_reply('dc100000-0000-4000-8001-000000000003',pg_temp.reply_source(3))->>'outcome','received','Existing ordinary verified reply receiver remains composed and functional');
+select is(public.service_receive_refund_scoped_email_reply('dc100000-0000-4000-8001-000000000001',pg_temp.reply_source(1))->>'outcome','no_current_request','Verified original-thread email cannot turn fresh form-only access into a free-text fact task');
+select ok((select reply_message_id is null and reply_review_state is null from public.refund_wallet_correction_contexts where token_hash=repeat('a',64)),'Recovery child stays out of legacy email fact claims');
 select ok((select count(*) from public.refund_cases)=(select cases from before_renewal)
   and (select count(*) from public.refund_case_messages)=(select messages from before_renewal)
   and (select count(*) from public.refund_follow_up_cycles)=(select cycles from before_renewal)
@@ -98,10 +119,16 @@ select ok((select (deterministic_fact_version,status,correlation_status,nayax_re
   from public.refund_cases where id='dc100000-0000-4000-8001-000000000001'),'Unchanged optional confirmation preserves purchase matching and fact version');
 -- Open one current child after the confirmed receipt, then expire that child.
 select is(public.service_renew_refund_purchase_correction(repeat('c',64),repeat('e',64))->>'state','ready','A later deliberate update reuses existing saved facts without a contact');
-update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '49 hours',expires_at=statement_timestamp()-interval '1 hour' where token_hash=repeat('e',64);
-select is(public.service_renew_refund_purchase_correction(repeat('c',64),repeat('e',64))->>'state','unavailable','Repeated ancestor request does not extend expired child access');
-select is((select expires_at<statement_timestamp() from public.refund_wallet_correction_contexts where token_hash=repeat('e',64)),true,'Child expiry is retained on ancestor retry');
-select is((select count(*)::integer from public.refund_wallet_correction_contexts where refund_case_id='dc100000-0000-4000-8001-000000000001' and correction_renewed_from_id is null),1,'Three customer-initiated updates still represent one delivered contact');
+select lives_ok($$select public.service_submit_refund_purchase_correction(repeat('e',64),(select deterministic_fact_version from before_confirm),'{"card_last4_source":{"disposition":"cannot_provide"}}')$$,'New uncertainty about a saved card source follows existing atomic semantics');
+select ok((select card_last4_source is null and card_last4_provenance is null and nayax_match_execution_eligible=false
+  and deterministic_fact_version>(select deterministic_fact_version from before_confirm)
+  from public.refund_cases where id='dc100000-0000-4000-8001-000000000001'),'Cannot-provide source clears prior physical-card proof and invalidates the matching version');
+select is(public.service_get_refund_purchase_correction(repeat('e',64))->>'nextAction','review','Source uncertainty stays internal review, never a payment or guessed replacement');
+select is(public.service_renew_refund_purchase_correction(repeat('e',64),repeat('f',64))->>'state','ready','Fresh access observes the saved uncertainty');
+update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '49 hours',expires_at=statement_timestamp()-interval '1 hour' where token_hash=repeat('f',64);
+select is(public.service_renew_refund_purchase_correction(repeat('e',64),repeat('f',64))->>'state','unavailable','Repeated ancestor request does not extend expired child access');
+select is((select expires_at<statement_timestamp() from public.refund_wallet_correction_contexts where token_hash=repeat('f',64)),true,'Child expiry is retained on ancestor retry');
+select is((select count(*)::integer from public.refund_wallet_correction_contexts where refund_case_id='dc100000-0000-4000-8001-000000000001' and correction_renewed_from_id is null),1,'Four customer-initiated updates still represent one delivered contact');
 update public.refund_cases set payment_amount_cents=800 where id='dc100000-0000-4000-8001-000000000002';
 select is(public.service_renew_refund_purchase_correction(lpad('2',64,'0'),repeat('d',64))->>'state','unavailable','Concurrent changed facts cannot be reopened through stale expired link');
 update public.refund_wallet_correction_contexts set status='revoked' where token_hash=lpad('4',64,'0');
@@ -112,6 +139,6 @@ select is(public.service_renew_refund_purchase_correction(lpad('6',64,'0'),repea
 update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '49 hours',expires_at=statement_timestamp()-interval '1 hour' where token_hash=lpad('3',64,'0');
 insert into public.refund_wallet_correction_contexts(refund_case_id,token_hash,version,status,expires_at)
   values('dc100000-0000-4000-8001-000000000003',repeat('d',64),2,'expired',statement_timestamp()+interval '48 hours');
-select is(public.service_renew_refund_purchase_correction(lpad('3',64,'0'),repeat('f',64))->>'state','unavailable','A newer independent scope supersedes expired old access');
+select is(public.service_renew_refund_purchase_correction(lpad('3',64,'0'),repeat('b',64))->>'state','unavailable','A newer independent scope supersedes expired old access');
 select * from finish();
 rollback;

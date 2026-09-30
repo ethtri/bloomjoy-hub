@@ -150,10 +150,24 @@ begin
   source:=replace(source,anchor,anchor||E'\n  if r.correction_renewed_from_id is not null and p_answers=''{}''::jsonb then raise exception ''Requested answers required''; end if;');
   anchor:=E'  update public.refund_cases set\n    reporting_machine_id=next_case.reporting_machine_id';
   if strpos(source,anchor)=0 then raise exception 'Correction purchase write anchor changed'; end if;
-  source:=replace(source,anchor,E'  if r.correction_renewed_from_id is null or cardinality(changed_fields)>0 then\n'||anchor);
+  source:=replace(source,anchor,E'  if r.correction_renewed_from_id is null or cardinality(changed_fields)>0 or next_case is distinct from c then\n'||anchor);
   anchor:='  delete from public.refund_nayax_lookup_candidates where refund_case_id=c.id;';
   if strpos(source,anchor)=0 then raise exception 'Correction candidate invalidation anchor changed'; end if;
   source:=replace(source,anchor,anchor||E'\n  end if;');
+  execute source;
+end;
+$migration$;
+
+-- Recovery is form-only. Retained inbox replies remain evidence, but a newly
+-- opened child cannot reuse an old thread as an ordinary email fact task.
+-- Preserve the current public reconciliation receiver wrapper.
+do $migration$
+declare source text; anchor text;
+begin
+  source:=pg_get_functiondef('public.service_receive_refund_reply_pre_recon_v1(uuid,uuid)'::regprocedure);
+  anchor:='where r.refund_case_id=c.id and r.correction_kind=''purchase'' and r.status=''pending''';
+  if strpos(source,anchor)=0 then raise exception 'Correction email receiver anchor changed'; end if;
+  source:=replace(source,anchor,anchor||' and r.correction_renewed_from_id is null');
   execute source;
 end;
 $migration$;
