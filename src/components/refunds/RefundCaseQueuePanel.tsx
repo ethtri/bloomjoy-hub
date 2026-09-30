@@ -2,11 +2,23 @@ import { ArrowLeft } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
-import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { cn } from '@/lib/utils';
 
+export type RefundCaseQueueListItem = {
+  id: string;
+  publicReference: string;
+  machineLabel: string;
+  locationName: string;
+  amountCents: number | null;
+  createdAt: string | null;
+  taskLabel: string;
+  taskBadgeClass: string;
+  nextWorkActor: 'agent' | 'customer' | 'manager' | 'system' | null;
+  nextWorkActionLabel: string | null;
+};
+
 type RefundCaseQueuePanelProps = {
-  cases: RefundCaseRecord[];
+  cases: RefundCaseQueueListItem[];
   viewTitle?: string;
   showWorkflowSummary?: boolean;
   selectedCaseId: string | null;
@@ -18,15 +30,13 @@ type RefundCaseQueuePanelProps = {
   emptyTitle: string;
   emptyDescription: string;
   onToggleMobile: () => void;
-  onSelectCase: (refundCase: RefundCaseRecord) => void;
-  getTaskLabel: (refundCase: RefundCaseRecord) => string;
-  getTaskBadgeClass: (refundCase: RefundCaseRecord) => string;
+  onSelectCase: (caseId: string) => void;
   formatCaseAge: (createdAt: string | null) => string;
   formatCaseAmount: (cents: number | null) => string;
 };
 
 type RefundCaseQueueItemProps = {
-  refundCase: RefundCaseRecord;
+  refundCase: RefundCaseQueueListItem;
   showWorkflowSummary: boolean;
   isSelected: boolean;
   onSelect: () => void;
@@ -46,9 +56,8 @@ function RefundCaseQueueItem({
   amountLabel,
   ageLabel,
 }: RefundCaseQueueItemProps) {
-  const nextWork = refundCase.lifecycle?.nextWork;
-  const nextOwner = nextWork?.actor === 'manager' ? 'Manager'
-    : nextWork?.actor === 'customer' ? 'Customer' : 'Bloomjoy';
+  const nextOwner = refundCase.nextWorkActor === 'manager' ? 'Manager'
+    : refundCase.nextWorkActor === 'customer' ? 'Customer' : 'Bloomjoy';
   return (
     <button
       data-testid="refund-case-queue-item"
@@ -83,10 +92,10 @@ function RefundCaseQueueItem({
       </div>
       {showWorkflowSummary && (
         <div data-testid="refund-case-next-work" className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
-          {refundCase.workflowProjectionUnavailable || !nextWork ? (
+          {!refundCase.nextWorkActor || !refundCase.nextWorkActionLabel ? (
             <p>Status unavailable. Refresh to check who acts next.</p>
           ) : (
-            <p><span className="font-semibold text-foreground">{nextOwner} next:</span> {nextWork.actionLabel}</p>
+            <p><span className="font-semibold text-foreground">{nextOwner} next:</span> {refundCase.nextWorkActionLabel}</p>
           )}
 
         </div>
@@ -115,8 +124,6 @@ export function RefundCaseQueuePanel({
   emptyDescription,
   onToggleMobile,
   onSelectCase,
-  getTaskLabel,
-  getTaskBadgeClass,
   formatCaseAge,
   formatCaseAmount,
 }: RefundCaseQueuePanelProps) {
@@ -145,11 +152,11 @@ export function RefundCaseQueuePanel({
         refundCase={refundCase}
         showWorkflowSummary={showWorkflowSummary}
         isSelected={refundCase.id === selectedCaseId}
-        onSelect={() => onSelectCase(refundCase)}
-        taskLabel={getTaskLabel(refundCase)}
-        taskBadgeClass={getTaskBadgeClass(refundCase)}
+        onSelect={() => onSelectCase(refundCase.id)}
+        taskLabel={refundCase.taskLabel}
+        taskBadgeClass={refundCase.taskBadgeClass}
         amountLabel={formatCaseAmount(
-          refundCase.refundAmountCents ?? refundCase.paymentAmountCents
+          refundCase.amountCents
         )}
         ageLabel={formatCaseAge(refundCase.createdAt)}
       />

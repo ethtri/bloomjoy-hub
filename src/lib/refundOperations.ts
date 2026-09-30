@@ -1,3 +1,5 @@
+import { parseRefundPortalQueueProjection, type RefundPortalQueueProjection } from './refundPortalQueue';
+export type { RefundPortalQueueItem, RefundPortalQueueProjection } from './refundPortalQueue';
 import {
   invokeEdgeFunction,
   isEdgeFunctionError,
@@ -2975,6 +2977,16 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     throw new Error(overviewResult.error.message || 'Unable to load refund cases.');
   }
   return parseRefundOperationsOverview(overviewResult.data);
+};
+
+export const fetchRefundPortalQueueProjection = async (): Promise<RefundPortalQueueProjection> => {
+  const result = await supabaseClient.rpc('get_refund_portal_queue_projection', {
+    p_observed_at: new Date().toISOString(),
+  });
+  if (result.error) {
+    throw new Error(result.error.message || 'Unable to load the refund queue.');
+  }
+  return parseRefundPortalQueueProjection(result.data);
 };
 
 export type RefundOperationsSupplements = {
