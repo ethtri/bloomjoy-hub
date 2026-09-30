@@ -79,8 +79,8 @@ end $$;
 
 create function public.admin_setup_refund_gift_card_pool(
   p_provider text,p_provider_account_id text,p_face_value_cents integer,
-  p_eligible_machine_ids uuid[],p_eligible_locations text[],p_redemption_instructions text,
-  p_provider_config jsonb,p_min_available integer default 5,p_target_available integer default 20,
+  p_eligible_machine_ids uuid[],p_eligible_locations text[],p_redemption_instructions text default null,
+  p_provider_config jsonb default null,p_min_available integer default 5,p_target_available integer default 20,
   p_max_batch_size integer default 20,p_validity_days integer default 90,p_renew_before_days integer default 30
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare pool_id uuid;
@@ -92,7 +92,8 @@ begin
   insert into public.refund_gift_card_pools(provider,provider_account_id,currency,face_value_cents,
     eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
     values(p_provider,p_provider_account_id,'USD',p_face_value_cents,p_eligible_machine_ids,p_eligible_locations,
-      date_trunc('second',clock_timestamp())+make_interval(days=>p_validity_days),false,p_redemption_instructions)
+      date_trunc('second',clock_timestamp())+make_interval(days=>p_validity_days),false,
+      coalesce(nullif(btrim(p_redemption_instructions),''),'On the machine’s touchscreen, choose ‘Enter coupon/code’ and enter your code.'))
     returning id into pool_id;
   perform public.admin_configure_refund_gift_card_supply(pool_id,p_min_available,p_target_available,p_max_batch_size,
     p_provider_config,p_validity_days,p_renew_before_days);

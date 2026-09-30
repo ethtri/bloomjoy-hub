@@ -47,10 +47,12 @@ their observed merchant scope. First positive created-scope verification and a
 real machine redemption test remain outstanding. Sunzee account-wide machine
 eligibility and USD basis have not been established by the bounded evidence.
 
-Hardware redemption instructions have not been demonstrated by this research.
-Require accurate, verified pool instructions; do not invent a machine button or
-screen. KeMore's coupon application API and the guide's QR controls do not prove
-the customer's exact machine steps. Complete KeMore payment pagination found no
+The owner confirmed that both cotton-candy and SnapCase touchscreens offer
+“Enter coupon/code.” Setup defaults to: “On the machine’s touchscreen, choose
+‘Enter coupon/code’ and enter your code.” Omitted, null or blank instructions use
+this default; verified machine-specific instructions can override it. This
+confirmation resolves the instructions gap; live coupon creation and redemption
+have not been tested. Complete KeMore payment pagination found no
 coupon tender in the inspected account, so split/top-up money semantics remain
 unverified and are not inferred from code usage.
 
