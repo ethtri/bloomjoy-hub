@@ -1,10 +1,13 @@
 # Refund workflow
 
-Last updated: 2026-09-30. Owner decisions: #1364, #628 and #1361.
+Last updated: 2026-09-30. Owner decisions: #1364, #628, #1361, #666 and #1639.
 
-This is the single product requirements source for refunds. The September 30
-form-first decision below governs new work; implementation gaps are tracked in
+This is the single product requirements source for refunds. The form-first and
+gift-card requirements below govern new work; implementation gaps are tracked in
 GitHub and summarized in `CURRENT_STATUS.md`, not assumed complete by this doc.
+Gift-card implementation is tracked in #1637–#1640. Until activated, the existing
+card and manual cash processes remain in use; this document does not issue a
+gift card or change an existing payment commitment.
 
 ## What we are doing
 
@@ -16,23 +19,29 @@ The ordinary flow is:
 
 1. The customer reports the problem once through the intake form and receives a
    prompt, friendly acknowledgement. A genuine new refund or product-problem
-   inquiry to `info@bloomjoysweets.com` receives one reply in its original thread
+   inquiry to `info@bloomjoysweets.com`, `support@bloomjoysweets.com` or
+   `refunds@bloomjoysweets.com` receives one reply in its original thread
    linking to `https://app.bloomjoyusa.com/refunds/request`; the case is created
    only when that form is submitted. Unrelated, vendor and marketing mail gets no
-   refund response. An existing-case email stays with that case, with no new intake.
-2. The System searches Bloomjoy and provider records and explains the best
-   transaction match.
-3. The Manager makes one final decision. The Manager may choose a different
-   reviewed transaction when the System's recommendation is weak or wrong.
-4. For a card purchase, approval refunds the selected transaction through the
-   Nayax API.
-5. For a cash purchase, the Manager sends the refund through Zelle and then
-   confirms in Bloomjoy that it was sent.
-6. Bloomjoy tells the customer the outcome.
+   refund response. Deduplicate inquiries received through multiple mailboxes.
+   An existing-case email stays with that case, with no new intake.
+2. Reuse the form's cash/card selection. Cash customers receive a gift-card
+   offer; card customers can choose the recommended gift card or a refund to
+   their original payment method. Show card details only for a card refund.
+3. Submitting the gift-card choice accepts the offer shown in the form; no
+   separate confirmation is needed. An eligible request issues automatically from valid
+   code inventory, targeting an email within 1–2 minutes. Repeat requests need
+   one Manager decision under the rule below, on the same case.
+4. For an original-payment card refund, the System searches Bloomjoy and provider
+   records and explains the best transaction match. The Manager makes one final
+   decision and may choose a different reviewed transaction when the System's
+   recommendation is weak or wrong. Approval refunds it through the Nayax API.
+5. Bloomjoy shows and emails the accurate outcome, keeping the same request and
+   conversation. No new form or customer account is needed.
 
-The System should resolve at least 95% of ordinary valid cases without asking
-the customer for more information. This is a product-quality target and a signal
-to fix matching defects. It is not a confidence requirement or payment gate.
+Aim to resolve at least 95% of ordinary valid cases without asking the customer for more
+information. This is an improvement target, not a hard requirement, launch
+condition or payment gate.
 
 ## Why
 
@@ -45,13 +54,17 @@ decision rather than prevent it.
 Bloomjoy needs only the controls that address real harm: the correct Manager,
 the exact transaction the Manager selected, private handling of customer/payment
 data, same-case idempotency, and reconciliation before retrying an unknown payment
-result. A separate case's reference to the same purchase does not add another
+result. Gift cards also use the owner-approved email allowance below. For card
+refunds, a separate case's reference to the same purchase does not add another
 Bloomjoy approval or payment block; Nayax enforces the purchase-total limit.
 
 ## How transaction matching works
 
-The System searches before asking the customer a question. It uses all available
-evidence together:
+The System searches before asking the customer a question. Original-payment card
+refunds retain the matching rules below; a gift card does not require Nayax
+matching or routine Manager review. Reuse available case and machine context,
+and keep provider/mapping defects internal. Matching uses all available evidence
+together:
 
 - exact machine and location;
 - purchase date and time after resolving the customer's, venue's, stored, and
@@ -82,7 +95,7 @@ requirement. Sales tax, rounding, memory, or an entry mistake can explain a
 difference. An amount difference alone must not eliminate an otherwise obvious
 purchase or trigger a customer question.
 
-The default refund is the full amount actually charged on the transaction the
+The default card refund is the full amount actually charged on the transaction the
 Manager selects, including sales tax. If the customer reports **$10.00** and the
 selected transaction charged **$10.90**, the default refund is **$10.90**.
 
@@ -135,12 +148,58 @@ The exact request and response contract is in
 [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md). That
 technical reference cannot add another business approval or customer step.
 
-## Cash refund
+## Gift cards for cash or card purchases
 
-The System investigates cash claims against Sunze sales using the machine,
-timezone-corrected date and time, amount, and any other available evidence. It
-presents the relevant match evidence and verified Zelle destination to the
-Manager.
+Extend the existing form and branded status/email experience with one clear
+resolution choice. Keep it short, warm and usable on mobile. Gift-card cases do
+not collect Zelle, Venmo or card-refund details, run wallet corrections, or wait
+for a routine Manager decision. Cash customers see the gift-card resolution clearly
+up front; card customers retain the original-payment refund option.
+
+**One automatic gift card per customer per year. Repeat requests need Manager
+approval.** Use the customer's email and the preceding 12 months to apply this
+rule across machines and providers. Count issued gift cards, including approved
+repeats; declined offers, card refunds and resending the same code do not count.
+Keep review on the existing case, with one assigned Manager or Super-admin decision.
+Show the request, previous gift-card issuance and proposed value together in the
+existing Manager view. Approval assigns and sends the code automatically.
+
+Treat the gift card as one use with no surviving balance. Before acceptance,
+show its actual value, eligible locations, expiration and these simple terms.
+The value covers the purchase plus goodwill under configured rules, without
+another per-request approval. Rounding remains deferred.
+The gift-card email should feel joyful, delightful and unmistakably Bloomjoy:
+a warm acknowledgement, a prominent gift-card value and code, and one clear way
+to use it. Keep redemption instructions and terms easy to find and readable on
+mobile, with essential details available even when images are blocked. Target
+1–2 minutes for ordinary eligible, in-stock requests; an email transport acceptance
+is not proof that it reached the inbox. Show review or delivery delays truthfully.
+
+The System manages code inventory using configured stock, expiry and refill
+rules. It assigns the earliest-expiring compatible code and replenishes supply
+automatically, keeping provider, account, device scope and value aligned with
+the offer. Routine inventory management must not depend on an agent or named
+operator. Batch import is for initial setup or recovery, not the recurring process.
+Verify the vendor replenishment mechanism in #1637; the guide alone does not
+establish an automation API. Stockout or refill failure stays internal: retain
+the request and resume safely after recovery, rechecking the email allowance
+before allocation. Managers handle customer decisions, not routine stockkeeping.
+
+Use the existing outbox with prompt delivery and recovery. Email retries reuse
+the same code; issuance, delivery and redemption are separate facts. Prevent
+concurrent requests from spending the automatic allowance twice or sharing a
+code, and prevent both a gift card and money refund settling the same case.
+Keep codes private and reconcile unknown outcomes before another issuance.
+Keep purchase value, gift-card value and goodwill separate in reporting; do not
+label a gift card as cash paid or deduct issuance and redemption twice. Financial
+and commission treatment is tracked in #1640, not invented by this workflow.
+
+## Manual cash refund (until gift-card activation and existing commitments)
+
+The System investigates cash claims using Sunze for cotton candy and the
+Kexiaozhan app for SnapCase, with the machine, timezone-corrected date and time,
+amount, and any other available evidence. It presents the relevant match evidence
+and verified Zelle destination to the Manager.
 
 The Manager sends the money through Zelle before using the Bloomjoy action. The
 action must say **Confirm refund sent via Zelle** or equally clear language.
@@ -148,8 +207,9 @@ Selecting it records that the payment was already sent and completes the cash
 refund. There is no separate `approved for payout`, `waiting for manual payment`,
 or equivalent status.
 
-Future payout automation may replace the manual Zelle step without changing the
-one-decision experience.
+The updated flow must not collect Zelle or Venmo information. Preserve
+completed cash payments and reconcile any sent or unknown payment before moving
+an existing case to a gift card; never automatically rewrite payment history.
 
 ## Customer forms and notifications
 
@@ -170,7 +230,7 @@ Validate structured values and their dependencies, preserve uncertainty and the
 original facts not changed by the customer, then save atomically to the current
 case and trigger the existing automatic purchase recheck. Retire recommendations
 or selections made stale by changed purchase-matching facts before that recheck;
-unrelated contact or payout-destination changes do not discard valid purchase
+unrelated contact changes do not discard valid purchase
 evidence. Preserve existing approved-payment and unknown-outcome protections.
 Saving is not a refund
 decision or payment. Derive local purchase time from the venue's canonical IANA
@@ -192,12 +252,13 @@ or another routine customer question.
 
 ## Customer clarification and closure
 
-Ask the customer only after useful case history, portal, Nayax, Sunze, and
-existing-conversation research is exhausted.
+Ask the customer only after useful case history, portal and existing-conversation
+research is exhausted, using the relevant provider: Nayax for card payments,
+Sunze for cotton candy, and the Kexiaozhan app for SnapCase.
 
 - Ask one targeted question through the field-specific notification and
-  same-case update form for the fact needed to distinguish the purchase or obtain
-  the Zelle destination.
+  same-case update form for the fact needed to distinguish the purchase. The
+  updated flow does not request Zelle or Venmo details.
 - Do not make the customer restart the request, repeat settled information, or
   troubleshoot Bloomjoy's systems.
 - If there is no useful reply or saved update, send one follow-up in the same
@@ -206,14 +267,15 @@ existing-conversation research is exhausted.
 - A validated form update saves to the same case and restarts matching
   automatically. An email reply is retained for assisted handling, not silently
   interpreted as a routine structured correction.
-- After 30 days without useful input, prepare a reject recommendation for the
-  Manager. The Manager makes the final decision; the unattended case worker
-  does not close or deny the request automatically.
+- After 30 days without a useful response to a requested customer clarification,
+  prepare a reject recommendation for the Manager. This does not apply while
+  waiting on a Manager, stock refill or delivery recovery. The Manager makes the
+  final decision; the unattended case worker does not close or deny the request automatically.
 
 ## Acceptance criteria
 
-- A genuine new refund/product-problem inquiry to Info gets one original-thread
-  reply with the intake link and no case before submission. Unrelated/vendor/
+- A genuine new refund/product-problem inquiry to Info, Support or Refunds gets
+  one original-thread reply with the intake link and no case before submission. Unrelated/vendor/
   marketing mail gets no refund response; replay and existing-case replies create
   no duplicate case or new intake.
 - A notification names the exact fields and brief reason, and its **Update your
@@ -227,11 +289,24 @@ existing-conversation research is exhausted.
   facts and useful replies are not lost or counted as non-response. No routine
   email parser or LLM is required, and assisted exceptions retain their history.
 - System/provider/mapping defects stay internal. One targeted question, at most
-  one non-response follow-up, and a 30-day Manager reject recommendation remain.
+  one non-response follow-up, and a 30-day Manager reject recommendation for an
+  unanswered customer clarification remain.
+- The existing form supports cash gift card, card gift card and original-payment
+  card refund without another account or form. Gift-card cases receive no Zelle,
+  Venmo or card-detail requests; value, one-use terms, expiry and locations are clear.
+- One automatic gift card per customer per year; repeats receive one Manager
+  decision, using the email and preceding 12 months. Concurrent requests and retries
+  cannot duplicate an allowance, code, payment or financial deduction. Measure
+  the ordinary 1–2 minute email target and distinguish issuance from delivery.
+- Rule-based inventory checks, expiry handling and replenishment run without
+  routine agent or operator work; refill failures recover on the same case.
+- The delivery email is joyful and on-brand, with a prominent value/code and
+  clear redemption instructions that work on mobile and with images blocked.
 - The four customer-case views remain **Decision needed**, **Waiting on customer**,
-  **All active**, and **All closed**. The currently assigned Machine Manager
-  or Super-admin makes the final decision; selected card totals, cash sent confirmation, timezone handling and
-  unknown-result reconciliation retain the rules above.
+  **All active**, and **All closed**. The assigned Machine Manager or Super-admin
+  decides card refunds and gift-card exceptions. Selected card totals, historical
+  cash sent confirmation, timezone handling and unknown-result reconciliation
+  retain the rules above.
 
 ## What not to add
 
