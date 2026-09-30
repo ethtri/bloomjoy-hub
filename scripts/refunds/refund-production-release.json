@@ -288,7 +288,8 @@
     "20260930031500_refund_approved_cash_form_reply_progression.sql",
     "20260930050000_refund_submitted_form_continuation.sql",
     "20260930060000_refund_portal_queue_projection.sql",
-    "20260930160608_refund_same_machine_catalog_binding.sql"
+    "20260930160608_refund_same_machine_catalog_binding.sql",
+    "20260930180654_refund_selected_wallet_next_work.sql"
   ],
   "migrationFilesSha256": "a469c22dac783399d20cebf6d70f7a3976d4cc48023a23a10b8337818db27530",
   "migrationVersionSetSha256": "14a8b3068cf3b303295093cc4626af0c1c73218a51e0989a17407fee39413ddd",
