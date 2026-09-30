@@ -1,3 +1,4 @@
+import { RefundGiftCardSupplySection } from '@/components/refunds/RefundGiftCardSupplySection';
 import { RefundGiftCardManagerPanel } from '@/components/refunds/RefundGiftCardManagerPanel';
 import { searchRefundCases } from '@/lib/refundCaseSearch';
 import {
@@ -8357,6 +8358,7 @@ export default function AdminRefundsPage() {
 
             </div>
           </div>
+          <RefundGiftCardSupplySection />
         </div>
       </section>
 
