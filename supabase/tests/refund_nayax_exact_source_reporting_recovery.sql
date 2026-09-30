@@ -289,40 +289,85 @@ select set_config('request.jwt.claims','{"role":"service_role"}',true);
 select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal(
  'b7470000-0000-4000-8000-000000000099',(select (result->>'attemptId')::uuid from approval_result))$sql$),
  '^P4670:','attempt from another case is rejected');
--- Mutations below are synthetic corruption fixtures, isolated in subtransactions.
-create function pg_temp.corrupt_and_reconcile(p_sql text) returns text language plpgsql as $$
-declare result text;
-begin
- execute 'set local session_replication_role=replica';
- execute p_sql;
- execute 'set local session_replication_role=origin';
- perform public.service_reconcile_proved_nayax_api_terminal(
-  'b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result));
- raise exception 'unexpected acceptance' using errcode='Z0002';
-exception when others then return sqlstate||':'||sqlerrm;
-end $$;
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_case_nayax_refund_attempts set request_fingerprint=repeat('f',64)
- where id=(select (result->>'attemptId')::uuid from approval_result)$sql$),'^P4670:','wrong immutable request binding fails closed');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_nayax_execution_contexts set context=jsonb_set(context,'{contextHash}',to_jsonb(repeat('f',64)))
- where attempt_id=(select (result->>'attemptId')::uuid from approval_result)$sql$),'^P4670:','wrong frozen-context self-hash fails closed');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_case_nayax_refund_attempts set provider_execution_generation=2
- where id=(select (result->>'attemptId')::uuid from approval_result)$sql$),'^P4670:','stale provider generation cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_case_official_action_authorizations set status='authorized',consumed_at=null
- where id=(select (result->>'authorizationId')::uuid from approval_result)$sql$),'^P4670:','unconsumed approval cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_nayax_provider_business_outcomes set business_status='Success'
- where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve'$sql$),
- '^P4670:','unlisted provider business pair cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_cases set matched_nayax_transaction_id='OTHER-ORIGINAL'
- where id='b7470000-0000-4000-8000-000000000001'$sql$),'^P4670:','changed original transaction cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_nayax_provider_stage_journal set provider_execution_generation=2
- where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='request'$sql$),
- '^P4670:','request journal from another generation cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$update public.refund_nayax_provider_stage_journal set provider_execution_generation=2
- where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve'$sql$),
- '^P4670:','approval journal from another generation cannot settle');
-select matches(pg_temp.corrupt_and_reconcile($sql$delete from public.refund_nayax_provider_business_outcomes
- where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve'$sql$),
- '^P4670:','missing retained approval business/scalar proof cannot settle');
+-- Privileged corruption fixtures are changed and restored explicitly outside
+-- a stored function. Only the service reconciler runs with normal guards enabled.
+create temp table corruption_backup as select to_jsonb(a) approval_attempt
+ from public.refund_case_nayax_refund_attempts a
+ where a.id=(select (result->>'attemptId')::uuid from approval_result);
+create temp table corruption_outcomes_backup as select * from public.refund_nayax_provider_business_outcomes
+ where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set request_fingerprint=repeat('f',64) where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'wrong immutable request binding fails closed');
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set request_fingerprint=(select approval_attempt->>'request_fingerprint' from corruption_backup) where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_nayax_execution_contexts set context=jsonb_set(context,'{contextHash}',to_jsonb(repeat('f',64))) where attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'wrong frozen-context self-hash fails closed');
+set local session_replication_role=replica;
+update public.refund_nayax_execution_contexts set context=(select context->'context' from immutable_before) where attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set provider_execution_generation=2 where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'stale provider generation cannot settle');
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set provider_execution_generation=1 where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_case_official_action_authorizations set status='authorized',consumed_at=null where id=(select (result->>'authorizationId')::uuid from approval_result);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'unconsumed approval cannot settle');
+set local session_replication_role=replica;
+update public.refund_case_official_action_authorizations set status='consumed',consumed_at=(select (approval->>'consumed_at')::timestamptz from immutable_before) where id=(select (result->>'authorizationId')::uuid from approval_result);
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_nayax_provider_business_outcomes set business_status='Success' where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'unlisted provider business pair cannot settle');
+set local session_replication_role=replica;
+update public.refund_nayax_provider_business_outcomes set business_status='Partial success' where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_cases set matched_nayax_transaction_id='OTHER-ORIGINAL' where id='b7470000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'changed original transaction cannot settle');
+set local session_replication_role=replica;
+update public.refund_cases set matched_nayax_transaction_id='ORIGINAL-EXACT-REPORTING-ONE' where id='b7470000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_nayax_provider_stage_journal set provider_execution_generation=2 where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='request';
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'request journal from another generation cannot settle');
+set local session_replication_role=replica;
+update public.refund_nayax_provider_stage_journal set provider_execution_generation=1 where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='request';
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+update public.refund_nayax_provider_stage_journal set provider_execution_generation=2 where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'approval journal from another generation cannot settle');
+set local session_replication_role=replica;
+update public.refund_nayax_provider_stage_journal set provider_execution_generation=1 where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=origin;
+set local session_replication_role=replica;
+delete from public.refund_nayax_provider_business_outcomes where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result) and stage='approve';
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_reconcile_proved_nayax_api_terminal('b7470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result))$sql$),'^P4670:',
+ 'missing retained approval business/scalar proof cannot settle');
+set local session_replication_role=replica;
+insert into public.refund_nayax_provider_business_outcomes select * from corruption_outcomes_backup;
+set local session_replication_role=origin;
 select is((select count(*) from public.sales_adjustment_facts where refund_case_id='b7470000-0000-4000-8000-000000000001'),0::bigint,
  'failed proof paths leave no adjustment');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id='b7470000-0000-4000-8000-000000000001'),0::bigint,
