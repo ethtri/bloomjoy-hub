@@ -1599,7 +1599,8 @@ select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(63),pg_te
 create temp table payout_mixed_supported_task on commit drop as
   select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
   where task->>'refundCaseId'=pg_temp.cid(63)::text;
-select ok((public.service_apply_refund_scoped_reply_semantic_fact(
+create temp table payout_mixed_supported_result on commit drop as
+  select public.service_apply_refund_scoped_reply_semantic_fact(
     (select (task->>'requestId')::uuid from payout_mixed_supported_task),
     (select (task->>'claimToken')::uuid from payout_mixed_supported_task),pg_temp.gid(63),
     (select (task->>'factVersion')::bigint from payout_mixed_supported_task),
@@ -1607,18 +1608,22 @@ select ok((public.service_apply_refund_scoped_reply_semantic_fact(
     jsonb_build_array(jsonb_build_object('field','amount','messageId',pg_temp.gid(63),
       'quote','The amount should be $12.00.')),
     '{"payment_amount_cents":1200,"refund_amount_cents":1200}'::jsonb,
-    array['amount'])->>'outcome')='applied'
-  and (select payment_amount_cents=1200 and refund_amount_cents=1200
+    array['amount']) as result;
+select is((select result->>'outcome' from payout_mixed_supported_result),'applied',
+  'One protected settlement applies the supported amount');
+select ok((select payment_amount_cents=1200 and refund_amount_cents=1200
       and zelle_payment_contact is null and decision is null
       and refund_completed_at is null
-    from public.refund_cases where id=pg_temp.cid(63))
-  and (select reply_review_state='resolved'
+    from public.refund_cases where id=pg_temp.cid(63)),
+  'Supported amount application preserves destination, decision and payment ownership');
+select ok((select reply_review_state='resolved'
       and reply_review_result_code='facts_applied_with_payout_destination_unavailable'
       and reply_directional_evidence->>'payoutDestinationUnavailable'='true'
-    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(63))
-  and (select count(*)=1 from public.refund_customer_fact_applications
-    where refund_case_id=pg_temp.cid(63) and applied_fields=array['amount']::text[]),
-  'One protected settlement applies the supported amount and retains the direct payout limitation');
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(63)),
+  'One protected settlement retains the direct payout limitation');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(63) and applied_fields=array['amount']::text[]),1,
+  'One immutable application receipt records the supported amount');
 select ok((select count(*)=1 from public.refund_case_events
     where refund_case_id=pg_temp.cid(63)
       and event_type='refund_verified_reply_research_completed'
