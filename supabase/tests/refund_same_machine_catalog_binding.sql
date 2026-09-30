@@ -3,6 +3,15 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select no_plan();
+select ok(has_function_privilege('service_role',
+  'public.service_correct_refund_location_binding(uuid,text,bigint,bigint,uuid,uuid,boolean)','execute')
+  and not has_function_privilege('authenticated',
+  'public.service_correct_refund_location_binding(uuid,text,bigint,bigint,uuid,uuid,boolean)','execute')
+  and not has_function_privilege('anon',
+  'public.service_refund_location_binding_correction_context(uuid)','execute')
+  and not has_function_privilege('service_role',
+  'public.service_correct_refund_location_binding_pre_catalog_move_v1(uuid,text,bigint,bigint,uuid,uuid,boolean)','execute'),
+  'Only the protected service correction is callable; private fallback cannot bypass its review');
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('ac710000-0000-4000-8000-000000000001','authenticated','authenticated',
   'catalog-manager@example.invalid','{}','{}');
