@@ -189,12 +189,12 @@ export const deriveSourceBoundFact = (input, proposal) => {
     }
     value = `$${match[1] ?? match[2] ?? match[3]}`;
   } else if (proposal.field === 'payment_method') {
-    const cash = /\b(?:paid|used|inserted|put in|pagu[eé]|us[eé])\b[^!?]{0,45}\b(?:cash|efectivo)\b/iu.test(proposal.quote);
-    const card = /\b(?:paid|used|tapped|inserted|swiped|pagu[eé]|us[eé])\b[^!?]{0,45}\b(?:card|tarjeta)\b/iu.test(proposal.quote);
+    const cash = /\b(?:paid|used|inserted|put in|pagu[eÃ©]|us[eÃ©])\b[^!?]{0,45}\b(?:cash|efectivo)\b/iu.test(proposal.quote);
+    const card = /\b(?:paid|used|tapped|inserted|swiped|pagu[eÃ©]|us[eÃ©])\b[^!?]{0,45}\b(?:card|tarjeta)\b/iu.test(proposal.quote);
     if (cash === card) throw new Error('payment_method_not_supported');
     value = cash ? 'cash' : 'card';
   } else if (proposal.field === 'card_last4') {
-    const match = proposal.quote.match(/(?:physical\s+)?card[^.!?]{0,35}(?:end(?:s|ing)?\s+in|last\s+four|últimos?\s+cuatro)[^0-9]{0,12}([0-9]{4})/iu);
+    const match = proposal.quote.match(/(?:physical\s+)?card[^.!?]{0,35}(?:end(?:s|ing)?\s+in|last\s+four|Ãºltimos?\s+cuatro)[^0-9]{0,12}([0-9]{4})/iu);
     if (!match || /\b(?:wallet|apple pay|google pay|device token)\b/iu.test(proposal.quote)) {
       throw new Error('physical_card_last4_not_supported');
     }
@@ -278,6 +278,7 @@ export const validateIncidentTime = (input, proposal) => {
     match = [approximate[0], approximate[1], approximate[2] ?? '00', approximate[3]];
     if (freshBodies.some((body) =>
       /\b(?:not|never|maybe|perhaps|possibly|or|before|after)\s+(?:around|about|roughly|approximately|\d)/iu.test(body) ||
+      /\b(?:not|never|no|cannot|can['’]t|don['’]t|didn['’]t|wasn['’]t|isn['’]t|doesn['’]t|couldn['’]t)\b[^.!?\n]{0,80}\b(?:around|about|roughly|approximately|\d)/iu.test(body) ||
       /\?|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}|\b(?:yesterday|tomorrow|last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d|\b(?:pacific|central|mountain|utc|gmt|est|edt|pst|pdt)\b/iu.test(body)))
       throw new Error('ambiguous_incident_time_source');
     const observed = new Set(freshBodies.flatMap((body) =>

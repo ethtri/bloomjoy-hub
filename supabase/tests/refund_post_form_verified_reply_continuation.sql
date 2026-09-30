@@ -202,7 +202,7 @@ update public.refund_wallet_correction_contexts set status='revoked',revoked_at=
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(14),pg_temp.gid(14))->>'outcome',
   'no_current_request','A revoked delivered context cannot create post-form work');
 update public.refund_gmail_messages set plain_body=case id
-  when pg_temp.gid(8) then 'It was not around 1pm eastern time.'
+  when pg_temp.gid(8) then 'I did not pay around 1pm eastern time.'
   when pg_temp.gid(9) then 'I paid around 1pm eastern time or 2pm.'
   when pg_temp.gid(10) then 'I paid around 1pm eastern time on September 16.'
   else 'I paid around 1pm eastern time or Pacific time.' end

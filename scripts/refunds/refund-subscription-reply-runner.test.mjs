@@ -438,6 +438,7 @@ test('approximate time rejects competing clocks, negation, dates and source zone
   const quote = 'around 1pm eastern time';
   for (const body of [
     `It was not ${quote}.`, `${quote} or 2pm.`, `${quote}?`,
+    `I did not pay ${quote}.`, `It wasn't ${quote}.`, `I don't think it was ${quote}.`,
     `${quote} on 2026-09-16.`, `${quote} yesterday.`, `${quote} on September 16.`,
     `${quote} or Pacific time.`, `${quote}\nTime: 4:59 pm`,
   ]) assert.throws(() => validateIncidentTime({ ...input, replyMessages: [{ messageId, body }] },

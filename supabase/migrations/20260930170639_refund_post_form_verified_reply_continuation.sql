@@ -511,11 +511,11 @@ begin
   -- Match currentReplyOnly in the existing email parser. A quoted mail
   -- header's date/time is not a new customer purchase statement.
   select array_agg(regexp_replace(item->>'body',
-      E'(^|\\n)[[:blank:]]*(on [^\\n]+wrote:|from:|el [^\\n]+escribi[oó]:|escribi[oó]:|de:|-----[[:blank:]]*(original message|mensaje original)[[:blank:]]*-----).*$',
+      E'(^|\\n)[[:blank:]]*(on [^\\n]+wrote:|from:|el [^\\n]+escribi[oÃ³]:|escribi[oÃ³]:|de:|-----[[:blank:]]*(original message|mensaje original)[[:blank:]]*-----).*$',
       '', 'is')) into verified_bodies
     from jsonb_array_elements(public.refund_scoped_verified_reply_set(ctx.id)->'messages') item;
   source_body:=regexp_replace(coalesce(evidence.plain_body,''),
-    E'(^|\\n)[[:blank:]]*(on [^\\n]+wrote:|from:|el [^\\n]+escribi[oó]:|escribi[oó]:|de:|-----[[:blank:]]*(original message|mensaje original)[[:blank:]]*-----).*$',
+    E'(^|\\n)[[:blank:]]*(on [^\\n]+wrote:|from:|el [^\\n]+escribi[oÃ³]:|escribi[oÃ³]:|de:|-----[[:blank:]]*(original message|mensaje original)[[:blank:]]*-----).*$',
     '', 'is');
   if position(p_source_quote in source_body)=0 then
     return jsonb_build_object('outcome','stale_or_unsupported_source','payloadRedacted',true);
@@ -539,6 +539,7 @@ begin
     if exists(select 1
       from unnest(verified_bodies) body
       where body ~* '(not|never|maybe|perhaps|possibly|or|before|after)[[:space:]]+(around|about|roughly|approximately|[0-9])'
+        or body ~* '\m(not|never|no|cannot|can[''’]t|don[''’]t|didn[''’]t|wasn[''’]t|isn[''’]t|doesn[''’]t|couldn[''’]t)\M[^.!?\n]{0,80}\m(around|about|roughly|approximately|[0-9])'
         or body ~ '[?]'
         or body ~* '([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}|yesterday|tomorrow|last[[:space:]]+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(tember)?|oct(ober)?|nov(ember)?|dec(ember)?)[[:space:]]+[0-9])'
         or body ~* '\m(pacific|central|mountain|utc|gmt|est|edt|pst|pdt)\M') then
