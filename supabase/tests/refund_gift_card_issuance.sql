@@ -34,7 +34,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
 select is((select gift_card_state from public.refund_cases where id='fc760000-0000-4000-8000-000000000001'),'issued','First eligible form insertion issues automatically');
 select results_eq($$select purchase_amount_cents,face_value_cents,goodwill_amount_cents,normalized_email
  from public.refund_gift_card_issuances where refund_case_id='fc760000-0000-4000-8000-000000000001'$$,
- $$values(1100,1500,400,'gift-fixture@example.invalid'::text)$$,'Receipt separates purchase, face and goodwill and normalizes email');
+ $$select 1100::integer,1500::integer,400::integer,'gift-fixture@example.invalid'::text$$,'Receipt separates purchase, face and goodwill and normalizes email');
 select is((select count(*) from public.refund_case_messages where refund_case_id='fc760000-0000-4000-8000-000000000001'),1::bigint,'Exactly one existing outbox message');
 select lives_ok($$select public.service_issue_refund_gift_card('fc760000-0000-4000-8000-000000000001')$$,'Same-case replay works');
 select is((select count(*) from public.refund_gift_card_issuances),1::bigint,'Replay never creates another issuance');
