@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(95);
+select plan(105);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -862,6 +862,58 @@ select is(public.refund_manager_preparation_snapshot(
   (select official_action_version from public.refund_cases
     where id='e1450000-0000-4000-8000-000000000005'))->>'evidenceBasis',
   'card_reviewed_candidate_set','Exact safe wallet evidence restores one final Manager decision set');
+
+-- An actual reviewed selection changes recommendation state to manager_confirmed.
+-- That state is outside the unselected-set helper; it must not recreate wallet
+-- research when the existing exact selection proof is current and confirmed.
+select public.service_bind_refund_nayax_candidate_to_actor(
+  'e1410000-0000-4000-8000-000000000001',
+  'e1450000-0000-4000-8000-000000000005',
+  'e1460000-0000-4000-8000-000000000081');
+select pg_temp.set_actor('e1410000-0000-4000-8000-000000000001');
+select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'e1450000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000005'),
+  'e1460000-0000-4000-8000-000000000081','customer_confirmation');
+select is(public.refund_case_nayax_manager_readiness(null,
+  'e1450000-0000-4000-8000-000000000005')->>'transactionConfirmed','true',
+  'Reviewed wallet selection carries current exact transaction proof');
+select is(public.refund_wallet_identifier_research_required(
+  'e1450000-0000-4000-8000-000000000005'),false,
+  'Confirmed selected wallet purchase does not return to unmatched-set research');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000005'))->>'evidenceBasis',
+  'card_exact_selected','Existing exact-selected Manager preparation stays intact');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'nextWork'->>'actor','manager',
+  'Confirmed reviewed wallet purchase reaches the Manager decision step');
+select is((select decision from public.refund_cases
+  where id='e1450000-0000-4000-8000-000000000005'),null::text,
+  'Research projection does not make the final decision');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id='e1450000-0000-4000-8000-000000000005'),0,
+  'Review and projection do not initiate a payment');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id='e1450000-0000-4000-8000-000000000005'),0,
+  'Review and projection do not create correspondence');
+update public.refund_cases set payment_amount_cents=1200
+where id='e1450000-0000-4000-8000-000000000005';
+select is(public.refund_case_nayax_manager_readiness(null,
+  'e1450000-0000-4000-8000-000000000005')->>'transactionConfirmed','false',
+  'Changed customer facts invalidate the saved exact selection proof');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'nextWork'->>'actor','agent',
+  'Changed customer facts return the stale selection to existing internal research');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000005')),null::jsonb,
+  'A stale selected proof cannot expose a Manager final decision');
+update public.refund_cases set payment_amount_cents=1000
+where id='e1450000-0000-4000-8000-000000000005';
 
 -- A server-consumed QR claim supplies independent time and machine evidence.
 -- The tokenized wallet suffix is context, not a veto, when exactly one safe
