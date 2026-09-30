@@ -221,11 +221,11 @@ $$, $$values (0::bigint,0::bigint,true,true,0)$$,
   'Null-date legacy paid impact is absent from assigned Technician commission');
 
 select results_eq($$
-  select (value ->> 'grossSalesCents')::bigint,
-    (value ->> 'refundAdjustmentCents')::bigint,
-    (value ->> 'commissionableSalesCents')::bigint,
-    (value ->> 'commissionEarningsCents')::bigint,
-    (value ->> 'commissionAllocationResolved')::boolean,
+  select (result.value ->> 'grossSalesCents')::bigint,
+    (result.value ->> 'refundAdjustmentCents')::bigint,
+    (result.value ->> 'commissionableSalesCents')::bigint,
+    (result.value ->> 'commissionEarningsCents')::bigint,
+    (result.value ->> 'commissionAllocationResolved')::boolean,
     count(*) filter (where segment.value ->> 'purchaseAttributionDate' is null)::integer
   from (select private.operator_machine_tax_commission(
     'ca100000-0000-4000-8000-000000000001',
