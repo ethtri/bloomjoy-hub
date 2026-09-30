@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { runRefundGiftCardSupply } from "../_shared/refund-gift-card-supply.ts";
 import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
@@ -4902,6 +4903,21 @@ serve(async (req) => {
 
     // System first finishes an exact saved approval that has not reached the
     // provider. Each database claim is one case and one account at a time.
+    failureStage = "gift_card_supply";
+    if (supabase && runId) {
+      const supplyRunId = runId;
+      const supply = await runRefundGiftCardSupply(supabase, {
+        notify: async (incidentId, _poolId, reason) => {
+          const action = await claimAction(supplyRunId, null, `ops_alert:gift_card_supply:${incidentId}`,
+            "ops_alert", null, policyWindowStart, counters);
+          if (action.claimed) await finishAction(action, "completed", `gift_card_${reason}`, null, counters);
+        },
+      });
+      addReason(counters, "gift_card_refills_completed", supply.completed);
+      addReason(counters, "gift_card_refills_failed", supply.failed);
+      addReason(counters, "gift_card_refills_unknown", supply.unknown);
+      addReason(counters, "gift_card_stock_cases_resumed", supply.resumed);
+    }
     failureStage = "nayax_refund_attempt_queue";
     await runNayaxRefundAttemptSweep(counters);
 
