@@ -286,7 +286,8 @@
     "20260930020251_refund_mixed_payout_reply_facts.sql",
     "20260930024054_refund_scheduler_request_id_reuse.sql",
     "20260930031500_refund_approved_cash_form_reply_progression.sql",
-    "20260930050000_refund_submitted_form_continuation.sql"
+    "20260930050000_refund_submitted_form_continuation.sql",
+    "20260930060000_refund_portal_queue_projection.sql"
   ],
   "migrationFilesSha256": "2eeb848a13928604efff6b3c83c003e0ca5f13437f56856801a5beb33d84e482",
   "migrationVersionSetSha256": "60a581c88b6aa725ee91e7b650d1ee063ef800dcf9e4ca7856ef48da93a482b7",
