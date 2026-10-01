@@ -56,6 +56,9 @@ const claimedMessage = (
   subject: "Your refund is confirmed",
   body: "Your refund is confirmed.",
   delivery_kind: "automatic",
+  template_version: null,
+  nayax_refund_attempt_id: null,
+  manual_delivery_intent_id: "b2700000-0000-4000-8000-000000000001",
   manual_delivery_provider_attempted_at: providerAttemptedAt,
   delivery_transport: null,
   provider_message_id: null,
@@ -81,7 +84,7 @@ const currentCase = {
 const singleRowQuery = (data: unknown) => {
   const query = {
     select: () => query,
-    eq: () => query,
+    eq: (_key?: string, _value?: unknown) => query,
     order: () => query,
     limit: () => query,
     maybeSingle: () => Promise.resolve({ data, error: null }),
@@ -184,6 +187,107 @@ const withGmailEnvironment = async (run: () => Promise<void>) => {
     }
   }
 };
+
+Deno.test("recovered receipt uses its exact original thread; sent and unknown transport never resend", async () => {
+  await withAutomaticEnvironment("true", "true", async () => {
+    await withGmailEnvironment(async () => {
+      const threadId = "b2400000-0000-4000-8000-000000000001";
+      const intentId = "b2700000-0000-4000-8000-000000000001";
+      const mailboxHash = await sha256Hex("info@bloomjoysweets.com");
+      const originalFetch = globalThis.fetch;
+      let providerCalls = 0;
+      globalThis.fetch = (() => {
+        providerCalls++;
+        throw new Error("existing completion evidence must never resend");
+      }) as typeof fetch;
+      try {
+        for (const state of ["sent", "delivery_unknown"]) {
+          const filters: Array<[string, unknown]> = [];
+          let targetThread: unknown;
+          let transactionalCalls = 0;
+          const supabase = {
+            from: (table: string) => {
+              if (table === "refund_case_messages") return singleRowQuery(claimedMessage(null, {
+                template_version: "refund_receipt_completion_v1", manual_delivery_intent_id: intentId,
+                nayax_refund_attempt_id: "b2800000-0000-4000-8000-000000000001",
+              }));
+              if (table === "refund_cases") return singleRowQuery(currentCase);
+              if (table === "refund_receipt_completion_intents") {
+                const query = singleRowQuery({ gmail_thread_id: threadId });
+                query.eq = (key?: string, value?: unknown) => { filters.push([key ?? "", value]); return query; };
+                return query;
+              }
+              if (table === "refund_gmail_threads") return singleRowQuery({ id: threadId, mailbox_hash: mailboxHash });
+              throw new Error(`unexpected completion source lookup: ${table}`);
+            },
+            rpc: (name: string, args: Record<string, unknown>) => {
+              if (name === "service_mark_refund_transactional_delivery_attempt") transactionalCalls++;
+              if (name === "service_verify_refund_synthetic_gmail_proof_transport") return Promise.resolve({
+                data: { required: false, allowed: true, status: "not_required" }, error: null,
+              });
+              if (name === "service_claim_refund_gmail_outbound_v3") {
+                targetThread = args.p_target_gmail_thread_id;
+                return Promise.resolve({ data: {
+                  linked: true, claimed: false, status: state, reconciled: state === "sent",
+                  subject: "Your refund is confirmed", managerCcEmails: [],
+                  managerRecipientOverlap: false, managerRecipientCount: 1, recipientResolutionStatus: "resolved",
+                }, error: null });
+              }
+              if (name === "service_mark_refund_manual_message_provider_attempt") return Promise.resolve({
+                data: { marked: true, replayed: false, payloadRedacted: true }, error: null,
+              });
+              if (name === "service_finish_refund_manual_message_delivery") return Promise.resolve({
+                data: { finished: true, payloadRedacted: true }, error: null,
+              });
+              return Promise.resolve({ data: null, error: { code: "unexpected_rpc" } });
+            },
+          } as never;
+          const result = await deliverRefundManualMessageClaim({ supabase, reference: { messageId, claimToken } });
+          assertEquals(filters, [["intent_id", intentId], ["refund_case_id", "b2200000-0000-4000-8000-000000000001"], ["message_id", messageId]]);
+          assertEquals(targetThread, threadId);
+          assertEquals(result.outcome, state === "sent" ? "sent" : "delivery_unknown");
+          assertEquals(transactionalCalls, 0);
+        }
+        assertEquals(providerCalls, 0);
+      } finally { globalThis.fetch = originalFetch; }
+    });
+  });
+});
+
+Deno.test("missing exact receipt intent binding fails before any provider marker or fallback", async () => {
+  await withAutomaticEnvironment("true", "true", async () => {
+    const calls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    let providerCalls = 0;
+    globalThis.fetch = (() => { providerCalls++; throw new Error("missing source attempted delivery"); }) as typeof fetch;
+    try {
+      for (const boundIntent of [null, { gmail_thread_id: null }]) {
+      calls.length = 0;
+      const supabase = {
+        from: (table: string) => {
+          calls.push(table);
+          if (table === "refund_case_messages") return singleRowQuery(claimedMessage(null, {
+            template_version: "refund_receipt_completion_v1",
+            nayax_refund_attempt_id: "b2800000-0000-4000-8000-000000000001",
+          }));
+          if (table === "refund_cases") return singleRowQuery(currentCase);
+          return singleRowQuery(boundIntent);
+        },
+        rpc: (name: string) => {
+          calls.push(name);
+          return Promise.resolve({ data: { finished: true, payloadRedacted: true }, error: null });
+        },
+      } as never;
+      const result = await deliverRefundManualMessageClaim({ supabase, reference: { messageId, claimToken } });
+      assertEquals(result.outcome, "failed");
+      assertEquals(providerCalls, 0);
+      assertEquals(calls.includes("service_mark_refund_manual_message_provider_attempt"), false);
+      assertEquals(calls.includes("refund_gmail_threads"), false);
+      assertEquals(calls.includes("service_mark_refund_transactional_delivery_attempt"), false);
+      }
+    } finally { globalThis.fetch = originalFetch; }
+  });
+});
 
 Deno.test("customer questions and completions stay in the customer thread without changing decision routes", () => {
   assertEquals(refundManualMessageManagerCopyPolicy({
