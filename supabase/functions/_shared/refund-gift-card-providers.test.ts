@@ -12,13 +12,14 @@ const credentials = () => "synthetic-only";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, useMerchantScope: [], scopes: [{ scopeType: 1, scopeValue: ["1000042"] }] });
 const kemoreCode = (c: SupplyClaim) => ({ id: "synthetic-code-id", couponId: "coupon", merchantId: 42, code: "000000123", status: 0, availableCount: 1, usedCount: 0, startTime: providerClock(c.attemptedAt!, "America/Los_Angeles"), endTime: providerClock(c.pool.expires_at, "America/Los_Angeles") });
-const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => Record<string, unknown> = (v) => v) => {
+const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => Record<string, unknown> = (v) => v, merchantTimezone = "America/Los_Angeles") => {
   const calls: { path: string; method: string; body: Record<string, unknown>; headers: Headers }[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     calls.push({ path, method: init?.method ?? "GET", body, headers: new Headers(init?.headers) });
     if (path.endsWith("/user/login")) return json({ code: 0, data: { token: "synthetic-token" } });
+    if (path.endsWith("/merchants")) return json({ code: 0, data: { total: 2, list: [{ id: 42, timeZone: merchantTimezone }] } });
     if (path.endsWith("/coupon-compose")) {
       // Match the observed Go request binding: merchant and dictionary device
       // identities are JSON numbers, rather than the configuration strings.
@@ -34,11 +35,19 @@ const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => R
       const composed = calls.find((r) => r.path.endsWith("/coupon-compose"));
       const row = kemoreCode(c);
       if (composed) {
-        // The provider parses composer wall clocks as UTC, independently of the
-        // request timezone; reads then format the resulting instant in that zone.
+        // Merchant-zone parsing is independent of the caller/read timezone.
         const readZone = new Headers(init?.headers).get("X-App-TimeZone")!;
-        row.startTime = providerClock(`${String(composed.body.startTime).replace(" ", "T")}Z`, readZone);
-        row.endTime = providerClock(`${String(composed.body.endTime).replace(" ", "T")}Z`, readZone);
+        const parse = (clock: unknown) => {
+          const naive = Date.parse(`${String(clock).replace(" ", "T")}Z`);
+          let instant = naive;
+          for (let pass = 0; pass < 2; pass++) {
+            const local = providerClock(new Date(instant).toISOString(), merchantTimezone || "UTC");
+            instant += naive - Date.parse(`${local.replace(" ", "T")}Z`);
+          }
+          return providerClock(new Date(instant).toISOString(), readZone);
+        };
+        row.startTime = parse(composed.body.startTime);
+        row.endTime = parse(composed.body.endTime);
       }
       return json({ code: 0, data: { total: 1, list: [transform(row)] } });
     }
@@ -60,8 +69,8 @@ Deno.test("KeMore uses observed Americas composer and preserves leading zeros af
   assertEquals(writes[0].body.availableCount, 1);
   assertEquals(writes[0].body.discountValue, "15.00");
   assertEquals(writes[0].body.currency, "USD");
-  assertEquals(writes[0].body.startTime, "2026-09-30 12:00:00");
-  assertEquals(writes[0].body.endTime, "2026-12-20 12:00:00");
+  assertEquals(writes[0].body.startTime, "2026-09-30 05:00:00");
+  assertEquals(writes[0].body.endTime, "2026-12-20 04:00:00");
   assertEquals(writes[0].headers.get("X-App-TimeZone"), "America/Los_Angeles");
   assertEquals(writes[0].body.scopes, [{ scopeType: 1, scopeValue: [1000042] }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }]);
 });
@@ -69,6 +78,25 @@ for (const value of ["9007199254740993", "001000042", "not-a-device"]) Deno.test
   const c = claim(); c.config.machine_ids = [value];
   const fixture = kemore(c);
   await assertRejects(() => createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials }), SupplyError, "provider_scope_invalid");
+  assertEquals(fixture.calls.some((r) => r.path.endsWith("coupon-compose")), false);
+});
+for (const [zone, start, end] of [
+  ["", "2026-09-30 12:00:00", "2026-12-20 12:00:00"],
+  ["America/Los_Angeles", "2026-09-30 05:00:00", "2026-12-20 04:00:00"],
+  ["America/Chicago", "2026-09-30 07:00:00", "2026-12-20 06:00:00"],
+] as const) Deno.test(`KeMore composes in observed merchant zone ${zone || "blank UTC"} and reads in caller zone across DST`, async () => {
+  const c = claim(), fixture = kemore(c, (v) => v, zone);
+  const adapter = await createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials });
+  assertEquals((await adapter.create())[0].expires_at, c.pool.expires_at);
+  const write = fixture.calls.find((r) => r.path.endsWith("coupon-compose"))!;
+  assertEquals(write.body.startTime, start);
+  assertEquals(write.body.endTime, end);
+  assertEquals(write.headers.get("X-App-TimeZone"), "America/Los_Angeles");
+});
+Deno.test("KeMore cannot create without an authoritative unique merchant timezone", async () => {
+  const c = claim(), fixture = kemore(c);
+  const adapter = () => createSupplyAdapter(c, { env: credentials, fetchImpl: (input, init) => String(input).includes("/merchants?") ? Promise.resolve(json({ code: 0, data: { total: 1, list: [{ id: 99, timeZone: "America/Chicago" }] } })) : fixture.fetchImpl(input, init) });
+  await assertRejects(adapter, SupplyError, "provider_merchant_timezone_unverified");
   assertEquals(fixture.calls.some((r) => r.path.endsWith("coupon-compose")), false);
 });
 Deno.test("KeMore validates separate scope rows when coupon list embeds no scopes", async () => {
