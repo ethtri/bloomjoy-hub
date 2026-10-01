@@ -364,6 +364,8 @@ select is(public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',
  (select id from public.refund_sunze_cash_correlation_attempts
   where refund_case_id='16617000-0000-4000-8000-000000000001' and invalidated_at is null
+    and source_snapshot_key=public.refund_current_sunze_cash_source_key(
+      '16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z')
   order by evaluated_at desc,id desc limit 1),
  '16619100-0000-4000-8000-000000000001',1,1,
  '16600000-0000-4000-8000-000000000001')->>'selected','true',
