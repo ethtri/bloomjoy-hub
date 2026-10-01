@@ -1,7 +1,24 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(110);
+select plan(114);
+
+-- Execute the retained nullable producer beside the corrected producer on the
+-- same approved-but-not-executed synthetic attempt. No provider is invoked.
+do $legacy$
+declare definition text;
+begin
+  definition := pg_get_functiondef(
+    'public.refund_lifecycle_contract_pre_authoritative_receipt_v1(uuid)'::regprocedure);
+  definition := replace(definition,
+    'public.refund_lifecycle_contract_pre_authoritative_receipt_v1(',
+    'pg_temp.legacy_lifecycle_operations(');
+  definition := replace(definition,
+    '''required'', coalesce(operations_required, false),',
+    '''required'', operations_required,');
+  execute definition;
+end;
+$legacy$;
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -22,6 +39,10 @@ begin
       (select official_action_version from public.refund_cases where id=p_case_id));
     result:=result||jsonb_build_object('decidedBy',
       (select decided_by from public.refund_cases where id=p_case_id));
+    result:=result||jsonb_build_object(
+      'lifecycle',public.refund_lifecycle_contract(p_case_id),
+      'baseLifecycle',public.refund_lifecycle_contract_pre_authoritative_receipt_v1(p_case_id),
+      'legacyBaseLifecycle',pg_temp.legacy_lifecycle_operations(p_case_id));
     raise exception 'rollback approval probe' using errcode='P0001';
   exception when sqlstate 'P0001' then return result; end;
 end $$;
@@ -405,6 +426,22 @@ select ok(pg_temp.probe_selected_approval(
   'a3470000-0000-4000-8000-000000000015')->>'decidedBy'=
   'a3410000-0000-4000-8000-000000000003',
   'the unchanged protected approval accepts the recovered proof in a rolled-back probe');
+create temp table approved_lifecycle_probe on commit drop as
+select pg_temp.probe_selected_approval(
+  'a3470000-0000-4000-8000-000000000015') result;
+select is(jsonb_typeof(result#>'{legacyBaseLifecycle,operations,required}'),'null',
+  'the actual retained producer reproduces NULL on a newly reserved approved-card attempt')
+from approved_lifecycle_probe;
+select is(result#>'{baseLifecycle,operations,required}','false'::jsonb,
+  'the approved-card attempt without provider outcome serializes boolean false')
+from approved_lifecycle_probe;
+select is(result#>'{lifecycle,operations,required}','false'::jsonb,
+  'the boolean survives the current receipt, completion and gift lifecycle wrappers')
+from approved_lifecycle_probe;
+select is(result->'baseLifecycle',jsonb_set(result->'legacyBaseLifecycle',
+  '{operations,required}','false'::jsonb),
+  'the full underlying lifecycle changes only the nullable operations.required field')
+from approved_lifecycle_probe;
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000002');
 select matches(pg_temp.capture_error($sql$
   select public.admin_approve_selected_nayax_refund_for_system_v1(
