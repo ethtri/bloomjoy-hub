@@ -850,14 +850,19 @@ export default function RefundRequestPage() {
                     aria-label="Resolution" className="gap-3">
                     <Label htmlFor="resolution-gift-card" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
                       <RadioGroupItem id="resolution-gift-card" value="gift_card" />
-                      <span><span className="font-semibold">Bloomjoy gift card</span> <span className="text-xs text-pink-800">Recommended</span></span>
+                      <span><span className="font-semibold">Bloomjoy gift card</span> <span className="text-xs text-pink-800">Recommended</span>
+                        <span className="block text-sm leading-6 text-muted-foreground">Usually emailed within a few hours.</span>
+                      </span>
                     </Label>
                     <Label htmlFor="resolution-original" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
                       <RadioGroupItem id="resolution-original" value="original_payment" />
-                      <span>Refund to my original card payment</span>
+                      <span>Refund to my original card payment
+                        <span className="block text-sm leading-6 text-muted-foreground">We investigate the purchase and request your refund from the payment processor, so this takes longer.</span>
+                      </span>
                     </Label>
                   </RadioGroup>}
                   {wantsGiftCard && <div className="space-y-2 rounded-lg border border-pink-200 bg-pink-50 p-4" aria-live="polite">
+                    {form.paymentMethod === 'cash' && <p className="text-sm leading-6">Usually emailed within a few hours.</p>}
                     {giftCardOffer ? <><RefundGiftCardTerms offer={giftCardOffer} />
                       <p className="text-sm leading-6">{giftCardOffer.redemption_instructions}</p>
                       <p className="text-xs leading-5 text-pink-900">Submitting accepts this gift card and its terms. One automatic gift card per email in 12 months; repeat requests are reviewed by our team.</p>
@@ -867,7 +872,11 @@ export default function RefundRequestPage() {
                       : 'We could not load a gift card offer for this purchase right now. Please try again, or contact us using the same email conversation.'}</p>}
                     {offerQuery.isError && <Button type="button" variant="outline" onClick={() => void offerQuery.refetch()}>Try loading the offer again</Button>}
                   </div>}
-                  {!wantsGiftCard && <p className="text-sm leading-6 text-muted-foreground">We’ll find your payment and send it to our team for a refund decision. Most requests are reviewed within 5 business days.</p>}
+                  {!wantsGiftCard && <p className="text-sm leading-6 text-muted-foreground">{giftCardAvailable
+                    ? 'Most requests are reviewed within 5 business days. We’ll email you with an update.'
+                    : form.paymentMethod === 'card'
+                      ? 'We investigate the purchase and request your refund from the payment processor, so this takes longer. Most requests are reviewed within 5 business days.'
+                      : 'We’ll find your payment and send it to our team for a refund decision. Most requests are reviewed within 5 business days.'}</p>}
                 </section>
 
                 {needsCardDetails && (

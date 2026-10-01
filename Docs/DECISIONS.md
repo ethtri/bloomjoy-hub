@@ -1,5 +1,14 @@
 # Decisions
 
+## 2026-10-01 - Show resolution timing before the customer chooses
+
+The owner requested clear timing beside each existing refund resolution in #666.
+Gift cards are usually emailed within a few hours; this supersedes the September
+30 minute-based target below. Original-card refunds take longer because Bloomjoy
+investigates the purchase and requests the refund from the payment processor.
+Keep the five-business-day review expectation separate from refund arrival.
+Do not promise a fixed delivery deadline or invent a bank settlement duration.
+
 ## 2026-09-30 - Gift-card launch value and goodwill
 
 The owner authorized implementation of #666 and confirmed the launch rule:
