@@ -8,6 +8,17 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- RF-34D5834D now has a saved reviewed published cash purchase. Its missing
+  payout destination request is blocked before transport because a historical
+  empty research cycle still suppresses the current correction field. The
+  bounded repair under #1429/#628 retains that hold until the reviewed selection
+  has current fact, candidate and source proof; deployment verification remains
+  pending. No payout question, decision or payment was made.
+  Separately, unvalidated positive-only Sunze candidates can still lack a
+  matching current preparation source key (#1429/#628). This repair preserves
+  that explicit limitation; its Sunze payout regression uses validated current
+  source proof and does not claim positive-only preparation parity.
+
 - The gift-card implementation in PR #1658 uses the existing request, status,
   Manager workspace and email outbox. It rounds purchases up to $5, records
   Bloomjoy-funded goodwill separately, and keeps one original purchase deduction.
