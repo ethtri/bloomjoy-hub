@@ -74,8 +74,6 @@ jobs:
       - name: Record evidence run start and authenticate producers
         run: |
           node -e "const crypto=require('crypto'); const fs=require('fs'); const token=crypto.randomBytes(32).toString('hex'); console.log('::add-mask::'+token); fs.appendFileSync(process.env.GITHUB_ENV, 'REFUND_UAT_EVIDENCE_STARTED_AT='+new Date().toISOString()+'\nREFUND_UAT_EVIDENCE_RUN_TOKEN='+token+'\n')"
-      - name: Run disposable database validation
-        run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-fragments --portal-seed-dir output/refund-uat-seed
       - name: Prove manager-aging shutdown before side effects
         env:
           REFUND_MANAGER_AGING_NOTICES_ENABLED: 'false'
@@ -120,6 +118,8 @@ jobs:
           path: output/playwright/gift-card/*.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Run disposable database validation
+        run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-fragments --portal-seed-dir output/refund-uat-seed
       - name: Run Refund portal synthetic UAT
         run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments --real-projection-seed-file output/refund-uat-seed/refund-real-preparation-seed.json
       - name: Run Refund QR intake synthetic UAT
