@@ -1,5 +1,9 @@
 begin;
 
+-- Fixture dates must use the same calendar as the timekeeping future-date guard,
+-- including the UTC month rollover while it is still the prior day locally.
+set local timezone = 'America/Los_Angeles';
+
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 

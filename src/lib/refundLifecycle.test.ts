@@ -521,6 +521,16 @@ Deno.test("the lifecycle parser accepts exact applied accounting delivery states
     refreshAfterSeconds: 5,
   };
   assert(isRefundLifecycleContract(appliedPending), "a queued applied receipt should parse");
+  const appliedAwaitingHandoff = {
+    ...appliedPending,
+    messageState: { state: "none", messageType: null, lastUpdatedAt: null, payloadRedacted: true },
+  };
+  assert(isRefundLifecycleContract(appliedAwaitingHandoff),
+    "a proved applied receipt awaiting its ordinary handoff is honest System work, not a missing settlement date");
+  assert(!isRefundLifecycleContract({
+    ...appliedAwaitingHandoff,
+    managerQueue: { ...appliedAwaitingHandoff.managerQueue, bucket: "needs_action", label: "Action needed" },
+  }), "an unqueued receipt cannot invent Manager delivery work");
 
   const reviewOperations = {
     ...appliedSent.operations,
