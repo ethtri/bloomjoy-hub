@@ -369,17 +369,69 @@ select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-0000
 select ok(exists(select 1 from public.refund_sunze_cash_correlation_candidates candidate join public.refund_sunze_cash_correlation_attempts attempt on attempt.id=candidate.attempt_id where attempt.refund_case_id='16617000-0000-4000-8000-000000000001' and candidate.sales_fact_id='16619100-0000-4000-8000-000000000001'),'Sunze positive is retained on its exact source');
 select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
  '{}'::text[],'Changing to new grounded Sunze evidence requires a fresh reviewed selection');
-select is(public.service_select_sunze_cash_candidate(
+-- Existing limitation under #1429/#628: positive-only Sunze research uses a
+-- positive snapshot key that the current preparation source-key helper does not
+-- reproduce. Retain the candidate without claiming reviewed preparation parity.
+select is(public.refund_manager_preparation_snapshot(
  '16617000-0000-4000-8000-000000000001',
- (select id from public.refund_sunze_cash_correlation_attempts
-  where refund_case_id='16617000-0000-4000-8000-000000000001' and invalidated_at is null
-    and source_snapshot_key=public.refund_current_sunze_cash_source_key(
-      '16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z')
-  order by evaluated_at desc,id desc limit 1),
- '16619100-0000-4000-8000-000000000001',1,1,
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001')),
+ null::jsonb,'Unvalidated Sunze positive retains the existing preparation source-key limitation');
+
+-- Separate current, clock-validated Sunze proof exercises the same bounded
+-- payout exception without changing the positive-only source contract above.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,status,sunze_machine_id)
+values('16612000-0000-4000-8000-000000000003','16610000-0000-4000-8000-000000000001',
+ '16611000-0000-4000-8000-000000000001','Validated cash fixture','commercial','active','SUNZE-PAYOUT-VALIDATED');
+insert into public.refund_cases(
+ id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+ issue_summary,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,
+ payment_method,payment_amount_cents,status,correlation_status,correlation_source,
+ correlation_summary,cash_match_evaluated_fact_version
+) values (
+ '16617000-0000-4000-8000-000000000002','RF-SUNZE-PAYOUT-TEST',
+ '16612000-0000-4000-8000-000000000003','16611000-0000-4000-8000-000000000001',
+ 'sunze-payout@example.invalid','Validated reviewed cash fixture',
+ '2026-09-20T19:00:36Z','2026-09-20 12:00:36','America/Los_Angeles','exact',
+ 'cash',900,'needs_review','no_match','sunze','Historical no safe match.',1
+);
+insert into public.refund_follow_up_cycles(
+ id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,requested_fields,
+ template_version,case_fact_version,reminder_delay_hours,status
+)
+select '16618000-0000-4000-8000-000000000002',c.id,1,repeat('c',64),
+ 'no_safe_match','{}'::text[],settings.template_version,
+ c.deterministic_fact_version,settings.reminder_delay_hours,'claimed'
+from public.refund_cases c cross join public.refund_customer_contact_settings settings
+where c.id='16617000-0000-4000-8000-000000000002';
+update public.refund_follow_up_cycles set status='manual_review',
+ failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='16618000-0000-4000-8000-000000000002';
+insert into public.sales_import_runs(id,source,status,rows_seen,rows_imported,meta,completed_at)
+values('16619000-0000-4000-8000-000000000002','sunze_browser','completed',1,1,
+ '{"github_run_id":"validated-payout-fixture","payment_time_semantics_status":"validated","payment_time_timezone":"America/Los_Angeles","timestamp_proof_scope":"account","machine_coverage_verified":true,"visible_machine_count_mismatch":false}',statement_timestamp());
+insert into public.sunze_cash_source_watermarks(
+ reporting_machine_id,coverage_started_at,covered_through,last_successful_import_at,
+ freshness_expires_at,payment_time_basis,payment_time_timezone,timestamp_proof_scope,import_run_id
+) values (
+ '16612000-0000-4000-8000-000000000003','2026-09-20T18:00:00Z','2026-09-20T20:01:00Z',
+ statement_timestamp(),statement_timestamp()+interval '1 day','validated_iana_timezone',
+ 'America/Los_Angeles','account','16619000-0000-4000-8000-000000000002'
+);
+insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,source_order_hash,import_run_id,payment_time,source_payment_status,raw_payload)
+values('16619100-0000-4000-8000-000000000002','16612000-0000-4000-8000-000000000003','16611000-0000-4000-8000-000000000001','2026-09-20','cash',950,1,'sunze_browser','validated-payout-row','validated-payout-order','16619000-0000-4000-8000-000000000002','2026-09-20T19:00:00Z','Payment success','{"payment_time_iso":"2026-09-20T19:00:00.000Z"}');
+create temporary table validated_sunze_proof as select
+ public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000002',1,'backfill') result;
+select is((select result->>'candidateCount' from validated_sunze_proof),'1','Validated Sunze source supplies its exact current candidate');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000002'),
+ '{}'::text[],'Automatic single-candidate linkage does not lift the historical hold without review');
+select is(public.service_select_sunze_cash_candidate(
+ '16617000-0000-4000-8000-000000000002',
+ (select (result->>'attemptId')::uuid from validated_sunze_proof),
+ '16619100-0000-4000-8000-000000000002',1,
+ (select coalesce(max(link_version),0) from public.refund_sunze_cash_sale_links where refund_case_id='16617000-0000-4000-8000-000000000002'),
  '16600000-0000-4000-8000-000000000001')->>'selected','true',
- 'Grounded Sunze positive accepts a current explicit reviewed selection');
-select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
- array['zelle_payment_contact'],'Current reviewed Sunze purchase also lifts only the missing payout field hold');
+ 'Validated current Sunze purchase accepts explicit reviewed selection');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000002'),
+ array['zelle_payment_contact'],'Current reviewed validated Sunze proof also exposes only the missing payout field');
 select * from finish();
 rollback;
