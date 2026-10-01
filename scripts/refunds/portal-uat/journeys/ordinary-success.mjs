@@ -1627,6 +1627,55 @@ export const createOrdinarySuccessChecks = ({
       fullPage: true,
     });
     await closeRefundPortalContext(snapcaseContext);
+
+    for (const source of ['sunze', 'snapcase']) {
+      for (const width of [1440, 390]) {
+        for (const currentReviewedProof of [true, false]) {
+          const payoutContext = await browser.newContext({ viewport: { width, height: 1000 } });
+          const payoutCalls = [];
+          await installMockSupabaseRoutes(payoutContext, {
+            cashEvidenceSource: source,
+            functionBodies: payoutCalls,
+            refundOverview: () => {
+              const overview = buildCashRefundVariantsOverview();
+              const cashCase = overview.cases.find((item) => item.publicReference === 'RF-UAT-CASH-REVIEW');
+              cashCase.zellePaymentContact = null;
+              cashCase.customerCorrectionFields = currentReviewedProof ? ['zelle_payment_contact'] : [];
+              cashCase.payoutDestinationRequest = { state: 'not_started', canRequest: true, payloadRedacted: true };
+              cashCase.correlationSource = source === 'snapcase' ? 'snapcase_cash' : 'sunze';
+              cashCase.lifecycle.decisionRecommendation.purchase.source = source;
+              return overview;
+            },
+          });
+          const payoutPage = await payoutContext.newPage();
+          await signInRefundUser(payoutPage, appUrl);
+          await payoutPage.getByRole('button', { name: /^All active \d+$/ }).click();
+          await queueCase(payoutPage, 'RF-UAT-CASH-REVIEW').click();
+          await payoutPage.getByText('Customer update and options', { exact: true }).click();
+          await payoutPage.getByText('Other decisions', { exact: true }).click();
+          await payoutPage.getByRole('button', { name: 'Request customer correction', exact: true }).click();
+          if (currentReviewedProof) {
+            const dialog = payoutPage.getByRole('dialog', { name: 'Request customer correction' });
+            await dialog.waitFor({ timeout: 10000 });
+            recorder.assert(`${source} ${width}px current reviewed cash opens only the payout field`,
+              await dialog.getByText('Zelle email or phone', { exact: true }).isVisible() &&
+                await dialog.getByRole('checkbox').count() === 1 &&
+                await dialog.getByRole('checkbox').isChecked());
+          } else {
+            await payoutPage.getByText('This request is already active or needs internal review. Refresh the case for its next action.', { exact: true })
+              .waitFor({ timeout: 10000 });
+            recorder.assert(`${source} ${width}px unresolved historical hold keeps the form closed`,
+              await payoutPage.getByRole('dialog', { name: 'Request customer correction' }).count() === 0);
+          }
+          recorder.assert(`${source} ${width}px payout inspection makes no delivery, selection, decision or payment`,
+            payoutCalls.every(({ functionName, body }) =>
+              functionName === 'refund-case-sunze-correlation' && body?.operation === 'read' ||
+              functionName === 'nayax-card-refund' && body?.operation === 'availability'),
+            JSON.stringify(payoutCalls.map(({ functionName, body }) => ({ functionName, operation: body?.operation }))));
+          await closeRefundPortalContext(payoutContext);
+        }
+      }
+    }
   };
 
   const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
