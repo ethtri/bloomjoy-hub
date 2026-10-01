@@ -252,7 +252,7 @@ values('16619000-0000-4000-8000-000000000001','sunze_browser','completed',1,1,
 insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,source_order_hash,import_run_id,payment_time,source_payment_status,raw_payload)
 values('16619100-0000-4000-8000-000000000001','16612000-0000-4000-8000-000000000002','16611000-0000-4000-8000-000000000001','2026-09-20','cash',950,1,'sunze_browser','snapcase-fallback-row','snapcase-fallback-order','16619000-0000-4000-8000-000000000001','2026-09-20T19:00:00Z','Payment success','{"payment_time_iso":"2026-09-20T19:00:00.000Z"}');
 update private.snapcase_machine_mappings set effective_end_date='2026-09-19' where source_machine_id='refund-cash-machine';
-select unlike(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z'),'snapcase:%','Out-of-window mapping does not claim the source');
+select ok(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z') not like 'snapcase:%','Out-of-window mapping does not claim the source');
 select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000001',1,'backfill')->>'candidateCount','1','Dormant SnapCase mapping preserves grounded Sunze positive research');
 select ok(exists(select 1 from public.refund_sunze_cash_correlation_candidates candidate join public.refund_sunze_cash_correlation_attempts attempt on attempt.id=candidate.attempt_id where attempt.refund_case_id='16617000-0000-4000-8000-000000000001' and candidate.sales_fact_id='16619100-0000-4000-8000-000000000001'),'Sunze positive is retained on its exact source');
 select * from finish();
