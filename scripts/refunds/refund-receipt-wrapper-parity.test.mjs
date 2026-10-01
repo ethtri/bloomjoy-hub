@@ -4,13 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION,
-  CORE_DISPATCH_MIGRATION, TERMINAL_API_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
+  CORE_DISPATCH_MIGRATION, TERMINAL_API_MIGRATION, RECEIPT_HANDOFF_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8');
 test('source-derived runtime proof includes exact current core delegates and receipt outer wrappers', () => {
   const sql = buildReceiptWrapperParityTest(root);
-  assert(sql.includes('select plan(25)'));
+  assert(sql.includes('select plan(30)'));
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
     const core = extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), name);
     const receipt = extractReceiptParityBody(read(
@@ -24,6 +24,12 @@ test('source-derived runtime proof includes exact current core delegates and rec
     assert(receipt.includes("errcode='P4663'"));
     assert(receipt.includes('assert_no_active_refund_owner_resolution'));
   }
+  const handoff = extractReceiptParityBody(read(RECEIPT_HANDOFF_MIGRATION), 'service_claim_refund_gmail_outbound_v3');
+  assert(sql.includes(`$receipt_parity$${handoff}$receipt_parity$`));
+  assert(handoff.includes('service_claim_refund_gmail_outbound_pre_receipt_thread_v1'));
+  assert(handoff.includes('i.gmail_thread_id is distinct from p_target_gmail_thread_id'));
+  assert(handoff.includes('r.nayax_refund_attempt_id is distinct from m.nayax_refund_attempt_id'));
+  assert(sql.includes("'public.service_claim_refund_gmail_outbound_pre_receipt_thread_v1(uuid,uuid,text,text,text,text,text[],text,uuid)'"));
   const manualMark = extractReceiptParityBody(
     read(COMPLETION_MIGRATION),
     'service_mark_refund_manual_message_provider_attempt',

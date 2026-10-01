@@ -6,11 +6,13 @@ export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delive
 export const PRIOR_COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
 export const COMPLETION_MIGRATION = '20260906052200_refund_receipt_automatic_completion_kernel.sql';
 export const TERMINAL_API_MIGRATION = '20260908163714_refund_terminal_receipt_case_completion.sql';
+export const RECEIPT_HANDOFF_MIGRATION = '20260930234847_refund_api_receipt_completion_handoff.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
-  [TERMINAL_API_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
+  [TERMINAL_API_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_pre_receipt_thread_v1', gmailArgs, false],
+  [RECEIPT_HANDOFF_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
   [CORE_DISPATCH_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_pre_receipt_v1', gmailArgs, false],
   [COMPLETION_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
   [CORE_DISPATCH_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_delivery_pre_receipt_v1', 'uuid', false],
@@ -56,7 +58,7 @@ export function buildReceiptWrapperParityTest(repoRoot) {
       .test(fs.readFileSync(path.join(migrationsDir, file), 'utf8')));
     const expected = name === 'service_claim_refund_gmail_outbound_v3'
       ? [CORE_DISPATCH_MIGRATION, RECEIPT_MIGRATION, PRIOR_COMPLETION_MIGRATION,
-        COMPLETION_MIGRATION, TERMINAL_API_MIGRATION]
+        COMPLETION_MIGRATION, TERMINAL_API_MIGRATION, RECEIPT_HANDOFF_MIGRATION]
       : [CORE_DISPATCH_MIGRATION, RECEIPT_MIGRATION, PRIOR_COMPLETION_MIGRATION,
         COMPLETION_MIGRATION];
     if (!expected.every((file, index) => definingFiles.at(index - expected.length) === file)) {

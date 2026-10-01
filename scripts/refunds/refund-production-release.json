@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "2ba11107aaa4242e0dab4fb27d90884930c4a360",
+  "sourceGitCommit": "536a50e2a85b264ac15a2f0406af779800c93ccf",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -292,10 +292,11 @@
     "20260930180654_refund_selected_wallet_next_work.sql",
     "20260930185520_refund_customer_same_case_update_access.sql",
     "20260930195800_refund_recovered_selection_recommendation.sql",
-    "20260930214655_refund_nayax_exact_source_reporting_recovery.sql"
+    "20260930214655_refund_nayax_exact_source_reporting_recovery.sql",
+    "20260930234847_refund_api_receipt_completion_handoff.sql"
   ],
-  "migrationFilesSha256": "d762d030c5b5de09723171764c804bd6384b22f248456154d1058cabd64bbf31",
-  "migrationVersionSetSha256": "e207a72c6de4c4e6a2453a870231d0bb853e66b94008ec41505eccba21a0ad2d",
+  "migrationFilesSha256": "d7952b037569294a453b1ec93e19d5c0c5139503249858533beb819f1ef148ff",
+  "migrationVersionSetSha256": "fe66ce2ea738742c1c30ce955cc47532084d59eb5f3cde7b8257356705eae870",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -392,7 +393,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "c174093e8e2e56674ace78f74ef378a6388377da7db0d4dc8b15646053260796",
+      "sourceSha256": "d387cf3ce76a0b7151ea856b1d1197253f31ff80cdbecf8f54291ea1a9c97687",
       "production": {
         "version": 167,
         "ezbrSha256": "32fed9889375f2996ec94bcbe8c879777e8e53d21215fb33fc532d56e4115eec",
@@ -403,7 +404,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "28435455323bf67dabf32ef50a88a2a20e5c471e7332db1ef23b56ff4a08163d",
+      "sourceSha256": "1f672573abccc86f60acc75122eb804c4309f0f83cc2d9faec3e3e0e263a3e5b",
       "production": {
         "version": 172,
         "ezbrSha256": "25454287f8955be1bd23beff9e81325d591ef5ccc88e685677f5a4c6dcb5e93a",
