@@ -34,12 +34,20 @@ orientation snapshot; it is not a backlog or release ledger.
   Local desktop/mobile synthetic checks cover acceptance, repeat decisions,
   same-code email recovery, activation boundaries and Super-admin supply settings.
   The PR records disposable database and hosted journey evidence separately
-  from local source checks; production activation remains pending.
+  from local source checks. Sunzee cotton-candy offers are now live for the
+  reviewed 16 machines and 15 public locations: two enabled $10/$15 pools have
+  five fresh available codes each after the ordinary supply run. The used
+  Great Mall test coupon is excluded from inventory.
   The owner confirmed touchscreen redemption via **Enter coupon/code** for
-  both cotton candy and SnapCase. Pools remain disabled until provider setup,
-  actual code creation and working machine redemption are verified. The one-use
-  terms follow the owner-approved conservative assumption.
-  Fixtures do not prove live creation, hardware redemption or inbox timing.
+  both cotton candy and SnapCase. The October 1 Sunzee coupon was successfully
+  created and redeemed at Great Mall. PR #1672 deployed the authenticated
+  child-login/parent-owner binding and exact shorter numeric code import;
+  the supported provider application allows up to three months, and the live
+  offer advertises 90-day validity. Eight
+  KeMore SnapCase pools remain disabled pending their separate live creation
+  and redemption proof. The one-use terms follow the owner-approved
+  conservative assumption. Neither fixtures nor machine redemption prove
+  ordinary customer inbox timing or one-year vendor validity.
   Unactivated machines keep the existing cash intake. Activated cash requests stay on the gift-card path.
 
 - PR #1652 restored existing Manager recommendations and decision controls for
