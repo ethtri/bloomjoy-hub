@@ -612,7 +612,7 @@ export default function RefundRequestPage() {
                 onSubmit={handleSubmit}
                 className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
               >
-                <div className="grid gap-5">
+                <div className="grid grid-cols-1 gap-5">
                   <div>
                     <h2 className="text-lg font-semibold text-foreground">Purchase</h2>
                     <p className="mt-1 text-sm text-muted-foreground">Where and when did you make the purchase?</p>
@@ -758,7 +758,7 @@ export default function RefundRequestPage() {
                     </p>
                   </div>
 
-                <fieldset>
+                <fieldset className="min-w-0">
                   <legend className="text-sm font-medium leading-none">How did you pay?</legend>
                   <RadioGroup
                     name="paymentMethod"
