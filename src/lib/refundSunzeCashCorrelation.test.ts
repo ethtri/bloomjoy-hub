@@ -55,6 +55,20 @@ const overview = (overrides: Partial<Record<string, unknown>> = {}) => ({
   ...overrides,
 });
 
+Deno.test('published SnapCase evidence preserves source, amount differences and comparable clock without claiming coverage', () => {
+  const result = parseRefundSunzeCashCorrelation(overview({
+    cashSource: 'snapcase', state: 'multiple_possible_sales', sourceReadiness: 'unavailable',
+    candidates: [{ ...candidate('000000000201'), amountDeltaCents: 900,
+      evidenceCodes: ['machine_exact', 'published_snapcase_cash', 'source_time_validated'] }],
+  }));
+  assertEquals(result.cashSource, 'snapcase');
+  assertEquals(result.candidates[0].amountDeltaCents, 900);
+  assertEquals(result.candidates[0].timeDeltaSeconds, 42);
+  assertEquals(result.sourceReadiness, 'unavailable');
+  assertEquals(parseRefundSunzeCashCorrelation(overview()).cashSource, 'sunze');
+  assertThrows(() => parseRefundSunzeCashCorrelation(overview({ cashSource: 'unknown' })));
+});
+
 Deno.test('parses a unique selected sale and preserves safe display evidence', () => {
   const parsed = parseRefundSunzeCashCorrelation(overview());
   assertEquals(parsed.state, 'sale_found');

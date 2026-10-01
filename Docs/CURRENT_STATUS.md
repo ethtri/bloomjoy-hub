@@ -38,13 +38,21 @@ orientation snapshot; it is not a backlog or release ledger.
   open workflow incident remain outside this slice; broader readiness is not
   claimed (#1429/#628).
 
-- PR #1661 addresses RF-423906B2's missing ordinary completion handoff after
-  receipt-only recovery (#1429/#1266). Its real reporting date is preserved and
-  bank settlement remains unknown; a legacy no-message projection currently
-  invents Manager delivery work and fails the portal lifecycle contract. The
-  proposed existing-outbox continuation and read-only projection repair are
-  under review and not deployed. No live mail is queued, claimed or sent by
-  technical verification.
+- PR #1661/#1663 deployed and verified the existing receipt completion
+  continuation and removed RF-423906B2's lifecycle warning (#1429/#1266).
+  Its real reporting date is preserved and bank settlement remains unknown.
+  Ordinary automation subsequently sent the single canonical notice in the
+  existing customer conversation; the case now reports Done with one verified
+  notice and preserved approval, provider evidence and reporting receipt.
+  No technical manual queue, claim, send, provider replay or decision
+  occurred.
+
+- Published SnapCase cash facts reached reporting but were absent from refund
+  research and reviewed selection. PR #1664 extends the existing cash path to
+  current publication, machine/account, mapping and clock proof, displaying the
+  actual source. Approximate amounts remain advisory and positive publication
+  does not prove complete coverage. The source is under review; deployment and
+  affected-case readback remain pending (#1429/#628).
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements

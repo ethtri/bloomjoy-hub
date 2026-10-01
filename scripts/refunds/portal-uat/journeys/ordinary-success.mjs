@@ -1563,6 +1563,70 @@ export const createOrdinarySuccessChecks = ({
       getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
     );
     await closeRefundPortalContext(context);
+
+    const snapcaseContext = await browser.newContext({ viewport: { width: 1505, height: 1045 } });
+    const snapcaseFunctionBodies = [];
+    await installMockSupabaseRoutes(snapcaseContext, {
+      cashEvidenceSource: 'snapcase',
+      functionBodies: snapcaseFunctionBodies,
+      refundOverview: () => {
+        const overview = buildCashRefundVariantsOverview();
+        const reviewed = overview.cases.find((item) => item.publicReference === 'RF-UAT-CASH-REVIEW');
+        reviewed.correlationSource = 'snapcase_cash';
+        reviewed.correlationSummary = 'Reviewed current published SnapCase cash purchase.';
+        reviewed.lifecycle.decisionRecommendation.purchase.source = 'snapcase';
+        reviewed.lifecycle.decisionRecommendation.summary = 'Reviewed current published SnapCase cash purchase.';
+        return overview;
+      },
+    });
+    const snapcasePage = await snapcaseContext.newPage();
+    const snapcaseErrors = [];
+    snapcasePage.on('console', (message) => {
+      if (shouldRecordConsoleError(message)) snapcaseErrors.push(message.text());
+    });
+    snapcasePage.on('pageerror', (error) => snapcaseErrors.push(error.message));
+    await signInRefundUser(snapcasePage, appUrl);
+    await snapcasePage.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 10000 });
+    await snapcasePage.getByRole('button', { name: /^Decision needed 2$/ }).click();
+    await queueCase(snapcasePage, 'RF-UAT-CASH-REVIEW').click();
+    await snapcasePage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Reviewed SnapCase purchase parses into usable Manager controls with source amount',
+      await snapcasePage.getByTestId('refund-cash-primary-action')
+        .getByText('Approve $8.00 USD refund', { exact: true }).isVisible() &&
+        await snapcasePage.getByTestId('refund-deny-instead').getByText('Deny', { exact: true }).isVisible()
+    );
+    await snapcasePage.getByText('Purchase details and search history', { exact: true }).click();
+    recorder.assert(
+      'Published SnapCase evidence names its actual source without claiming complete coverage',
+      await snapcasePage.getByText('SnapCase sales evidence', { exact: true }).isVisible() &&
+        !(await snapcasePage.getByText('Sunze sales evidence', { exact: true }).isVisible())
+    );
+    await snapcasePage.setViewportSize({ width: 390, height: 844 });
+    recorder.assert(
+      'SnapCase reviewed evidence remains visible without horizontal overflow at 390px',
+      await snapcasePage.getByText('SnapCase sales evidence', { exact: true }).isVisible() &&
+        await snapcasePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
+    );
+    recorder.assert(
+      'SnapCase evidence inspection does not select, decide, send or pay',
+      snapcaseFunctionBodies.every(({ functionName, body }) =>
+        functionName === 'refund-case-sunze-correlation' && body?.operation === 'read' ||
+        functionName === 'nayax-card-refund' && body?.operation === 'availability'),
+      JSON.stringify(snapcaseFunctionBodies.map(({ functionName, body }) => ({ functionName, operation: body?.operation })))
+    );
+    recorder.assert(
+      'SnapCase source renders without lifecycle or browser errors',
+      getUatPageFailures(snapcasePage, snapcaseErrors).length === 0,
+      getUatPageFailures(snapcasePage, snapcaseErrors).slice(0, 3).join(' | ')
+    );
+    await snapcasePage.setViewportSize({ width: 1505, height: 1045 });
+    await snapcasePage.screenshot({
+      path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
+      fullPage: true,
+    });
+    await closeRefundPortalContext(snapcaseContext);
   };
 
   const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {

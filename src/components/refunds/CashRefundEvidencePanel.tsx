@@ -50,7 +50,7 @@ const evidenceStateCopy: Record<RefundSunzeCashCorrelation['state'], {
   },
   sale_found: {
     label: 'Sale found',
-    detail: 'One supported Sunze sale is shown as evidence. The amount and details below do not make the refund decision for you.',
+    detail: 'One supported cash sale is shown as evidence. The amount and details below do not make the refund decision for you.',
     tone: 'success',
   },
   multiple_possible_sales: {
@@ -245,7 +245,7 @@ export function CashRefundEvidencePanel({
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash review</p>
-          <p className="mt-2 text-lg font-semibold text-foreground">Sunze sales evidence</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">{correlation?.cashSource === 'snapcase' ? 'SnapCase sales evidence' : 'Sunze sales evidence'}</p>
         </div>
         <Badge
           data-testid="refund-cash-evidence-state"
@@ -293,7 +293,7 @@ export function CashRefundEvidencePanel({
       )}
 
       {state === 'multiple_possible_sales' && candidates.length > 0 && (
-        <fieldset className="mt-3 space-y-2" aria-label="Possible Sunze sales">
+        <fieldset className="mt-3 space-y-2" aria-label={correlation?.cashSource === 'snapcase' ? 'Possible SnapCase sales' : 'Possible Sunze sales'}>
           <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Possible sales</legend>
           {candidates.map((candidate) => {
             const isSelected = selectedId === candidate.salesFactId;

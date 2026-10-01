@@ -890,7 +890,7 @@ export type RefundCaseRecord = {
   status: RefundCaseStatus;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   correlationStatus: RefundCorrelationStatus;
-  correlationSource: 'nayax' | 'sunze' | 'manual' | null;
+  correlationSource: 'nayax' | 'sunze' | 'snapcase_cash' | 'manual' | null;
   correlationConfidence: number;
   correlationSummary: string | null;
   machineLabel: string;
