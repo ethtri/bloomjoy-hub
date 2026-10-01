@@ -19,10 +19,9 @@ declare
   source_row public.sunze_cash_source_watermarks%rowtype;
   snapshot_digest text;
 begin
-  if exists(select 1 from private.snapcase_machine_mappings mapping
-    where mapping.reporting_machine_id=p_reporting_machine_id) then
     select md5(coalesce(string_agg(concat_ws(':',fact.id::text,fact.source_order_hash,
-      fact.source_row_hash,fact.net_sales_cents::text,fact.payment_time::text),'|' order by fact.id),'empty'))
+      fact.source_row_hash,fact.net_sales_cents::text,fact.payment_time::text,
+      location.id::text,location.timezone,source.source_timezone),'|' order by fact.id),'empty'))
       into snapshot_digest
     from public.machine_sales_facts fact
     join public.reporting_machines machine on machine.id=fact.reporting_machine_id
@@ -69,6 +68,8 @@ begin
         'snapcase-cash-publication-v1',payment.source_key,payment.revision_digest,
         mapping.id::text,mapping.mapped_at::text,'snapcase.financial.machine-local.v1'
       ),'UTF8'),'sha256'),'hex');
+  -- A dormant mapping or empty/unqualified publication cannot replace Sunze evidence.
+  if snapshot_digest<>md5('empty') then
     return 'snapcase:'||snapshot_digest;
   end if;
   select source.* into source_row
@@ -118,8 +119,7 @@ begin
     raise exception 'SnapCase repair anchor changed: public.service_correlate_sunze_cash_case(uuid,bigint,text,uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$  select * into attempt_row
-  from public.refund_sunze_cash_correlation_attempts attempt$before$,$after$  if exists(select 1 from private.snapcase_machine_mappings mapping
-    where mapping.reporting_machine_id=case_row.reporting_machine_id) then
+  from public.refund_sunze_cash_correlation_attempts attempt$before$,$after$  if public.refund_current_sunze_cash_source_key(case_row.reporting_machine_id,case_row.incident_at,p_now) like 'snapcase:%' then
     source_key:=public.refund_current_sunze_cash_source_key(case_row.reporting_machine_id,case_row.incident_at,p_now);
     watermark:=null;
     positive_candidate_digest:=null;
@@ -396,49 +396,49 @@ $after$);
   end if;
   definition:=replace(definition,$before$'Sunze cash sales coverage is unavailable for this window; the gap is recorded for review.'$before$,$after$'Cash sales coverage is unavailable for this window; the gap is recorded for review.'$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$    and preparation->>'evidenceBasis'='cash_sale_found' then$before$,'')))/length($before$    and preparation->>'evidenceBasis'='cash_sale_found' then$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$    and preparation->>'evidenceBasis'='cash_sale_found' then$before$,$after$    and preparation->>'evidenceBasis' in ('cash_sale_found','cash_multiple_reviewed') then$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$      'source','sunze','amountCents',candidate.amount_cents,$before$,'')))/length($before$      'source','sunze','amountCents',candidate.amount_cents,$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$      'source','sunze','amountCents',candidate.amount_cents,$before$,$after$      'source',case when sale.source='snapcase_cash' then 'snapcase' else 'sunze' end,'amountCents',candidate.amount_cents,$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$      and sale.source='sunze_browser' and sale.payment_method='cash'
       and lower(btrim(coalesce(sale.source_payment_status,'')))='payment success'$before$,'')))/length($before$      and sale.source='sunze_browser' and sale.payment_method='cash'
       and lower(btrim(coalesce(sale.source_payment_status,'')))='payment success'$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$      and sale.source='sunze_browser' and sale.payment_method='cash'
       and lower(btrim(coalesce(sale.source_payment_status,'')))='payment success'$before$,$after$      and sale.payment_method='cash'
       and ((sale.source='sunze_browser' and lower(btrim(coalesce(sale.source_payment_status,'')))='payment success')
         or(sale.source='snapcase_cash' and sale.source_payment_status='success' and sale.raw_payload->>'publicationState'='active'))$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$    join public.sales_import_runs import_run$before$,'')))/length($before$    join public.sales_import_runs import_run$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$    join public.sales_import_runs import_run$before$,$after$    left join public.sales_import_runs import_run$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$      and attempt.match_state='sale_found' and attempt.candidate_count=1$before$,'')))/length($before$      and attempt.match_state='sale_found' and attempt.candidate_count=1$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$      and attempt.match_state='sale_found' and attempt.candidate_count=1$before$,$after$      and ((sale.source='sunze_browser' and import_run.id is not null and attempt.match_state='sale_found' and attempt.candidate_count=1)
         or(sale.source='snapcase_cash' and attempt.source_snapshot_key like 'snapcase:%' and link.link_origin='reviewed'))$after$);
   execute definition;
-  definition:=pg_get_functiondef('public.refund_case_decision_recommendation(uuid,timestamptz)'::regprocedure);
+  definition:=pg_get_functiondef('public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure);
   if (length(definition)-length(replace(definition,$before$      and candidate.evidence_codes @> array[
         'machine_exact','cash_payment','payment_success','validated_coverage']
       and c.cash_match_state='sale_found'$before$,'')))/length($before$      and candidate.evidence_codes @> array[
         'machine_exact','cash_payment','payment_success','validated_coverage']
       and c.cash_match_state='sale_found'$before$)<>1 then
-    raise exception 'SnapCase repair anchor changed: public.refund_case_decision_recommendation(uuid,timestamptz)';
+    raise exception 'SnapCase repair anchor changed: public.refund_decision_recommendation_for_case(uuid,timestamptz)';
   end if;
   definition:=replace(definition,$before$      and candidate.evidence_codes @> array[
         'machine_exact','cash_payment','payment_success','validated_coverage']
