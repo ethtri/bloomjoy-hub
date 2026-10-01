@@ -37,7 +37,8 @@ orientation snapshot; it is not a backlog or release ledger.
   both cotton candy and SnapCase. The October 1 Sunzee coupon was successfully
   created and redeemed at Great Mall. PR #1672 deployed the authenticated
   child-login/parent-owner binding and exact shorter numeric code import;
-  provider expiry remains limited to its actual maximum of 90 days. Eight
+  the supported provider application allows up to three months, and the live
+  offer advertises 90-day validity. Eight
   KeMore SnapCase pools remain disabled pending their separate live creation
   and redemption proof. The one-use terms follow the owner-approved
   conservative assumption. Neither fixtures nor machine redemption prove
