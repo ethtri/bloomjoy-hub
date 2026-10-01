@@ -46,21 +46,25 @@ orientation snapshot; it is not a backlog or release ledger.
   created and redeemed at Great Mall. PR #1672 deployed the authenticated
   child-login/parent-owner binding and exact shorter numeric code import;
   the supported provider application allows up to three months, and the live
-  offer advertises 90-day validity. Eight
-  KeMore SnapCase activation is paused while its first five-code created batch
-  is reconciled. The numeric merchant-ID composer correction is deployed;
-  value, device scope, code shape and one-use readbacks pass. The provider
+  offer advertises 90-day validity. Eight KeMore SnapCase pools are live with
+  five currently usable verified codes each across 15 public machine identities,
+  including the corroborated Great Mall and Capital City aliases. The alias
+  additions preserve original reporting IDs, provider device scopes, stock,
+  refill rules, expiry and accepted promises. Provider value, exact device scope,
+  code shape, one-use status and date readbacks pass. The provider
   parses composer date strings in each merchant's own authoritative timezone,
   while the caller timezone formats reads. The adapter resolves that merchant
   zone and retains exact validity verification. Known future-valid batches
-  are preserved through supported recovery and do not count as usable stock
-  until their actual start; the normal worker fills the current shortage.
+  total 15 codes preserved through supported recovery and do not count as usable
+  stock until their actual start; the normal worker replenishes usable stock.
   Physical redemption is not an additional launch gate. The cotton-candy scope
   correction retains both existing pools and ten codes while including all
   current public, active, exactly mapped devices, without the obsolete intake flag.
   The one-use terms follow the owner-approved
   conservative assumption. Neither fixtures nor machine redemption prove
   ordinary customer inbox timing or one-year vendor validity.
+  The live form says gift cards are usually emailed within a few hours; refunds
+  to the original card take longer for investigation and payment processing.
   Unactivated machines keep the existing cash intake. Activated cash requests stay on the gift-card path.
 
 - PR #1652 restored existing Manager recommendations and decision controls for

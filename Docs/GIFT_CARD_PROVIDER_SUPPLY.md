@@ -61,7 +61,7 @@ batch provided a positive exact device-scope response. The adapter follows the a
 separate scope-table read, checks exact device identities, also checks any
 nonempty embedded scopes, and rejects extra category or
 merchant scopes; an unrecognized response holds the batch instead of importing
-it. Confirm this positive shape in the first authorized creation verification.
+it. The final eight created batches verified this exact positive scope shape.
 Before activation, verify the exact account/machine mapping,
 USD basis, provider timezone and machine redemption instructions. Sunzee
 creation is account-wide: a configured subset must not claim the vendor limits
@@ -73,8 +73,9 @@ The Hub's existing authoritative mapping table verifies 21 exact provider-device
 to Hub-machine links with location IANA timezones. KeMore mapping, USD and caller
 timezone setup are therefore resolved from existing records; they do not require
 the owner to supply technical settings. Configure only exact mapped devices and
-their observed merchant scope. First positive created-scope verification remains
-outstanding for KeMore; physical redemption is not a separate launch gate. The October 1
+their observed merchant scope. Created-batch value, exact scope, unused one-use
+status and dates are verified for all eight pools; physical redemption is not
+a separate launch gate. The October 1
 Sunzee test verifies USD cotton-candy redemption at Great Mall, and the account
 readback establishes the merchant parent across its visible devices and coupons.
 
@@ -83,7 +84,8 @@ The owner confirmed that both cotton-candy and SnapCase touchscreens offer
 ‘Enter coupon/code’ and enter your code.” Omitted, null or blank instructions use
 this default; verified machine-specific instructions can override it. This
 confirmation resolves the instructions gap; Sunzee live creation and Great Mall
-redemption are verified. KeMore live creation and redemption remain untested.
+redemption are verified. KeMore live creation and provider readback are verified;
+physical KeMore redemption has not been observed.
 Complete KeMore payment pagination found no
 coupon tender in the inspected account, so split/top-up money semantics remain
 unverified and are not inferred from code usage.
