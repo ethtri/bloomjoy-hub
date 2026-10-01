@@ -138,9 +138,12 @@ insert into public.refund_follow_up_cycles(
 )
 select '16618000-0000-4000-8000-000000000001',c.id,1,repeat('b',64),
  'no_safe_match','{}'::text[],settings.template_version,
- c.deterministic_fact_version,settings.reminder_delay_hours,'manual_review'
+ c.deterministic_fact_version,settings.reminder_delay_hours,'claimed'
 from public.refund_cases c cross join public.refund_customer_contact_settings settings
 where c.id='16617000-0000-4000-8000-000000000001';
+update public.refund_follow_up_cycles set status='manual_review',
+ failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='16618000-0000-4000-8000-000000000001';
 select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
  '{}'::text[],'Historical empty research hold remains before any positive purchase evidence');
 create temporary table baseline as
