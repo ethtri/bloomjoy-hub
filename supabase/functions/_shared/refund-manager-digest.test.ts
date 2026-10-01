@@ -151,3 +151,22 @@ Deno.test("empty personal queue produces no email", () => {
   try { render(projection([])); } catch { rejected = true; }
   assert(rejected, "empty digest cannot render");
 });
+
+Deno.test("reviewed cash digest preserves advisory decision and rejects payout reinterpretation", () => {
+  const reviewed = { ...item(1, "manager"), recommendationKind: "refund" as const,
+    recommendationReasonCode: "clear_purchase_match" as const,
+    evidenceBasis: "cash_multiple_reviewed" as const,
+    preparationSummary: "A reviewed cash purchase is selected. We recommend refunding this purchase." };
+  const message = render(projection([reviewed]));
+  assert(message.text.includes("No payment has been sent"), "digest does not imply a paid refund");
+  assert(!message.text.includes("Send the prepared refund by Zelle"), "digest does not request payment");
+  for (const unsafe of [
+    { ...reviewed, recommendationKind: null, recommendationReasonCode: null },
+    { ...reviewed, actionCode: "send_cash_refund_and_confirm" },
+    { ...reviewed, amountCents: null },
+  ]) {
+    let rejected = false;
+    try { render(projection([unsafe])); } catch { rejected = true; }
+    assert(rejected, "reviewed cash remains a current purchase recommendation with its amount");
+  }
+});

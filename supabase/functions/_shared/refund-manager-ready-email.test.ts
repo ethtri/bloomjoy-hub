@@ -143,3 +143,24 @@ Deno.test("refund and decline recommendations render distinct truthful actions",
     assert(rejected, "only a no-match decline recommendation may omit the amount");
   }
 });
+
+Deno.test("reviewed cash purchase renders advisory decision without payout authority", () => {
+  const reviewed = { ...notice, recommendationKind: "refund",
+    recommendationReasonCode: "clear_purchase_match", evidenceBasis: "cash_multiple_reviewed",
+    preparationSummary: "A reviewed cash purchase is selected. We recommend refunding this purchase." };
+  const parsed = parseRefundManagerReadyNotice(reviewed);
+  const email = buildRefundManagerReadyEmail({ notice: parsed,
+    caseUrl: `https://portal.example/refunds?case=${parsed.caseId}` });
+  assert(email.text.includes("approve or deny"), "reviewed purchase remains a Manager decision");
+  assert(!email.text.includes("Send Zelle"), "reviewed purchase does not imply payment");
+  assert(parsed.proofId === notice.proofId, "existing exact current proof identity is retained");
+  for (const unsafe of [
+    { ...reviewed, proofId: null },
+    { ...reviewed, recommendationKind: null, recommendationReasonCode: null },
+    { ...reviewed, actionCode: "send_cash_refund_and_confirm" },
+  ]) {
+    let rejected = false;
+    try { parseRefundManagerReadyNotice(unsafe); } catch { rejected = true; }
+    assert(rejected, "reviewed cash cannot bypass current recommendation/proof or become payout authority");
+  }
+});

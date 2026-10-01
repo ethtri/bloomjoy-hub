@@ -83,7 +83,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
       : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
       ? evidenceBasis !== "cash_approved_payout"
       : recommendationKind === "refund"
-      ? !["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found"].includes(evidenceBasis as string)
+      ? !["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed"].includes(evidenceBasis as string)
       : evidenceBasis !== "decision_recommendation_reject")) {
     throw new Error("Ready notice preparation does not match the decision type.");
   }
