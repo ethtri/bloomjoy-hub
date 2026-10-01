@@ -54,12 +54,20 @@ orientation snapshot; it is not a backlog or release ledger.
   No technical manual queue, claim, send, provider replay or decision
   occurred.
 
-- Published SnapCase cash facts reached reporting but were absent from refund
-  research and reviewed selection. PR #1664 extends the existing cash path to
-  current publication, machine/account, mapping and clock proof, displaying the
-  actual source. Approximate amounts remain advisory and positive publication
-  does not prove complete coverage. The source is under review; deployment and
-  affected-case readback remain pending (#1429/#628).
+- PR #1664 deployed and verified published SnapCase cash evidence through the
+  existing preparation path. Ordinary automation produced a current exact-source
+  candidate in RF-34D5834D, visible as an enabled review option. Facts, decisions,
+  messages, payment records and disabled gift setup were preserved. No selection,
+  approval, payment, provider replay or customer send was performed; operational
+  purchase review remains next (#1429/#628).
+
+- The October 1 04:43 health run failed with a database statement timeout even
+  though incident counts later showed zero. Its clarification health projection
+  repeatedly evaluated the same outreach contract through an inlined SQL
+  subquery. A read-only evaluation-barrier comparison reduced that projection
+  from 2.54 to 0.39 seconds with identical redacted obligation counts. The narrow
+  repair is under review; deployed and ordinary health verification remain
+  pending. This does not change customer contact or refund policy (#1429/#628).
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
