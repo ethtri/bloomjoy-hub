@@ -50,14 +50,14 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
     await page.getByLabel('Machine location').selectOption(selectionKey);
     // This regression exercises the existing original-payment/native-picker path.
     await page.locator('#resolution-original').click();
-    await page.getByLabel('Email').fill('   ');
+    await page.getByLabel('Email', { exact: true }).fill('   ');
     await page.getByRole('button', { name: 'Send refund request' }).click();
     recorder.assert(
       `${journey.name} refund journey rejects whitespace-only email without creating a case`,
       await page.getByText('Enter a valid email address.', { exact: true }).isVisible() &&
         submissions.length === 0
     );
-    await page.getByLabel('Email').fill('synthetic-customer@example.test');
+    await page.getByLabel('Email', { exact: true }).fill('synthetic-customer@example.test');
     await page.getByRole('radio', { name: /^Card/ }).click();
     await page.locator('#resolution-original').click();
     await page.getByLabel('Amount paid').fill('7.00');
