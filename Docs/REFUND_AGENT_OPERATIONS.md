@@ -12,7 +12,16 @@ decision and do not issue a card or cash payment. The triage actor who researche
 and saves an exact candidate may differ from the assigned Machine Manager or
 Super-admin who approves it.
 
-The Manager makes one final decision. One assigned Machine Manager or Super-admin
+For an activated gift-card request, the System issues the accepted offer
+automatically under the annual email allowance. A repeat request needs one
+assigned Machine Manager or Super-admin approve/decline decision on that case.
+Do not request Zelle/Venmo destinations, card details or Nayax matching for this
+path. Check stock and the same code's delivery state; recover the same issuance
+rather than create another code or ask the customer to submit again.
+
+Original-payment requests and existing manual payment commitments retain the
+research and payment procedure below; sections 2–6 do not turn a gift-card request
+into a money refund. One assigned Machine Manager or Super-admin
 click approves a card refund and atomically queues one System-owned attempt. The
 System issues and settles that attempt through Nayax without another manager
 check. For cash, the Manager sends Zelle first and then confirms the sent payment
