@@ -56,7 +56,7 @@ begin
   -- This existing identity field marks only the new source-bound canonical
   -- messages. Old threadless messages remain compatible while transport code
   -- deploys before this migration; no payment-attempt row is changed.
-  definition:=replace(definition,"  message_row.delivery_kind := 'automatic';",
+  definition:=replace(definition,$old$  message_row.delivery_kind := 'automatic';$old$,
     E'  message_row.delivery_kind := ''automatic'';\n  message_row.nayax_refund_attempt_id := case when source_thread_id is not null then attempt_row.id end;');
   definition:=replace(definition,'    requested_fields, manual_delivery_intent_id, manual_delivery_state,',
     '    requested_fields, nayax_refund_attempt_id, manual_delivery_intent_id, manual_delivery_state,');
@@ -67,14 +67,14 @@ begin
   definition:=replace(definition,'    false, authority_row.id' || E'\n',
     '    false, authority_row.id, source_thread_id' || E'\n');
   -- Only the new-notice return changes; the existing-intent replay stays intact.
-  definition:=replace(definition,"'status', 'queued', 'transport', 'transactional_email',"||E'\n' ||
-    "    'originalThread', false, 'noticeDeferred', false,",
-    "'status', 'queued', 'transport', case when source_thread_id is null then 'transactional_email' else 'gmail_thread' end,"||E'\n' ||
-    "    'originalThread', source_thread_id is not null, 'noticeDeferred', false,");
-  definition:=replace(definition,"'claimed', true, 'refundCaseId', case_row.id,"||E'\n' ||
-    "    'refundCaseMessageId', message_row.id, 'gmailThreadId', null,",
-    "'claimed', true, 'refundCaseId', case_row.id,"||E'\n' ||
-    "    'refundCaseMessageId', message_row.id, 'gmailThreadId', source_thread_id,");
+  definition:=replace(definition,$old$'status', 'queued', 'transport', 'transactional_email',
+    'originalThread', false, 'noticeDeferred', false,$old$,
+    $new$'status', 'queued', 'transport', case when source_thread_id is null then 'transactional_email' else 'gmail_thread' end,
+    'originalThread', source_thread_id is not null, 'noticeDeferred', false,$new$);
+  definition:=replace(definition,$old$'claimed', true, 'refundCaseId', case_row.id,
+    'refundCaseMessageId', message_row.id, 'gmailThreadId', null,$old$,
+    $new$'claimed', true, 'refundCaseId', case_row.id,
+    'refundCaseMessageId', message_row.id, 'gmailThreadId', source_thread_id,$new$);
   if definition=original or position('original_customer_thread_unverified' in definition)=0
     or position('automation_authority_id, gmail_thread_id' in definition)=0
     or position('false, authority_row.id, source_thread_id' in definition)=0
