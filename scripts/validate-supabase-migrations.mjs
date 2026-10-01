@@ -13,6 +13,7 @@ import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-
 import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest } from './refunds/refund-populated-delivery-upgrade.mjs';
 import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-parity.mjs';
 import { writeRealRefundPreparationSeed } from './refunds/refund-real-preparation-seed.mjs';
+import { stageInactiveGiftMigrations, verifyInactiveBaselineCatalog, writeInactiveGiftCompatibilityTest } from './refunds/refund-inactive-compatibility-upgrade.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -536,10 +537,29 @@ async function main() {
     // ordinary persona tests. Remove only the temporary migration, then rebuild
     // the same disposable database from the unmodified repository migration set.
     fs.rmSync(requestBoundaryReceiptFixturePath);
+    // Rehearse the actual production ordering: the four approved gift files are
+    // backdated before an already deployed receipt repair. A chronological reset
+    // alone cannot establish compatibility of those current wrappers.
+    const restoreInactiveMigrations = stageInactiveGiftMigrations(tempRoot);
     const resetArgs = ['db', 'reset', '--local', '--workdir', tempRoot];
     if (options.debug) resetArgs.push('--debug');
     run('supabase', resetArgs, { stdio: 'inherit' });
-    log('Disposable database reset without the request-boundary production-shape fixture.');
+    const catalogProof = await verifyInactiveBaselineCatalog({
+      dbPort,
+      expectedPath: path.join(repoRoot, 'scripts/refunds/fixtures/refund-inactive-production-catalog.json'),
+    });
+    log(`Disposable deployed-order baseline matches production catalog: ${catalogProof.functions} functions / ${catalogProof.constraints} constraints.`);
+    const inactiveSourceReceipts = restoreInactiveMigrations(repoRoot);
+    log(`Applying exact reviewed backdated files: ${JSON.stringify(inactiveSourceReceipts)}`);
+    run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
+    for (const relativePath of [inactiveTest.relativePath,
+      'supabase/tests/refund_customer_same_case_update_access.sql',
+      'supabase/tests/refund_single_manager_gate.sql']) {
+      run('supabase', ['test', 'db', relativePath, '--workdir', tempRoot], { relayOutput: true, cwd: tempRoot });
+    }
+    fs.rmSync(inactiveTest.testPath);
+    log('Actual-order inactive compatibility / original receipt / same-case form / current Manager tests passed without any live connection.');
 
     const { testPath: receiptParityPath, testRelativePath: receiptParityRelativePath } =
       writeReceiptWrapperParityTest(repoRoot, tempRoot);
