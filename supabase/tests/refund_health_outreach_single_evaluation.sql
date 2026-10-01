@@ -69,11 +69,11 @@ begin
     'truth offset 0) o', 'truth) o');
 end;
 $instrument$;
-create or replace function public.refund_customer_outreach_contract(p_case_id uuid)
+create or replace function public.refund_customer_outreach_contract(p_refund_case_id uuid)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 begin
   perform nextval('pg_temp.outreach_evaluations');
-  return pg_temp.original_outreach_contract(p_case_id);
+  return pg_temp.original_outreach_contract(p_refund_case_id);
 end;
 $$;
 create function pg_temp.clarification_health(p_enabled boolean default true,
