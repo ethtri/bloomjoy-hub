@@ -303,7 +303,8 @@
     "20261001060047_refund_cash_payout_after_reviewed_selection.sql",
     "20261001063000_refund_reviewed_cash_ready_snapshot.sql",
     "20261001090451_refund_manual_payout_receipt_reconciliation.sql",
-    "20261001161957_refund_sunzee_provider_code_format.sql"
+    "20261001161957_refund_sunzee_provider_code_format.sql",
+    "20261001170500_refund_lifecycle_operations_boolean.sql"
   ],
   "migrationFilesSha256": "754887975f22a133b09c96663886c53e70263d265b021dfa6acc0c0b2b4fe276",
   "migrationVersionSetSha256": "533d3ec52aa65287a2844e29b36801100cc689af1e4dd219fdb7fd714cb22f56",
