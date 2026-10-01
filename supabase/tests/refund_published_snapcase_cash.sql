@@ -274,9 +274,15 @@ create temporary table payout_receipt_before as select
    where l.refund_case_id=c.id) links,
  (select jsonb_agg(to_jsonb(e) order by e.id) from public.refund_case_events e
    where e.refund_case_id=c.id) events,
+ (select jsonb_agg(to_jsonb(f) order by f.id) from public.refund_payout_destination_follow_ups f
+   where f.refund_case_id=c.id) payout_follow_ups,
  (select count(*)::integer from public.refund_case_messages other where other.refund_case_id=c.id) messages
  from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
  where m.id=(select refund_case_message_id from payout_receipt_claim);
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set transactional_provider_message_header='<unproved-receipt@example.invalid>'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'The first canonical header still requires an applied exact-message provider event');
 set local role service_role;
 select is(public.service_record_refund_transactional_delivery_event(
  repeat('8',64),'snapcase_payout_receipt_foreign','delivered',statement_timestamp(),
@@ -293,19 +299,38 @@ select is(public.service_record_refund_transactional_delivery_event(
 reset role;
 select ok((select m.delivery_state='delivered' and m.status='sent'
  and not public.refund_payout_destination_case_current(c)
- and to_jsonb(c)=b.case_json
- and to_jsonb(m)-'status'-'error_message'-'delivery_state'-'delivery_state_updated_at'
-     -'transactional_provider_message_header'
-   =b.immutable_message-'transactional_provider_message_header'
- and (select jsonb_agg(to_jsonb(l) order by l.id) from public.refund_sunze_cash_sale_links l
-   where l.refund_case_id=c.id)=b.links
- and (select jsonb_agg(to_jsonb(e) order by e.id) from public.refund_case_events e
-   where e.refund_case_id=c.id)=b.events
- and (select count(*)::integer from public.refund_case_messages other where other.refund_case_id=c.id)=b.messages
  from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
- cross join payout_receipt_before b
  where m.id=(select refund_case_message_id from payout_receipt_claim)),
- 'Only receipt truth/header changes; case, contact budget, selected evidence and message identity remain intact');
+ 'Confirmed receipt does not reopen current payout-request eligibility');
+select is((select to_jsonb(c)-'lifecycle_revision'-'updated_at' from public.refund_cases c
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ (select case_json-'lifecycle_revision'-'updated_at' from payout_receipt_before),
+ 'Every business, payment, decision, fact, action and request-budget case field remains unchanged');
+select ok((select c.lifecycle_revision>(b.case_json->>'lifecycle_revision')::bigint
+ and c.updated_at>=(b.case_json->>'updated_at')::timestamptz
+ from public.refund_cases c cross join payout_receipt_before b
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ 'Existing receipt bookkeeping advances only the lifecycle revision and update timestamp');
+select is((select to_jsonb(m)-'status'-'error_message'-'delivery_state'-'delivery_state_updated_at'
+ -'transactional_provider_message_header' from public.refund_case_messages m
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ (select immutable_message-'transactional_provider_message_header' from payout_receipt_before),
+ 'Sent content, recipient, provider, request and send identity remain immutable');
+select is((select transactional_provider_message_header from public.refund_case_messages
+ where id=(select refund_case_message_id from payout_receipt_claim)),
+ '<payout-receipt@example.invalid>','The first RFC header binds from the exact applied delivery event');
+select is((select jsonb_agg(to_jsonb(l) order by l.id) from public.refund_sunze_cash_sale_links l
+ where l.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select links from payout_receipt_before),'Reviewed purchase selection remains unchanged');
+select is((select jsonb_agg(to_jsonb(e) order by e.id) from public.refund_case_events e
+ where e.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select events from payout_receipt_before),'Receipt reconciliation creates no new customer send event');
+select is((select jsonb_agg(to_jsonb(f) order by f.id) from public.refund_payout_destination_follow_ups f
+ where f.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select payout_follow_ups from payout_receipt_before),'The existing follow-up budget and due state remain unchanged');
+select is((select count(*)::integer from public.refund_case_messages
+ where refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select messages from payout_receipt_before),'No replacement customer message is created');
 create temporary table payout_receipt_delivered as select to_jsonb(m) message_json
  from public.refund_case_messages m where m.id=(select refund_case_message_id from payout_receipt_claim);
 set local role service_role;
