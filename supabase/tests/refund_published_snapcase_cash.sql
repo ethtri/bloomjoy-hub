@@ -272,11 +272,15 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  (select sales_fact_id from public.refund_sunze_cash_correlation_candidates where attempt_id=(select (result->>'attemptId')::uuid from cash_proof)),
  1,99,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze link version','Stale link version cannot select');
 update public.admin_roles set active=false where user_id='16600000-0000-4000-8000-000000000001';
+update public.reporting_machine_refund_managers set status='revoked'
+ where manager_user_id='16600000-0000-4000-8000-000000000001';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from cash_proof),
  (select sales_fact_id from public.refund_sunze_cash_correlation_candidates where attempt_id=(select (result->>'attemptId')::uuid from cash_proof)),
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'42501','Authorized refund manager actor required','Current selecting actor scope still required');
 update public.admin_roles set active=true where user_id='16600000-0000-4000-8000-000000000001';
+update public.reporting_machine_refund_managers set status='active'
+ where manager_user_id='16600000-0000-4000-8000-000000000001';
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase'->>'source','snapcase','Restored current source proof resumes existing recommendation');
 select ok((select c.decision is not distinct from b.decision and c.refund_completed_at is not distinct from b.refund_completed_at
  and c.reporting_adjustment_id is not distinct from b.reporting_adjustment_id and c.refund_amount_cents is not distinct from b.refund_amount_cents
@@ -312,11 +316,8 @@ select is(public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from fallback_cash),
  '16619100-0000-4000-8000-000000000001',1,1,'16600000-0000-4000-8000-000000000001')->>'selected',
  'true','Existing reviewed Sunze positive selection remains supported');
-select ok((select snapshot->>'evidenceBasis'='cash_multiple_reviewed'
- and snapshot->>'actionCode'='approve_or_deny_request'
- and snapshot->>'amountCents'='950'
- from (select public.service_refund_manager_ready_notice_snapshot(
- '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001') snapshot) s),
- 'Reviewed Sunze cash uses the same exact ready-notice proof path');
+select is(public.service_refund_manager_ready_notice_snapshot(
+ '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),
+ null::jsonb,'Sunze fallback without a current refund recommendation cannot borrow ready-notice authority');
 select * from finish();
 rollback;
