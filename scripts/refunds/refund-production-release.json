@@ -293,7 +293,8 @@
     "20260930185520_refund_customer_same_case_update_access.sql",
     "20260930195800_refund_recovered_selection_recommendation.sql",
     "20260930214655_refund_nayax_exact_source_reporting_recovery.sql",
-    "20260930234847_refund_api_receipt_completion_handoff.sql"
+    "20260930234847_refund_api_receipt_completion_handoff.sql",
+    "20261001010518_refund_published_snapcase_cash_evidence.sql"
   ],
   "migrationFilesSha256": "d7952b037569294a453b1ec93e19d5c0c5139503249858533beb819f1ef148ff",
   "migrationVersionSetSha256": "fe66ce2ea738742c1c30ce955cc47532084d59eb5f3cde7b8257356705eae870",
