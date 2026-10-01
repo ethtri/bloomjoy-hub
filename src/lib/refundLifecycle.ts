@@ -524,7 +524,9 @@ export const isRefundLifecycleContract = (
   const appliedNoticeComplete = ["sent", "delivered"].includes(appliedNoticeState);
   const appliedNoticeReview = !appliedObligationResolved &&
     ["failed", "delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState);
-  const appliedNoticePending = appliedNoticeState === "pending";
+  const appliedNoticePending = appliedNoticeState === "pending" ||
+    (appliedNoticeState === "none" && messageState?.messageType === null &&
+      messageState?.lastUpdatedAt === null);
   const appliedExpectedReason = appliedObligationResolved
     ? appliedNoticeState === "delivery_unconfirmed"
       ? "completion_delivery_unconfirmed"

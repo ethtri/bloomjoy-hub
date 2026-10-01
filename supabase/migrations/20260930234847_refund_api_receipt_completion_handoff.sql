@@ -200,4 +200,52 @@ revoke all on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,t
   from public,anon,authenticated,service_role;
 grant execute on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)
   to service_role;
+
+-- The same recovered receipt has no legacy attempt-owned v2 message. Its older
+-- lifecycle layer therefore invented a Manager delivery-review action even
+-- before a notice existed. Normalize only this proved System receipt path below
+-- the existing outreach/contact/next-work overlays. Preserve the real reporting
+-- date and unknown bank settlement; never change payment or message evidence.
+do $migration$
+declare definition text; revised text;
+begin
+  definition:=replace(pg_get_functiondef(
+    'public.refund_lifecycle_contract_pre_queue_integrity_v1(uuid)'::regprocedure),E'\r\n',E'\n');
+  definition:=replace(definition,'  sent_complete boolean:=false;',
+    E'  sent_complete boolean:=false;\n  completion_contact_state text;');
+  revised:=replace(definition,'  return base||jsonb_build_object(', $projection$
+  if attempt.actor_user_id is null and attempt.provider_execution_generation=1
+    and attempt.completion_message_id is null
+    and receipt.attempt_binding_kind='proved_terminal_api'
+    and public.refund_nayax_api_terminal_evidence_proved(p_refund_case_id,attempt.id) then
+    completion_contact_state:=public.refund_completion_contact_contract(p_refund_case_id)->>'state';
+    if completion_contact_state in ('none','pending','sent','delivered') then
+    delivery_base:=delivery_base||jsonb_build_object(
+      'managerAction',jsonb_build_object(
+        'action',case when completion_contact_state
+          in ('sent','delivered') then 'none' else 'wait_for_customer_notification' end,
+        'owner','Machine Manager','safeRetryEligible',false,'payloadRedacted',true),
+      'managerNextAction',case when completion_contact_state
+        in ('sent','delivered') then 'none' else 'wait_for_customer_notification' end,
+      'managerQueue',jsonb_build_object('schemaVersion','refund_manager_queue_v2',
+        'bucket',case when completion_contact_state
+          in ('sent','delivered') then 'completed' else 'in_progress' end,
+        'label',case when completion_contact_state
+          in ('sent','delivered') then 'Done' else 'In progress' end,
+        'nextAction',case when completion_contact_state
+          in ('sent','delivered') then 'none' else 'wait_for_customer_notification' end,
+        'safeRetryEligible',false,'customerActionFields','[]'::jsonb,'payloadRedacted',true),
+      'operations',(delivery_base->'operations')||jsonb_build_object(
+        'required',false,'ageMinutes',null,'dueAt',null,'slaBreached',false,
+        'failureClass',null,'nextStep',null));
+    end if;
+  end if;
+  return base||jsonb_build_object($projection$);
+  if revised=definition or position('adjustment_fact.adjustment_date' in revised)=0
+    or position('delivery_base:=public.refund_lifecycle_contract_pre_authoritative_receipt_v1' in revised)=0 then
+    raise exception 'Unexpected exact API receipt lifecycle projection shape';
+  end if;
+  execute revised;
+end;
+$migration$;
 notify pgrst,'reload schema';

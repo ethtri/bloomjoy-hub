@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(76);
+select plan(79);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -468,6 +468,17 @@ select to_jsonb(c) case_row,to_jsonb(a) attempt_row,
   (select jsonb_agg(to_jsonb(l) order by l.id) from public.sales_adjustment_facts l where l.refund_case_id=c.id) ledger
 from public.refund_cases c join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id
 where c.id='b7470000-0000-4000-8000-000000000001';
+select ok((select x#>>'{messageState,state}'='none' and x#>>'{managerQueue,bucket}'='in_progress'
+ and x->>'managerNextAction'='wait_for_customer_notification'
+ and x#>>'{nextWork,actor}'='system' and x#>>'{operations,required}'='false'
+ from (select public.refund_lifecycle_contract('b7470000-0000-4000-8000-000000000001') x) lifecycle),
+ 'proved receipt without a notice is visible as System handoff work, never Manager action');
+select ok((select x#>>'{accountingState,accountingDate}'=
+ (select adjustment_date::text from public.sales_adjustment_facts where refund_case_id='b7470000-0000-4000-8000-000000000001')
+ and x#>>'{accountingState,settlementTimePrecision}'='unknown'
+ and x#>'{accountingState,settledAt}'='null'::jsonb
+ from (select public.refund_lifecycle_contract('b7470000-0000-4000-8000-000000000001') x) lifecycle),
+ 'read-only lifecycle retains the actual reporting date and unknown bank settlement');
 
 savepoint disabled_contact;
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
@@ -539,6 +550,10 @@ select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queu
 rollback to later_generation;
 
 create temp table completion_scan as select public.service_ensure_refund_receipt_automatic_completions(10) result;
+select ok((select x#>>'{messageState,state}'='pending' and x#>>'{managerQueue,bucket}'='in_progress'
+ and x->>'managerNextAction'='wait_for_customer_notification' and x#>>'{operations,required}'='false'
+ from (select public.refund_lifecycle_contract('b7470000-0000-4000-8000-000000000001') x) lifecycle),
+ 'queued canonical receipt retains truthful automatic-delivery ownership');
 select is((select result->>'queued' from completion_scan),'1','ordinary scanner finds the completed System receipt');
 select ok((select jsonb_array_length(result->'newMessageIds')=1 and result->>'payloadRedacted'='true'
  and not (result ?| array['caseId','recipientEmail','subject','body']) from completion_scan),
