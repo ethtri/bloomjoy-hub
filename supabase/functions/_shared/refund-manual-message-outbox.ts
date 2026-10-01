@@ -72,7 +72,6 @@ type RefundManualMessageRow = {
   subject: string;
   body: string;
   delivery_kind: "manual" | "automatic";
-  template_version: string | null;
   nayax_refund_attempt_id: string | null;
   manual_delivery_intent_id: string;
   manual_delivery_provider_attempted_at: string | null;
@@ -214,7 +213,6 @@ const getClaimedMessage = async (
       subject,
       body,
       delivery_kind,
-      template_version,
       nayax_refund_attempt_id,
       manual_delivery_intent_id,
       manual_delivery_provider_attempted_at,
