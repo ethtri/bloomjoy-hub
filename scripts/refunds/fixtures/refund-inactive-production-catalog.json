@@ -1,0 +1,904 @@
+{
+  "productionBaseline": "#1661/#1663 through 20260930234847; four gift migrations absent",
+  "catalog": {
+    "functions": [
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "identity": "admin_get_refund_operations_overview()",
+        "definition": "1622020552a28cc4889b02293bebdf17"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "assert_refund_case_reconciliation_safe()",
+        "definition": "a6de97e41d88e1624700097459e3601d"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "identity": "get_refund_portal_queue_projection(timestamp with time zone)",
+        "definition": "6268038da4355a9339984002e627ebc2"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "guard_refund_case_active_nayax_attempt()",
+        "definition": "cba03b2cfe5650fd491f05bd978ae029"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "guard_refund_follow_up_message()",
+        "definition": "61627520c5be3626bbdf5397daa9bb42"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "is_refund_receipt_automatic_completion_message(uuid)",
+        "definition": "0fae5c34584c6d4a43fd2d6804ee3ae7"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "is_refund_receipt_completion_message(jsonb)",
+        "definition": "80bd9dbb75abc0b3e474851c4f144c4f"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "private.machine_sales_calculation_candidates(uuid,date,date)",
+        "definition": "68e60d03a4a47167d5d821825cf72faf"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "private.machine_sales_daily_components(uuid,date,date)",
+        "definition": "aa0406c3d450c1bcea68af3c14baea06"
+      },
+      {
+        "acl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "identity": "public_refund_selections_v2()",
+        "definition": "90ff3f2edf574a9bc019e2e5254a7f13"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "refund_case_lifecycle_integrity_code(uuid)",
+        "definition": "0c4ef9a6aabfadfcf5208121e6d3f9b5"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "refund_claim_nayax_form_receipt_completion_internal(uuid)",
+        "definition": "a26955bb8b57ba4b326034c8460ffeed"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "refund_completion_outbox_postcommit_wakeup()",
+        "definition": "c84a0fabf64e48d48c8c8f6176737ca5"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "refund_lifecycle_contract_pre_queue_integrity_v1(uuid)",
+        "definition": "96d3dacacf6d3f364cf9e5c52a4e3a4a"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "refund_lifecycle_contract(uuid)",
+        "definition": "d574802f85325d13cb3d14574753774c"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "identity": "refund_nayax_api_terminal_evidence_proved(uuid,uuid)",
+        "definition": "ea6523a759f34f8cd8c8aa59a249bec9"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_authorize_refund_customer_outbound(uuid,text,text[],text)",
+        "definition": "76fbfbe61439116c3b781a9572e4965b"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)",
+        "definition": "68632570f174084511aa041a9839af94"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_claim_refund_manual_message_deliveries(uuid,integer)",
+        "definition": "ae7c8b85e892dc70bc24e1891505c33d"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_ensure_refund_receipt_automatic_completions(integer)",
+        "definition": "5b18f1bc5f0e0e3a24cebd035eb05b41"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_mark_refund_info_inquiry(uuid,text)",
+        "definition": "57dd30e8136e6136bd3615e93e84a60f"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_mark_refund_manual_message_provider_attempt(uuid,uuid)",
+        "definition": "90d522bd2c606ae06d919fe4e49bb883"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_read_refund_status_capability(text,text)",
+        "definition": "291a859de5c220e79838f9605e354450"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_reconcile_proved_nayax_api_terminal(uuid,uuid)",
+        "definition": "56c79229712273295db9e90ef1fd73a5"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "identity": "service_submit_refund_purchase_correction(text,bigint,jsonb)",
+        "definition": "63881152fc8e6e99db9c78c512aa3093"
+      }
+    ],
+    "constraints": [
+      {
+        "name": "refund_authoritative_receipts_account_scope_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "cbaeed9cbd03b68ea85c6fb61e30d41a"
+      },
+      {
+        "name": "refund_authoritative_receipts_account_scope_original_transa_key",
+        "table": "refund_authoritative_receipts",
+        "definition": "0c4140940ffac320cbe595dbb208ae48"
+      },
+      {
+        "name": "refund_authoritative_receipts_attempt_binding_kind_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "cf5753e3b8204a3d9c6e58998128d337"
+      },
+      {
+        "name": "refund_authoritative_receipts_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "d1b23947c65bbeff2da786c26507d269"
+      },
+      {
+        "name": "refund_authoritative_receipts_check1",
+        "table": "refund_authoritative_receipts",
+        "definition": "9924c06aa1df47e20e5b72f61bfad32a"
+      },
+      {
+        "name": "refund_authoritative_receipts_check2",
+        "table": "refund_authoritative_receipts",
+        "definition": "54155661d305d2d346921ed4ffd9d8c1"
+      },
+      {
+        "name": "refund_authoritative_receipts_confirmation_source_shape",
+        "table": "refund_authoritative_receipts",
+        "definition": "bf8d37b1e73f3465edb92271c63652a0"
+      },
+      {
+        "name": "refund_authoritative_receipts_currency_code_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "336d030b48e83f5da93f4e78bf236165"
+      },
+      {
+        "name": "refund_authoritative_receipts_evidence_policy_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "8af7faa783d618408520909cb187c0f7"
+      },
+      {
+        "name": "refund_authoritative_receipts_evidence_reference_digest_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "3d5c5b31672a880be6c3c83dca3317ca"
+      },
+      {
+        "name": "refund_authoritative_receipts_evidence_reference_digest_key",
+        "table": "refund_authoritative_receipts",
+        "definition": "a801d44326b56c389eb7435400bc15cb"
+      },
+      {
+        "name": "refund_authoritative_receipts_historical_provenance_event__fkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "5e7fbe7b40989b99df454052743c505e"
+      },
+      {
+        "name": "refund_authoritative_receipts_id_case_unique",
+        "table": "refund_authoritative_receipts",
+        "definition": "235b2469c0931719a38177c9be2c35ab"
+      },
+      {
+        "name": "refund_authoritative_receipts_nayax_refund_attempt_id_fkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "ce78cef2c5cb59ce448d398cb8bb0717"
+      },
+      {
+        "name": "refund_authoritative_receipts_nayax_refund_attempt_id_key",
+        "table": "refund_authoritative_receipts",
+        "definition": "fe7c26fcb8430f0b6d928929d9c9f0c2"
+      },
+      {
+        "name": "refund_authoritative_receipts_original_amount_cents_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "56b6bb269bad435007808b20c53a60ec"
+      },
+      {
+        "name": "refund_authoritative_receipts_original_transaction_id_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "b358689a0adc4859cdfc3596eadf0ad7"
+      },
+      {
+        "name": "refund_authoritative_receipts_pkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "4c6419b3704337bbfe50f018842a9ad3"
+      },
+      {
+        "name": "refund_authoritative_receipts_provider_machine_id_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "d7ecf99df0565e14f7fa628d61bd8e93"
+      },
+      {
+        "name": "refund_authoritative_receipts_provider_status_source_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "e301cad59545a6ce1dc6515c2a600b9b"
+      },
+      {
+        "name": "refund_authoritative_receipts_recorded_by_fkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "4c0cb55afe48362db5ff83136db4ff12"
+      },
+      {
+        "name": "refund_authoritative_receipts_refund_case_id_fkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "793e61d8beebb64b24e0ddc89467dbb6"
+      },
+      {
+        "name": "refund_authoritative_receipts_refund_case_id_key",
+        "table": "refund_authoritative_receipts",
+        "definition": "f9924328ff9e0f9e6b48673d04d55c85"
+      },
+      {
+        "name": "refund_authoritative_receipts_reporting_machine_id_fkey",
+        "table": "refund_authoritative_receipts",
+        "definition": "10959ef829f8297bef6d72ff94fa2688"
+      },
+      {
+        "name": "refund_authoritative_receipts_settled_at_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "212b3a2da75e905d7f7d3133fea1d73c"
+      },
+      {
+        "name": "refund_authoritative_receipts_settlement_time_precision_check",
+        "table": "refund_authoritative_receipts",
+        "definition": "7ccc762fabba43e0447eca3a38497778"
+      },
+      {
+        "name": "refund_case_messages_appeal_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "725081b351e00562cc65e2ef2adf2141"
+      },
+      {
+        "name": "refund_case_messages_content_source_check",
+        "table": "refund_case_messages",
+        "definition": "4717524d3cf33300a0052d41453bbaf0"
+      },
+      {
+        "name": "refund_case_messages_created_by_fkey",
+        "table": "refund_case_messages",
+        "definition": "1ceab562a11c774dbbb18205981be824"
+      },
+      {
+        "name": "refund_case_messages_delivery_evidence_check",
+        "table": "refund_case_messages",
+        "definition": "9c7ff41b5a6ef3dbc71469177c528305"
+      },
+      {
+        "name": "refund_case_messages_delivery_kind_check",
+        "table": "refund_case_messages",
+        "definition": "5499b7609d7eb6d5a26ba9384c546616"
+      },
+      {
+        "name": "refund_case_messages_delivery_state_check",
+        "table": "refund_case_messages",
+        "definition": "bbbba881079a7609a83c182121d06a79"
+      },
+      {
+        "name": "refund_case_messages_delivery_transport_check",
+        "table": "refund_case_messages",
+        "definition": "8f1c677d848542e196516634db6fdfed"
+      },
+      {
+        "name": "refund_case_messages_follow_up_cycle_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "65d7e23c6bad1a34798774b8799766ae"
+      },
+      {
+        "name": "refund_case_messages_manual_delivery_attempt_check",
+        "table": "refund_case_messages",
+        "definition": "d281cae0afddd86af50b23608e448cb5"
+      },
+      {
+        "name": "refund_case_messages_manual_delivery_claim_check",
+        "table": "refund_case_messages",
+        "definition": "729acc0ab414b63b03088e55afd73d67"
+      },
+      {
+        "name": "refund_case_messages_manual_delivery_intent_check",
+        "table": "refund_case_messages",
+        "definition": "cb5eaaa3ef4b7a873738c571c4dc340e"
+      },
+      {
+        "name": "refund_case_messages_manual_delivery_state_check",
+        "table": "refund_case_messages",
+        "definition": "2d8c1a88cf1d382dac90d3088e76b82c"
+      },
+      {
+        "name": "refund_case_messages_manual_delivery_triage_suggestion_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "0f69a1f99650f6d0d678eba9685e079b"
+      },
+      {
+        "name": "refund_case_messages_message_type_check",
+        "table": "refund_case_messages",
+        "definition": "7a92cafe90e3899eb56730f9fac395e7"
+      },
+      {
+        "name": "refund_case_messages_nayax_refund_attempt_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "f73eaa1e3a68bb719466ac97fde4f169"
+      },
+      {
+        "name": "refund_case_messages_payout_destination_follow_up_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "f47385e59e027c8e96de3ceabd873daa"
+      },
+      {
+        "name": "refund_case_messages_pkey",
+        "table": "refund_case_messages",
+        "definition": "4c6419b3704337bbfe50f018842a9ad3"
+      },
+      {
+        "name": "refund_case_messages_provider_message_id_check",
+        "table": "refund_case_messages",
+        "definition": "2094d9f3ca932428de16e4ad9efb1e6f"
+      },
+      {
+        "name": "refund_case_messages_reason_code_check",
+        "table": "refund_case_messages",
+        "definition": "e571d23041512210c0ed0e07d23a76e5"
+      },
+      {
+        "name": "refund_case_messages_recipient_present",
+        "table": "refund_case_messages",
+        "definition": "620c21e12e0ed8c7de14f3242dd8073d"
+      },
+      {
+        "name": "refund_case_messages_reconciliation_message_role_check",
+        "table": "refund_case_messages",
+        "definition": "99881682e83e235e093cf05e962b4b0e"
+      },
+      {
+        "name": "refund_case_messages_reconciliation_review_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "c4e4f7b473f0e8bb88bfb2bbf26d1069"
+      },
+      {
+        "name": "refund_case_messages_reconciliation_shape",
+        "table": "refund_case_messages",
+        "definition": "2a1e15f731ad59cc6543a08eb4880d1a"
+      },
+      {
+        "name": "refund_case_messages_refund_case_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "35a47389d1c7a6006cdf6901be4f27a9"
+      },
+      {
+        "name": "refund_case_messages_requested_fields_canonical",
+        "table": "refund_case_messages",
+        "definition": "b95a428f9d37a9fd9293dbf0179948d4"
+      },
+      {
+        "name": "refund_case_messages_requested_fields_satisfaction_check",
+        "table": "refund_case_messages",
+        "definition": "383a20bc1c1da27bf01a14cce19be0b5"
+      },
+      {
+        "name": "refund_case_messages_requested_fields_satisfied_by_gmail_m_fkey",
+        "table": "refund_case_messages",
+        "definition": "e54cd34a8a098835e931a01b67fccac0"
+      },
+      {
+        "name": "refund_case_messages_safe_evidence_shape",
+        "table": "refund_case_messages",
+        "definition": "dbb95ac33232fb9f0a238201cdeba1d4"
+      },
+      {
+        "name": "refund_case_messages_status_capability_check",
+        "table": "refund_case_messages",
+        "definition": "f86d8d5b21b7109b4988cdb6b15d8980"
+      },
+      {
+        "name": "refund_case_messages_status_capability_id_fkey",
+        "table": "refund_case_messages",
+        "definition": "d5d2d7e038c0da07c2ce69817d450c7d"
+      },
+      {
+        "name": "refund_case_messages_status_check",
+        "table": "refund_case_messages",
+        "definition": "d65746c4e8554fd535c07477c0d0b6d7"
+      },
+      {
+        "name": "refund_case_messages_subject_present",
+        "table": "refund_case_messages",
+        "definition": "9633897ebcb9e5ff09ed0a7dc8a3193c"
+      },
+      {
+        "name": "refund_case_messages_synthetic_gmail_proof_authorization_i_fkey",
+        "table": "refund_case_messages",
+        "definition": "3028834cb3d8a2c27fef395920a52343"
+      },
+      {
+        "name": "refund_case_messages_transactional_provider_message_heade_check",
+        "table": "refund_case_messages",
+        "definition": "78209016c6ede7298d79d09af608e46e"
+      },
+      {
+        "name": "refund_case_external_recovery_exact_machine_fk",
+        "table": "refund_cases",
+        "definition": "e910e860e9ae0a2adfaa070ab11dcf5e"
+      },
+      {
+        "name": "refund_cases_assigned_manager_id_fkey",
+        "table": "refund_cases",
+        "definition": "e7d1a35a4f91d889c403fa48597b0aa0"
+      },
+      {
+        "name": "refund_cases_automation_state_check",
+        "table": "refund_cases",
+        "definition": "48c0b604ea66558eaf40c7676cab41e5"
+      },
+      {
+        "name": "refund_cases_card_last4_format",
+        "table": "refund_cases",
+        "definition": "7cd0b400178e9b17d323b4df91bb0ac6"
+      },
+      {
+        "name": "refund_cases_card_last4_provenance_check",
+        "table": "refund_cases",
+        "definition": "3f1bd0d36c84cb391b3876304f12da2d"
+      },
+      {
+        "name": "refund_cases_card_last4_source_check",
+        "table": "refund_cases",
+        "definition": "e3adc2f73c9442e01cbc2ba97412f585"
+      },
+      {
+        "name": "refund_cases_card_network_check",
+        "table": "refund_cases",
+        "definition": "c467a02c559f25f5dfe2bb92ab7abe20"
+      },
+      {
+        "name": "refund_cases_case_population_check",
+        "table": "refund_cases",
+        "definition": "3a0a0e98e7f2fe366facf1807cc3aff5"
+      },
+      {
+        "name": "refund_cases_cash_match_evaluated_fact_version_check",
+        "table": "refund_cases",
+        "definition": "197c0d88784526a26713daa915a5714d"
+      },
+      {
+        "name": "refund_cases_cash_match_state_check",
+        "table": "refund_cases",
+        "definition": "d8552b90768ac4d0ce325ad2c0b10bb7"
+      },
+      {
+        "name": "refund_cases_correlation_confidence_check",
+        "table": "refund_cases",
+        "definition": "92b5ca74351cfee2db0c9eb9566c422f"
+      },
+      {
+        "name": "refund_cases_correlation_source_check",
+        "table": "refund_cases",
+        "definition": "0d90b84afae552814899b3c670760b0e"
+      },
+      {
+        "name": "refund_cases_correlation_status_check",
+        "table": "refund_cases",
+        "definition": "9e7981242134c6e7b1d8e0993b07e04d"
+      },
+      {
+        "name": "refund_cases_customer_email_present",
+        "table": "refund_cases",
+        "definition": "38a5d5d773b67fcb26aab9815b691208"
+      },
+      {
+        "name": "refund_cases_customer_request_received_pair",
+        "table": "refund_cases",
+        "definition": "805f7bc9d453a07568076c2e629d265b"
+      },
+      {
+        "name": "refund_cases_customer_request_received_source",
+        "table": "refund_cases",
+        "definition": "6f8d2f555a9c59af99a06f5f7591b24e"
+      },
+      {
+        "name": "refund_cases_decided_by_fkey",
+        "table": "refund_cases",
+        "definition": "cf31ff661330453da074ebf9575ce256"
+      },
+      {
+        "name": "refund_cases_decision_check",
+        "table": "refund_cases",
+        "definition": "adccc6dd0e98e1ac11f101f3e23c8d37"
+      },
+      {
+        "name": "refund_cases_deterministic_fact_version_check",
+        "table": "refund_cases",
+        "definition": "275cad61c07830e3346606f6dee0f136"
+      },
+      {
+        "name": "refund_cases_duplicate_marked_by_fkey",
+        "table": "refund_cases",
+        "definition": "99b293d122be0263538366d8d179c98b"
+      },
+      {
+        "name": "refund_cases_duplicate_not_self",
+        "table": "refund_cases",
+        "definition": "8c64c816e1eec4233d62fd53cade5b92"
+      },
+      {
+        "name": "refund_cases_duplicate_of_fkey",
+        "table": "refund_cases",
+        "definition": "e15d5de7c37bc2bd0774464a60d805c0"
+      },
+      {
+        "name": "refund_cases_enforce_lifecycle_v2",
+        "table": "refund_cases",
+        "definition": "aac6dc9e89c94dfced18fa2e02f5e5bc"
+      },
+      {
+        "name": "refund_cases_external_refund_recovery_id_key",
+        "table": "refund_cases",
+        "definition": "7e415d4fd07ec5a4553a89298895f53b"
+      },
+      {
+        "name": "refund_cases_incident_time_confidence_check",
+        "table": "refund_cases",
+        "definition": "cfd2f0b5a4b0b4ce560215c56cab8210"
+      },
+      {
+        "name": "refund_cases_incident_time_resolution_check",
+        "table": "refund_cases",
+        "definition": "aa3a5f63a2e4ff9eece013737ff5db33"
+      },
+      {
+        "name": "refund_cases_incident_time_source_check",
+        "table": "refund_cases",
+        "definition": "06d97dea9c37c9a2eaf62383a4411cd1"
+      },
+      {
+        "name": "refund_cases_intake_selection_kind_check",
+        "table": "refund_cases",
+        "definition": "ea95a78e5085ba327aa9590973ccc5d6"
+      },
+      {
+        "name": "refund_cases_intake_source_check",
+        "table": "refund_cases",
+        "definition": "7c6babcea6879c29a0225ed363f380d1"
+      },
+      {
+        "name": "refund_cases_internal_test_classification_source_check",
+        "table": "refund_cases",
+        "definition": "948e02648d1fe3c15345d60d235617cb"
+      },
+      {
+        "name": "refund_cases_internal_test_classified_by_fkey",
+        "table": "refund_cases",
+        "definition": "cbe50b8e1be13119aa48cc48aab43bb6"
+      },
+      {
+        "name": "refund_cases_internal_test_reason_check",
+        "table": "refund_cases",
+        "definition": "a478b65be23e13bb8734aae093f2552c"
+      },
+      {
+        "name": "refund_cases_internal_test_shape_check",
+        "table": "refund_cases",
+        "definition": "6ffcd8b66617561d7e084d01643cfb74"
+      },
+      {
+        "name": "refund_cases_issue_category_check",
+        "table": "refund_cases",
+        "definition": "afa2f3e0e8c0193704a3beeddaa1215d"
+      },
+      {
+        "name": "refund_cases_lifecycle_integrity_shape_check",
+        "table": "refund_cases",
+        "definition": "f7f0ff2f525ff3a47aa7364751fe9246"
+      },
+      {
+        "name": "refund_cases_lifecycle_integrity_status_check",
+        "table": "refund_cases",
+        "definition": "3e672849c1950859635d2181f186e9e1"
+      },
+      {
+        "name": "refund_cases_lifecycle_revision_check",
+        "table": "refund_cases",
+        "definition": "65588b2776ed264a2695886d9dc06acf"
+      },
+      {
+        "name": "refund_cases_matched_nayax_amount_cents_check",
+        "table": "refund_cases",
+        "definition": "ea8ebd7f0900092555b3f656d39bf4e8"
+      },
+      {
+        "name": "refund_cases_matched_nayax_card_last4_check",
+        "table": "refund_cases",
+        "definition": "9d8f0ed5b74e3e67c886bf2dde75c02d"
+      },
+      {
+        "name": "refund_cases_matched_nayax_currency_code_check",
+        "table": "refund_cases",
+        "definition": "50c2307c8d6336b94b55f2b017937912"
+      },
+      {
+        "name": "refund_cases_matched_nayax_site_id_check",
+        "table": "refund_cases",
+        "definition": "0794d2e027b172885ae7b287d64ff1bd"
+      },
+      {
+        "name": "refund_cases_matched_sales_fact_id_fkey",
+        "table": "refund_cases",
+        "definition": "ac6cefbe54d67dc4e7e0a3939bb760be"
+      },
+      {
+        "name": "refund_cases_nayax_attempt_generation_check",
+        "table": "refund_cases",
+        "definition": "02af666b39b643b55c27d5f363f1c03b"
+      },
+      {
+        "name": "refund_cases_nayax_execution_eligibility_check",
+        "table": "refund_cases",
+        "definition": "6d2c1d27cf4d26fd820247ff8a703ad2"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_digest_check",
+        "table": "refund_cases",
+        "definition": "cbd6df0da0d60d9d13be49c1ba4826df"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_failure_class_check",
+        "table": "refund_cases",
+        "definition": "93eae61f0fa662f2cf35e8fca36fe838"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_generation_check",
+        "table": "refund_cases",
+        "definition": "59c02226416c07ce98f15c32f7ce7472"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_retry_count_check",
+        "table": "refund_cases",
+        "definition": "617e341bb12cc18d6505bd74a9a3b535"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_retry_fact_version_check",
+        "table": "refund_cases",
+        "definition": "727f920b28e61c1ea8b62f437ce8a2cc"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_status_check",
+        "table": "refund_cases",
+        "definition": "e652dc19f11fed3684df398eb9d34eb7"
+      },
+      {
+        "name": "refund_cases_nayax_lookup_timing_check",
+        "table": "refund_cases",
+        "definition": "91d34449cc674b38fd7fad2ffa78155c"
+      },
+      {
+        "name": "refund_cases_nayax_recommendation_state_check",
+        "table": "refund_cases",
+        "definition": "5d5f9d71e5f291487e6ba247d1b8a4b0"
+      },
+      {
+        "name": "refund_cases_nayax_refund_execution_status_check",
+        "table": "refund_cases",
+        "definition": "99f788b79e398622183a6fb08efd06c7"
+      },
+      {
+        "name": "refund_cases_nearby_attempt_count_check",
+        "table": "refund_cases",
+        "definition": "e8d6ab4072639fbe396f24af1c29559f"
+      },
+      {
+        "name": "refund_cases_official_action_version_positive",
+        "table": "refund_cases",
+        "definition": "fb3fa4eeecc0768b2918a44d7ed05ef4"
+      },
+      {
+        "name": "refund_cases_payment_amount_cents_check",
+        "table": "refund_cases",
+        "definition": "d7576399759791e0c8804f6f280ffb9e"
+      },
+      {
+        "name": "refund_cases_payment_interaction_check",
+        "table": "refund_cases",
+        "definition": "fca20d2e4074c1da07ec9babce02392a"
+      },
+      {
+        "name": "refund_cases_payment_interaction_method_check",
+        "table": "refund_cases",
+        "definition": "74db3767bbe99fc3e2f49d740b53b91f"
+      },
+      {
+        "name": "refund_cases_payment_method_check",
+        "table": "refund_cases",
+        "definition": "4b4d81df2d88665885a0f2719ace8ae3"
+      },
+      {
+        "name": "refund_cases_pkey",
+        "table": "refund_cases",
+        "definition": "4c6419b3704337bbfe50f018842a9ad3"
+      },
+      {
+        "name": "refund_cases_priority_check",
+        "table": "refund_cases",
+        "definition": "6bd4578e94cac3a463bea614fd735bbf"
+      },
+      {
+        "name": "refund_cases_processing_fields_complete",
+        "table": "refund_cases",
+        "definition": "13302ed927f5a37c15125318d65bbbed"
+      },
+      {
+        "name": "refund_cases_product_description_length_check",
+        "table": "refund_cases",
+        "definition": "72c35b19be2513f9bbec712590bfa7ba"
+      },
+      {
+        "name": "refund_cases_public_reference_unique",
+        "table": "refund_cases",
+        "definition": "cecb7ce4ebb9459ed85f0468bfce042c"
+      },
+      {
+        "name": "refund_cases_refund_amount_cents_check",
+        "table": "refund_cases",
+        "definition": "afcfee7964f54ee37e4f0d657bb9f4a8"
+      },
+      {
+        "name": "refund_cases_refund_completed_by_fkey",
+        "table": "refund_cases",
+        "definition": "254e68bea845d8ede509cc4f3a8cad11"
+      },
+      {
+        "name": "refund_cases_refund_qr_claim_context_id_fkey",
+        "table": "refund_cases",
+        "definition": "92bc77824004cf6e0cd62cc5a5c49bb7"
+      },
+      {
+        "name": "refund_cases_reporting_adjustment_id_fkey",
+        "table": "refund_cases",
+        "definition": "7f343f7240d75e3a35e8651118d88f4e"
+      },
+      {
+        "name": "refund_cases_reporting_location_id_fkey",
+        "table": "refund_cases",
+        "definition": "ecb27cc13aa5891996b14f3d74d85f27"
+      },
+      {
+        "name": "refund_cases_reporting_machine_id_fkey",
+        "table": "refund_cases",
+        "definition": "d74bb989d65add71c3d81727bae03b20"
+      },
+      {
+        "name": "refund_cases_resolved_machine_in_scope_check",
+        "table": "refund_cases",
+        "definition": "89554755ecb7fe4add6be7efb9141f55"
+      },
+      {
+        "name": "refund_cases_status_check",
+        "table": "refund_cases",
+        "definition": "8f1045431c12dfe545d2d48a3bbfadd9"
+      },
+      {
+        "name": "refund_cases_submission_identity_shape",
+        "table": "refund_cases",
+        "definition": "a27a794a39a39a0587c4cece33f18363"
+      },
+      {
+        "name": "refund_cases_unresolved_machine_scope_check",
+        "table": "refund_cases",
+        "definition": "fcb6470d741942ed7764ffd5b811622e"
+      },
+      {
+        "name": "refund_cases_wallet_correction_state_check",
+        "table": "refund_cases",
+        "definition": "ac9b7b6229787bb707d3b27e7c272670"
+      },
+      {
+        "name": "refund_cases_wallet_correction_version_check",
+        "table": "refund_cases",
+        "definition": "ce0b9760444da0de6b927c72b556ca5e"
+      },
+      {
+        "name": "refund_cases_wallet_device_kind_check",
+        "table": "refund_cases",
+        "definition": "8efa03146163df554ed098c964d7567d"
+      },
+      {
+        "name": "refund_cases_wallet_device_kind_interaction_check",
+        "table": "refund_cases",
+        "definition": "0e751a160ba8c9c63bc6de7cd4331cd1"
+      },
+      {
+        "name": "refund_cases_wallet_last4_provenance_check",
+        "table": "refund_cases",
+        "definition": "97ddcb82150fe9c4cc98252e0220c88a"
+      },
+      {
+        "name": "refund_cases_wallet_provider_check",
+        "table": "refund_cases",
+        "definition": "8c011292d5a1a34033276aaad0f60f24"
+      },
+      {
+        "name": "refund_receipt_completion_intents_actor_user_id_fkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "c4ed5c635584801e33d008caadd0a5ac"
+      },
+      {
+        "name": "refund_receipt_completion_intents_automation_authority_exact_fk",
+        "table": "refund_receipt_completion_intents",
+        "definition": "4521ae2f5a8892a07d0fa68d5a2033ea"
+      },
+      {
+        "name": "refund_receipt_completion_intents_automation_authority_id_key",
+        "table": "refund_receipt_completion_intents",
+        "definition": "034ef3ca064186783e9caab11fa069e8"
+      },
+      {
+        "name": "refund_receipt_completion_intents_expected_case_version_check",
+        "table": "refund_receipt_completion_intents",
+        "definition": "e05fc6257f6dc068aa0176a2bc8ef15c"
+      },
+      {
+        "name": "refund_receipt_completion_intents_gmail_thread_id_fkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "49cfdd1bf1dbe5dd574fb8d50beb6e11"
+      },
+      {
+        "name": "refund_receipt_completion_intents_intent_id_key",
+        "table": "refund_receipt_completion_intents",
+        "definition": "75f0aef284f197a0e9ca78c51363879e"
+      },
+      {
+        "name": "refund_receipt_completion_intents_message_id_fkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "a25b9217462cd154076d6e70e1137611"
+      },
+      {
+        "name": "refund_receipt_completion_intents_message_id_key",
+        "table": "refund_receipt_completion_intents",
+        "definition": "660bbc1ace72ad466f438d9dba3f82ca"
+      },
+      {
+        "name": "refund_receipt_completion_intents_message_identity_digest_check",
+        "table": "refund_receipt_completion_intents",
+        "definition": "fbf1453655b42a8e3fd5316bdd9f735b"
+      },
+      {
+        "name": "refund_receipt_completion_intents_pkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "9e70e6d960e91d7bfb69b401c9d3613d"
+      },
+      {
+        "name": "refund_receipt_completion_intents_receipt_id_fkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "92e13cfa008d6ffc4bb354d8eac289c3"
+      },
+      {
+        "name": "refund_receipt_completion_intents_refund_case_id_fkey",
+        "table": "refund_receipt_completion_intents",
+        "definition": "793e61d8beebb64b24e0ddc89467dbb6"
+      },
+      {
+        "name": "refund_receipt_completion_intents_refund_case_id_key",
+        "table": "refund_receipt_completion_intents",
+        "definition": "f9924328ff9e0f9e6b48673d04d55c85"
+      },
+      {
+        "name": "refund_receipt_completion_intents_review_authority_check",
+        "table": "refund_receipt_completion_intents",
+        "definition": "3a6e59a51c174a44f4f85a5fa614b79c"
+      }
+    ]
+  }
+}
