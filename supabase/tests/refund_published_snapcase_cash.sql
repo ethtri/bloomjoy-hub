@@ -3,6 +3,15 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 select no_plan();
 
+create function pg_temp.error_state(statement text)
+returns text language plpgsql as $$
+begin
+  execute statement;
+  return null;
+exception when others then return sqlstate;
+end;
+$$;
+
 insert into auth.users(
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
@@ -161,6 +170,38 @@ create temporary table picked as select public.service_select_sunze_cash_candida
 select is((select result->>'selected' from picked),'true','Existing fact/version-bound selection accepts reviewed SnapCase evidence');
 select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
  array['zelle_payment_contact'],'Current reviewed SnapCase purchase exposes only the existing missing payout field');
+savepoint payout_contact_contract;
+set local role service_role;
+select is(public.service_enqueue_refund_manual_message_intent(
+ '16617000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'),
+ '16618100-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001',
+ 'more_info','snapcase-refund@example.invalid','One payout detail needed',
+ 'Please check the Zelle email or phone for this refund.',
+ 'refund_more_info_editable_v1','manager_authored','missing_information',
+ array['zelle_payment_contact']::text[],null,false,null)->>'enqueued','true',
+ 'Existing protected contact writer accepts the current reviewed cash payout field');
+select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_message_intent(
+ '16617000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'),
+ '16618100-0000-4000-8000-000000000002','16600000-0000-4000-8000-000000000001',
+ 'more_info','snapcase-refund@example.invalid','Duplicate payout detail',
+ 'Duplicate payout detail','refund_more_info_editable_v1','manager_authored',
+ 'missing_information',array['zelle_payment_contact']::text[],null,false,null)$call$),
+ 'P4662','Current reviewed purchase does not bypass the existing duplicate contact guard');
+reset role;
+update public.admin_roles set active=false where user_id='16600000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_message_intent(
+ '16617000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'),
+ '16618100-0000-4000-8000-000000000003','16600000-0000-4000-8000-000000000001',
+ 'more_info','snapcase-refund@example.invalid','Unauthorized payout detail',
+ 'Unauthorized payout detail','refund_more_info_editable_v1','manager_authored',
+ 'missing_information',array['zelle_payment_contact']::text[],null,false,null)$call$),
+ '42501','Current contact actor authority remains required after purchase review');
+reset role;
+rollback to savepoint payout_contact_contract;
 savepoint payout_link_negative;
 update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
  released_by='16600000-0000-4000-8000-000000000001',released_case_fact_version=1
