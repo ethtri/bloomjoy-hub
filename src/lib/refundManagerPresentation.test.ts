@@ -231,6 +231,20 @@ Deno.test('cash recommendations use Sunze proof and approved cash payment work s
     },
   });
   assertEquals(refundNeedsDecision(cashDecision), true);
+  const snapcaseDecision = refundCase({
+    ...cashDecision,
+    lifecycle: {
+      ...cashDecision.lifecycle,
+      decisionRecommendation: refundRecommendation({
+        purchase: { ...cashDecision.lifecycle!.decisionRecommendation!.purchase!, source: 'snapcase' },
+      }),
+    },
+  });
+  assertEquals(refundNeedsDecision(snapcaseDecision), true);
+  assertEquals(refundManagerView(snapcaseDecision), 'decisions');
+  assertEquals(refundNeedsDecision({ ...snapcaseDecision, paymentMethod: 'card' }), false);
+  assertEquals(refundNeedsDecision({ ...snapcaseDecision, canPerformOfficialAction: false }), false);
+  assertEquals(refundNeedsDecision({ ...snapcaseDecision, officialActionVersion: 99 }), false);
 
   const approvedCash = refundCase({
     paymentMethod: 'cash',

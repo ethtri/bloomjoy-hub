@@ -2571,6 +2571,7 @@ const installMockSupabaseRoutes = async (
   context,
   {
     refundOverview = buildMockRefundOverview,
+    cashEvidenceSource = 'sunze',
     rpcCalls = [],
     rpcBodies = [],
     functionCalls = [],
@@ -3070,7 +3071,7 @@ const installMockSupabaseRoutes = async (
     if (functionName === 'refund-case-sunze-correlation') {
       const caseId = requestBody?.caseId;
       const selectedSale = caseId === CASH_CASE_IDS.review || caseId === CASH_CASE_IDS.legacyPending;
-      const actualAmountCents = caseId === CASH_CASE_IDS.legacyPending ? 650 : 700;
+      const actualAmountCents = caseId === CASH_CASE_IDS.legacyPending ? 650 : cashEvidenceSource === 'snapcase' ? 800 : 700;
       const salesFactId = caseId === CASH_CASE_IDS.legacyPending
         ? '44000000-0000-4000-8000-000000000002'
         : '44000000-0000-4000-8000-000000000001';
@@ -3094,12 +3095,13 @@ const installMockSupabaseRoutes = async (
       const hasCompleteCoverageNoMatch = caseId === CASH_CASE_IDS.noMatch || caseId === CASH_CASE_IDS.missingAmount;
       return route.fulfill(jsonResponse({
         correlation: {
+          ...(cashEvidenceSource === 'snapcase' ? { cashSource: 'snapcase' } : {}),
           caseFactVersion: 1,
           attemptId: '44100000-0000-4000-8000-000000000001',
           policyVersion: 'sunze_cash_correlation_v1',
-          state: hasCompleteCoverageNoMatch ? 'no_sale_found_with_complete_coverage' : 'sale_found',
-          reason: hasCompleteCoverageNoMatch ? 'no_candidate' : 'single_candidate',
-          sourceReadiness: 'complete_coverage',
+          state: cashEvidenceSource === 'snapcase' ? 'multiple_possible_sales' : hasCompleteCoverageNoMatch ? 'no_sale_found_with_complete_coverage' : 'sale_found',
+          reason: cashEvidenceSource === 'snapcase' ? 'published_snapcase_cash_found' : hasCompleteCoverageNoMatch ? 'no_candidate' : 'single_candidate',
+          sourceReadiness: cashEvidenceSource === 'snapcase' ? 'unavailable' : 'complete_coverage',
           coverageStartedAt: isoHoursAgo(4),
           coveredThrough: new Date().toISOString(),
           freshnessExpiresAt: new Date(Date.now() + 3600000).toISOString(),

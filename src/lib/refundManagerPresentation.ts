@@ -26,7 +26,7 @@ const recommendationMatchesCase = (
   const expectedAction = recommendation.kind === 'refund'
     ? 'approve_or_deny_request'
     : 'reject_request';
-  const expectedSource = item.paymentMethod === 'card' ? 'nayax' : 'sunze';
+  const expectedSources = item.paymentMethod === 'card' ? ['nayax'] : ['sunze', 'snapcase'];
 
   return recommendation.decisionReady === true &&
     item.decision == null &&
@@ -38,7 +38,7 @@ const recommendationMatchesCase = (
     nextWork?.isOpen === true &&
     nextWork.actor === 'manager' &&
     nextWork.actionCode === expectedAction &&
-    (recommendation.kind === 'reject' || recommendation.purchase?.source === expectedSource);
+    (recommendation.kind === 'reject' || expectedSources.includes(recommendation.purchase?.source ?? ''));
 };
 
 /** A decision is a fresh server recommendation, never a locally ranked candidate. */
