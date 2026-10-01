@@ -117,7 +117,15 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
     if (merchantId !== claim.pool.provider_account_id || !timezone || !Array.isArray(machineIds) || !machineIds.length || machineIds.some((v) => typeof v !== "string" || !v)) throw new SupplyError("provider_scope_invalid");
     const start = claim.attemptedAt ?? new Date().toISOString();
     const name = `Bloomjoy refill ${claim.attemptId}`;
-    const scopes = [{ scopeType: 1, scopeValue: machineIds }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }];
+    // The merchant form sends numeric identities; the Go composer rejects a
+    // string merchantId. Keep configured identities as exact strings for reads.
+    const wireIdentity = (value: string) => {
+      const number = Number(value);
+      if (!Number.isSafeInteger(number) || number < 1 || String(number) !== value) throw new SupplyError("provider_scope_invalid");
+      return number;
+    };
+    const wireMerchantId = wireIdentity(merchantId);
+    const scopes = [{ scopeType: 1, scopeValue: machineIds.map(wireIdentity) }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }];
     const request: Requester = async (path, method, body = {}) => {
       const url = new URL(base + path);
       if (method === "GET") for (const [k, v] of Object.entries(body)) url.searchParams.set(k, String(v));
@@ -156,7 +164,7 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
     return {
       prepare: async () => [],
       create: async () => {
-        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, timezone), endTime: providerClock(claim.pool.expires_at, timezone) });
+        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId: wireMerchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, timezone), endTime: providerClock(claim.pool.expires_at, timezone) });
         if (result.code !== 0) throw new SupplyError("provider_creation_rejected");
         try { const result = await reconcile(); if (!result) throw new SupplyError("provider_creation_not_visible", true); return result; }
         catch (e) { throw new SupplyError(e instanceof SupplyError ? e.reason : "provider_verification_failed", true); }
