@@ -298,7 +298,8 @@
     "20260930230000_refund_gift_card_reporting.sql",
     "20260930233000_refunds_alias_inquiry.sql",
     "20260930234847_refund_api_receipt_completion_handoff.sql",
-    "20261001010518_refund_published_snapcase_cash_evidence.sql"
+    "20261001010518_refund_published_snapcase_cash_evidence.sql",
+    "20261001052000_refund_health_outreach_single_evaluation.sql"
   ],
   "migrationFilesSha256": "56f48cc09a20ba8f98daa4b0003e28974f83b9913cc0d9ae91eb08bae543e51d",
   "migrationVersionSetSha256": "4e78dd8632ec488b06d0d28abc00949d8f9db5d529daf1b7680f31ddbc50826a",
