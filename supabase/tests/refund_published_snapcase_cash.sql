@@ -119,6 +119,17 @@ insert into public.refund_cases(
  '2026-09-20T19:00:36Z','2026-09-20 12:00:36','America/Los_Angeles','exact',
  'cash',900,'needs_review','manual_review'
 );
+insert into public.refund_follow_up_cycles(
+ id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,requested_fields,
+ template_version,case_fact_version,reminder_delay_hours,status
+)
+select '16618000-0000-4000-8000-000000000001',c.id,1,repeat('b',64),
+ 'no_safe_match','{}'::text[],settings.template_version,
+ c.deterministic_fact_version,settings.reminder_delay_hours,'manual_review'
+from public.refund_cases c cross join public.refund_customer_contact_settings settings
+where c.id='16617000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Historical empty research hold remains before any positive purchase evidence');
 create temporary table baseline as
 select c.decision,c.refund_completed_at,c.reporting_adjustment_id,c.refund_amount_cents,
  (select count(*) from public.refund_case_messages m where m.refund_case_id=c.id) messages,
@@ -137,11 +148,52 @@ select ok((select evidence_codes @> array['published_snapcase_cash','source_time
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'cashSource','snapcase','Existing read projection identifies actual source');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'sourceReadiness','unavailable','Positive publication does not imply global completeness');
 select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000001',1,'backfill')->>'replayed','true','Unchanged publication correlation replays idempotently');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Positive cash candidate alone does not lift the historical research hold');
 create temporary table picked as select public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from cash_proof),
  (select sales_fact_id from public.refund_sunze_cash_correlation_candidates where attempt_id=(select (result->>'attemptId')::uuid from cash_proof)),
  1,0,'16600000-0000-4000-8000-000000000001') result;
 select is((select result->>'selected' from picked),'true','Existing fact/version-bound selection accepts reviewed SnapCase evidence');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ array['zelle_payment_contact'],'Current reviewed SnapCase purchase exposes only the existing missing payout field');
+savepoint payout_link_negative;
+update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
+ released_by='16600000-0000-4000-8000-000000000001',released_case_fact_version=1
+where refund_case_id='16617000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Released reviewed link cannot lift the research hold');
+rollback to savepoint payout_link_negative;
+savepoint payout_conflict_negative;
+update public.refund_sunze_cash_correlation_candidates set selection_conflict=true
+where attempt_id=(select (result->>'attemptId')::uuid from cash_proof);
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Conflicted candidate cannot lift the research hold');
+rollback to savepoint payout_conflict_negative;
+savepoint payout_attempt_negative;
+update public.refund_sunze_cash_correlation_attempts set invalidated_at=now(),
+ invalidation_reason='selected_sale_released'
+where id=(select (result->>'attemptId')::uuid from cash_proof);
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Invalidated attempt cannot lift the research hold');
+rollback to savepoint payout_attempt_negative;
+savepoint payout_fact_negative;
+update public.refund_sunze_cash_sale_links set case_fact_version=2
+where refund_case_id='16617000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Stale reviewed-link fact cannot lift the research hold');
+rollback to savepoint payout_fact_negative;
+savepoint payout_review_negative;
+update public.refund_sunze_cash_sale_links set link_origin='system_single_candidate'
+where refund_case_id='16617000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Automatic link alone cannot replace explicit reviewed cash evidence');
+rollback to savepoint payout_review_negative;
+select ok(public.refund_payout_destination_case_current(
+ jsonb_populate_record(null::public.refund_cases,
+  (select to_jsonb(c)||'{"decision":"approved","status":"cash_zelle_pending"}'::jsonb
+   from public.refund_cases c where c.id='16617000-0000-4000-8000-000000000001'))),
+ 'Existing approved legacy cash payout eligibility is unchanged');
 select is(public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from cash_proof),
  (select sales_fact_id from public.refund_sunze_cash_correlation_candidates where attempt_id=(select (result->>'attemptId')::uuid from cash_proof)),
@@ -156,6 +208,8 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Wrong provider account blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Wrong provider account hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Wrong provider account cannot prepare a refund recommendation');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Wrong current source account cannot authorize a payout question');
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{providerAccountId}',to_jsonb('16613000-0000-4000-8000-000000000001'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{sourceMachineId}',to_jsonb('wrong-device'::text)) where source='snapcase_cash' and raw_payload->>'sourcePaymentKey'=repeat('d',64);
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -188,6 +242,8 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','New unpublished payment revision blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'New unpublished payment revision hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'New unpublished payment revision cannot prepare a refund recommendation');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Stale publication cannot authorize a payout question');
 update private.snapcase_sales_observations set revision_digest=repeat('e',64) where source_machine_id='refund-cash-machine';
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{publicationState}',to_jsonb('superseded'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -241,6 +297,8 @@ update public.reporting_locations set timezone='America/Chicago' where id='16611
 update private.snapcase_source_machines set source_timezone='America/Chicago' where source_machine_id='refund-cash-machine';
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Joint source and venue clock change hides the old selected proof');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Joint clock change cannot retain a prepared purchase');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Changed source and venue clock cannot authorize a payout question');
 update public.reporting_locations set timezone='America/Los_Angeles' where id='16611000-0000-4000-8000-000000000001';
 update private.snapcase_source_machines set source_timezone='America/Los_Angeles' where source_machine_id='refund-cash-machine';
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase'->>'source','snapcase','Restored clock identity restores the selected proof');
@@ -255,5 +313,17 @@ update private.snapcase_machine_mappings set effective_end_date='2026-09-19' whe
 select ok(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z') not like 'snapcase:%','Out-of-window mapping does not claim the source');
 select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000001',1,'backfill')->>'candidateCount','1','Dormant SnapCase mapping preserves grounded Sunze positive research');
 select ok(exists(select 1 from public.refund_sunze_cash_correlation_candidates candidate join public.refund_sunze_cash_correlation_attempts attempt on attempt.id=candidate.attempt_id where attempt.refund_case_id='16617000-0000-4000-8000-000000000001' and candidate.sales_fact_id='16619100-0000-4000-8000-000000000001'),'Sunze positive is retained on its exact source');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ '{}'::text[],'Changing to new grounded Sunze evidence requires a fresh reviewed selection');
+select is(public.service_select_sunze_cash_candidate(
+ '16617000-0000-4000-8000-000000000001',
+ (select id from public.refund_sunze_cash_correlation_attempts
+  where refund_case_id='16617000-0000-4000-8000-000000000001' and invalidated_at is null
+  order by evaluated_at desc,id desc limit 1),
+ '16619100-0000-4000-8000-000000000001',1,1,
+ '16600000-0000-4000-8000-000000000001')->>'selected','true',
+ 'Grounded Sunze positive accepts a current explicit reviewed selection');
+select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
+ array['zelle_payment_contact'],'Current reviewed Sunze purchase also lifts only the missing payout field hold');
 select * from finish();
 rollback;

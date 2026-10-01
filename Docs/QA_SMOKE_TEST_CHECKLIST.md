@@ -104,6 +104,12 @@ historical fixtures cannot add product gates that the workflow does not contain.
   and prepares a Manager
   reject recommendation after 30 days without useful input. The unattended
   worker never closes or denies the case.
+- [ ] On a disposable legacy cash case with an old empty research cycle, a
+  current reviewed Sunze or SnapCase purchase exposes only the missing payout
+  destination in the existing correction dialog. An unreviewed, released,
+  conflicted or stale-source selection keeps the hold. Opening the dialog makes
+  no delivery, decision or payment; the existing contact budget and authority
+  still apply when a synthetic request is sent.
 - [ ] A clarification or payout-destination request sends only to the customer
   in the existing thread; it does not CC Managers. An undecided cash case says
   the destination is needed to continue review and never calls the refund
