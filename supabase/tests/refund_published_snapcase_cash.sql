@@ -40,6 +40,12 @@ values
 insert into public.reporting_machine_tax_rates(id, machine_id, tax_rate_percent, effective_start_date, status)
 values ('16612500-0000-4000-8000-000000000001', '16612000-0000-4000-8000-000000000001', 0, '2025-01-01', 'active');
 
+insert into public.reporting_machine_refund_managers(
+  reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('16612000-0000-4000-8000-000000000002',
+  '16600000-0000-4000-8000-000000000001',
+  'snapcase-completion-admin@example.invalid','Ready snapshot fixture');
+
 insert into private.snapcase_provider_accounts(id, source_account_key)
 values ('16613000-0000-4000-8000-000000000001', 'refund-cash-fixture');
 
@@ -137,6 +143,9 @@ select ok((select evidence_codes @> array['published_snapcase_cash','source_time
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'cashSource','snapcase','Existing read projection identifies actual source');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'sourceReadiness','unavailable','Positive publication does not imply global completeness');
 select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000001',1,'backfill')->>'replayed','true','Unchanged publication correlation replays idempotently');
+select is(public.service_refund_manager_ready_notice_snapshot(
+ '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),
+ null::jsonb,'Unselected positive publication cannot become a Manager-ready notice');
 create temporary table picked as select public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from cash_proof),
  (select sales_fact_id from public.refund_sunze_cash_correlation_candidates where attempt_id=(select (result->>'attemptId')::uuid from cash_proof)),
@@ -149,6 +158,38 @@ select is(public.service_select_sunze_cash_candidate(
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase'->>'source','snapcase','Existing cash recommendation uses actual current reviewed purchase source');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase'->>'amountCents','1000','Recommendation preserves source amount rather than customer estimate');
 select is((select count(*)::integer from public.refund_sunze_cash_sale_links where refund_case_id='16617000-0000-4000-8000-000000000001'),1,'Idempotent selection retains one existing sale link');
+create temporary table projection_before as select to_jsonb(c) case_row,
+ (select count(*) from public.refund_case_messages) message_count,
+ (select count(*) from public.refund_manager_notification_actions) notification_count
+ from public.refund_cases c where c.id='16617000-0000-4000-8000-000000000001';
+create temporary table current_ready as select public.service_refund_manager_ready_notice_snapshot(
+ '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001') snapshot;
+select ok((select snapshot->>'schemaVersion'='refund_manager_ready_notice_v2'
+ and snapshot->>'actionCode'='approve_or_deny_request'
+ and snapshot->>'evidenceBasis'='cash_multiple_reviewed'
+ and snapshot->>'proofId'=(select result->>'attemptId' from cash_proof)
+ and snapshot->>'officialActionVersion'=c.official_action_version::text
+ and snapshot->>'deterministicFactVersion'=c.deterministic_fact_version::text
+ and snapshot->>'amountCents'='1000' and snapshot->>'currencyCode'='USD'
+ and snapshot->>'payloadRedacted'='true'
+ from current_ready cross join public.refund_cases c
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ 'Reviewed SnapCase ready notice preserves exact proof, versions and full purchase amount');
+select is(public.service_refund_manager_ready_notice_snapshot(
+ '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000099'),
+ null::jsonb,'An unassigned actor cannot obtain the exact Manager-ready snapshot');
+select ok(exists(select 1 from jsonb_array_elements(
+ public.refund_manager_daily_digest_projection_for('16600000-0000-4000-8000-000000000001')->'items') item
+ where item->>'caseId'='16617000-0000-4000-8000-000000000001'
+ and item->>'actionCode'='approve_or_deny_request'
+ and item->>'evidenceBasis'='cash_multiple_reviewed' and item->>'amountCents'='1000'),
+ 'Daily digest consumes the same current reviewed SnapCase decision snapshot');
+select ok((select to_jsonb(c)=b.case_row
+ and (select count(*) from public.refund_case_messages)=b.message_count
+ and (select count(*) from public.refund_manager_notification_actions)=b.notification_count
+ from public.refund_cases c cross join projection_before b
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ 'Ready and digest projections leave the entire case and all message/notice rows unchanged');
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{providerAccountId}',to_jsonb('wrong-account'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from cash_proof),
@@ -156,6 +197,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Wrong provider account blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Wrong provider account hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Wrong provider account cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 1');
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{providerAccountId}',to_jsonb('16613000-0000-4000-8000-000000000001'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{sourceMachineId}',to_jsonb('wrong-device'::text)) where source='snapcase_cash' and raw_payload->>'sourcePaymentKey'=repeat('d',64);
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -164,6 +206,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Wrong source device blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Wrong source device hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Wrong source device cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 2');
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{sourceMachineId}',to_jsonb('refund-cash-machine'::text)) where source='snapcase_cash' and raw_payload->>'sourcePaymentKey'=repeat('d',64);
 update private.snapcase_source_machines set source_timezone='America/Chicago' where source_machine_id='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -172,6 +215,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Unproved source clock blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Unproved source clock hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Unproved source clock cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 3');
 update private.snapcase_source_machines set source_timezone='America/Los_Angeles' where source_machine_id='refund-cash-machine';
 update private.snapcase_machine_mappings set effective_end_date='2026-09-19' where source_machine_id='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -180,6 +224,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Mapping outside occurrence date blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Mapping outside occurrence date hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Mapping outside occurrence date cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 4');
 update private.snapcase_machine_mappings set effective_end_date=null where source_machine_id='refund-cash-machine';
 update private.snapcase_sales_observations set revision_digest=repeat('f',64) where source_machine_id='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -188,6 +233,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','New unpublished payment revision blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'New unpublished payment revision hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'New unpublished payment revision cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 5');
 update private.snapcase_sales_observations set revision_digest=repeat('e',64) where source_machine_id='refund-cash-machine';
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{publicationState}',to_jsonb('superseded'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -196,6 +242,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Superseded publication blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Superseded publication hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Superseded publication cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 6');
 update public.machine_sales_facts set raw_payload=jsonb_set(raw_payload,'{publicationState}',to_jsonb('active'::text)) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 update private.snapcase_sales_observations set normalized_tender='card',source_tender_code='0' where source_machine_id='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -204,6 +251,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Current payment is not cash blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Current payment is not cash hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Current payment is not cash cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 7');
 update private.snapcase_sales_observations set normalized_tender='cash',source_tender_code='1' where source_machine_id='refund-cash-machine';
 update public.machine_sales_facts set source_row_hash=repeat('f',64) where source='snapcase_cash' and raw_payload->>'sourceMachineId'='refund-cash-machine';
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -212,6 +260,7 @@ select throws_ok($case$select public.service_select_sunze_cash_candidate(
  1,1,'16600000-0000-4000-8000-000000000001')$case$,'40001','Stale Sunze candidate selection','Changed publication digest blocks current selection');
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Changed publication digest hides stale selected evidence');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Changed publication digest cannot prepare a refund recommendation');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 8');
 update public.machine_sales_facts f set source_row_hash=encode(extensions.digest(convert_to(concat_ws('|','snapcase-cash-publication-v1',repeat('d',64),repeat('e',64),m.id::text,m.mapped_at::text,'snapcase.financial.machine-local.v1'),'UTF8'),'sha256'),'hex') from private.snapcase_machine_mappings m where f.source='snapcase_cash' and f.raw_payload->>'mappingId'=m.id::text and m.source_machine_id='refund-cash-machine';
 
 select throws_ok($case$select public.service_select_sunze_cash_candidate(
@@ -241,6 +290,7 @@ update public.reporting_locations set timezone='America/Chicago' where id='16611
 update private.snapcase_source_machines set source_timezone='America/Chicago' where source_machine_id='refund-cash-machine';
 select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'selectedSalesFactId',null::text,'Joint source and venue clock change hides the old selected proof');
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Joint clock change cannot retain a prepared purchase');
+select is(public.service_refund_manager_ready_notice_snapshot('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),null::jsonb,'Invalid current purchase proof also excludes a ready notice 9');
 update public.reporting_locations set timezone='America/Los_Angeles' where id='16611000-0000-4000-8000-000000000001';
 update private.snapcase_source_machines set source_timezone='America/Los_Angeles' where source_machine_id='refund-cash-machine';
 select is(public.refund_decision_recommendation_for_case('16617000-0000-4000-8000-000000000001')->'purchase'->>'source','snapcase','Restored clock identity restores the selected proof');
@@ -253,7 +303,19 @@ insert into public.machine_sales_facts(id,reporting_machine_id,reporting_locatio
 values('16619100-0000-4000-8000-000000000001','16612000-0000-4000-8000-000000000002','16611000-0000-4000-8000-000000000001','2026-09-20','cash',950,1,'sunze_browser','snapcase-fallback-row','snapcase-fallback-order','16619000-0000-4000-8000-000000000001','2026-09-20T19:00:00Z','Payment success','{"payment_time_iso":"2026-09-20T19:00:00.000Z"}');
 update private.snapcase_machine_mappings set effective_end_date='2026-09-19' where source_machine_id='refund-cash-machine';
 select ok(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z') not like 'snapcase:%','Out-of-window mapping does not claim the source');
-select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-000000000001',1,'backfill')->>'candidateCount','1','Dormant SnapCase mapping preserves grounded Sunze positive research');
+create temporary table fallback_cash as select public.service_correlate_sunze_cash_case(
+ '16617000-0000-4000-8000-000000000001',1,'backfill') result;
+select is((select result->>'candidateCount' from fallback_cash),'1','Dormant SnapCase mapping preserves grounded Sunze positive research');
 select ok(exists(select 1 from public.refund_sunze_cash_correlation_candidates candidate join public.refund_sunze_cash_correlation_attempts attempt on attempt.id=candidate.attempt_id where attempt.refund_case_id='16617000-0000-4000-8000-000000000001' and candidate.sales_fact_id='16619100-0000-4000-8000-000000000001'),'Sunze positive is retained on its exact source');
+select is(public.service_select_sunze_cash_candidate(
+ '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from fallback_cash),
+ '16619100-0000-4000-8000-000000000001',1,1,'16600000-0000-4000-8000-000000000001')->>'selected',
+ 'true','Existing reviewed Sunze positive selection remains supported');
+select ok((select snapshot->>'evidenceBasis'='cash_multiple_reviewed'
+ and snapshot->>'actionCode'='approve_or_deny_request'
+ and snapshot->>'amountCents'='950'
+ from (select public.service_refund_manager_ready_notice_snapshot(
+ '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001') snapshot) s),
+ 'Reviewed Sunze cash uses the same exact ready-notice proof path');
 select * from finish();
 rollback;

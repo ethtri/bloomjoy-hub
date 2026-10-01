@@ -5164,6 +5164,16 @@ serve(async (req) => {
           }
         }
 
+      } catch (recordError) {
+        alertStatus = "failed";
+        console.error("refund-case-automation-sweep technical incident lookup failed", {
+          errorType: recordError instanceof Error ? recordError.name : typeof recordError,
+        });
+      }
+
+      // Health projection or incident-routing errors must not abandon the
+      // original run as running. Finalize its actual failure independently.
+      try {
         await finishRun(runId, "failed", counters, failureCategory, alertStatus);
       } catch (recordError) {
         console.error("refund-case-automation-sweep failure recording failed", {

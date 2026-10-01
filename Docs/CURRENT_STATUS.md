@@ -59,8 +59,14 @@ orientation snapshot; it is not a backlog or release ledger.
   repeatedly evaluated the same outreach contract through an inlined SQL
   subquery. A read-only evaluation-barrier comparison reduced that projection
   from 2.54 to 0.39 seconds with identical redacted obligation counts. The narrow
-  repair is under review; deployed and ordinary health verification remain
-  pending. This does not change customer contact or refund policy (#1429/#628).
+  repair shipped in #1667: deployed projection measured 0.42 seconds, protected
+  data stayed unchanged, and exact-main drift passed. The next ordinary 06:13
+  health run separately failed Manager digest validation: its ready snapshot
+  did not recognize a current reviewed SnapCase cash purchase. A repeated health
+  lookup in the failure handler also prevented a terminal failed-run receipt.
+  The narrow ready-snapshot and failure-recording repair is under review; no
+  health success is inferred from zero incident counts or a running receipt.
+  Customer contact and refund policy are unchanged (#1429/#628).
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
