@@ -67,6 +67,9 @@ type RefundManualMessageRow = {
   subject: string;
   body: string;
   delivery_kind: "manual" | "automatic";
+  template_version: string | null;
+  nayax_refund_attempt_id: string | null;
+  manual_delivery_intent_id: string;
   manual_delivery_provider_attempted_at: string | null;
   delivery_transport: string | null;
   provider_message_id: string | null;
@@ -204,6 +207,9 @@ const getClaimedMessage = async (
       subject,
       body,
       delivery_kind,
+      template_version,
+      nayax_refund_attempt_id,
+      manual_delivery_intent_id,
       manual_delivery_provider_attempted_at,
       delivery_transport,
       provider_message_id,
@@ -476,6 +482,29 @@ export const deliverRefundManualMessageClaim = async ({
         primaryLink: { label: message.subject.startsWith('Actualice') ? 'Actualizar su solicitud / Update your request' : 'Update your request', url: correctionUrl },
       }) };
     }
+    // The immutable receipt intent owns its original customer conversation.
+    // Never infer a latest thread from the case or rewrite payment state here.
+    let receiptThreadId: string | undefined;
+    if (message.delivery_kind === "automatic" &&
+      message.template_version === "refund_receipt_completion_v1" &&
+      message.nayax_refund_attempt_id !== null && message.nayax_refund_attempt_id !== undefined) {
+      if (!UUID_PATTERN.test(message.manual_delivery_intent_id ?? "")) {
+        throw new Error("Receipt completion intent binding is invalid.");
+      }
+      const { data: boundIntent, error: bindingError } = await supabase
+        .from("refund_receipt_completion_intents")
+        .select("gmail_thread_id")
+        .eq("intent_id", message.manual_delivery_intent_id)
+        .eq("refund_case_id", message.refund_case_id)
+        .eq("message_id", message.id)
+        .maybeSingle();
+      if (bindingError) throw bindingError;
+      if (!boundIntent || (boundIntent.gmail_thread_id !== null &&
+        !UUID_PATTERN.test(boundIntent.gmail_thread_id ?? ""))) {
+        throw new Error("Receipt completion source binding is unavailable.");
+      }
+      receiptThreadId = boundIntent.gmail_thread_id ?? undefined;
+    }
     await markProviderAttempt(supabase, reference);
     providerAttemptStarted = true;
     const gmailDelivery = await dispatchRefundCaseGmailReply({
@@ -486,6 +515,7 @@ export const deliverRefundManualMessageClaim = async ({
       email,
       deliveryKind: message.delivery_kind,
       managerCopyPolicy,
+      gmailThreadId: receiptThreadId,
       syntheticProofAuthorizationId:
         message.synthetic_gmail_proof_authorization_id,
     });

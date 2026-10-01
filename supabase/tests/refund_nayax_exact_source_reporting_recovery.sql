@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(45);
+select plan(76);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -457,5 +457,180 @@ select ok(not has_function_privilege('authenticated','public.service_reconcile_p
  'customer and manager roles cannot access receipt repair');
 select ok(has_function_privilege('service_role','public.service_reconcile_proved_nayax_api_terminal(uuid,uuid)','execute'),
  'existing service-role capability is retained');
+-- Receipt-only recovery remains payment/mail free. The next ordinary bounded
+-- completion scan, not the reconciler, owns the canonical notification handoff.
+-- Never allow a test fixture to call an actual wakeup transport.
+alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
+create temp table completion_before as
+select to_jsonb(c) case_row,to_jsonb(a) attempt_row,
+  (select jsonb_agg(to_jsonb(r) order by r.id) from public.refund_authoritative_receipts r where r.refund_case_id=c.id) receipts,
+  (select jsonb_agg(to_jsonb(l) order by l.id) from public.sales_adjustment_facts l where l.refund_case_id=c.id) ledger
+from public.refund_cases c join public.refund_case_nayax_refund_attempts a on a.refund_case_id=c.id
+where c.id='b7470000-0000-4000-8000-000000000001';
+
+savepoint disabled_contact;
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'enabled','false',
+ 'disabled contact leaves the recovered obligation unqueued');
+select is((select count(*) from public.refund_receipt_completion_intents),0::bigint,'disabled contact creates no intent');
+rollback to disabled_contact;
+
+savepoint threadless_request;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','1',
+ 'threadless recovered form keeps the existing transactional receipt path');
+select ok((select nayax_refund_attempt_id is null and delivery_kind='automatic'
+ from public.refund_case_messages where template_version='refund_receipt_completion_v1'),
+ 'threadless canonical message does not invent a Gmail binding');
+rollback to threadless_request;
+
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,
+ thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('b7490000-0000-4000-8000-000000000001','b7470000-0000-4000-8000-000000000001',
+ repeat('a',64),'original-reporting-thread','Original customer request',now()-interval '3 days',now(),now()+interval '30 days');
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'a linked thread without verified customer evidence is not a transactional fallback');
+select is((select count(*) from public.refund_receipt_completion_intents),0::bigint,
+ 'unverified conversation creates no completion intent');
+
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,direction,status,
+ sender_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+values('b74a0000-0000-4000-8000-000000000001','b7490000-0000-4000-8000-000000000001',
+ 'b7470000-0000-4000-8000-000000000001','inbound','received','other@example.invalid',
+ 'customer','verified','Original customer request','Synthetic request',now()-interval '3 days',now()+interval '30 days');
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'verified evidence for another recipient cannot authorize completion');
+update public.refund_gmail_messages set sender_email='customer@example.invalid'
+ where id='b74a0000-0000-4000-8000-000000000001';
+
+savepoint ambiguous_conversation;
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,
+ thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('b7490000-0000-4000-8000-000000000002','b7470000-0000-4000-8000-000000000001',
+ repeat('b',64),'unrelated-newer-thread','Unrelated conversation',now(),now(),now()+interval '30 days');
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'legacy multi-thread ambiguity cannot select an arbitrary latest conversation');
+select is((select count(*) from public.refund_receipt_completion_intents),0::bigint,'ambiguous source creates no intent');
+rollback to ambiguous_conversation;
+
+savepoint wrong_receipt;
+set local session_replication_role=replica;
+update public.refund_authoritative_receipts set nayax_refund_attempt_id='b74b0000-0000-4000-8000-000000000099'
+ where refund_case_id='b7470000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'receipt not bound to the exact attempt cannot create a notice');
+rollback to wrong_receipt;
+savepoint wrong_original_actor;
+set local session_replication_role=replica;
+update public.refund_authoritative_receipts set recorded_by='b7410000-0000-4000-8000-000000000003'
+ where refund_case_id='b7470000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'a receipt from another actor cannot replace consumed original approval');
+rollback to wrong_original_actor;
+savepoint later_generation;
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set provider_execution_generation=2
+ where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'later provider generations remain outside this bounded continuation');
+rollback to later_generation;
+
+create temp table completion_scan as select public.service_ensure_refund_receipt_automatic_completions(10) result;
+select is((select result->>'queued' from completion_scan),'1','ordinary scanner finds the completed System receipt');
+select ok((select jsonb_array_length(result->'newMessageIds')=1 and result->>'payloadRedacted'='true'
+ and not (result ?| array['caseId','recipientEmail','subject','body']) from completion_scan),
+ 'scanner returns only the newly queued identity and redacted aggregates');
+select ok((select public.is_refund_receipt_completion_message(to_jsonb(m)) and m.delivery_kind='automatic'
+ and m.recipient_email='customer@example.invalid' and m.template_version='refund_receipt_completion_v1'
+ and m.nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+ from public.refund_case_messages m where m.id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ 'canonical content and existing intent identity remain valid');
+select ok((select i.gmail_thread_id='b7490000-0000-4000-8000-000000000001'
+ and r.nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+ from public.refund_receipt_completion_intents i join public.refund_authoritative_receipts r on r.id=i.receipt_id
+ where i.message_id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ 'immutable receipt intent binds its original thread and exact payment proof');
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'natural repeated scan cannot enqueue a second completion');
+select is((select count(*) from public.refund_receipt_completion_intents where refund_case_id='b7470000-0000-4000-8000-000000000001'),
+ 1::bigint,'one receipt owns one completion intent');
+
+select matches(pg_temp.capture_error($sql$select public.service_claim_refund_gmail_outbound_v3(
+ 'b7470000-0000-4000-8000-000000000001',(select (result->'newMessageIds'->>0)::uuid from completion_scan),
+ 'refund-case-message:'||(select result->'newMessageIds'->>0 from completion_scan),'info@example.invalid',
+ 'customer@example.invalid',(select body from public.refund_case_messages where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ array['info@example.invalid'],'automatic','b7490000-0000-4000-8000-000000000099')$sql$),'^P4664:',
+ 'transport cannot substitute another target thread');
+select matches(pg_temp.capture_error($sql$select public.service_claim_refund_gmail_outbound_v3(
+ 'b7470000-0000-4000-8000-000000000001',(select (result->'newMessageIds'->>0)::uuid from completion_scan),
+ 'refund-case-message:'||(select result->'newMessageIds'->>0 from completion_scan),'info@example.invalid',
+ 'other@example.invalid',(select body from public.refund_case_messages where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ array['info@example.invalid'],'automatic','b7490000-0000-4000-8000-000000000001')$sql$),'^P4664:',
+ 'transport cannot substitute another recipient');
+
+savepoint unknown_completion;
+set local session_replication_role=replica;
+update public.refund_case_messages set manual_delivery_state='delivery_unknown'
+ where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan);
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'unknown completion never creates or resends another intent');
+select is(public.refund_claim_nayax_form_receipt_completion_internal(
+ (select (result->>'attemptId')::uuid from approval_result))->>'claimed','false',
+ 'canonical producer reuses unknown delivery ownership without claiming again');
+rollback to unknown_completion;
+savepoint sent_completion;
+set local session_replication_role=replica;
+update public.refund_case_messages set status='sent',manual_delivery_state='sent'
+ where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan);
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'sent completion never creates another notice');
+select is(public.refund_claim_nayax_form_receipt_completion_internal(
+ (select (result->>'attemptId')::uuid from approval_result))->>'status','already_sent',
+ 'sent canonical notice remains the immutable receipt owner');
+rollback to sent_completion;
+
+savepoint claimed_completion;
+set local session_replication_role=replica;
+update public.refund_case_messages set manual_delivery_state='claimed',
+ manual_delivery_claim_token='b74b0000-0000-4000-8000-000000000001',manual_delivery_claimed_at=now()
+ where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan);
+set local session_replication_role=origin;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->>'queued','0',
+ 'an active claimed completion cannot create a concurrent second notice');
+rollback to claimed_completion;
+
+savepoint wrong_message_attempt;
+set local session_replication_role=replica;
+update public.refund_case_messages set nayax_refund_attempt_id='b74b0000-0000-4000-8000-000000000099'
+ where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_claim_refund_gmail_outbound_v3(
+ 'b7470000-0000-4000-8000-000000000001',(select (result->'newMessageIds'->>0)::uuid from completion_scan),
+ 'refund-case-message:'||(select result->'newMessageIds'->>0 from completion_scan),'info@example.invalid',
+ 'customer@example.invalid',(select body from public.refund_case_messages where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ array['info@example.invalid'],'automatic','b7490000-0000-4000-8000-000000000001')$sql$),'^P4664:',
+ 'message identity cannot substitute another payment attempt');
+rollback to wrong_message_attempt;
+
+select is((select to_jsonb(c) from public.refund_cases c where id='b7470000-0000-4000-8000-000000000001'),
+ (select case_row from completion_before),'completion handoff leaves the completed case unchanged');
+select is((select to_jsonb(a)
+ from public.refund_case_nayax_refund_attempts a where id=(select (result->>'attemptId')::uuid from approval_result)),
+ (select attempt_row from completion_before),
+ 'handoff leaves every payment attempt field unchanged');
+select is((select jsonb_agg(to_jsonb(r) order by r.id) from public.refund_authoritative_receipts r
+ where refund_case_id='b7470000-0000-4000-8000-000000000001'),(select receipts from completion_before),
+ 'completion handoff preserves immutable receipt truth');
+select is((select jsonb_agg(to_jsonb(l) order by l.id) from public.sales_adjustment_facts l
+ where refund_case_id='b7470000-0000-4000-8000-000000000001'),(select ledger from completion_before),
+ 'completion handoff does not alter reporting');
+select ok(not has_function_privilege('authenticated','public.service_ensure_refund_receipt_automatic_completions(integer)','execute')
+ and not has_function_privilege('anon','public.service_ensure_refund_receipt_automatic_completions(integer)','execute'),
+ 'ordinary continuation remains an existing service-only operation');
 select * from finish();
 rollback;
