@@ -195,15 +195,18 @@ select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_
 reset role;
 rollback to savepoint payout_contact_contract;
 update public.admin_roles set active=false where user_id='16600000-0000-4000-8000-000000000001';
-set local role service_role;
+select is(public.can_manage_refund_case('16600000-0000-4000-8000-000000000001',
+ '16617000-0000-4000-8000-000000000001'),false,
+ 'Revoked current actor still fails the scope check used by the authenticated contact handler');
+set local role authenticated;
 select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_message_intent(
  '16617000-0000-4000-8000-000000000001',
- (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'),
+ 1,
  '16618100-0000-4000-8000-000000000003','16600000-0000-4000-8000-000000000001',
  'more_info','snapcase-refund@example.invalid','Unauthorized payout detail',
  'Unauthorized payout detail','refund_more_info_editable_v1','manager_authored',
  'missing_information',array['zelle_payment_contact']::text[],null,false,null)$call$),
- '42501','Current contact actor authority remains required after purchase review');
+ '42501','Authenticated callers cannot bypass the contact handler through the trusted service writer');
 reset role;
 rollback to savepoint payout_contact_contract;
 savepoint payout_link_negative;
