@@ -133,6 +133,15 @@ try {
   assert.equal(parsed[2].paymentMethod, 'other');
   assert.equal(parsed[0].orderAmountCents, 1000);
   assert.equal(parsed[2].orderAmountCents, 0);
+  // Current vendor payType 0 is exported as Free. Retain the recorded product
+  // value as evidence; shared financial reporting excludes this non-money row.
+  const freeAndCash = parseSunzeOrderRows([SUNZE_ORDER_HEADERS,
+    withCell(withCell(rows[1], 'Payment method', 'Free'), 'Order amount', 15), rows[2]]);
+  assert.equal(freeAndCash.length, 2);
+  assert.equal(freeAndCash[0].paymentMethod, 'other');
+  assert.equal(freeAndCash[0].sourcePaymentMethod, 'Free');
+  assert.equal(freeAndCash[0].orderAmountCents, 1500);
+  assert.equal(freeAndCash[1].paymentMethod, 'cash');
   assert.equal(parsed[0].tradeName, 'Flower dream-2');
   assert.equal(parsed[0].itemQuantity, 2);
   assert.equal(parsed[1].itemQuantity, 2);

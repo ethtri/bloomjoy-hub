@@ -1,3 +1,4 @@
+import { requireRefundGiftCardStatus, type RefundGiftCardStatus, type RefundResolutionMethod } from './refundGiftCard';
 import { parseRefundPortalQueueProjection, type RefundPortalQueueProjection } from './refundPortalQueue';
 export type { RefundPortalQueueItem, RefundPortalQueueProjection } from './refundPortalQueue';
 import {
@@ -91,6 +92,7 @@ export type RefundCorrelationStatus =
 export type RefundDecision = 'approved' | 'denied' | null;
 
 export type RefundMachineOption = {
+  giftCardEnabled?: boolean;
   machineId: string;
   machineLabel: string;
   locationId: string;
@@ -99,11 +101,13 @@ export type RefundMachineOption = {
 };
 
 export type RefundCashMachineOption = {
+  giftCardEnabled?: boolean;
   machineId: string;
   displayLabel: string;
 };
 
 export type RefundPublicSelection = {
+  giftCardEnabled?: boolean;
   selectionKey: string;
   displayLabel: string;
   selectionKind: 'exact_machine' | 'livermore_pair' | 'legacy_exact_machine';
@@ -170,6 +174,7 @@ type RefundPublicSelectionRpc = {
 };
 
 type RefundPublicSelectionV2Rpc = RefundPublicSelectionRpc & {
+  gift_card_enabled?: boolean;
   machine_id: string | null;
   cash_machine_options: unknown;
 };
@@ -190,6 +195,8 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
+  resolutionMethod?: RefundResolutionMethod;
+  giftCardOffer?: { poolId: string; value: number; expiresAt: string };
   submissionId?: string;
   selectionKey?: string;
   machineId?: string;
@@ -236,6 +243,7 @@ export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['r
 };
 
 type RefundCustomerStatusResponse = {
+  gift_card?: unknown;
   error?: string;
   errorCode?: string;
   lifecycle?: unknown;
@@ -246,7 +254,7 @@ type RefundCustomerStatusResponse = {
 type StartRefundQrClaimResponse = {
   error?: string;
   errorCode?: string;
-  qrClaim?: RefundQrClaim;
+  qrClaim?: RefundQrClaim & { machine: RefundMachineOption & { gift_card_enabled?: boolean } };
 };
 
 export type RefundCaseAttachment = {
@@ -853,6 +861,7 @@ const requireRefundGmailCaseLinkReview = (
 };
 
 export type RefundCaseRecord = {
+  resolutionMethod?: RefundResolutionMethod;
   payoutDestinationRequest?: {
     state: 'not_started' | 'waiting' | 'reminder_claimed' | 'reminder_sent' | 'satisfied' | 'manual_review';
     canRequest: boolean;
@@ -1699,6 +1708,7 @@ export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection
       displayLabel: record.display_label,
       selectionKind: record.selection_kind,
       machineId: record.machine_id ?? undefined,
+      giftCardEnabled: typeof record.gift_card_enabled === 'boolean' ? record.gift_card_enabled : undefined,
       cashMachineOptions: Array.isArray(record.cash_machine_options)
         ? record.cash_machine_options.flatMap((option) => {
             const candidate = option as Record<string, unknown> | null;
@@ -1712,6 +1722,7 @@ export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection
             return [{
               machineId: candidate.machineId,
               displayLabel: candidate.displayLabel,
+              giftCardEnabled: typeof candidate.giftCardEnabled === 'boolean' ? candidate.giftCardEnabled : undefined,
             }];
           })
         : [],
@@ -1765,7 +1776,8 @@ export const startRefundQrClaim = async (qrCode: string): Promise<RefundQrClaim>
     throw new Error(data.error || 'Unable to verify this machine refund code.');
   }
 
-  return data.qrClaim;
+  return { ...data.qrClaim, machine: { ...data.qrClaim.machine, giftCardEnabled:
+    typeof data.qrClaim.machine.gift_card_enabled === 'boolean' ? data.qrClaim.machine.gift_card_enabled : undefined } };
 };
 
 export const inspectRefundWalletCorrection = async (
@@ -1826,7 +1838,7 @@ export const submitRefundRequest = async (
 
 export const fetchRefundCustomerStatus = async (
   token: string,
-): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null }> => {
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null }> => {
   const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
     action: 'readStatus',
     token,
@@ -1836,6 +1848,7 @@ export const fetchRefundCustomerStatus = async (
   }
   return {
     lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
+    giftCard: requireRefundGiftCardStatus(data.gift_card),
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
   };
 };

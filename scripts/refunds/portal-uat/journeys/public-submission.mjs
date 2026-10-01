@@ -25,7 +25,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
         {
           selection_key: selectionKey,
           display_label: 'Refund UAT Mall',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           machine_id: '41000000-0000-4000-8000-000000000003',
           location_id: '41000000-0000-4000-8000-000000000002',
           location_timezone: 'America/Los_Angeles',
@@ -48,6 +48,8 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
     const page = await context.newPage();
     await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Machine location').selectOption(selectionKey);
+    // This regression exercises the existing original-payment/native-picker path.
+    await page.locator('#resolution-original').click();
     await page.getByLabel('Email').fill('   ');
     await page.getByRole('button', { name: 'Send refund request' }).click();
     recorder.assert(
@@ -57,6 +59,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
     );
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
     await page.getByRole('radio', { name: /^Card/ }).click();
+    await page.locator('#resolution-original').click();
     await page.getByLabel('Amount paid').fill('7.00');
     await page.getByLabel('Last 4 digits shown for this payment').fill('4242');
     await page.getByLabel('What best describes the problem?').selectOption('charged_no_product');

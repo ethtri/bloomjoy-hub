@@ -166,8 +166,10 @@ existing Manager view. Approval assigns and sends the code automatically.
 
 Treat the gift card as one use with no surviving balance. Before acceptance,
 show its actual value, eligible locations, expiration and these simple terms.
-The value covers the purchase plus goodwill under configured rules, without
-another per-request approval. Rounding remains deferred.
+Round the purchase amount up to a $5 increment ($11 becomes $15; an exact
+multiple stays unchanged), without another per-request approval. Bloomjoy covers
+the extra goodwill without an additional deduction from technician or partner
+payouts; the original purchase keeps its existing refund treatment.
 The gift-card email should feel joyful, delightful and unmistakably Bloomjoy:
 a warm acknowledgement, a prominent gift-card value and code, and one clear way
 to use it. Keep redemption instructions and terms easy to find and readable on
@@ -191,8 +193,8 @@ concurrent requests from spending the automatic allowance twice or sharing a
 code, and prevent both a gift card and money refund settling the same case.
 Keep codes private and reconcile unknown outcomes before another issuance.
 Keep purchase value, gift-card value and goodwill separate in reporting; do not
-label a gift card as cash paid or deduct issuance and redemption twice. Financial
-and commission treatment is tracked in #1640, not invented by this workflow.
+label a gift card as cash paid or deduct issuance and redemption twice. Apply the
+owner-approved goodwill treatment above through #1640.
 
 ## Manual cash refund (until gift-card activation and existing commitments)
 

@@ -11,6 +11,7 @@ export type StoredRefundSubmissionReceipt = {
   statusToken: string | null;
   statusExpiresAt: string | null;
   paymentMethod?: 'card' | 'cash';
+  resolutionMethod?: 'gift_card' | 'original_payment';
 };
 
 type RefundStorage = Pick<Storage, 'getItem' | 'removeItem' | 'setItem'>;
@@ -20,6 +21,7 @@ export type RefundThankYouNavigationState = {
   statusToken?: string | null;
   statusExpiresAt?: string | null;
   paymentMethod?: 'card' | 'cash';
+  resolutionMethod?: 'gift_card' | 'original_payment';
 };
 
 const submissionIdPattern =
@@ -199,5 +201,6 @@ export const resolveRefundThankYouContext = ({
   const paymentMethod = navigationState?.paymentMethod
     ?? (canUseSavedReceipt ? savedReceipt?.paymentMethod : undefined);
 
-  return { reference, statusToken, paymentMethod };
+  const resolutionMethod = navigationState?.resolutionMethod ?? (canUseSavedReceipt ? savedReceipt?.resolutionMethod : undefined);
+  return { reference, statusToken, paymentMethod, resolutionMethod };
 };

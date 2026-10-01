@@ -52,7 +52,8 @@ Manager to obtain another kind of access.
 Before case work or implementation, read the current workflow and this procedure
 from a checkout synced with `main`. A stale branch, saved prompt, historical test
 or handoff must not override the latest owner decision. Only genuine new refund/
-product-problem inquiries to `info@bloomjoysweets.com` get one original-thread
+product-problem inquiries to `info@bloomjoysweets.com`,
+`support@bloomjoysweets.com` or `refunds@bloomjoysweets.com` get one original-thread
 reply linking to `https://app.bloomjoyusa.com/refunds/request`; a case begins on
 submission. Unrelated/vendor/marketing mail gets no refund response, and existing
 cases stay in their conversation without another intake.

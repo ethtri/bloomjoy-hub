@@ -10,6 +10,7 @@ export type RefundIntakePaymentInteraction =
   | "unsure";
 
 export type RefundIntakePaymentInput = {
+  resolutionMethod?: string;
   paymentMethod: string;
   amountCents: number | null;
   cardLast4: string;
@@ -56,6 +57,17 @@ export const validateRefundIntakePayment = (
 
   if (input.amountCents === null || input.amountCents <= 0) {
     return { ok: false, error: "Please enter the amount you paid." };
+  }
+
+  // The original tender remains recorded; gift-card resolution needs no card
+  // evidence or provider lookup because acceptance settles from code inventory.
+  if (input.resolutionMethod === "gift_card") {
+    return {
+      ok: true, paymentMethod: input.paymentMethod, amountCents: input.amountCents,
+      cardLast4: null, cardNetwork: null, cardWalletUsed: false,
+      paymentInteraction: input.paymentMethod === "cash" ? "cash" : "unsure",
+      walletProvider: null, shouldRunNayaxLookup: false,
+    };
   }
 
   if (

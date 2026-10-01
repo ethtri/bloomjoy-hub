@@ -102,6 +102,7 @@ const buildClaim = (claimNumber) => ({
     machine: {
       machineId,
       machineLabel: 'Cotton Candy 01',
+      gift_card_enabled: true,
       locationId,
       locationName: 'Mall Atrium',
       locationTimezone: 'America/Los_Angeles',
@@ -126,7 +127,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: 'c'.repeat(64),
           display_label: 'Mall Atrium',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: machineId,
           cash_machine_options: [],
@@ -134,7 +135,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: eastridgeSelectionKey,
           display_label: 'Eastridge Center',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: eastridgeMachineId,
           cash_machine_options: [],
@@ -142,7 +143,7 @@ const installPublicRefundRoutes = async (
         {
           selection_key: livermoreSelectionKey,
           display_label: 'San Francisco Premium Outlets — Cotton candy',
-          selection_kind: 'livermore_pair',
+          selection_kind: 'livermore_pair', gift_card_enabled: true,
           location_timezone: 'America/Los_Angeles',
           machine_id: null,
           cash_machine_options: [
@@ -166,14 +167,14 @@ const installPublicRefundRoutes = async (
         {
           selection_key: 'c'.repeat(64),
           display_label: 'Mall Atrium',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_id: locationId,
           location_timezone: 'America/Los_Angeles',
         },
         {
           selection_key: eastridgeSelectionKey,
           display_label: 'Eastridge Center',
-          selection_kind: 'exact_machine',
+          selection_kind: 'exact_machine', gift_card_enabled: true,
           location_id: eastridgeLocationId,
           location_timezone: 'America/Los_Angeles',
         },
@@ -223,6 +224,11 @@ const installPublicRefundRoutes = async (
 
       claimCount += 1;
       await route.fulfill(jsonResponse(buildClaim(claimCount)));
+      return;
+    }
+
+    if (body.action === 'giftCardOffer') {
+      await route.fulfill(jsonResponse({ gift_card_enabled: true, offer: { pool_id: '86000000-0000-4000-8000-000000000010', value: 1000, currency: 'USD', eligible_locations: ['Fixture location'], expires_at: '2028-01-01T00:00:00Z', one_use: true, redemption_instructions: 'Enter the code at the fixture machine.' } }));
       return;
     }
 
@@ -329,6 +335,7 @@ const fillOrdinaryRefundFields = async (page) => {
 };
 
 const fillRequiredRefundFields = async (page, { wallet = false } = {}) => {
+  await page.locator('#resolution-original').click();
   await fillOrdinaryRefundFields(page);
 
   if (wallet) {
@@ -555,6 +562,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   });
 
   await page.getByRole('radio', { name: /^Card/ }).click();
+  await page.locator('#resolution-original').click();
   assert.equal(await page.getByLabel('How did you use the card? (optional)').inputValue(), '');
   assert.equal(await page.getByLabel('Last 4 digits shown for this payment').inputValue(), '');
   assert.equal(await page.getByLabel('Which machine did you use?').count(), 0);
@@ -562,7 +570,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   await page.getByRole('radio', { name: /^Cash/ }).click();
   assert.equal(await page.getByLabel('Which machine did you use?').inputValue(), '');
   await page.getByLabel('Which machine did you use?').selectOption(livermoreTt33MachineId);
-  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.getByRole('button', { name: 'Accept gift card & send request' }).click();
   await page.waitForURL('**/refunds/thank-you');
   await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
 
@@ -570,6 +578,8 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   assert.equal(submissions.length, 1, 'Cash direct intake must create one request');
   const submission = submissions[0];
   assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.resolutionMethod, 'gift_card');
+  assert.equal(submission.giftCardOffer.value, 1000);
   assert.equal(submission.paymentInteraction, 'cash');
   assert.equal(submission.machineId, livermoreTt33MachineId);
   assert.equal('selectionKey' in submission, false);
@@ -635,13 +645,15 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
     path: path.join(artifactDir, 'refund-qr-intake-cash-mobile.png'),
   });
 
-  await page.getByRole('button', { name: 'Send refund request' }).click();
+  await page.getByRole('button', { name: 'Accept gift card & send request' }).click();
   await page.waitForURL('**/refunds/thank-you');
   await page.getByText('RF-QR-UAT', { exact: true }).waitFor();
   const submissions = functionBodies.filter((body) => !body.action);
   assert.equal(submissions.length, 1, 'Cash QR intake must create one request');
   const submission = submissions[0];
   assert.equal(submission.paymentMethod, 'cash');
+  assert.equal(submission.resolutionMethod, 'gift_card');
+  assert.equal(submission.giftCardOffer.value, 1000);
   assert.equal(submission.paymentInteraction, 'cash');
   assert.equal(submission.machineId, machineId);
   assert.match(submission.qrClaimToken, /^refund_qr_claim_uat_token_/);

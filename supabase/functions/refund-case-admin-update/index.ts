@@ -784,6 +784,42 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    if (body?.action === "resendGiftCard") {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!anonKey || user.is_anonymous || !isUuid(sanitizeText(body.caseId, 80)) || !isUuid(sanitizeText(body.intentId, 80))) {
+        return jsonResponse({ error: "Current assigned Manager and delivery request are required." }, 403);
+      }
+      const actorClient = createClient(supabaseUrl!, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const { data, error } = await actorClient.rpc("admin_resend_refund_gift_card", {
+        p_case_id: body.caseId, p_intent_id: body.intentId,
+        p_email: sanitizeText(body.customerEmail, 320) || null,
+      });
+      if (error) return jsonResponse({ error: "Delivery needs review before this gift card can be resent.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
+      return jsonResponse({ gift_card: data });
+    }
+    if (["approveGiftCard", "denyGiftCard"].includes(body?.action)) {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!anonKey || user.is_anonymous || !isUuid(sanitizeText(body.caseId, 80))) {
+        return jsonResponse({ error: "Current assigned Manager access is required." }, 403);
+      }
+      const actorClient = createClient(supabaseUrl!, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const { data, error } = await actorClient.rpc("admin_decide_refund_gift_card", {
+        p_case_id: body.caseId, p_approve: body.action === "approveGiftCard",
+        p_notes: sanitizeText(body.notes, 1000) || null,
+      });
+      if (error) return jsonResponse({ error: "The gift-card decision could not be saved.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
+      if (body.action === "denyGiftCard") {
+        const deniedCase = await getRefundCase(body.caseId);
+        if (deniedCase) await sendAndLogCustomerMessage(deniedCase, "denied", []);
+      }
+      return jsonResponse({ gift_card: data });
+    }
     if (isOwnerNonrefundAdoptionMode(body?.mode)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!supabaseUrl || !anonKey || user.is_anonymous) {

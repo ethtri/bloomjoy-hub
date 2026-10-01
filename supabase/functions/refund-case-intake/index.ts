@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildRefundCustomerEmail,
+  buildRefundStoredTextWithStatus,
   redactRefundStatusLinksForStorage,
   sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
@@ -282,6 +283,7 @@ const readCustomerRefundStatus = async (
   return new Response(
     JSON.stringify({
       lifecycle: result.lifecycle,
+      gift_card: result.giftCard,
       expiresAt: result.expiresAt,
       payloadRedacted: true,
     }),
@@ -569,6 +571,17 @@ const refundSubmissionIdentityConflictResponse = () =>
     },
   );
 
+const giftCardsEnabledForMachine = async (machineId: string) => {
+  if (!supabase) throw new Error("Refund intake is not configured.");
+  const { data, error } = await supabase.rpc("service_refund_gift_card_enabled", { p_machine_id: machineId });
+  // Missing RPC is the exact pre-migration capability boundary. Network and
+  // authorization failures never turn an activated machine into cash fallback.
+  if (error?.code === "PGRST202" || error?.code === "42883") return false;
+  if (error) throw error;
+  if (typeof data !== "boolean") throw new Error("Gift-card activation could not be checked.");
+  return data;
+};
+
 const startRefundQrClaim = async (
   req: Request,
   body: Record<string, unknown>,
@@ -724,6 +737,7 @@ const startRefundQrClaim = async (
           locationId: machineRecord.location_id,
           locationName: publicLabels.locationName,
           locationTimezone: locationRecord.timezone,
+          gift_card_enabled: await giftCardsEnabledForMachine(machineRecord.id),
         },
       },
     }),
@@ -1269,6 +1283,26 @@ serve(async (req) => {
     }
     const body = parsedBody.body;
     const action = sanitizeText(body?.action, 40);
+    if (action === "giftCardOffer") {
+      let offerMachineId = sanitizeText(body.machineId, 80);
+      const selectionKey = sanitizeText(body.selectionKey, 80);
+      if (selectionKey) {
+        const { data: selection, error } = await supabase.rpc("service_resolve_refund_public_selection", {
+          p_selection_key: selectionKey,
+        });
+        if (error || !selection) return new Response(JSON.stringify({ offer: null }), { headers: refundStatusResponseHeaders });
+        const ids = selection.machineIds as string[] | undefined;
+        offerMachineId = ids?.length === 1 ? ids[0] : "";
+      }
+      if (!isUuid(offerMachineId)) return new Response(JSON.stringify({ offer: null }), { headers: refundStatusResponseHeaders });
+      const enabled = await giftCardsEnabledForMachine(offerMachineId);
+      if (!enabled) return new Response(JSON.stringify({ gift_card_enabled: false, offer: null }), { headers: refundStatusResponseHeaders });
+      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+        p_machine_id: offerMachineId, p_amount_cents: centsFromAmount(body.amount),
+      });
+      if (error) throw error;
+      return new Response(JSON.stringify({ gift_card_enabled: enabled === true, offer: offer ?? null }), { headers: refundStatusResponseHeaders });
+    }
     if (action === "startQrClaim") {
       return await startRefundQrClaim(req, body);
     }
@@ -1314,6 +1348,10 @@ serve(async (req) => {
       customerText: issueSummary,
     });
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
+    const resolutionMethod = sanitizeText(body?.resolutionMethod, 40) || "original_payment";
+    if (!["gift_card", "original_payment"].includes(resolutionMethod)) {
+      throw new RequestValidationError("Please choose how you would like us to resolve your request.");
+    }
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
     const submittedCardLast4Source = sanitizeText(body?.cardLast4Source, 40).toLowerCase();
@@ -1446,6 +1484,7 @@ serve(async (req) => {
     }
 
     const paymentValidation = validateRefundIntakePayment({
+      resolutionMethod,
       paymentMethod,
       amountCents,
       cardLast4,
@@ -1478,6 +1517,7 @@ serve(async (req) => {
       }
     };
     const runCashCorrelationIfReady = async (caseId: string) => {
+      if (resolutionMethod === "gift_card") return null;
       const { data: cashCase, error: cashCaseError } = await supabase
         .from("refund_cases")
         .select("id, public_reference, status, correlation_status, deterministic_fact_version, cash_match_evaluated_fact_version, cash_match_state, payment_method, intake_meta, submission_identity_hash, submission_payload_fingerprint")
@@ -1833,6 +1873,7 @@ serve(async (req) => {
             hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
             locationRecord?.timezone ?? null,
             paymentValidation.paymentMethod,
+            ...(resolutionMethod === "gift_card" ? [resolutionMethod, JSON.stringify(body.giftCardOffer)] : []),
             paymentValidation.amountCents,
             paymentValidation.cardLast4,
             cardLast4Source,
@@ -1879,6 +1920,7 @@ serve(async (req) => {
       };
     };
     const intakeMeta = {
+      resolution_method: resolutionMethod,
       source: "hosted_refund_intake",
       intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
       qr_claim_present: Boolean(verifiedQrClaim),
@@ -1901,7 +1943,88 @@ serve(async (req) => {
       submission_identity_hash: submissionIdentityHash,
       submission_payload_fingerprint: submissionPayloadFingerprint,
     };
+    const initialIdentityClaim = await claimSubmissionIdentity(null);
+    if (initialIdentityClaim?.outcome === "conflict") {
+      return refundSubmissionIdentityConflictResponse();
+    }
+    if (initialIdentityClaim?.outcome === "match" && initialIdentityClaim.refundCaseId) {
+      const { data: existingSubmission, error: submissionLookupError } = await supabase
+        .from("refund_cases")
+        .select(selectedRefundCaseColumns)
+        .eq("id", initialIdentityClaim.refundCaseId)
+        .maybeSingle();
+      if (submissionLookupError || !existingSubmission) {
+        throw new Error("Unable to safely check this refund submission.");
+      }
+      const persistedSubmission =
+        await runCashCorrelationIfReady(existingSubmission.id) ?? existingSubmission;
+      await runReplayNayaxLookup(existingSubmission.id);
+      const statusCapability = await issueStatusCapability(existingSubmission.id);
+        return new Response(
+          JSON.stringify({
+            refundCase: {
+              id: persistedSubmission.id,
+              publicReference: persistedSubmission.public_reference,
+              status: persistedSubmission.status,
+              correlationStatus: persistedSubmission.correlation_status,
+            },
+            gift_card: resolutionMethod === "gift_card"
+              ? (await supabase.rpc("service_issue_refund_gift_card", { p_case_id: existingSubmission.id })).data : null,
+            statusToken: statusCapability?.token ?? null,
+            statusExpiresAt: statusCapability?.expiresAt ?? null,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+    }
+
+    let acceptedGiftCardOffer: Record<string, unknown> | null = null;
+    if (resolutionMethod === "original_payment" && paymentValidation.paymentMethod === "cash") {
+      const enabled = await giftCardsEnabledForMachine(String(machineRecord.id));
+      if (enabled === true) throw new RequestValidationError("Please choose the gift-card offer for this cash purchase.");
+    }
+    if (resolutionMethod === "gift_card") {
+      const submittedOffer = body.giftCardOffer as Record<string, unknown> | undefined;
+      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+        p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+      });
+      if (error) throw error;
+      if (!offer || submittedOffer?.poolId !== offer.pool_id || submittedOffer?.value !== offer.value
+        || Date.parse(String(submittedOffer?.expiresAt)) !== Date.parse(String(offer.expires_at))) {
+        throw new RequestValidationError("The gift-card offer changed. Please review the current value and terms before submitting.");
+      }
+      // Quote reads never create stock. Materialize the exact denomination only
+      // after the customer accepts the server-verified value and scope.
+      const { data: template, error: templateError } = await supabase.from("refund_gift_card_pools")
+        .select("face_value_cents").eq("id", offer.pool_id).single();
+      if (templateError) throw templateError;
+      acceptedGiftCardOffer = offer;
+      if (template.face_value_cents !== offer.value) {
+        const { data: materialized, error: materializeError } = await supabase.rpc("service_materialize_refund_gift_card_offer", {
+          p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+          p_template_pool_id: offer.pool_id, p_expires_at: offer.expires_at,
+        });
+        if (materializeError) throw materializeError;
+        if (!materialized || materialized.value !== offer.value) throw new Error("Gift-card acceptance could not be prepared.");
+        acceptedGiftCardOffer = materialized;
+      }
+    }
+    const prepareGiftCard = async (caseId: string) => {
+      if (!acceptedGiftCardOffer) return null;
+      const { data, error } = await supabase.rpc("service_accept_refund_gift_card_offer", {
+        p_case_id: caseId, p_pool_id: acceptedGiftCardOffer.pool_id,
+        p_value: acceptedGiftCardOffer.value, p_expires_at: acceptedGiftCardOffer.expires_at,
+      });
+      if (error) throw error;
+      return data;
+    };
     const insertValues = {
+      ...(acceptedGiftCardOffer ? {
+        resolution_method: "gift_card",
+        gift_card_pool_id: acceptedGiftCardOffer.pool_id,
+        gift_card_value_cents: acceptedGiftCardOffer.value,
+        gift_card_expires_at: acceptedGiftCardOffer.expires_at,
+        gift_card_state: "pending_inventory",
+      } : {}),
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
       intake_selection_key: intakeSelectionKey,
@@ -1959,39 +2082,8 @@ serve(async (req) => {
       server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
     };
 
-    const initialIdentityClaim = await claimSubmissionIdentity(null);
-    if (initialIdentityClaim?.outcome === "conflict") {
-      return refundSubmissionIdentityConflictResponse();
-    }
-    if (initialIdentityClaim?.outcome === "match" && initialIdentityClaim.refundCaseId) {
-      const { data: existingSubmission, error: submissionLookupError } = await supabase
-        .from("refund_cases")
-        .select(selectedRefundCaseColumns)
-        .eq("id", initialIdentityClaim.refundCaseId)
-        .maybeSingle();
-      if (submissionLookupError || !existingSubmission) {
-        throw new Error("Unable to safely check this refund submission.");
-      }
-      const persistedSubmission =
-        await runCashCorrelationIfReady(existingSubmission.id) ?? existingSubmission;
-      await runReplayNayaxLookup(existingSubmission.id);
-      const statusCapability = await issueStatusCapability(existingSubmission.id);
-        return new Response(
-          JSON.stringify({
-            refundCase: {
-              id: persistedSubmission.id,
-              publicReference: persistedSubmission.public_reference,
-              status: persistedSubmission.status,
-              correlationStatus: persistedSubmission.correlation_status,
-            },
-            statusToken: statusCapability?.token ?? null,
-            statusExpiresAt: statusCapability?.expiresAt ?? null,
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-    }
-
     let refundCase: SubmittedRefundCase | null = null;
+    let pendingGiftCardResult: Record<string, unknown> | null = null;
     let linkedGmailThreadId: string | null = null;
     if (emailContextToken) {
       const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
@@ -2067,6 +2159,7 @@ serve(async (req) => {
                   status: persistedConcurrentCase.status,
                   correlationStatus: persistedConcurrentCase.correlation_status,
                 },
+                gift_card: await prepareGiftCard(concurrentCase.id),
                 statusToken: statusCapability?.token ?? null,
                 statusExpiresAt: statusCapability?.expiresAt ?? null,
               }),
@@ -2132,6 +2225,7 @@ serve(async (req) => {
                 status: persistedConcurrentCase.status,
                 correlationStatus: persistedConcurrentCase.correlation_status,
               },
+                gift_card: await prepareGiftCard(concurrentCase.id),
               statusToken: statusCapability?.token ?? null,
               statusExpiresAt: statusCapability?.expiresAt ?? null,
             }),
@@ -2186,6 +2280,7 @@ serve(async (req) => {
               status: persistedDedupedCase.status,
               correlationStatus: persistedDedupedCase.correlation_status,
             },
+            gift_card: await prepareGiftCard(dedupedRefundCase.id),
             statusToken: statusCapability?.token ?? null,
             statusExpiresAt: statusCapability?.expiresAt ?? null,
           }),
@@ -2197,6 +2292,18 @@ serve(async (req) => {
 
     if (!refundCase) {
       throw new Error("Unable to create refund case.");
+    }
+
+    if (resolutionMethod === "gift_card") {
+      const giftCard = await prepareGiftCard(refundCase.id);
+      const statusCapability = await issueStatusCapability(refundCase.id);
+      if (giftCard?.state === "issued") return new Response(JSON.stringify({
+        refundCase: { id: refundCase.id, publicReference: refundCase.public_reference,
+          status: giftCard?.state === "issued" ? "completed" : "needs_review", correlationStatus: "not_started" },
+        gift_card: giftCard, statusToken: statusCapability?.token ?? null,
+        statusExpiresAt: statusCapability?.expiresAt ?? null,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      pendingGiftCardResult = giftCard;
     }
 
     if (paymentValidation.paymentMethod === "cash") {
@@ -2243,7 +2350,7 @@ serve(async (req) => {
 
     const statusCapability = await issueStatusCapability(refundCase.id);
 
-    const email = buildRefundCustomerEmail({
+    let email = buildRefundCustomerEmail({
       messageType: "confirmation",
       publicReference: refundCase.public_reference,
       customerName,
@@ -2257,6 +2364,14 @@ serve(async (req) => {
       statusUrl: statusCapability?.url ?? null,
       customerLocale,
     });
+    if (pendingGiftCardResult) {
+      const text = pendingGiftCardResult.state === "manager_review"
+        ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
+        : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
+      email = { subject: "We received your Bloomjoy gift-card request", ...buildRefundStoredTextWithStatus({
+        headline: "We received your gift-card request", text, statusUrl: statusCapability?.url ?? null,
+      }) };
+    }
 
     const { data: messageRow, error: messageInsertError } = await supabase
       .from("refund_case_messages")
@@ -2442,6 +2557,7 @@ serve(async (req) => {
           status: refundCase.status,
           correlationStatus: refundCase.correlation_status,
         },
+        gift_card: pendingGiftCardResult,
         statusToken: statusCapability?.token ?? null,
         statusExpiresAt: statusCapability?.expiresAt ?? null,
       }),

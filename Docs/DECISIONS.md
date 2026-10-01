@@ -1,5 +1,16 @@
 # Decisions
 
+## 2026-09-30 - Gift-card launch value and goodwill
+
+The owner authorized implementation of #666 and confirmed the launch rule:
+round the purchase amount up to a $5 increment ($11 becomes $15; an exact
+multiple stays unchanged). Bloomjoy covers the goodwill difference without an
+additional deduction from technician or partner payouts. The original purchase
+keeps its existing refund treatment. Record purchase value, gift-card face value
+and goodwill separately; issuing, emailing or redeeming the card must not create
+another refund deduction. This supersedes the deferred rounding and goodwill
+choice below without changing the one-use or annual email allowance rules.
+
 ## 2026-09-30 - Align the refund PRD with the approved gift-card requirements
 
 The owner confirmed #666/#1639's gift-card plan and requested this PRD alignment.
