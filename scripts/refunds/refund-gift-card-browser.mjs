@@ -69,8 +69,13 @@ try {
         assert.equal(await page.locator('#card-network').count(), 0);
         assert.equal(await page.locator('#card-last4-source').count(), 0);
       }
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await page.screenshot({ path: `${artifacts}/request-${tender}-${width}.png`, fullPage: true });
+      const fit = await page.evaluate(() => ({ viewport: window.innerWidth, scrollWidth: document.documentElement.scrollWidth,
+        overflow: [...document.querySelectorAll('main *')].map(el => { const box = el.getBoundingClientRect();
+          const css = getComputedStyle(el); return { tag: el.tagName, id: el.id, class: el.className,
+            right: box.right, width: box.width, minWidth: css.minWidth, display: css.display,
+            text: el.textContent?.trim().slice(0, 80) }; }).filter(row => row.width > 0 && row.right > window.innerWidth + 1).slice(0, 20) }));
+      assert.equal(fit.scrollWidth <= fit.viewport, true, JSON.stringify({ stage: 'request', width, tender, ...fit }));
       await page.getByRole('button', { name: tender === 'original' ? 'Send refund request' : 'Accept gift card & send request', exact: true }).click();
       await page.waitForURL('**/refunds/thank-you');
       assert.equal(submitted.length, 1);
