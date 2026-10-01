@@ -8,10 +8,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- A newly approved card case can expose `operations.required: null`, which the
-  lifecycle reader rejects (#1429/#628). The bounded projection repair retains
-  the approved attempt and existing review holds; this rendering defect is not
-  evidence that a payment failed. Source and regression verification are pending.
+- PR #1673 deployed the bounded lifecycle operations flag correction (#1429/#628).
+  A NULL review result now serializes as false; the existing predicate and true
+  review holds remain unchanged. Queued-state regression and full database
+  checks passed. RF-26DB7861 completed through ordinary automation before this
+  repair; its valid contract and completed portal view were preserved. Protected
+  business records, active gift configuration and credentials were unchanged.
+  No payment, provider or communications action was performed by this repair.
 
 - PR #1668 deployed the existing reviewed-cash payout-field correction. The
   actual RF-34D5834D dialog exposes only Zelle email or phone; opening and
