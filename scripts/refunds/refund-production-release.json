@@ -301,7 +301,8 @@
     "20261001010518_refund_published_snapcase_cash_evidence.sql",
     "20261001052000_refund_health_outreach_single_evaluation.sql",
     "20261001060047_refund_cash_payout_after_reviewed_selection.sql",
-    "20261001063000_refund_reviewed_cash_ready_snapshot.sql"
+    "20261001063000_refund_reviewed_cash_ready_snapshot.sql",
+    "20261001090451_refund_manual_payout_receipt_reconciliation.sql"
   ],
   "migrationFilesSha256": "e15c8acc92e441cd888469bbdb832541623a35c1f06f434c6acb0e84044efe6e",
   "migrationVersionSetSha256": "c1065e3155d279022e7a3b0c39f46dcba2f6426fd0b422d1448f0e5a18eb3a09",
