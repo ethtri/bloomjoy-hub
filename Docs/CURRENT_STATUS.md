@@ -38,7 +38,7 @@ orientation snapshot; it is not a backlog or release ledger.
   same-code email recovery, activation boundaries and Super-admin supply settings.
   The PR records disposable database and hosted journey evidence separately
   from local source checks. Sunzee cotton-candy offers are now live for the
-  reviewed 16 machines and 15 public locations: two enabled $10/$15 pools have
+  reviewed 28 machines and 27 public locations: two enabled $10/$15 pools have
   five fresh available codes each after the ordinary supply run. The used
   Great Mall test coupon is excluded from inventory.
   The owner confirmed touchscreen redemption via **Enter coupon/code** for
@@ -47,11 +47,14 @@ orientation snapshot; it is not a backlog or release ledger.
   child-login/parent-owner binding and exact shorter numeric code import;
   the supported provider application allows up to three months, and the live
   offer advertises 90-day validity. Eight
-  KeMore SnapCase pools remain disabled after their first refill was rejected
-  because the composer requires a numeric merchant ID. The adapter correction
-  preserves string configuration and exact scope readback; the normal worker
-  still needs to verify its first positive created batch before activation
-  completes. Physical redemption is not an additional launch gate.
+  KeMore SnapCase activation is paused while its first five-code created batch
+  is reconciled. The numeric merchant-ID composer correction is deployed;
+  value, device scope, code shape and one-use readbacks pass. The provider
+  parses composer date strings as UTC regardless of the caller timezone;
+  a second correction sends UTC dates and retains exact expiry verification.
+  Physical redemption is not an additional launch gate. The cotton-candy scope
+  correction retains both existing pools and ten codes while including all
+  current public, active, exactly mapped devices, without the obsolete intake flag.
   The one-use terms follow the owner-approved
   conservative assumption. Neither fixtures nor machine redemption prove
   ordinary customer inbox timing or one-year vendor validity.

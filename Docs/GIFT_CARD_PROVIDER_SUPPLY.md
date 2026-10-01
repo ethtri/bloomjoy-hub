@@ -43,9 +43,17 @@ dictionary. Keep configuration and readback identities as strings, but send
 exact safe integers for merchant and device scope identities in the composer.
 Use the dictionary's machine serial, not the inventory row ID. No code was
 created by the rejected request or its single diagnostic replay.
-The four current KeMore coupons returned empty embedded
-scope arrays and empty separate `/coupon-scopes` pages; a positive nonempty
-scope response has not been observed. The adapter follows the application's
+The first successful five-code KeMore batch verified the exact merchant,
+USD value, positive device scope, code strings and one-use status. Its date
+readback established that composer strings are parsed as UTC, independently
+of `X-App-TimeZone`; that header formats reads. Send UTC wall-clock strings
+for creation and preserve exact configured-zone or offset-aware readback
+checks. The observed summer-start/winter-expiry shift was seven/eight hours,
+so accepting the returned local text as the intended instant would overstate
+validity. Correct and reconcile the same existing batch; do not replace it.
+The four original KeMore coupons returned empty embedded
+scope arrays and empty separate `/coupon-scopes` pages. The October 1 created
+batch provided a positive exact device-scope response. The adapter follows the application's
 separate scope-table read, checks exact device identities, also checks any
 nonempty embedded scopes, and rejects extra category or
 merchant scopes; an unrecognized response holds the batch instead of importing
