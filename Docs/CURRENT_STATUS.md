@@ -8,12 +8,11 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- RF-34D5834D now has a saved reviewed published cash purchase. Its missing
-  payout destination request is blocked before transport because a historical
-  empty research cycle still suppresses the current correction field. The
-  bounded repair under #1429/#628 retains that hold until the reviewed selection
-  has current fact, candidate and source proof; deployment verification remains
-  pending. No payout question, decision or payment was made.
+- PR #1668 deployed the existing reviewed-cash payout-field correction. The
+  actual RF-34D5834D dialog exposes only Zelle email or phone; opening and
+  cancelling preserved case, source, communications, financial proof and eight
+  disabled gift configurations. No technical customer request or payment
+  occurred; the necessary request is reserved for the operational lane.
   Separately, unvalidated positive-only Sunze candidates can still lack a
   matching current preparation source key (#1429/#628). This repair preserves
   that explicit limitation; its Sunze payout regression uses validated current
@@ -70,8 +69,14 @@ orientation snapshot; it is not a backlog or release ledger.
   repeatedly evaluated the same outreach contract through an inlined SQL
   subquery. A read-only evaluation-barrier comparison reduced that projection
   from 2.54 to 0.39 seconds with identical redacted obligation counts. The narrow
-  repair is under review; deployed and ordinary health verification remain
-  pending. This does not change customer contact or refund policy (#1429/#628).
+  repair shipped in #1667: deployed projection measured 0.42 seconds, protected
+  data stayed unchanged, and exact-main drift passed. The next ordinary 06:13
+  health run separately failed Manager digest validation: its ready snapshot
+  did not recognize a current reviewed SnapCase cash purchase. A repeated health
+  lookup in the failure handler also prevented a terminal failed-run receipt.
+  The narrow ready-snapshot and failure-recording repair is under review; no
+  health success is inferred from zero incident counts or a running receipt.
+  Customer contact and refund policy are unchanged (#1429/#628).
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements

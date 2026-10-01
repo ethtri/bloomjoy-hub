@@ -232,7 +232,7 @@ export type RefundManagerDailyDigestItem = {
   recommendationKind: "refund" | "reject" | null;
   recommendationReasonCode: "clear_purchase_match" | "no_match_after_30_days" | null;
   evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
-    "cash_approved_payout" | "decision_recommendation_reject" | null;
+    "cash_multiple_reviewed" | "cash_approved_payout" | "decision_recommendation_reject" | null;
   preparationSummary: string | null;
   paymentComplete: boolean;
   payloadRedacted: true;
@@ -286,7 +286,7 @@ export const parseRefundManagerDailyDigestProjection = (
         : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
         ? evidenceBasis !== "cash_approved_payout"
         : recommendationKind === "refund"
-        ? !["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found"].includes(evidenceBasis as string)
+        ? !["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed"].includes(evidenceBasis as string)
         : evidenceBasis !== "decision_recommendation_reject"
       : evidenceBasis !== null) {
       throw new Error("Unsupported refund decision evidence basis.");
