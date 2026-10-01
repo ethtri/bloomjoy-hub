@@ -50,6 +50,15 @@ try {
       await page.goto(`${base}/refunds/request`);
       await page.locator('#machine option[value="synthetic-machine"]').waitFor({ state: 'attached' });
       await page.locator('#machine').selectOption('synthetic-machine');
+      await page.getByText('Usually emailed within a few hours.', { exact: true }).waitFor();
+      assert.match(await page.locator('label[for="resolution-gift-card"]').innerText(), /Usually emailed within a few hours/);
+      assert.match(await page.locator('label[for="resolution-original"]').innerText(), /investigate the purchase and request your refund from the payment processor, so this takes longer/);
+      assert.equal(await page.locator('#payment-amount').inputValue(), '');
+      await page.locator('section[aria-labelledby="resolution-heading"]').screenshot({ path: `${artifacts}/resolution-timing-${width}.png` });
+      await page.locator('#payment-method-cash').click();
+      await page.getByText('Usually emailed within a few hours.', { exact: true }).waitFor();
+      assert.equal(await page.locator('#payment-amount').inputValue(), '');
+      await page.locator('#payment-method-card').click();
       await page.locator('#incident-date').fill('2026-09-30');
       await page.locator('#incident-time').fill('10:05');
       await page.locator('#payment-amount').fill('11.00');
@@ -84,6 +93,8 @@ try {
       assert.equal(input.resolutionMethod, tender === 'original' ? 'original_payment' : 'gift_card');
       assert.equal(input.cardLast4, tender === 'original' ? '1234' : undefined);
       if (tender !== 'original') {
+        assert.match(await page.locator('main').innerText(), /Gift cards are usually emailed within a few hours/);
+        assert.doesNotMatch(await page.locator('main').innerText(), /1[–-]2 minutes/);
         assert.deepEqual(input.giftCardOffer, { poolId: offer.pool_id, value: 1500, expiresAt: offer.expires_at });
         await page.reload();
         await page.getByRole('heading', { name: 'A sweeter visit starts here.' }).waitFor();

@@ -66,7 +66,7 @@ export default function RefundThankYouPage() {
                   purchase.
                 </p>
                 {resolutionMethod === 'gift_card' ? (
-                  <p>Your gift card request is saved. We aim to send ordinary eligible, in-stock gift cards within 1–2 minutes. If review or delivery takes longer, your status page will keep you updated.</p>
+                  <p>Your gift card request is saved. Gift cards are usually emailed within a few hours. If review or delivery takes longer, your status page will keep you updated.</p>
                 ) : paymentMethod === 'cash' ? (
                   <p>
                     A manager will review the cash purchase details before deciding what happens

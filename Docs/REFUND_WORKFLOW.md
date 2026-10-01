@@ -1,6 +1,6 @@
 # Refund workflow
 
-Last updated: 2026-09-30. Owner decisions: #1364, #628, #1361, #666 and #1639.
+Last updated: 2026-10-01. Owner decisions: #1364, #628, #1361, #666 and #1639.
 
 This is the single product requirements source for refunds. The form-first and
 gift-card requirements below govern new work; implementation gaps are tracked in
@@ -30,7 +30,7 @@ The ordinary flow is:
    their original payment method. Show card details only for a card refund.
 3. Submitting the gift-card choice accepts the offer shown in the form; no
    separate confirmation is needed. An eligible request issues automatically from valid
-   code inventory, targeting an email within 1–2 minutes. Repeat requests need
+   code inventory, usually emailing the gift card within a few hours. Repeat requests need
    one Manager decision under the rule below, on the same case.
 4. For an original-payment card refund, the System searches Bloomjoy and provider
    records and explains the best transaction match. The Manager makes one final
@@ -174,7 +174,7 @@ The gift-card email should feel joyful, delightful and unmistakably Bloomjoy:
 a warm acknowledgement, a prominent gift-card value and code, and one clear way
 to use it. Keep redemption instructions and terms easy to find and readable on
 mobile, with essential details available even when images are blocked. Target
-1–2 minutes for ordinary eligible, in-stock requests; an email transport acceptance
+a few hours for ordinary eligible, in-stock requests; an email transport acceptance
 is not proof that it reached the inbox. Show review or delivery delays truthfully.
 
 The System manages code inventory using configured stock, expiry and refill
@@ -296,10 +296,14 @@ Sunze for cotton candy, and the Kexiaozhan app for SnapCase.
 - The existing form supports cash gift card, card gift card and original-payment
   card refund without another account or form. Gift-card cases receive no Zelle,
   Venmo or card-detail requests; value, one-use terms, expiry and locations are clear.
+  Before selecting a resolution, each choice explains its timing: gift cards are
+  usually emailed within a few hours; original-card refunds take longer because
+  we investigate the purchase and request the refund from the payment processor.
+  This is an expectation, not a guaranteed arrival time or bank settlement promise.
 - One automatic gift card per customer per year; repeats receive one Manager
   decision, using the email and preceding 12 months. Concurrent requests and retries
   cannot duplicate an allowance, code, payment or financial deduction. Measure
-  the ordinary 1–2 minute email target and distinguish issuance from delivery.
+  the ordinary few-hour email expectation and distinguish issuance from delivery.
 - Rule-based inventory checks, expiry handling and replenishment run without
   routine agent or operator work; refill failures recover on the same case.
 - The delivery email is joyful and on-brand, with a prominent value/code and
