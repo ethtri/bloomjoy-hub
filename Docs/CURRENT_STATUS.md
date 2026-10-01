@@ -47,8 +47,12 @@ orientation snapshot; it is not a backlog or release ledger.
   child-login/parent-owner binding and exact shorter numeric code import;
   the supported provider application allows up to three months, and the live
   offer advertises 90-day validity. Eight
-  KeMore SnapCase pools remain disabled pending their separate live creation
-  and redemption proof. The one-use terms follow the owner-approved
+  KeMore SnapCase pools remain disabled after their first refill was rejected
+  because the composer requires a numeric merchant ID. The adapter correction
+  preserves string configuration and exact scope readback; the normal worker
+  still needs to verify its first positive created batch before activation
+  completes. Physical redemption is not an additional launch gate.
+  The one-use terms follow the owner-approved
   conservative assumption. Neither fixtures nor machine redemption prove
   ordinary customer inbox timing or one-year vendor validity.
   Unactivated machines keep the existing cash intake. Activated cash requests stay on the gift-card path.

@@ -6,11 +6,11 @@ const claim = (provider = "kemore"): SupplyClaim => ({
   attemptId: "00000000-0000-4000-8000-000000000001", claimToken: "00000000-0000-4000-8000-000000000002",
   reconcile: false, requestedCount: 1, baseline: ["old"], attemptedAt: "2026-09-30T12:00:00Z",
   pool: { id: "pool", provider, provider_account_id: "42", currency: "USD", face_value_cents: 1500, expires_at: "2026-12-20T12:00:00Z" },
-  config: { credential_prefix: "TEST_SUPPLY", scope_verified: true, currency_verified: true, merchant_id: "42", machine_ids: ["machine-synthetic"], timezone: "America/Los_Angeles", validity_months: 3, account_wide_scope: true },
+  config: { credential_prefix: "TEST_SUPPLY", scope_verified: true, currency_verified: true, merchant_id: "42", machine_ids: ["1000042"], timezone: "America/Los_Angeles", validity_months: 3, account_wide_scope: true },
 });
 const credentials = () => "synthetic-only";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
-const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, useMerchantScope: [], scopes: [{ scopeType: 1, scopeValue: ["machine-synthetic"] }] });
+const coupon = (c: SupplyClaim) => ({ id: "coupon", name: `Bloomjoy refill ${c.attemptId}`, merchantId: 42, discountType: 1, discountValue: "15.00", currency: "USD", isActive: true, useScopeType: 0, useMerchantScope: [], scopes: [{ scopeType: 1, scopeValue: ["1000042"] }] });
 const kemoreCode = (c: SupplyClaim) => ({ id: "synthetic-code-id", couponId: "coupon", merchantId: 42, code: "000000123", status: 0, availableCount: 1, usedCount: 0, startTime: providerClock(c.attemptedAt!, "America/Los_Angeles"), endTime: providerClock(c.pool.expires_at, "America/Los_Angeles") });
 const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => Record<string, unknown> = (v) => v) => {
   const calls: { path: string; method: string; body: Record<string, unknown>; headers: Headers }[] = [];
@@ -19,11 +19,17 @@ const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => R
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     calls.push({ path, method: init?.method ?? "GET", body, headers: new Headers(init?.headers) });
     if (path.endsWith("/user/login")) return json({ code: 0, data: { token: "synthetic-token" } });
-    if (path.endsWith("/coupon-compose")) return json({ code: 0, data: { codes: ["000000123"] } });
+    if (path.endsWith("/coupon-compose")) {
+      // Match the observed Go request binding: merchant and dictionary device
+      // identities are JSON numbers, rather than the configuration strings.
+      if (typeof body.merchantId !== "number" || !Array.isArray(body.scopes) ||
+        body.scopes[0].scopeValue.some((id: unknown) => typeof id !== "number")) return json({ code: 1 });
+      return json({ code: 0, data: { codes: ["000000123"] } });
+    }
     if (path.endsWith("/coupons")) return json({ code: 0, data: { total: 1, list: [transform(coupon(c))] } });
     // Nonempty response is a prospective fixture: connected account's existing
     // coupons have empty scopes. Fail closed if a first real batch differs.
-    if (path.endsWith("/coupon-scopes")) return json({ code: 0, data: { total: 1, list: [{ id: "scope", couponId: "coupon", scopeType: 1, scopeValue: "machine-synthetic" }] } });
+    if (path.endsWith("/coupon-scopes")) return json({ code: 0, data: { total: 1, list: [{ id: "scope", couponId: "coupon", scopeType: 1, scopeValue: "1000042" }] } });
     if (path.endsWith("/coupon-codes")) return json({ code: 0, data: { total: 1, list: [transform(kemoreCode(c))] } });
     throw new Error("Unexpected fixture path");
   };
@@ -37,11 +43,20 @@ Deno.test("KeMore uses observed Americas composer and preserves leading zeros af
   assertEquals(codes[0].code, "000000123");
   const writes = fixture.calls.filter((r) => r.path.endsWith("coupon-compose"));
   assertEquals(writes.length, 1);
+  assertEquals(writes[0].body.merchantId, 42);
+  assertEquals(c.config.merchant_id, "42");
+  assertEquals(c.config.machine_ids, ["1000042"]);
   assertEquals(writes[0].body.availableCount, 1);
   assertEquals(writes[0].body.discountValue, "15.00");
   assertEquals(writes[0].body.currency, "USD");
   assertEquals(writes[0].headers.get("X-App-TimeZone"), "America/Los_Angeles");
-  assertEquals(writes[0].body.scopes, [{ scopeType: 1, scopeValue: ["machine-synthetic"] }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }]);
+  assertEquals(writes[0].body.scopes, [{ scopeType: 1, scopeValue: [1000042] }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }]);
+});
+for (const value of ["9007199254740993", "001000042", "not-a-device"]) Deno.test(`KeMore rejects lossy numeric wire identity ${value} before creation`, async () => {
+  const c = claim(); c.config.machine_ids = [value];
+  const fixture = kemore(c);
+  await assertRejects(() => createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials }), SupplyError, "provider_scope_invalid");
+  assertEquals(fixture.calls.some((r) => r.path.endsWith("coupon-compose")), false);
 });
 Deno.test("KeMore validates separate scope rows when coupon list embeds no scopes", async () => {
   const c = claim(), fixture = kemore(c, (v) => "scopes" in v ? { ...v, scopes: [] } : v);
@@ -180,3 +195,4 @@ Deno.test("Sunzee retains the supported three-month ceiling", async () => {
   await assertRejects(() => createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials }), SupplyError, "provider_scope_invalid");
   assertEquals(fixture.calls.filter((r) => r.path.endsWith("/add")).length, 0);
 });
+

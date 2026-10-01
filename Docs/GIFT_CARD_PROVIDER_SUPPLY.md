@@ -36,6 +36,13 @@ no supported extension has been observed. Do not promise one year or a later
 expiry without verified provider support.
 
 These are observed application contracts, not a claim of a published API.
+The October 1 first KeMore refill was explicitly rejected before creation:
+the composer binds `merchantId` as an integer and rejects a JSON string.
+The application also selects numeric `machineId` values from its coupon-scope
+dictionary. Keep configuration and readback identities as strings, but send
+exact safe integers for merchant and device scope identities in the composer.
+Use the dictionary's machine serial, not the inventory row ID. No code was
+created by the rejected request or its single diagnostic replay.
 The four current KeMore coupons returned empty embedded
 scope arrays and empty separate `/coupon-scopes` pages; a positive nonempty
 scope response has not been observed. The adapter follows the application's
@@ -54,8 +61,8 @@ The Hub's existing authoritative mapping table verifies 21 exact provider-device
 to Hub-machine links with location IANA timezones. KeMore mapping, USD and caller
 timezone setup are therefore resolved from existing records; they do not require
 the owner to supply technical settings. Configure only exact mapped devices and
-their observed merchant scope. First positive created-scope verification and a
-real machine redemption test remain outstanding for KeMore. The October 1
+their observed merchant scope. First positive created-scope verification remains
+outstanding for KeMore; physical redemption is not a separate launch gate. The October 1
 Sunzee test verifies USD cotton-candy redemption at Great Mall, and the account
 readback establishes the merchant parent across its visible devices and coupons.
 
