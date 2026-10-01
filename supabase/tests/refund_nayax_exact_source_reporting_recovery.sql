@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(79);
+select plan(81);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -632,8 +632,24 @@ select matches(pg_temp.capture_error($sql$select public.service_claim_refund_gma
  'message identity cannot substitute another payment attempt');
 rollback to wrong_message_attempt;
 
-select is((select to_jsonb(c) from public.refund_cases c where id='b7470000-0000-4000-8000-000000000001'),
- (select case_row from completion_before),'completion handoff leaves the completed case unchanged');
+savepoint missing_bound_source;
+set local session_replication_role=replica;
+update public.refund_receipt_completion_intents set gmail_thread_id=null
+ where message_id=(select (result->'newMessageIds'->>0)::uuid from completion_scan);
+set local session_replication_role=origin;
+select matches(pg_temp.capture_error($sql$select public.service_claim_refund_gmail_outbound_v3(
+ 'b7470000-0000-4000-8000-000000000001',(select (result->'newMessageIds'->>0)::uuid from completion_scan),
+ 'refund-case-message:'||(select result->'newMessageIds'->>0 from completion_scan),'info@example.invalid',
+ 'customer@example.invalid',(select body from public.refund_case_messages where id=(select (result->'newMessageIds'->>0)::uuid from completion_scan)),
+ array['info@example.invalid'],'automatic','b7490000-0000-4000-8000-000000000001')$sql$),'^P4664:',
+ 'a source-bound identity with missing intent thread never falls back or claims transport');
+rollback to missing_bound_source;
+
+select is((select to_jsonb(c)-'lifecycle_revision' from public.refund_cases c where id='b7470000-0000-4000-8000-000000000001'),
+ (select case_row-'lifecycle_revision' from completion_before),'completion handoff leaves all completed case business fields unchanged');
+select is((select lifecycle_revision::bigint from public.refund_cases where id='b7470000-0000-4000-8000-000000000001'),
+ (select (case_row->>'lifecycle_revision')::bigint+1 from completion_before),
+ 'one canonical completion message advances only the existing lifecycle revision');
 select is((select to_jsonb(a)
  from public.refund_case_nayax_refund_attempts a where id=(select (result->>'attemptId')::uuid from approval_result)),
  (select attempt_row from completion_before),

@@ -499,11 +499,10 @@ export const deliverRefundManualMessageClaim = async ({
         .eq("message_id", message.id)
         .maybeSingle();
       if (bindingError) throw bindingError;
-      if (!boundIntent || (boundIntent.gmail_thread_id !== null &&
-        !UUID_PATTERN.test(boundIntent.gmail_thread_id ?? ""))) {
+      if (!boundIntent || !UUID_PATTERN.test(boundIntent.gmail_thread_id ?? "")) {
         throw new Error("Receipt completion source binding is unavailable.");
       }
-      receiptThreadId = boundIntent.gmail_thread_id ?? undefined;
+      receiptThreadId = boundIntent.gmail_thread_id;
     }
     await markProviderAttempt(supabase, reference);
     providerAttemptStarted = true;

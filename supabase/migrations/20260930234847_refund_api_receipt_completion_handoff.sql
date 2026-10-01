@@ -178,8 +178,9 @@ begin
       where message_id=m.id and refund_case_id=p_refund_case_id and intent_id=m.manual_delivery_intent_id;
     select * into r from public.refund_authoritative_receipts
       where id=i.receipt_id and refund_case_id=p_refund_case_id;
-    if i.gmail_thread_id is not null and (
+    if m.nayax_refund_attempt_id is not null and (
       not public.is_refund_receipt_completion_message(to_jsonb(m))
+      or i.gmail_thread_id is null
       or r.nayax_refund_attempt_id is null
       or r.nayax_refund_attempt_id is distinct from m.nayax_refund_attempt_id
       or i.gmail_thread_id is distinct from p_target_gmail_thread_id

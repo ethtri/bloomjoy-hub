@@ -191,6 +191,8 @@ Deno.test("missing exact receipt intent binding fails before any provider marker
     let providerCalls = 0;
     globalThis.fetch = (() => { providerCalls++; throw new Error("missing source attempted delivery"); }) as typeof fetch;
     try {
+      for (const boundIntent of [null, { gmail_thread_id: null }]) {
+      calls.length = 0;
       const supabase = {
         from: (table: string) => {
           calls.push(table);
@@ -199,7 +201,7 @@ Deno.test("missing exact receipt intent binding fails before any provider marker
             nayax_refund_attempt_id: "b2800000-0000-4000-8000-000000000001",
           }));
           if (table === "refund_cases") return singleRowQuery(currentCase);
-          return singleRowQuery(null);
+          return singleRowQuery(boundIntent);
         },
         rpc: (name: string) => {
           calls.push(name);
@@ -212,6 +214,7 @@ Deno.test("missing exact receipt intent binding fails before any provider marker
       assertEquals(calls.includes("service_mark_refund_manual_message_provider_attempt"), false);
       assertEquals(calls.includes("refund_gmail_threads"), false);
       assertEquals(calls.includes("service_mark_refund_transactional_delivery_attempt"), false);
+      }
     } finally { globalThis.fetch = originalFetch; }
   });
 });
