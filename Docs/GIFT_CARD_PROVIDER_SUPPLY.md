@@ -6,13 +6,13 @@ provider evidence; `REFUND_WORKFLOW.md` owns the customer policy.
 
 ## Evidence checked September 30, 2026
 
-Read-only checks used the current provider applications and authenticated
+The September 30 read-only checks used the provider applications and authenticated
 accounts. No live coupon was created, changed, redeemed or imported. No customer
 or vendor message was sent. The sample voucher guide is not available stock.
 
 | Provider | Observed creation contract | Observed inventory contract | Recovery boundary |
 | --- | --- | --- | --- |
-| Sunzee | Application `GET /SZWL-SERVER/tPromoCode/add`: account ID, random mode, batch count, months, fixed Cash Off amount. UI limits: 200 codes, three months. | Authenticated `POST /tPromoCode/list` succeeded. Account-wide rows contain identity, numeric six-digit code, fixed-value type `1`, unused/used `0`/`1`, value and epoch expiry. | Before dispatch, save the complete unused-ID baseline. A successful creation response plus an exact, compatible complete-list delta binds the batch. A lost response or ambiguous delta stays unknown; the API exposes no observed request/batch marker. Exceptional recovery requires a positively verified batch; there is no blind retry. |
+| Sunzee | Application `GET /SZWL-SERVER/tPromoCode/add`: authenticated account ID, random mode, batch count, months, fixed Cash Off amount. UI limits: 200 codes, three months. | Authenticated `POST /tPromoCode/list` succeeded. Account-wide rows contain identity, numeric code (five digits in the October 1 live test), fixed-value type `1`, unused/used `0`/`1`, value and epoch expiry. | Before dispatch, save the complete unused-ID baseline. A successful creation response plus an exact, compatible complete-list delta binds the batch. A lost response or ambiguous delta stays unknown; the API exposes no observed request/batch marker. Exceptional recovery requires a positively verified batch; there is no blind retry. |
 | KeMore / Kexiaozhan | Current Americas application `POST /mer/v1/coupon-compose`: unique attempt name/description, merchant, USD fixed amount, device scopes, one use, count, explicit start/end. | Authenticated coupon/code/scope reads succeeded. Code strings have nine digits; available/used counts, code status and date fields are separate. Device scope is `scopeType=1`; code status `0` means unused in current application source. | Read the exact attempt name, confirm merchant/value/currency/scope, and import its exact unused-code batch. Missing or mismatched results remain unknown and never permit another creation. |
 
 Primary public application sources:
@@ -24,8 +24,19 @@ Primary public application sources:
   whose September 30 assets include `el-cascader-panel-CpvlZgfD.js` and
   `index-BNhaWQzl.js` under `/js/`.
 
-These are observed application contracts, not a claim of a published API or a
-live creation test. The four current KeMore coupons returned empty embedded
+The October 1 owner-controlled Sunzee test created one fixed-value coupon,
+verified its complete inventory delta and actual 90-day expiry, and successfully
+redeemed it on the Great Mall cotton-candy machine. The authenticated child
+operator and coupon-owning merchant are different identities: configure the
+verified merchant parent as the pool account, retain the child login identity
+in provider requests, and verify each returned coupon's owner against the pool.
+The numeric code in this live test had five digits; preserve its exact decimal
+string without padding. The supported application caps validity at three months;
+no supported extension has been observed. Do not promise one year or a later
+expiry without verified provider support.
+
+These are observed application contracts, not a claim of a published API.
+The four current KeMore coupons returned empty embedded
 scope arrays and empty separate `/coupon-scopes` pages; a positive nonempty
 scope response has not been observed. The adapter follows the application's
 separate scope-table read, checks exact device identities, also checks any
@@ -44,15 +55,17 @@ to Hub-machine links with location IANA timezones. KeMore mapping, USD and calle
 timezone setup are therefore resolved from existing records; they do not require
 the owner to supply technical settings. Configure only exact mapped devices and
 their observed merchant scope. First positive created-scope verification and a
-real machine redemption test remain outstanding. Sunzee account-wide machine
-eligibility and USD basis have not been established by the bounded evidence.
+real machine redemption test remain outstanding for KeMore. The October 1
+Sunzee test verifies USD cotton-candy redemption at Great Mall, and the account
+readback establishes the merchant parent across its visible devices and coupons.
 
 The owner confirmed that both cotton-candy and SnapCase touchscreens offer
 “Enter coupon/code.” Setup defaults to: “On the machine’s touchscreen, choose
 ‘Enter coupon/code’ and enter your code.” Omitted, null or blank instructions use
 this default; verified machine-specific instructions can override it. This
-confirmation resolves the instructions gap; live coupon creation and redemption
-have not been tested. Complete KeMore payment pagination found no
+confirmation resolves the instructions gap; Sunzee live creation and Great Mall
+redemption are verified. KeMore live creation and redemption remain untested.
+Complete KeMore payment pagination found no
 coupon tender in the inspected account, so split/top-up money semantics remain
 unverified and are not inferred from code usage.
 

@@ -168,7 +168,13 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
     const hash = createHash("md5").update(password).digest("hex");
     const login = await transport(fetchImpl, `${base}/tAdmin/loginSys`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password: hash, hostName: "Sunzee" }) });
     const account = login.data as Row;
-    if (login.code !== "00000" || !text(account?.currentToken) || identity(account.id) !== claim.pool.provider_account_id) throw new SupplyError("provider_login_scope_mismatch");
+    // Child operators authenticate as themselves; coupons belong to their
+    // merchant parent. Keep requests on the authenticated identity and verify
+    // every returned coupon against the configured merchant owner below.
+    const parentId = identity(account?.parentId);
+    const ownerId = /^[1-9]\d*$/.test(parentId) ? parentId : identity(account?.id);
+    if (login.code !== "00000" || !text(account?.currentToken) ||
+      ownerId !== claim.pool.provider_account_id) throw new SupplyError("provider_login_scope_mismatch");
     const months = config.validity_months;
     if (config.account_wide_scope !== true || !Number.isInteger(months) || Number(months) < 1 || Number(months) > 3) throw new SupplyError("provider_scope_invalid");
     const request: Requester = (path, method, body = {}) => transport(fetchImpl, base + path, { method, headers: { Authorization: text(account.currentToken), "Content-Type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify(body) } : {}) }, path.startsWith("/tPromoCode/add"));
@@ -184,7 +190,7 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
           const fresh = (await list()).filter((r) => !baseline.includes(identity(r.id)));
           if (fresh.length !== claim.requestedCount) throw new SupplyError("provider_batch_ambiguous", true);
           return fresh.map((r) => {
-            if (identity(r.adminId) !== claim.pool.provider_account_id || r.type !== "1" || r.isUse !== "0" || cents(r.discount) !== claim.pool.face_value_cents || !Number.isSafeInteger(r.code) || Number(r.code) < 100000 || Number(r.code) > 999999 || typeof r.lastUseDate !== "number" || r.lastUseDate < Date.parse(claim.pool.expires_at) || typeof r.createDate !== "number" || r.createDate < Date.parse(claim.attemptedAt ?? new Date().toISOString()) - 60_000) throw new SupplyError("provider_code_mismatch", true);
+            if (identity(r.adminId) !== claim.pool.provider_account_id || r.type !== "1" || r.isUse !== "0" || cents(r.discount) !== claim.pool.face_value_cents || !Number.isSafeInteger(r.code) || Number(r.code) < 1 || Number(r.code) > 999999 || typeof r.lastUseDate !== "number" || r.lastUseDate < Date.parse(claim.pool.expires_at) || typeof r.createDate !== "number" || r.createDate < Date.parse(claim.attemptedAt ?? new Date().toISOString()) - 60_000) throw new SupplyError("provider_code_mismatch", true);
             return { provider_code_id: identity(r.id), code: String(r.code), valid_from: new Date(r.createDate).toISOString(), expires_at: new Date(r.lastUseDate).toISOString(), provider_evidence: { source: "sunzee_account_delta", one_use: true, attempt_id: claim.attemptId } };
           });
         } catch (e) { throw new SupplyError(e instanceof SupplyError ? e.reason : "provider_verification_failed", true); }

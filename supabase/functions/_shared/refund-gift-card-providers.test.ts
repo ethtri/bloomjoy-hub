@@ -118,3 +118,65 @@ Deno.test("missing provider setup stops before login or value creation", async (
   await assertRejects(() => createSupplyAdapter(c, { env: credentials, fetchImpl: () => { calls++; return Promise.resolve(json({})); } }), SupplyError);
   assertEquals(calls, 0);
 });
+
+const sunzee = (c: SupplyClaim, {
+  loginId = 43, parentId = 42, ownerId = 42, code = 12345 as unknown,
+  expiry = Date.parse(c.pool.expires_at), loseResponse = false,
+} = {}) => {
+  let created = false;
+  const calls: { path: string; adminId: unknown }[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push({ path: url.pathname, adminId: url.searchParams.get("adminId") ?? body.adminId });
+    if (url.pathname.endsWith("loginSys")) return json({ code: "00000", data: { id: loginId, parentId, currentToken: "synthetic-token" } });
+    if (url.pathname.endsWith("/add")) {
+      assertEquals(url.searchParams.get("month"), "3");
+      created = true;
+      if (loseResponse) throw new Error("synthetic lost response");
+      return json({ code: "00000" });
+    }
+    const row = { id: "fresh", adminId: ownerId, type: "1", isUse: "0", code, discount: 15,
+      createDate: Date.parse(c.attemptedAt!), lastUseDate: expiry };
+    return json({ code: "00000", data: { total: created ? 2 : 1, records: [{ id: "old" }, ...(created ? [row] : [])] } });
+  };
+  return { calls, fetchImpl };
+};
+
+for (const code of [1, 12345, 999999]) Deno.test(`Sunzee preserves exact positive numeric code ${code} under its parent owner`, async () => {
+  const c = claim("sunzee"), fixture = sunzee(c, { code });
+  const adapter = await createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials });
+  await adapter.prepare();
+  const codes = await adapter.create();
+  assertEquals(codes[0].code, String(code));
+  assertEquals(codes[0].expires_at, new Date(c.pool.expires_at).toISOString());
+  assertEquals(fixture.calls.filter((r) => !r.path.endsWith("loginSys")).map((r) => r.adminId), [43, "43", 43]);
+  assertEquals(await adapter.reconcile(), null);
+  assertEquals(fixture.calls.filter((r) => r.path.endsWith("/add")).length, 1);
+});
+Deno.test("Sunzee rejects unrelated login before coupon creation", async () => {
+  const c = claim("sunzee"), fixture = sunzee(c, { parentId: 99 });
+  await assertRejects(() => createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials }), SupplyError, "provider_login_scope_mismatch");
+  assertEquals(fixture.calls.length, 1);
+});
+for (const [name, options] of [
+  ["wrong coupon owner", { ownerId: 43 }], ["zero code", { code: 0 }],
+  ["negative code", { code: -1 }], ["fractional code", { code: 1.5 }],
+  ["seven-digit code", { code: 1000000 }], ["string response code", { code: "12345" }],
+  ["shorter expiry", { expiry: Date.parse(claim("sunzee").pool.expires_at) - 1 }],
+  ["lost creation response", { loseResponse: true }],
+] as const) Deno.test(`Sunzee holds ${name} without another creation`, async () => {
+  const c = claim("sunzee"), fixture = sunzee(c, options);
+  const adapter = await createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials });
+  await adapter.prepare();
+  const error = await assertRejects(() => adapter.create(), SupplyError);
+  assertEquals((error as SupplyError).unknown, true);
+  assertEquals(await adapter.reconcile(), null);
+  assertEquals(fixture.calls.filter((r) => r.path.endsWith("/add")).length, 1);
+});
+Deno.test("Sunzee retains the supported three-month ceiling", async () => {
+  const c = claim("sunzee"); c.config.validity_months = 12;
+  const fixture = sunzee(c);
+  await assertRejects(() => createSupplyAdapter(c, { fetchImpl: fixture.fetchImpl, env: credentials }), SupplyError, "provider_scope_invalid");
+  assertEquals(fixture.calls.filter((r) => r.path.endsWith("/add")).length, 0);
+});

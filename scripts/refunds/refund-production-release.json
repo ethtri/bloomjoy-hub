@@ -302,7 +302,8 @@
     "20261001052000_refund_health_outreach_single_evaluation.sql",
     "20261001060047_refund_cash_payout_after_reviewed_selection.sql",
     "20261001063000_refund_reviewed_cash_ready_snapshot.sql",
-    "20261001090451_refund_manual_payout_receipt_reconciliation.sql"
+    "20261001090451_refund_manual_payout_receipt_reconciliation.sql",
+    "20261001161957_refund_sunzee_provider_code_format.sql"
   ],
   "migrationFilesSha256": "185d196e50045a8518b9468468c28df8ee3aba7d03fbb636f84fc58b25aea91d",
   "migrationVersionSetSha256": "bcacc11d43efd23d49a841d42af2bca8925f343db5ca78d8104b3081f7615aae",
