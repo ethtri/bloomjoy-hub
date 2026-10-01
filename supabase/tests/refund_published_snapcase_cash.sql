@@ -119,6 +119,10 @@ insert into public.refund_cases(
  '2026-09-20T19:00:36Z','2026-09-20 12:00:36','America/Los_Angeles','exact',
  'cash',900,'needs_review','manual_review'
 );
+update public.refund_cases set correlation_status='no_match',correlation_source='sunze',
+ correlation_summary='Historical internal cash research had no safe match.',
+ cash_match_evaluated_fact_version=deterministic_fact_version
+where id='16617000-0000-4000-8000-000000000001';
 insert into public.refund_follow_up_cycles(
  id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,requested_fields,
  template_version,case_fact_version,reminder_delay_hours,status
