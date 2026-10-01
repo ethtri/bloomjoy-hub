@@ -8,6 +8,16 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- PR #1668 deployed the existing reviewed-cash payout-field correction. The
+  actual RF-34D5834D dialog exposes only Zelle email or phone; opening and
+  cancelling preserved case, source, communications, financial proof and eight
+  disabled gift configurations. No technical customer request or payment
+  occurred; the necessary request is reserved for the operational lane.
+  Separately, unvalidated positive-only Sunze candidates can still lack a
+  matching current preparation source key (#1429/#628). This repair preserves
+  that explicit limitation; its Sunze payout regression uses validated current
+  source proof and does not claim positive-only preparation parity.
+
 - The gift-card implementation in PR #1658 uses the existing request, status,
   Manager workspace and email outbox. It rounds purchases up to $5, records
   Bloomjoy-funded goodwill separately, and keeps one original purchase deduction.

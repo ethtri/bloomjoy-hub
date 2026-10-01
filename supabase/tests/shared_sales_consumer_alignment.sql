@@ -543,6 +543,18 @@ select is((select sales_ex_tax_cents from private.machine_sales_daily_components
 ) where tender='other'), 500::bigint,
   'Explicit tax-exclusive evidence remains tax-exclusive');
 
+-- The previous-day assertion above is independent of the monthly snapshot
+-- fixture below. Keep its 500-cent evidence in that report month on day one,
+-- so the unchanged late-evidence assertion always proves 12500 -> 13500.
+select results_eq($$
+  select greatest(example.report_day-1,date_trunc('month',example.report_day)::date)
+  from (values (date '2026-10-01'),(date '2026-10-20')) example(report_day)
+$$, $$values (date '2026-10-01'),(date '2026-10-19')$$,
+  'Monthly fixture evidence stays in-period on month start and an ordinary day');
+update public.machine_sales_facts
+set sale_date=greatest(sale_date,date_trunc('month',current_date)::date)
+where id='ca400000-0000-4000-8000-000000000004';
+
 -- This isolates the snapshot writer against already-captured immutable history.
 -- The core recognition fixture separately proves denial-event trigger capture.
 insert into private.refund_request_recognition_events (
