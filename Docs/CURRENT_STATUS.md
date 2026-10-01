@@ -8,6 +8,11 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- A newly approved card case can expose `operations.required: null`, which the
+  lifecycle reader rejects (#1429/#628). The bounded projection repair retains
+  the approved attempt and existing review holds; this rendering defect is not
+  evidence that a payment failed. Source and regression verification are pending.
+
 - PR #1668 deployed the existing reviewed-cash payout-field correction. The
   actual RF-34D5834D dialog exposes only Zelle email or phone; opening and
   cancelling preserved case, source, communications, financial proof and eight

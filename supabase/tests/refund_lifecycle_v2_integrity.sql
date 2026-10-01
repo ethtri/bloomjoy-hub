@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(37);
+select plan(38);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -179,6 +179,9 @@ select is((select lifecycle_integrity_code from public.refund_cases where id = '
   null, 'Resolved evidence removes the integrity reason code');
 select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000005') ->> 'stage',
   'needs_refund_operations', 'Manual-portal uncertainty remains held without a fresh action');
+select is(public.refund_lifecycle_contract('e4000000-0000-4000-8000-000000000005')
+    #>'{operations,required}','true'::jsonb,
+  'a real manual-review hold remains required even with no provider outcome');
 
 create or replace function pg_temp.insert_invalid_refund_lifecycle_v2()
 returns void language plpgsql as $$
