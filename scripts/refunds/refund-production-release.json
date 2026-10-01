@@ -299,7 +299,8 @@
     "20260930233000_refunds_alias_inquiry.sql",
     "20260930234847_refund_api_receipt_completion_handoff.sql",
     "20261001010518_refund_published_snapcase_cash_evidence.sql",
-    "20261001052000_refund_health_outreach_single_evaluation.sql"
+    "20261001052000_refund_health_outreach_single_evaluation.sql",
+    "20261001060047_refund_cash_payout_after_reviewed_selection.sql"
   ],
   "migrationFilesSha256": "2a38f4e10dad8db95e97e61ba8020ac5b5e91f979d8e75a72929e52d166bb165",
   "migrationVersionSetSha256": "c06da0bf96e9f63c3d938210d7e29befce749501996f291949c109e9b70557f9",
