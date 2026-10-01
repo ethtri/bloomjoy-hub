@@ -74,9 +74,14 @@ orientation snapshot; it is not a backlog or release ledger.
   health run separately failed Manager digest validation: its ready snapshot
   did not recognize a current reviewed SnapCase cash purchase. A repeated health
   lookup in the failure handler also prevented a terminal failed-run receipt.
-  The narrow ready-snapshot and failure-recording repair is under review; no
-  health success is inferred from zero incident counts or a running receipt.
-  Customer contact and refund policy are unchanged (#1429/#628).
+  PR #1669 deployed the current reviewed-cash snapshot/consumer contract and
+  records failed runs independently of a secondary health lookup. The combined
+  database suite passed 179 files / 5,731 assertions; protected data, function
+  grants, contact policy and eight disabled gift configurations were unchanged.
+  All twelve served sources verified. Historical stranded receipts are not
+  rewritten, and ordinary terminal health receipts are tracked separately;
+  zero incident counts or running receipts do not prove health (#1429/#628).
+  No technical customer/Manager send, provider replay or payment occurred.
 
 - On September 30 the owner confirmed form-first intake and field-specific
   same-case updates. `REFUND_WORKFLOW.md` is the single product requirements
