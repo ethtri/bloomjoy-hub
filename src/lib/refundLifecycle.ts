@@ -184,7 +184,7 @@ export type RefundDecisionRecommendation = {
   officialActionVersion: number;
   deterministicFactVersion: number;
   purchase: {
-    source: 'nayax' | 'sunze';
+    source: 'nayax' | 'sunze' | 'snapcase';
     amountCents: number;
     currencyCode: string;
     transactionAt: string | null;
@@ -317,7 +317,7 @@ export const isRefundDecisionRecommendation = (value: unknown): value is RefundD
     (item.kind === 'reject' ? purchase === null : Boolean(purchase &&
       exactObjectKeys(purchase, ['source', 'amountCents', 'currencyCode', 'transactionAt', 'timeMeaning',
         ...(purchase.cardLast4 === undefined ? [] : ['cardLast4']), ...(purchase.candidateToken === undefined ? [] : ['candidateToken'])]) &&
-      ['nayax', 'sunze'].includes(String(purchase.source)) &&
+      ['nayax', 'sunze', 'snapcase'].includes(String(purchase.source)) &&
       typeof purchase.currencyCode === 'string' && /^[A-Z]{3}$/.test(purchase.currencyCode) &&
       Number.isSafeInteger(purchase.amountCents) && Number(purchase.amountCents) > 0 && date(purchase.transactionAt) &&
       ['purchase', 'unknown'].includes(String(purchase.timeMeaning)) &&

@@ -54,6 +54,7 @@ export const refundSunzeCashSelectionRefreshIsAuthoritative = (
 );
 
 export type RefundSunzeCashCorrelation = {
+  cashSource?: 'sunze' | 'snapcase';
   caseFactVersion: number;
   attemptId: string | null;
   policyVersion: 'sunze_cash_correlation_v1' | null;
@@ -183,6 +184,7 @@ const parseSelectedSale = (value: unknown): RefundSunzeCashSelectedSale | null =
 
 export const parseRefundSunzeCashCorrelation = (value: unknown): RefundSunzeCashCorrelation => {
   const responseKeys = new Set([
+    'cashSource',
     'caseFactVersion', 'attemptId', 'policyVersion', 'state', 'reason', 'sourceReadiness',
     'coverageStartedAt', 'coveredThrough', 'freshnessExpiresAt', 'evaluatedAt',
     'candidateCount', 'returnedCandidateCount', 'candidatesTruncated', 'candidates',
@@ -191,6 +193,7 @@ export const parseRefundSunzeCashCorrelation = (value: unknown): RefundSunzeCash
   ]);
   if (!isRecord(value) ||
     !Object.keys(value).every((key) => responseKeys.has(key)) ||
+    !(value.cashSource === undefined || value.cashSource === 'sunze' || value.cashSource === 'snapcase') ||
     !isInteger(value.caseFactVersion, 1) ||
     !(value.attemptId === null || typeof value.attemptId === 'string' && UUID.test(value.attemptId)) ||
     !(value.policyVersion === null || value.policyVersion === 'sunze_cash_correlation_v1') ||
@@ -219,6 +222,7 @@ export const parseRefundSunzeCashCorrelation = (value: unknown): RefundSunzeCash
   }
 
   return {
+    cashSource: value.cashSource === 'snapcase' ? 'snapcase' : 'sunze',
     caseFactVersion: value.caseFactVersion,
     attemptId: value.attemptId === null ? null : String(value.attemptId),
     policyVersion: value.policyVersion === null ? null : 'sunze_cash_correlation_v1',
