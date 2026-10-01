@@ -8,6 +8,20 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- The gift-card implementation in PR #1658 uses the existing request, status,
+  Manager workspace and email outbox. It rounds purchases up to $5, records
+  Bloomjoy-funded goodwill separately, and keeps one original purchase deduction.
+  Local desktop/mobile synthetic checks cover acceptance, repeat decisions,
+  same-code email recovery, activation boundaries and Super-admin supply settings.
+  The PR records disposable database and hosted journey evidence separately
+  from local source checks; production activation remains pending.
+  The owner confirmed touchscreen redemption via **Enter coupon/code** for
+  both cotton candy and SnapCase. Pools remain disabled until provider setup,
+  actual code creation and working machine redemption are verified. The one-use
+  terms follow the owner-approved conservative assumption.
+  Fixtures do not prove live creation, hardware redemption or inbox timing.
+  Unactivated machines keep the existing cash intake. Activated cash requests stay on the gift-card path.
+
 - PR #1652 restored existing Manager recommendations and decision controls for
   guarded recovered purchase selections. The deployed RF-26DB7861 appears in
   Decision needed with enabled Approve/Deny controls under the current

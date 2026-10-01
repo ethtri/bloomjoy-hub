@@ -31,6 +31,24 @@ test('an exact reconciliation reply is selected before the older correction lane
   assert.match(receiver, /clarification_reminder_message_id/);
 });
 
+test('ordinary sweep queries old schema only for an exact missing RPC and scopes new schema to original payments', async () => {
+  for (const code of ['PGRST202', '42883', null, '42501']) {
+    const filters = [];
+    const chain = { select: () => chain, eq: (...args) => { filters.push(args); return chain; } };
+    const scope = new Function('supabase', `
+      const caseSelect = 'fixture-columns'; let giftCardSchemaPresent = true;
+      ${functionSource('checkGiftCardSchema', 'startRun')}
+      return { check: checkGiftCardSchema, select: selectOriginalPaymentCases };
+    `)({ rpc: async () => ({ data: false, error: code ? { code } : null }), from: () => chain });
+    if (code === '42501') {
+      await assert.rejects(scope.check()); assert.deepEqual(filters, []);
+    } else {
+      await scope.check(); scope.select();
+      assert.deepEqual(filters, code ? [] : [['resolution_method', 'original_payment']]);
+    }
+  }
+});
+
 test('actual persisted-result sweep routes an empty no-match internally without claiming customer contact', async () => {
   const calls = [];
   const fixture = { id: 'case-fixture', payment_method: 'card', card_wallet_used: false, status: 'needs_review', nayax_recommendation_state: 'no_safe_match', deterministic_fact_version: 1 };
@@ -41,6 +59,8 @@ test('actual persisted-result sweep routes an empty no-match internally without 
   };
   const run = new Function('supabase', 'normalizeRefundSweepCase', 'getPersistedNayaxCorrectionEvidence', 'deriveNayaxCustomerCorrectionFields', 'routeProviderException', 'routeFollowUpManualReview', 'claimAction', 'claimFollowUpCycle', 'sendDeterministicFollowUpMessage', `
     const caseSelect = 'fixture-columns';
+    const giftCardSchemaPresent = true;
+    ${functionSource('selectOriginalPaymentCases', 'startRun')}
     ${functionSource('runPersistedNayaxCustomerCorrectionSweep', 'runWalletCorrectionExpirySweep')}
     return runPersistedNayaxCustomerCorrectionSweep;
   `)(
@@ -52,6 +72,7 @@ test('actual persisted-result sweep routes an empty no-match internally without 
     async () => { throw new Error('must not send a customer message'); },
   );
   await run('run-fixture', {}, 'window-fixture');
+  assert(calls.some(([table, op, field, value]) => table === 'refund_cases' && op === 'eq' && field === 'resolution_method' && value === 'original_payment'));
   assert(calls.some(([table, op, value]) => table === 'refund_follow_up_cycles' && op === 'update' && value.status === 'manual_review'));
   assert.deepEqual(calls.filter(([kind]) => kind === 'internal-review'), [['internal-review', 'no-customer-correction:v1']]);
 });
@@ -70,6 +91,8 @@ test('a persisted setup-needed result reuses the provider exception route instea
   };
   const run = new Function('supabase', 'normalizeRefundSweepCase', 'getPersistedNayaxCorrectionEvidence', 'deriveNayaxCustomerCorrectionFields', 'routeProviderException', 'routeFollowUpManualReview', 'claimAction', 'claimFollowUpCycle', 'sendDeterministicFollowUpMessage', `
     const caseSelect = 'fixture-columns';
+    const giftCardSchemaPresent = true;
+    ${functionSource('selectOriginalPaymentCases', 'startRun')}
     ${functionSource('runPersistedNayaxCustomerCorrectionSweep', 'runWalletCorrectionExpirySweep')}
     return runPersistedNayaxCustomerCorrectionSweep;
   `)(
@@ -81,6 +104,7 @@ test('a persisted setup-needed result reuses the provider exception route instea
     async () => { throw new Error('must not send a customer message'); },
   );
   await run('run-fixture', {}, 'window-fixture');
+  assert(calls.some(([table, op, field, value]) => table === 'refund_cases' && op === 'eq' && field === 'resolution_method' && value === 'original_payment'));
   assert.deepEqual(calls.filter(([kind]) => kind === 'provider-exception'), [['provider-exception', 'provider_setup', 7]]);
   assert.equal(calls.some(([kind]) => kind === 'internal-review'), false);
 });

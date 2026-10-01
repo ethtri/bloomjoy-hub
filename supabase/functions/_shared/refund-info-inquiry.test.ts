@@ -1,4 +1,4 @@
-import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome, refundInquiryRecipient } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
 
 Deno.test("Info inquiry activation is explicitly true only", () => {
@@ -16,6 +16,8 @@ Deno.test("Info mailbox search is independent of the refund label and preserves 
     !params.get("q")?.includes("cc:info@bloomjoysweets.com") ||
     !params.get("q")?.includes("to:support@bloomjoysweets.com") ||
     !params.get("q")?.includes("cc:support@bloomjoysweets.com") ||
+    !params.get("q")?.includes("to:refunds@bloomjoysweets.com") ||
+    !params.get("q")?.includes("cc:refunds@bloomjoysweets.com") ||
     params.get("pageToken") !== "synthetic-page" || params.has("labelIds")) {
     throw new Error("Info/Support recovery must search the connected mailbox, not the refund label");
   }
@@ -255,7 +257,16 @@ Deno.test("automated or spoof-suspected Info messages cannot trigger a customer 
   ] }), "untrusted");
 });
 
-Deno.test("refund-alias and unrelated recipient mail stay outside the Info route", () => {
-  assertRoute(message({ to: "refunds@bloomjoysweets.com", body: "I need a refund" }), "not_info");
+Deno.test("refund alias shares genuine-inquiry, status and unrelated-mail filtering", () => {
+  assertRoute(message({ to: "refunds@bloomjoysweets.com", body: "I need a refund" }), "new_refund_inquiry");
+  assertRoute(message({ to: "refunds@bloomjoysweets.com", body: "Where is my refund for RF-ABC123?" }), "existing_case_question");
+  assertRoute(message({ to: "refunds@bloomjoysweets.com", body: "Our vendor invoice needs a refund." }), "non_refund");
+  assertRoute(message({ to: "refunds@bloomjoysweets.com", body: "I need a refund", extraHeaders: [{ name: "Auto-Submitted", value: "auto-generated" }] }), "untrusted");
   assertRoute(message({ to: "vendor@example.test", body: "I need a refund" }), "not_info");
+});
+
+Deno.test("refund alias recipient is preserved in secondary To or Cc", () => {
+  if (refundInquiryRecipient(["helper@example.test", "refunds@bloomjoysweets.com"], []) !== "refunds@bloomjoysweets.com" ||
+    refundInquiryRecipient(["helper@example.test"], ["refunds@bloomjoysweets.com"]) !== "refunds@bloomjoysweets.com") throw new Error("Exact public recipient must reach the contact ledger");
+  assertRoute(message({ to: "helper@example.test", body: "I need a refund", extraHeaders: [{ name: "Cc", value: "refunds@bloomjoysweets.com" }] }), "new_refund_inquiry");
 });

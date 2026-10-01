@@ -828,7 +828,7 @@ export const listInfoRefundInquiryThreads = async (
 
 export const infoRefundInquiryThreadQuery = (startAt: Date, pageToken?: string) => {
   const params = new URLSearchParams({
-    q: `after:${Math.floor(startAt.getTime() / 1000)} {to:info@bloomjoysweets.com cc:info@bloomjoysweets.com to:support@bloomjoysweets.com cc:support@bloomjoysweets.com}`,
+    q: `after:${Math.floor(startAt.getTime() / 1000)} {to:info@bloomjoysweets.com cc:info@bloomjoysweets.com to:support@bloomjoysweets.com cc:support@bloomjoysweets.com to:refunds@bloomjoysweets.com cc:refunds@bloomjoysweets.com}`,
     maxResults: "50",
   });
   if (pageToken) params.set("pageToken", pageToken);

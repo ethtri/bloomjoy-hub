@@ -28,7 +28,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
-import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome, refundInquiryRecipient } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -2266,7 +2266,9 @@ serve(async (request) => {
               messages,
               refundAddress: config.senderEmail,
             });
-          const infoInquiry = infoLaneEnabled && !hasScheduledNayaxReport && !isRefundAliasThread
+          // Classification also protects the legacy alias lane when discovery
+          // is off. A disabled lane must never fall through to generic mail.
+          const infoInquiry = !intakeShadow && !hasScheduledNayaxReport
             ? classifyRefundInfoInquiry({ messages, mailboxIdentities: config.mailboxIdentities })
             : null;
           if (infoInquiry) {
@@ -2301,7 +2303,7 @@ serve(async (request) => {
             counters.mailboxAcknowledgementObserved =
               intakeThreadShape.mailboxAcknowledgementObserved;
           }
-          const messagesToIngest = infoInquiry
+          const messagesToIngest = infoInquiry && !isRefundAliasThread
             ? messages.filter((message) =>
               message.id === infoInquiry.sourceMessageId ||
               inspectRefundGmailParticipantSignals({
@@ -2419,11 +2421,8 @@ serve(async (request) => {
                   p_is_bounce: isBounce,
                   p_sender_email: from.email || null,
                   p_sender_name: from.name || null,
-                  p_recipient_email: (infoInquiry
-                    ? participantSignals.toEmails.find((email) =>
-                      email === "info@bloomjoysweets.com" ||
-                      email === "support@bloomjoysweets.com")
-                    : null) || participantSignals.toEmails[0] || config.mailbox,
+                  p_recipient_email: refundInquiryRecipient(participantSignals.toEmails,
+                    participantSignals.ccEmails) || participantSignals.toEmails[0] || config.mailbox,
                   p_subject: redactedSubject.text,
                   p_plain_body: redactedBody.text,
                   p_sensitive_data_redacted: redactedSubject.redacted ||
@@ -2470,7 +2469,7 @@ serve(async (request) => {
               );
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
-              let allowRoutineContact = true;
+              let allowRoutineContact = !infoInquiry || infoInquiry.route === "new_refund_inquiry";
               let scopedReplyReceived = false;
               if (infoInquiry && providerMessageId === infoInquiry.sourceMessageId &&
                 infoInquiry.route !== "not_info" &&

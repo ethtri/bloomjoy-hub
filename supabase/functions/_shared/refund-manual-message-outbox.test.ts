@@ -88,9 +88,79 @@ const singleRowQuery = (data: unknown) => {
     order: () => query,
     limit: () => query,
     maybeSingle: () => Promise.resolve({ data, error: null }),
+    single: () => Promise.resolve({ data, error: null }),
   };
   return query;
 };
+
+Deno.test("customer-accepted gift sends the private same code once and reconciles without another provider call", async () => {
+  await withAutomaticEnvironment("false", "false", async () => {
+    const values = { RESEND_API_KEY: "synthetic-gift-key", REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com" };
+    const before = new Map(Object.keys(values).map((key) => [key,Deno.env.get(key)]));
+    for (const [key,value] of Object.entries(values)) Deno.env.set(key,value);
+    const originalFetch = globalThis.fetch;
+    let providerCalls = 0;
+    let providerPayload: Record<string, unknown> = {};
+    let idempotencyKey = "";
+    let recovering = false;
+    let codeStatus = "issued";
+    globalThis.fetch = ((_input,init) => {
+      providerCalls++;
+      providerPayload = JSON.parse(String(init?.body));
+      idempotencyKey = new Headers(init?.headers).get("idempotency-key") ?? "";
+      return Promise.resolve(new Response(JSON.stringify({id:"synthetic-gift-delivery"}),{status:200}));
+    }) as typeof fetch;
+    const calls: string[] = [];
+    const supabase = {
+      from: (table: string) => {
+        calls.push(table);
+        if (table === "refund_cases") return singleRowQuery({...currentCase,customer_name:"Ana",intake_meta:{customer_locale:"es"}});
+        if (table === "refund_case_messages") return singleRowQuery(claimedMessage(recovering?"2026-09-30T22:00:00Z":null,{
+          template_version:"refund_gift_card_v1",gift_card_issuance_id:"b2500000-0000-4000-8000-000000000001",
+          delivery_transport: recovering?"resend":null,delivery_state:recovering?"accepted":null,
+          provider_message_id:recovering?"synthetic-gift-delivery":null,
+          delivery_state_updated_at:recovering?"2026-09-30T22:00:01Z":null,
+        }));
+        if (table === "refund_gift_card_issuances") return singleRowQuery({code_id:"private-code-id",face_value_cents:1500,
+          currency:"USD",expires_at:"2030-10-30T22:15:00Z",eligible_locations:["Fixture shop"],redemption_instructions:"Enter the code."});
+        if (table === "refund_gift_card_codes") return singleRowQuery({code:"001234",status:codeStatus});
+        throw new Error(`Unexpected gift delivery table: ${table}`);
+      },
+      rpc: (name: string) => {
+        calls.push(name);
+        if (name === "service_mark_refund_manual_message_provider_attempt" || name === "service_mark_refund_transactional_delivery_attempt")
+          return Promise.resolve({data:{marked:true,payloadRedacted:true},error:null});
+        if (name === "service_bind_refund_transactional_delivery") return Promise.resolve({data:{bound:true,payloadRedacted:true},error:null});
+        if (name === "service_finish_refund_manual_message_delivery") return Promise.resolve({data:{finished:true,payloadRedacted:true},error:null});
+        throw new Error(`Unexpected gift delivery RPC: ${name}`);
+      },
+    } as never;
+    try {
+      const first = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+      assertEquals(first.outcome,"sent");
+      assertEquals(providerCalls,1);
+      assertEquals(idempotencyKey,`refund-message-${messageId}`);
+      assertEquals(String(providerPayload.text).includes("001234"),true);
+      assertEquals(String(providerPayload.html).includes("001234"),true);
+      assertEquals(providerPayload.to,["customer@example.invalid"]);
+      assertEquals(providerPayload.cc,undefined);
+      recovering = true;
+      calls.length = 0;
+      const replay = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+      assertEquals(replay.outcome,"sent");
+      assertEquals(providerCalls,1);
+      assertEquals(calls.includes("refund_gift_card_codes"),false);
+      recovering = false;
+      codeStatus = "used";
+      const unavailable = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+      assertEquals(unavailable.outcome,"failed");
+      assertEquals(providerCalls,1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [key,value] of before) { if (value===undefined) Deno.env.delete(key); else Deno.env.set(key,value); }
+    }
+  });
+});
 
 const withGmailEnvironment = async (run: () => Promise<void>) => {
   const values: Record<string, string> = {

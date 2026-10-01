@@ -104,6 +104,21 @@ test('proved Kexiaozhan cash normalizes without product or quantity requirements
   assert.deepEqual(payment.exceptionCodes, ['financial_status_semantics_unverified']);
 });
 
+test('known free-coupon payment context is retained without classifying face value as cash or card', () => {
+  // The provider enum names method 4 free_coupon. This synthetic contract test
+  // does not claim that a live split-payment/redemption shape was observed.
+  const payment = normalizePayment({
+    outTradeNo: 'synthetic-coupon-payment', orderNos: ['synthetic-coupon-order'],
+    machineId: 'machine-filter-key-901', paymentTime: '2026-11-02 10:15:30',
+    paymentMethod: 4, paymentInstrument: 'free_coupon', status: 1,
+    paymentAmount: '15.00', currency: 'USD',
+  }, context);
+  assert.equal(payment.normalizedTender, 'other');
+  assert.equal(payment.sourceTenderCode, '4');
+  assert.equal(payment.sourceTenderLabel, 'free_coupon');
+  assert.equal(payment.amountMinor, 1500);
+});
+
 test('machine inventory USD fills an omitted or blank row currency but never overrides a conflict', () => {
   const base = {
     outTradeNo: 'currency-payment', machineId: 'machine-filter-key-901',
