@@ -30,7 +30,18 @@ const kemore = (c: SupplyClaim, transform: (value: Record<string, unknown>) => R
     // Nonempty response is a prospective fixture: connected account's existing
     // coupons have empty scopes. Fail closed if a first real batch differs.
     if (path.endsWith("/coupon-scopes")) return json({ code: 0, data: { total: 1, list: [{ id: "scope", couponId: "coupon", scopeType: 1, scopeValue: "1000042" }] } });
-    if (path.endsWith("/coupon-codes")) return json({ code: 0, data: { total: 1, list: [transform(kemoreCode(c))] } });
+    if (path.endsWith("/coupon-codes")) {
+      const composed = calls.find((r) => r.path.endsWith("/coupon-compose"));
+      const row = kemoreCode(c);
+      if (composed) {
+        // The provider parses composer wall clocks as UTC, independently of the
+        // request timezone; reads then format the resulting instant in that zone.
+        const readZone = new Headers(init?.headers).get("X-App-TimeZone")!;
+        row.startTime = providerClock(`${String(composed.body.startTime).replace(" ", "T")}Z`, readZone);
+        row.endTime = providerClock(`${String(composed.body.endTime).replace(" ", "T")}Z`, readZone);
+      }
+      return json({ code: 0, data: { total: 1, list: [transform(row)] } });
+    }
     throw new Error("Unexpected fixture path");
   };
   return { calls, fetchImpl };
@@ -49,6 +60,8 @@ Deno.test("KeMore uses observed Americas composer and preserves leading zeros af
   assertEquals(writes[0].body.availableCount, 1);
   assertEquals(writes[0].body.discountValue, "15.00");
   assertEquals(writes[0].body.currency, "USD");
+  assertEquals(writes[0].body.startTime, "2026-09-30 12:00:00");
+  assertEquals(writes[0].body.endTime, "2026-12-20 12:00:00");
   assertEquals(writes[0].headers.get("X-App-TimeZone"), "America/Los_Angeles");
   assertEquals(writes[0].body.scopes, [{ scopeType: 1, scopeValue: [1000042] }, { scopeType: 2, scopeValue: [] }, { scopeType: 3, scopeValue: [] }]);
 });

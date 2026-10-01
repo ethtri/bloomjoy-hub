@@ -28,8 +28,9 @@ const cents = (value: unknown) => {
 };
 const array = (value: unknown): Row[] => Array.isArray(value) && value.every((v) => v && typeof v === "object" && !Array.isArray(v)) ? value : [];
 
-// Dates sent to KeMore are explicit local wall clocks under the configured provider
-// timezone. A returned offset-free value must round-trip to the exact requested clock.
+// KeMore presents offset-free reads in the configured timezone. Its composer
+// parses date strings as UTC regardless of X-App-TimeZone, so writes use UTC.
+// A returned offset-free value must round-trip to the exact requested instant.
 export const providerClock = (instant: string, timezone: string) => {
   const date = new Date(instant);
   if (!Number.isFinite(date.getTime())) throw new SupplyError("invalid_expiry");
@@ -164,7 +165,7 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
     return {
       prepare: async () => [],
       create: async () => {
-        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId: wireMerchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, timezone), endTime: providerClock(claim.pool.expires_at, timezone) });
+        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId: wireMerchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, "UTC"), endTime: providerClock(claim.pool.expires_at, "UTC") });
         if (result.code !== 0) throw new SupplyError("provider_creation_rejected");
         try { const result = await reconcile(); if (!result) throw new SupplyError("provider_creation_not_visible", true); return result; }
         catch (e) { throw new SupplyError(e instanceof SupplyError ? e.reason : "provider_verification_failed", true); }
