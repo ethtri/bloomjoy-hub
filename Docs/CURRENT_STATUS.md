@@ -12,7 +12,12 @@ orientation snapshot; it is not a backlog or release ledger.
   actual RF-34D5834D dialog exposes only Zelle email or phone; opening and
   cancelling preserved case, source, communications, financial proof and eight
   disabled gift configurations. No technical customer request or payment
-  occurred; the necessary request is reserved for the operational lane.
+  occurred during that technical verification. The operational lane subsequently
+  sent one necessary same-case request; provider acceptance is bound, while
+  delivery confirmation remains pending. Its receipt refresh reached the provider
+  but the local payout-message guard rejected the receipt-only update after the
+  case began waiting. The bounded immutable receipt-parity repair is under
+  #1429/#628; no resend, follow-up or payment is authorized by that repair.
   Separately, unvalidated positive-only Sunze candidates can still lack a
   matching current preparation source key (#1429/#628). This repair preserves
   that explicit limitation; its Sunze payout regression uses validated current

@@ -219,6 +219,170 @@ select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_
  '42501','Authenticated callers cannot bypass the contact handler through the trusted service writer');
 reset role;
 rollback to savepoint payout_contact_contract;
+-- Reproduce a manual payout request that was sent against the current reviewed
+-- purchase, then became ineligible for another request while awaiting its reply.
+savepoint payout_receipt_contract;
+set local role service_role;
+create temporary table payout_receipt_intent as select
+ public.service_enqueue_refund_manual_message_intent(
+ '16617000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'),
+ '16618100-0000-4000-8000-000000000004','16600000-0000-4000-8000-000000000001',
+ 'more_info','snapcase-refund@example.invalid','One payout detail needed',
+ 'Please check the Zelle email or phone for this refund.',
+ 'refund_more_info_editable_v1','manager_authored','missing_information',
+ array['zelle_payment_contact']::text[],null,false,null) result;
+create temporary table payout_receipt_claim as select * from
+ public.service_claim_refund_manual_message_deliveries(
+ (select (result->>'messageId')::uuid from payout_receipt_intent),1);
+select is((select count(*)::integer from payout_receipt_claim),1,
+ 'The exact supported payout request is claimed once');
+select public.service_mark_refund_manual_message_provider_attempt(
+ (select refund_case_message_id from payout_receipt_claim),
+ (select claim_token from payout_receipt_claim));
+select public.service_bind_refund_transactional_delivery(
+ (select refund_case_message_id from payout_receipt_claim),
+ 'snapcase_payout_receipt_accepted',statement_timestamp());
+reset role;
+savepoint payout_unsent_receipt;
+update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
+ released_by='16600000-0000-4000-8000-000000000001',released_case_fact_version=1
+where refund_case_id='16617000-0000-4000-8000-000000000001';
+select is(pg_temp.error_state($call$select public.service_record_refund_transactional_delivery_event(
+ repeat('9',64),'snapcase_payout_receipt_accepted','delivered',
+ statement_timestamp(),'<payout-receipt@example.invalid>')$call$),'23514',
+ 'A claimed but unsent request cannot use receipt reconciliation to bypass current contact eligibility');
+rollback to savepoint payout_unsent_receipt;
+set local role service_role;
+select is(public.service_finish_refund_manual_message_delivery(
+ (select refund_case_message_id from payout_receipt_claim),
+ (select claim_token from payout_receipt_claim),'sent','transactional_email',null,0,
+ 'sole_customer')->>'outcome','sent','Supported sender settles the existing provider acceptance');
+reset role;
+select ok((select m.manual_delivery_state='sent' and m.status='sent'
+ and m.sent_at is not null and m.delivery_state='accepted'
+ and c.status='waiting_on_customer' and c.decision is null
+ and not public.refund_payout_destination_case_current(c)
+ from public.refund_case_messages m join public.refund_cases c on c.id=m.refund_case_id
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ 'The actual sent manual request is accepted while current payout-request eligibility is false');
+create temporary table payout_receipt_before as select
+ to_jsonb(c) case_json,
+ to_jsonb(m)-'status'-'error_message'-'delivery_state'-'delivery_state_updated_at'
+   immutable_message,
+ (select jsonb_agg(to_jsonb(l) order by l.id) from public.refund_sunze_cash_sale_links l
+   where l.refund_case_id=c.id) links,
+ (select jsonb_agg(to_jsonb(e) order by e.id) from public.refund_case_events e
+   where e.refund_case_id=c.id) events,
+ (select jsonb_agg(to_jsonb(f) order by f.id) from public.refund_payout_destination_follow_ups f
+   where f.refund_case_id=c.id) payout_follow_ups,
+ (select count(*)::integer from public.refund_case_messages other where other.refund_case_id=c.id) messages
+ from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
+ where m.id=(select refund_case_message_id from payout_receipt_claim);
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set transactional_provider_message_header='<unproved-receipt@example.invalid>'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'The first canonical header still requires an applied exact-message provider event');
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+ repeat('8',64),'snapcase_payout_receipt_foreign','delivered',statement_timestamp(),
+ '<foreign-receipt@example.invalid>')->>'matched','false',
+ 'A foreign provider receipt cannot bind the original request');
+select is(pg_temp.error_state($call$select public.service_record_refund_transactional_delivery_event(
+ repeat('7',64),'snapcase_payout_receipt_accepted','unknown',statement_timestamp(),
+ '<payout-receipt@example.invalid>')$call$),'P4650',
+ 'Unknown provider state is not invented as a confirmed receipt');
+select is(public.service_record_refund_transactional_delivery_event(
+ repeat('6',64),'snapcase_payout_receipt_accepted','delivered',statement_timestamp(),
+ '<payout-receipt@example.invalid>')->>'deliveryState','delivered',
+ 'Existing receipt writer reconciles the sent manual request without reopening contact eligibility');
+reset role;
+select ok((select m.delivery_state='delivered' and m.status='sent'
+ and not public.refund_payout_destination_case_current(c)
+ from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ 'Confirmed receipt does not reopen current payout-request eligibility');
+select is((select to_jsonb(c)-'lifecycle_revision'-'updated_at' from public.refund_cases c
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ (select case_json-'lifecycle_revision'-'updated_at' from payout_receipt_before),
+ 'Every business, payment, decision, fact, action and request-budget case field remains unchanged');
+select ok((select c.lifecycle_revision>(b.case_json->>'lifecycle_revision')::bigint
+ and c.updated_at>=(b.case_json->>'updated_at')::timestamptz
+ from public.refund_cases c cross join payout_receipt_before b
+ where c.id='16617000-0000-4000-8000-000000000001'),
+ 'Existing receipt bookkeeping advances only the lifecycle revision and update timestamp');
+select is((select to_jsonb(m)-'status'-'error_message'-'delivery_state'-'delivery_state_updated_at'
+ -'transactional_provider_message_header' from public.refund_case_messages m
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ (select immutable_message-'transactional_provider_message_header' from payout_receipt_before),
+ 'Sent content, recipient, provider, request and send identity remain immutable');
+select is((select transactional_provider_message_header from public.refund_case_messages
+ where id=(select refund_case_message_id from payout_receipt_claim)),
+ '<payout-receipt@example.invalid>','The first RFC header binds from the exact applied delivery event');
+select is((select jsonb_agg(to_jsonb(l) order by l.id) from public.refund_sunze_cash_sale_links l
+ where l.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select links from payout_receipt_before),'Reviewed purchase selection remains unchanged');
+select is((select jsonb_agg(to_jsonb(e) order by e.id) from public.refund_case_events e
+ where e.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select events from payout_receipt_before),'Receipt reconciliation creates no new customer send event');
+select is((select jsonb_agg(to_jsonb(f) order by f.id) from public.refund_payout_destination_follow_ups f
+ where f.refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select payout_follow_ups from payout_receipt_before),'The existing follow-up budget and due state remain unchanged');
+select is((select count(*)::integer from public.refund_case_messages
+ where refund_case_id='16617000-0000-4000-8000-000000000001'),
+ (select messages from payout_receipt_before),'No replacement customer message is created');
+create temporary table payout_receipt_delivered as select to_jsonb(m) message_json
+ from public.refund_case_messages m where m.id=(select refund_case_message_id from payout_receipt_claim);
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+ repeat('6',64),'snapcase_payout_receipt_accepted','delivered',statement_timestamp(),
+ '<payout-receipt@example.invalid>')->>'duplicate','true',
+ 'The same delivery receipt is idempotent without another provider attempt');
+select public.service_record_refund_transactional_delivery_event(
+ repeat('5',64),'snapcase_payout_receipt_accepted','accepted',statement_timestamp(),
+ '<payout-receipt@example.invalid>');
+reset role;
+select is((select to_jsonb(m) from public.refund_case_messages m
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ (select message_json from payout_receipt_delivered),
+ 'Receipt replay and a lower-ranked accepted event cannot downgrade delivered truth');
+select is(pg_temp.error_state($call$update public.refund_case_messages set body='Changed content'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Receipt parity cannot edit the sent content');
+select is(pg_temp.error_state($call$update public.refund_case_messages set recipient_email='other@example.invalid'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Receipt parity cannot redirect the original recipient');
+select is(pg_temp.error_state($call$update public.refund_case_messages set provider_message_id='different_receipt_provider'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Receipt parity cannot change provider identity');
+select is(pg_temp.error_state($call$update public.refund_case_messages set delivery_state='accepted'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'A direct lower-ranked state mutation is rejected');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set delivery_state_updated_at=delivery_state_updated_at-interval '1 second'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'A receipt cannot move its evidence timestamp backwards');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set delivery_state='bounced',status='failed',error_message='transactional_delivery_bounced'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'A higher-ranked state still requires an exact recorded provider event');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set transactional_provider_message_header='<changed-receipt@example.invalid>'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'A bound RFC Message-ID cannot be replaced by another header');
+set local role service_role;
+select is(pg_temp.error_state($call$select public.service_record_refund_transactional_delivery_event(
+ repeat('3',64),'snapcase_payout_receipt_accepted','delivered',statement_timestamp(),
+ '<changed-receipt@example.invalid>')$call$),'P4650',
+ 'The existing five-argument writer rejects conflicting provider headers atomically');
+reset role;
+set local role authenticated;
+select is(pg_temp.error_state($call$select public.service_record_refund_transactional_delivery_event(
+ repeat('4',64),'snapcase_payout_receipt_accepted','delivered',statement_timestamp(),
+ '<payout-receipt@example.invalid>')$call$),'42501',
+ 'Receipt recording remains a service-only boundary');
+reset role;
+rollback to savepoint payout_receipt_contract;
 savepoint payout_link_negative;
 update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
  released_by='16600000-0000-4000-8000-000000000001',released_case_fact_version=1
@@ -491,5 +655,5 @@ select is(public.service_select_sunze_cash_candidate(
  'Validated current Sunze purchase accepts explicit reviewed selection');
 select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000002'),
  array['zelle_payment_contact'],'Current reviewed validated Sunze proof also exposes only the missing payout field');
-select * from finish();
+select * from finish(true);
 rollback;
