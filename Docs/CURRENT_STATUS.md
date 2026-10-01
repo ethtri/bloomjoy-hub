@@ -50,8 +50,11 @@ orientation snapshot; it is not a backlog or release ledger.
   KeMore SnapCase activation is paused while its first five-code created batch
   is reconciled. The numeric merchant-ID composer correction is deployed;
   value, device scope, code shape and one-use readbacks pass. The provider
-  parses composer date strings as UTC regardless of the caller timezone;
-  a second correction sends UTC dates and retains exact expiry verification.
+  parses composer date strings in each merchant's own authoritative timezone,
+  while the caller timezone formats reads. The adapter resolves that merchant
+  zone and retains exact validity verification. Known future-valid batches
+  are preserved through supported recovery and do not count as usable stock
+  until their actual start; the normal worker fills the current shortage.
   Physical redemption is not an additional launch gate. The cotton-candy scope
   correction retains both existing pools and ten codes while including all
   current public, active, exactly mapped devices, without the obsolete intake flag.

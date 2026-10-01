@@ -45,12 +45,16 @@ Use the dictionary's machine serial, not the inventory row ID. No code was
 created by the rejected request or its single diagnostic replay.
 The first successful five-code KeMore batch verified the exact merchant,
 USD value, positive device scope, code strings and one-use status. Its date
-readback established that composer strings are parsed as UTC, independently
-of `X-App-TimeZone`; that header formats reads. Send UTC wall-clock strings
-for creation and preserve exact configured-zone or offset-aware readback
-checks. The observed summer-start/winter-expiry shift was seven/eight hours,
-so accepting the returned local text as the intended instant would overstate
-validity. Correct and reconcile the same existing batch; do not replace it.
+paired UTC/configured-zone readback and `/v1/merchants` establish that composer
+strings are parsed in the merchant's `timeZone`, independently of
+`X-App-TimeZone`; that header formats reads. The observed merchant zones are
+Los Angeles and Chicago, with a blank merchant zone using UTC. Resolve the
+exact merchant row before composing dates, and retain exact configured-zone
+or offset-aware readback checks. A universal UTC composer shifted non-UTC
+merchants' starts into the future. Preserve and verify those same batches with
+their actual validity intervals through supported recovery; future-valid
+codes are not currently usable stock. The normal worker can then replenish
+the current shortage using the corrected merchant-zone composer.
 The four original KeMore coupons returned empty embedded
 scope arrays and empty separate `/coupon-scopes` pages. The October 1 created
 batch provided a positive exact device-scope response. The adapter follows the application's

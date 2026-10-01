@@ -28,8 +28,8 @@ const cents = (value: unknown) => {
 };
 const array = (value: unknown): Row[] => Array.isArray(value) && value.every((v) => v && typeof v === "object" && !Array.isArray(v)) ? value : [];
 
-// KeMore presents offset-free reads in the configured timezone. Its composer
-// parses date strings as UTC regardless of X-App-TimeZone, so writes use UTC.
+// KeMore presents offset-free reads in the configured caller timezone. Its
+// composer parses wall clocks in the merchant account's authoritative timezone.
 // A returned offset-free value must round-trip to the exact requested instant.
 export const providerClock = (instant: string, timezone: string) => {
   const date = new Date(instant);
@@ -132,6 +132,15 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
       if (method === "GET") for (const [k, v] of Object.entries(body)) url.searchParams.set(k, String(v));
       return transport(fetchImpl, url.href, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-App-Language": "en-US", "X-App-TimeZone": timezone }, ...(method === "GET" ? {} : { body: JSON.stringify(body) }) }, method === "POST");
     };
+    const merchantPayload = await request("/v1/merchants", "GET", { page: 1, size: 200 });
+    const merchantData = merchantPayload.data as Row;
+    const merchants = array(merchantData?.list).filter((r) => identity(r.id) === merchantId);
+    if (merchantPayload.code !== 0 || !Number.isSafeInteger(merchantData?.total) || Number(merchantData.total) > 200 || merchants.length !== 1 || typeof merchants[0].timeZone !== "string") throw new SupplyError("provider_merchant_timezone_unverified");
+    // The observed blank merchant timezone uses UTC. The listing's total can
+    // exceed returned length; resolve the exact merchant row independently.
+    const composeTimezone = text(merchants[0].timeZone) || "UTC";
+    try { providerClock(start, composeTimezone); }
+    catch { throw new SupplyError("provider_merchant_timezone_unverified"); }
     const reconcile = async (): Promise<ProviderCode[] | null> => {
       const coupons = (await allPages(request, "/v1/coupons", { name })).filter((r) => r.name === name);
       if (!coupons.length) return null; // Absence does not establish a failed creation.
@@ -165,7 +174,7 @@ export async function createSupplyAdapter(claim: SupplyClaim, {
     return {
       prepare: async () => [],
       create: async () => {
-        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId: wireMerchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, "UTC"), endTime: providerClock(claim.pool.expires_at, "UTC") });
+        const result = await request("/v1/coupon-compose", "POST", { currency: claim.pool.currency, merchantId: wireMerchantId, name, description: name, isActive: true, discountType: 1, discountValue: decimal(claim.pool.face_value_cents), useScopeType: 0, useMerchantScope: [], scopes, number: claim.requestedCount, availableCount: 1, startTime: providerClock(start, composeTimezone), endTime: providerClock(claim.pool.expires_at, composeTimezone) });
         if (result.code !== 0) throw new SupplyError("provider_creation_rejected");
         try { const result = await reconcile(); if (!result) throw new SupplyError("provider_creation_not_visible", true); return result; }
         catch (e) { throw new SupplyError(e instanceof SupplyError ? e.reason : "provider_verification_failed", true); }
