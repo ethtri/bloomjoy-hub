@@ -49,6 +49,7 @@ begin
  from generate_series(date_trunc('month',p_date_from::timestamp),date_trunc('month',p_date_to::timestamp),interval '1 month') month_start
  ), calculations as materialized (
  select private.calculate_technician_pay_report(p.account_id,p.id,greatest(p_date_from,m.month_start),least(p_date_to,m.month_end)) as report,
+ p.id as profile_id,m.month_start,m.month_end,
  p_date_from<=m.month_start and p_date_to>=m.month_end as complete_month
  from authorized_profiles p cross join months m
  ), machines as (
@@ -66,7 +67,7 @@ begin
  'calculationIssueCount',(select coalesce(sum(jsonb_array_length(coalesce(report->'blockers','[]'::jsonb))),0) from calculations),
  'readyCalculationCount',(select count(*) from calculations where complete_month and (report->>'publishable')::boolean),
  'partialMonthCalculationCount',(select count(*) from calculations where not complete_month),
- 'revisionRequiredCount',(select count(*) from calculations where complete_month and coalesce((report->>'payStubRegenerationRequired')::boolean,false)),
+ 'revisionRequiredCount',(select count(*) from calculations where complete_month and private.operator_pay_stub_regeneration_required(profile_id,month_start,month_end)),
  'publishedStatementCount',(select count(distinct s.operator_profile_id::text || ':' || r.payout_period_id::text)
  from public.pay_statements s join public.payout_runs r on r.id=s.payout_run_id
  join public.payout_periods pp on pp.id=r.payout_period_id

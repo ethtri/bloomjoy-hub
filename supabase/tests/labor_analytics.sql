@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(17);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -213,6 +213,15 @@ select is(public.get_labor_analytics_report('2026-07-01','2026-07-31',array['a40
 select is(public.get_labor_analytics_report('2026-07-10','2026-07-20')->'pay'->'unallocatedOtherEarningsCents','null'::jsonb,'partial-month dates cannot invent bonus proration');
 select is((public.get_labor_analytics_report('2026-07-10','2026-07-20')->'pay'->>'readyCalculationCount')::integer,0,'partial-month estimates are not full statement readiness');
 select is((public.get_labor_analytics_report('2026-07-01','2026-08-31')->'pay'->>'unallocatedOtherEarningsCents')::bigint,2000::bigint,'multi-month recurring bonus follows one canonical calculation per month');
+insert into public.payout_runs(id,account_id,payout_period_id,status)
+values('ac000000-0000-0000-0000-000000000001','a2000000-0000-0000-0000-000000000001','a7000000-0000-0000-0000-000000000001','review');
+insert into public.payout_run_items(id,payout_run_id,account_id,operator_profile_id,worker_type,status)
+values('ac100000-0000-0000-0000-000000000001','ac000000-0000-0000-0000-000000000001','a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001','contractor_1099','finalized');
+-- The canonical freshness helper marks an issued v2 statement with no source
+-- revision as requiring regeneration. Analytics must expose that exact state.
+insert into public.pay_statements(id,payout_run_id,payout_run_item_id,account_id,operator_profile_id,statement_number,statement_label,status,issued_at,statement_payload,operator_notification_status)
+values('ac300000-0000-0000-0000-000000000001','ac000000-0000-0000-0000-000000000001','ac100000-0000-0000-0000-000000000001','a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001','LABOR-SYNTHETIC-JULY','Pay Stub','issued','2026-08-01','{"schemaVersion":"operator-pay-stub-v2","calculationMeta":{}}','portal_published');
+select is((public.get_labor_analytics_report('2026-07-01','2026-07-31')->'pay'->>'revisionRequiredCount')::integer,1,'stale issued statement revision uses canonical stable freshness helper');
 select ok((select periods=(select count(*) from public.payout_periods) and snapshots=(select count(*) from public.payout_period_machine_revenue_snapshots) from before_analytics),'analytics never creates periods or snapshots');
 select * from finish();
 rollback;
