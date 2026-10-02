@@ -90,9 +90,14 @@ historical fixtures cannot add product gates that the workflow does not contain.
   advance a refund coverage watermark. Validated IANA fixtures cover workbook
   dates, strings, explicit offsets, midnight, and both DST transitions.
 - [ ] Without a validated watermark, a positive exact-machine successful-cash
-  row from the latest machine-complete import is review-only, explicitly marks
+  row from the latest machine-complete import for the reported sale date is review-only, explicitly marks
   its source time and coverage unvalidated, has no minute-delta claim, and never
-  auto-selects. Zero rows stays unavailable and never claims no sale.
+  auto-selects. A newer export for a different week does not hide historical
+  positive rows. A newer relevant empty export still invalidates the old snapshot.
+  Zero rows stays unavailable and never claims no sale.
+- [ ] An undecided cash case with a saved amount and destination but no current
+  purchase recommendation shows Agent research consistently in its stage and
+  Manager queue. It cannot claim payout readiness or ask to repair Manager access.
 - [ ] Amount and confidence remain advisory evidence. A reviewed Manager can
   complete a cash refund from any match state after sending Zelle; selecting an
   exact Sunze sale cannot complete a second non-duplicate case.

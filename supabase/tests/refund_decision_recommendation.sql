@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(36);
+select plan(39);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -338,6 +338,15 @@ select is(public.refund_lifecycle_contract(
  'f1050000-0000-4000-8000-000000000012')#>>'{nextWork,actionCode}',
  'research_purchase',
  'multiple current Sunze candidates stay in Agent research');
+select is(public.refund_lifecycle_contract(
+ 'f1050000-0000-4000-8000-000000000012')->>'stage','matching',
+ 'undecided cash research cannot claim to await payout');
+select is(public.refund_lifecycle_contract(
+ 'f1050000-0000-4000-8000-000000000012')->>'paymentState','not_requested',
+ 'saved cash amount and destination do not imply payment readiness');
+select is(public.refund_lifecycle_contract(
+ 'f1050000-0000-4000-8000-000000000012')#>>'{managerQueue,nextAction}','research_purchase',
+ 'generic Manager queue agrees with Agent research rather than payout or access repair');
 select is(public.service_refund_manager_ready_notice_snapshot(
   'f1050000-0000-4000-8000-000000000012',
   'f1010000-0000-4000-8000-000000000001'),null::jsonb,
