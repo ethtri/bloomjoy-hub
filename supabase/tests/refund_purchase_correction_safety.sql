@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(63);
+select plan(67);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values('dd000000-0000-4000-8000-000000000004','authenticated','authenticated','correction-manager@example.invalid','{}','{}');
 insert into public.customer_accounts(id,name,account_type) values('dd000000-0000-4000-8000-000000000001','Scoped correction fixture','customer');
@@ -268,5 +268,14 @@ select isnt(
   'Completed form recheck cannot continue after its resulting fact version becomes stale'
 );
 rollback to savepoint stale_form_answer;
+select pg_temp.make_scope(15,true);
+select lives_ok($$select public.service_submit_refund_purchase_correction(lpad(to_hex(15),64,'0'),1,
+ '{"amount":{"disposition":"cannot_provide"}}','es')$$,'Locale saves atomically with authorized purchase correction');
+select is((select intake_meta->>'customer_locale' from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'),
+ 'es','Corrected case retains selected Spanish for future emails');
+select ok(not has_function_privilege('authenticated','public.service_submit_refund_purchase_correction(text,bigint,jsonb,text)','execute'),
+ 'Browser cannot bypass correction capability to write locale');
+select throws_like($$select public.service_submit_refund_purchase_correction(lpad('6',64,'0'),1,
+ '{"amount":{"disposition":"cannot_provide"}}','es')$$,'%stale or unavailable%','Expired capability cannot write locale');
 select * from finish();
 rollback;

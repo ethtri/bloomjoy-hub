@@ -43,5 +43,46 @@ select is((select gift_card_state from public.refund_cases where id='fa060000-00
 select is((select payment_amount_cents from public.refund_cases where id='fa060000-0000-4000-8000-000000000003'),1000,'$100 inserted never overwrites the $10 recorded sale');
 select is((select refund_amount_cents from public.refund_cases where id='fa060000-0000-4000-8000-000000000003'),0,'Change courtesy never deducts the purchase');
 select ok(not has_function_privilege('anon','public.admin_approve_selected_nayax_refund_for_system_v2(uuid,bigint,integer)','EXECUTE'),'Public cannot approve card amount');
+-- Email-linked hosted form: $100 inserted, $10 sale, $90 expected change.
+create temp table linked_contact as select public.service_ingest_refund_gmail_contact_v1(
+ repeat('8',64),'exception-linked-thread','exception-linked-message','<exception-linked@example.invalid>',null,
+ 'inbound',false,'linked-change@example.invalid','Synthetic customer','info@bloomjoysweets.com',
+ 'Synthetic refund','Please help.',false,statement_timestamp(),null,'[]'::jsonb,'{}'::text[],
+ array['info@bloomjoysweets.com','support@bloomjoysweets.com'],'direct_human',false,false,'{}'::text[]) result;
+create temp table linked_contact_claim as select public.service_claim_refund_gmail_contact_first_response(
+ (select (result->>'messageId')::uuid from linked_contact),'active',statement_timestamp(),
+ 'refund_first_contact_v1','info@bloomjoysweets.com','Synthetic secure form link.') result;
+select public.service_register_refund_gmail_contact_link(
+ (select (result->>'operationId')::uuid from linked_contact_claim),repeat('a',64),now()+interval '14 days');
+select public.service_prepare_refund_gmail_contact_first_response(
+ (select (result->>'operationId')::uuid from linked_contact_claim),array['info@bloomjoysweets.com','support@bloomjoysweets.com']);
+select public.service_finish_refund_gmail_contact_first_response(
+ (select (result->>'operationId')::uuid from linked_contact_claim),'sent','synthetic-linked-response',null,null);
+create temp table linked_change_case as select public.service_create_refund_case_from_gmail_contact_form(
+ repeat('a',64),'linked-change@example.invalid',jsonb_build_object(
+ 'reportingMachineId','fa040000-0000-4000-8000-000000000001',
+ 'reportingLocationId','fa030000-0000-4000-8000-000000000001','issueSummary','Synthetic expected cash change',
+ 'incidentAt',statement_timestamp(),'incidentTimezone','UTC','incidentTimeResolution','exact',
+ 'paymentMethod','cash','paymentAmountCents',1000,'paymentInteraction','cash','incidentTimeConfidence','exact',
+ 'issueCategory','expected_cash_change','status','needs_review','correlationStatus','needs_cash_match',
+ 'resolutionMethod','gift_card','affectedAmountCents',9000,'cashInsertedAmountCents',10000,'expectedChangeAmountCents',9000,
+ 'giftCardPoolId','fa050000-0000-4000-8000-000000002500','giftCardValueCents',9000,
+ 'giftCardExpiresAt',now()+interval '30 days','giftCardState','manager_review',
+ 'intakeMeta',jsonb_build_object('customer_locale','es'),'serverDedupeKey',repeat('c',64),
+ 'serverDedupeWindowStartedAt',statement_timestamp())) result;
+select ok((select result->>'id' is not null and result->>'gmail_thread_id' is not null from linked_change_case),
+ 'Linked expected-change form creates the same privately bound case without $90 stock');
+select results_eq($$select payment_amount_cents,refund_amount_cents,cash_inserted_amount_cents,expected_change_amount_cents,gift_card_state
+ from public.refund_cases where id=(select (result->>'id')::uuid from linked_change_case)$$,
+ $$select 1000::integer,0::integer,10000::integer,9000::integer,'manager_review'::text$$,
+ 'Linked INSERT preserves sale, cash facts and stock-independent review atomically');
+select lives_ok($sql$select public.service_accept_refund_gift_card_offer(
+ (select (result->>'id')::uuid from linked_change_case),'fa050000-0000-4000-8000-000000002500',9000,now()+interval '30 days')$sql$,
+ 'Linked provisional $90 review does not validate unapproved template denomination as issued');
+select public.service_issue_refund_status_capability((select (result->>'id')::uuid from linked_change_case),repeat('d',64),now()+interval '30 days');
+select is(public.service_read_refund_status_capability(repeat('d',64),repeat('e',64))->>'customerLocale','es',
+ 'Fresh secure status capability receives saved Spanish preference');
+select ok(not public.service_read_refund_status_capability(repeat('f',64),repeat('e',64)) ? 'customerLocale',
+ 'Invalid capability discloses no case locale');
 select * from finish();
 rollback;

@@ -51,6 +51,8 @@ language plpgsql as $$
 declare d text;
 begin
   d:=replace(pg_get_functiondef(p_signature::regprocedure),E'\r\n',E'\n');
+  p_old:=replace(p_old,E'\r\n',E'\n');
+  p_new:=replace(p_new,E'\r\n',E'\n');
   if cardinality(string_to_array(d,p_old))<>2 then
     raise exception 'Refund amount migration expected one anchor in %: %',p_signature,p_old;
   end if;
@@ -189,8 +191,7 @@ begin
   d:=replace(d,'and payment.official_action_authorization_id = a.id',
     'and payment.official_action_authorization_id = a.id
       and payment.amount_cents=coalesce(p_refund_amount_cents,c.matched_nayax_amount_cents)');
-  d:=replace(d,'public.admin_approve_selected_nayax_refund_for_system_v1(
-    c.id,c.official_action_version',
+  d:=replace(d,E'public.admin_approve_selected_nayax_refund_for_system_v1(\n    c.id,c.official_action_version',
     'public.admin_approve_selected_nayax_refund_for_system_v2(
     c.id,c.official_action_version,p_refund_amount_cents');
   execute d;
@@ -284,5 +285,86 @@ select pg_temp.refund_patch('public.refund_claim_nayax_form_receipt_completion_i
   'or receipt_row.refunded_amount_cents is distinct from receipt_row.original_amount_cents',
   'or (receipt_row.refunded_amount_cents is distinct from receipt_row.original_amount_cents
       and not public.refund_partial_api_receipt_amounts_proved(receipt_row.id))');
+
+-- Linked email forms use the same INSERT boundary and private thread binding.
+select pg_temp.refund_patch('public.service_create_refund_case_from_gmail_contact_form_pre_selection_v1(text,text,jsonb)',
+  'server_dedupe_window_started_at
+    ) values (',
+  'server_dedupe_window_started_at, resolution_method, affected_amount_cents,
+      cash_inserted_amount_cents, expected_change_amount_cents, gift_card_pool_id,
+      gift_card_value_cents, gift_card_expires_at, gift_card_state
+    ) values (');
+select pg_temp.refund_patch('public.service_create_refund_case_from_gmail_contact_form_pre_selection_v1(text,text,jsonb)',
+  $old$nullif(p_case_values ->> 'serverDedupeWindowStartedAt', '')::timestamptz
+    ) returning * into case_row;$old$,
+  $new$nullif(p_case_values ->> 'serverDedupeWindowStartedAt', '')::timestamptz,
+      coalesce(p_case_values->>'resolutionMethod','original_payment'),
+      (p_case_values->>'affectedAmountCents')::integer,
+      (p_case_values->>'cashInsertedAmountCents')::integer,
+      (p_case_values->>'expectedChangeAmountCents')::integer,
+      (p_case_values->>'giftCardPoolId')::uuid,
+      (p_case_values->>'giftCardValueCents')::integer,
+      (p_case_values->>'giftCardExpiresAt')::timestamptz,
+      p_case_values->>'giftCardState'
+    ) returning * into case_row;$new$);
+select pg_temp.refund_patch('public.service_create_refund_case_from_gmail_contact_form_pre_selection_v1(text,text,jsonb)',
+  $old$case when p_case_values ->> 'paymentMethod' = 'cash' then 1 else null end,
+      (p_case_values ->> 'paymentAmountCents')::integer,$old$,
+  $new$case when p_case_values ->> 'paymentMethod' = 'cash' then 1 else null end,
+      case when p_case_values->>'issueCategory'='expected_cash_change' then 0
+        else (p_case_values ->> 'paymentAmountCents')::integer end,$new$);
+
+-- Existing capability guards stay authoritative; disclose only the saved locale.
+select pg_temp.refund_patch('public.service_read_refund_status_capability(text,text)',
+  $old$'gift_card',public.refund_gift_card_case_projection(capability.refund_case_id),$old$,
+  $new$'gift_card',public.refund_gift_card_case_projection(capability.refund_case_id),
+    'customerLocale',(select case when c.intake_meta->>'customer_locale'='es' then 'es' else 'en' end
+      from public.refund_cases c where c.id=capability.refund_case_id),$new$);
+select pg_temp.refund_patch('public.service_get_refund_wallet_correction(text)',
+  $old$'paymentAmountCents', refund_case.payment_amount_cents,$old$,
+  $new$'paymentAmountCents', refund_case.payment_amount_cents,
+    'customerLocale', case when refund_case.intake_meta->>'customer_locale'='es' then 'es' else 'en' end,$new$);
+
+create function public.refund_save_submitted_correction_locale(p_token_hash text,p_customer_locale text)
+returns void language plpgsql security definer set search_path='' as $$
+begin
+  if p_customer_locale is null then return; end if;
+  if p_customer_locale not in ('en','es') then raise exception 'Invalid customer locale'; end if;
+  -- Called in the same transaction after the protected fact save. A failed or
+  -- expired capability cannot change any case; never infer a case from input.
+  update public.refund_cases c set intake_meta=jsonb_set(coalesce(c.intake_meta,'{}'::jsonb),
+      '{customer_locale}',to_jsonb(p_customer_locale))
+    from public.refund_wallet_correction_contexts ctx
+    where ctx.token_hash=p_token_hash and ctx.refund_case_id=c.id
+      and ctx.status='submitted' and ctx.expires_at>statement_timestamp();
+end $$;
+revoke all on function public.refund_save_submitted_correction_locale(text,text) from public,anon,authenticated,service_role;
+
+create function public.service_submit_refund_purchase_correction(p_token_hash text,p_expected_fact_version bigint,
+  p_answers jsonb,p_customer_locale text)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result jsonb;
+begin
+  if p_customer_locale is not null and p_customer_locale not in ('en','es') then raise exception 'Invalid customer locale'; end if;
+  result:=public.service_submit_refund_purchase_correction(p_token_hash,p_expected_fact_version,p_answers);
+  perform public.refund_save_submitted_correction_locale(p_token_hash,p_customer_locale);
+  return result;
+end $$;
+revoke all on function public.service_submit_refund_purchase_correction(text,bigint,jsonb,text) from public,anon,authenticated;
+grant execute on function public.service_submit_refund_purchase_correction(text,bigint,jsonb,text) to service_role;
+
+create function public.service_apply_refund_wallet_correction_v2(p_token_hash text,p_wallet_type text,p_card_network text,
+  p_card_last4 text,p_incident_at timestamptz,p_incident_local_datetime text,p_amount_confirmed boolean,p_customer_locale text)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result jsonb;
+begin
+  if p_customer_locale is not null and p_customer_locale not in ('en','es') then raise exception 'Invalid customer locale'; end if;
+  result:=public.service_apply_refund_wallet_correction_v2(p_token_hash,p_wallet_type,p_card_network,
+    p_card_last4,p_incident_at,p_incident_local_datetime,p_amount_confirmed);
+  perform public.refund_save_submitted_correction_locale(p_token_hash,p_customer_locale);
+  return result;
+end $$;
+revoke all on function public.service_apply_refund_wallet_correction_v2(text,text,text,text,timestamptz,text,boolean,text) from public,anon,authenticated;
+grant execute on function public.service_apply_refund_wallet_correction_v2(text,text,text,text,timestamptz,text,boolean,text) to service_role;
 
 select pg_notify('pgrst','reload schema');

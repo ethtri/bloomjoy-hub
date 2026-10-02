@@ -284,6 +284,7 @@ const readCustomerRefundStatus = async (
   return new Response(
     JSON.stringify({
       lifecycle: result.lifecycle,
+      customerLocale: result.customerLocale,
       gift_card: result.giftCard,
       expiresAt: result.expiresAt,
       payloadRedacted: true,
@@ -1048,6 +1049,7 @@ const submitWalletCorrection = async (
     "incidentDate",
     "incidentTime",
     "amountConfirmed",
+    "customerLocale",
   ]);
   if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
     return new Response(
@@ -1075,7 +1077,8 @@ const submitWalletCorrection = async (
     !/^[0-9]{4}$/.test(cardLast4) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(incidentDate) ||
     !/^\d{2}:\d{2}$/.test(incidentTime) ||
-    body.amountConfirmed !== true
+    body.amountConfirmed !== true ||
+    (body.customerLocale !== undefined && !["en", "es"].includes(String(body.customerLocale)))
   ) {
     return new Response(
       JSON.stringify({
@@ -1140,6 +1143,7 @@ const submitWalletCorrection = async (
       p_incident_at: incidentResolution.instant,
       p_incident_local_datetime: `${incidentDate}T${incidentTime}`,
       p_amount_confirmed: true,
+      p_customer_locale: body.customerLocale ?? null,
     },
   );
   if (applyError) {
@@ -1298,10 +1302,21 @@ serve(async (req) => {
       if (!isUuid(offerMachineId)) return new Response(JSON.stringify({ offer: null }), { headers: refundStatusResponseHeaders });
       const enabled = await giftCardsEnabledForMachine(offerMachineId);
       if (!enabled) return new Response(JSON.stringify({ gift_card_enabled: false, offer: null }), { headers: refundStatusResponseHeaders });
-      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+      const { data: quote, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
         p_machine_id: offerMachineId, p_amount_cents: centsFromAmount(body.amount),
       });
       if (error) throw error;
+      let offer = quote;
+      if (!offer && (body.issueCategory === "partial_items" || body.issueCategory === "expected_cash_change")) {
+        const { data: template, error: templateError } = await supabase.from("refund_gift_card_pools")
+          .select("id,face_value_cents,currency,eligible_locations,expires_at,redemption_instructions")
+          .eq("enabled", true).contains("eligible_machine_ids", [offerMachineId])
+          .gt("expires_at", new Date().toISOString()).order("expires_at", { ascending: false }).limit(1).maybeSingle();
+        if (templateError) throw templateError;
+        if (template) offer = { pool_id: template.id, value: template.face_value_cents,
+          currency: template.currency, eligible_locations: template.eligible_locations,
+          expires_at: template.expires_at, one_use: true, redemption_instructions: template.redemption_instructions };
+      }
       return new Response(JSON.stringify({ gift_card_enabled: enabled === true, offer: offer ?? null }), { headers: refundStatusResponseHeaders });
     }
     if (action === "startQrClaim") {
@@ -2132,6 +2147,14 @@ serve(async (req) => {
             incidentTimeResolution: insertValues.incident_time_resolution,
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
+            resolutionMethod: insertValues.resolution_method,
+            affectedAmountCents: insertValues.affected_amount_cents,
+            cashInsertedAmountCents: insertValues.cash_inserted_amount_cents,
+            expectedChangeAmountCents: insertValues.expected_change_amount_cents,
+            giftCardPoolId: insertValues.gift_card_pool_id,
+            giftCardValueCents: insertValues.gift_card_value_cents,
+            giftCardExpiresAt: insertValues.gift_card_expires_at,
+            giftCardState: insertValues.gift_card_state,
             cardLast4: insertValues.card_last4,
             cardLast4Source: insertValues.card_last4_source,
             cardNetwork: insertValues.card_network,
@@ -2390,11 +2413,17 @@ serve(async (req) => {
       customerLocale,
     });
     if (pendingGiftCardResult) {
-      const text = pendingGiftCardResult.state === "manager_review"
-        ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
-        : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
-      email = { subject: "We received your Bloomjoy gift-card request", ...buildRefundStoredTextWithStatus({
-        headline: "We received your gift-card request", text, statusUrl: statusCapability?.url ?? null,
+      const spanish = customerLocale === "es";
+      const text = spanish
+        ? pendingGiftCardResult.state === "manager_review"
+          ? `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}). Nuestro equipo la está revisando y le enviará el resultado por correo electrónico. No necesita enviar otra solicitud.`
+          : `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}) y la estamos preparando. Le enviaremos su código por correo electrónico cuando esté listo. No necesita enviar otra solicitud.`
+        : pendingGiftCardResult.state === "manager_review"
+          ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
+          : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
+      email = { subject: spanish ? "Recibimos su solicitud de tarjeta de regalo de Bloomjoy" : "We received your Bloomjoy gift-card request", ...buildRefundStoredTextWithStatus({
+        headline: spanish ? "Recibimos su solicitud de tarjeta de regalo" : "We received your gift-card request",
+        text, statusUrl: statusCapability?.url ?? null, customerLocale,
       }) };
     }
 

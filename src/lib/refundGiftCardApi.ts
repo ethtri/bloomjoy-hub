@@ -3,7 +3,7 @@ import { supabaseClient } from '@/lib/supabaseClient';
 import { requireRefundGiftCardOffer, requireRefundGiftCardStatus, type RefundGiftCardStatus } from './refundGiftCard';
 
 export const fetchRefundGiftCardOffer = async (input: {
-  machineId?: string; selectionKey?: string; amount: string; paymentMethod: 'card' | 'cash';
+  machineId?: string; selectionKey?: string; amount: string; paymentMethod: 'card' | 'cash'; issueCategory?: 'partial_items' | 'expected_cash_change' | string;
 }) => {
   const data = await invokeEdgeFunction<{ error?: string; offer?: unknown; gift_card_enabled?: unknown }>('refund-case-intake', {
     action: 'giftCardOffer', ...input,

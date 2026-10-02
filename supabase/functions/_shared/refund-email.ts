@@ -314,14 +314,17 @@ export const buildRefundStoredTextWithStatus = ({
   headline,
   text,
   statusUrl,
+  customerLocale,
 }: {
   headline: string;
   text: string;
   statusUrl?: string | null;
+  customerLocale?: "en" | "es";
 }) => {
   const approvedStatusUrl = sanitizeRefundStatusUrl(statusUrl);
+  const statusLabel = customerLocale === "es" ? "Consultar el estado del reembolso" : "Check refund status";
   const deliveryText = approvedStatusUrl
-    ? `${text.trim()}\n\nCheck refund status:\n${approvedStatusUrl}`
+    ? `${text.trim()}\n\n${statusLabel}:\n${approvedStatusUrl}`
     : text;
   return {
     text: deliveryText,
@@ -329,7 +332,7 @@ export const buildRefundStoredTextWithStatus = ({
       headline,
       text,
       primaryLink: approvedStatusUrl
-        ? { label: "Check refund status", url: approvedStatusUrl }
+        ? { label: statusLabel, url: approvedStatusUrl }
         : null,
     }),
   };
