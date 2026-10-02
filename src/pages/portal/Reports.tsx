@@ -839,7 +839,7 @@ export default function ReportsPage() {
     enabled: Boolean(user?.id),
     staleTime: 60000,
   });
-  return <PortalLayout><section className="portal-section"><div className="container-page">
+  return <PortalLayout><section className="portal-section !py-5"><div className="container-page">
     <Suspense fallback={<p role="status" className="py-8 text-muted-foreground">Loading reporting workspace…</p>}><ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
       canUsePartners={isSuperAdmin || isScopedAdmin || isCorporatePartner}
       domainAccessLoading={analyticsAccess.isLoading}

@@ -22,10 +22,10 @@ export function SalesMetricBand({ rows, previous, compareAvailable }: Pick<Props
     { label: 'Transactions', value: number(transactions), now: transactions, prior: priorTransactions, monetary: false },
     { label: 'Sales per recorded transaction', value: money(perTransaction), now: perTransaction, prior: priorPerTransaction, monetary: true },
     { label: 'Refund accounting impact', value: money(knownMoney(rows, 'refundAmountCents').value), now: null, prior: null, monetary: true }];
-  return <dl className="grid grid-cols-2 gap-x-6 gap-y-6 border-b border-border py-6 lg:grid-cols-4">
+  return <dl className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-border py-4 lg:grid-cols-4">
     {metrics.map((metric, index) => <div key={metric.label} className={index ? 'lg:border-l lg:border-border lg:pl-6' : ''}>
       <dt className="text-sm text-muted-foreground">{metric.label}</dt><dd className="mt-1 text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl">{metric.value}</dd>
-      <dd className="mt-2 text-xs leading-relaxed text-muted-foreground">{index === 3 ? 'Request deductions and later reversals, booked once' : compareAvailable ? changeLabel(periodChange(metric.now, metric.prior), metric.monetary) : 'Comparison unavailable'}</dd>
+      <dd className="mt-2 text-xs leading-relaxed text-muted-foreground">{index === 3 ? 'Request deductions and reversals' : compareAvailable ? changeLabel(periodChange(metric.now, metric.prior), metric.monetary) : 'Comparison unavailable'}</dd>
       {index === 0 && current.omittedRows > 0 && <dd className="mt-1 text-xs text-amber-800">Known subtotal {money(current.knownValue)} · {current.omittedRows} unresolved rows</dd>}
     </div>)}
   </dl>;
@@ -35,7 +35,7 @@ export function SalesTrend({ rows, previous, state, priorFrom, compareAvailable 
   const trend = useMemo(() => alignedTrend(rows, previous, state.dateFrom, state.dateTo, priorFrom), [rows, previous, state.dateFrom, state.dateTo, priorFrom]);
   return <section className="min-w-0" aria-labelledby="sales-trend-title"><h2 id="sales-trend-title" className={titleClass}>Sales over time</h2>
     <p className={`${noteClass} mt-1`}>Net sales by machine-local business date. Gaps mean no loaded rows.</p>
-    <div className="mt-5 h-[260px] w-full sm:h-[300px]" role="img" aria-label="Current and prior net sales by elapsed day. Exact values are in the table below.">
+    <div className="mt-4 h-[240px] w-full" role="img" aria-label="Current and prior net sales by elapsed day. Exact values are in the table below.">
       <ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
         <CartesianGrid stroke="hsl(var(--border))" vertical={false}/><XAxis dataKey="date" tickFormatter={date => String(date).slice(5)} tick={{ fontSize: 12 }} minTickGap={35} tickLine={false}/>
         <YAxis tickFormatter={value => `$${number(value / 100)}`} tick={{ fontSize: 12 }} tickLine={false} width={65}/>
