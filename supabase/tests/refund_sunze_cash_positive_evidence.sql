@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select no_plan();
 
 insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
 values ('52960000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -90,6 +90,23 @@ values
     '2026-09-29 18:00:00+00', '2026-09-29 11:00:00', 'America/Los_Angeles', 'exact',
     'cash', 1000, 'needs_review', 'manual_review');
 
+-- Model the existing historical empty research hold. It is lifted only
+-- after the exact new cash evidence has an explicit current reviewed link.
+update public.refund_cases set correlation_status='no_match',correlation_source='sunze',
+ correlation_summary='Historical no safe match.',cash_match_evaluated_fact_version=1
+where id='52950000-0000-4000-8000-000000000001';
+insert into public.refund_follow_up_cycles(
+ id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,requested_fields,
+ template_version,case_fact_version,reminder_delay_hours,status)
+select '52970000-0000-4000-8000-000000000001',c.id,1,repeat('e',64),
+ 'no_safe_match','{}'::text[],settings.template_version,c.deterministic_fact_version,
+ settings.reminder_delay_hours,'claimed'
+from public.refund_cases c cross join public.refund_customer_contact_settings settings
+where c.id='52950000-0000-4000-8000-000000000001';
+update public.refund_follow_up_cycles set status='manual_review',
+ failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='52970000-0000-4000-8000-000000000001';
+
 select is(
   public.service_correlate_sunze_cash_case(
     '52950000-0000-4000-8000-000000000001', 1, 'backfill', null, '2026-09-29 21:00:00+00'
@@ -151,6 +168,15 @@ select is((
   where refund_case_id = '52950000-0000-4000-8000-000000000002'
 ), 0, 'Missing positive evidence creates no candidate');
 
+
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_snapshot_key from public.refund_sunze_cash_correlation_attempts where refund_case_id='52950000-0000-4000-8000-000000000001'),
+ 'Current helper reproduces the positive research snapshot without a coverage watermark');
+select is(jsonb_array_length(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'candidates'),1,'Current positive candidate remains visible for review');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Unreviewed positive evidence cannot prepare a purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Unreviewed positive evidence cannot authorize a payout request');
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000002','2026-09-29T18:00:00Z'),
+ 'unavailable:none','No grounded positive and no watermark remain unavailable');
+
 select is(
   public.service_select_sunze_cash_candidate(
     '52950000-0000-4000-8000-000000000001',
@@ -170,6 +196,105 @@ select ok((
   select decision is null and refund_completed_at is null and reporting_adjustment_id is null
   from public.refund_cases where id = '52950000-0000-4000-8000-000000000001'
 ), 'Evidence selection does not decide, complete, or account for a refund');
+
+
+create temporary table positive_current_proof as select public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z') source_key;
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001'))->>'evidenceBasis','cash_multiple_reviewed','Reviewed positive purchase supplies current preparation proof');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,source}','sunze','Reviewed positive purchase uses the existing Sunze recommendation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,amountCents}','975','Reviewed source amount remains authoritative despite customer estimate');
+select ok(public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Reviewed current positive purchase permits only the existing missing payout field');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,timeMeaning}','unknown','Reviewed unvalidated source time never becomes a proven purchase instant');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)#>>'{selectedSale,sourceTimeUnvalidated}','true','Explicit review preserves the source-time limitation');
+
+update public.machine_sales_facts set source_row_hash='changed-positive-row' where id='52940000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for source row mutation');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale source row mutation cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale source row mutation cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale source row mutation cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after source row mutation');
+select throws_ok($call$select public.service_select_sunze_cash_candidate(
+ '52950000-0000-4000-8000-000000000001',
+ (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='52950000-0000-4000-8000-000000000001'),
+ '52940000-0000-4000-8000-000000000001',1,1,
+ '52960000-0000-4000-8000-000000000001')$call$,
+ '40001','Stale Sunze candidate selection','Changed source identity rejects even a repeated selection');
+update public.machine_sales_facts set source_row_hash='cash-positive-row-1' where id='52940000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored source row mutation restores exact snapshot identity');
+
+update public.sales_import_runs set status='failed' where id in ('52930000-0000-4000-8000-000000000001','52930000-0000-4000-8000-000000000003');
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for withdrawn import');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale withdrawn import cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale withdrawn import cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale withdrawn import cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after withdrawn import');
+update public.sales_import_runs set status='completed' where id in ('52930000-0000-4000-8000-000000000001','52930000-0000-4000-8000-000000000003');
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored withdrawn import restores exact snapshot identity');
+
+update public.sales_import_runs set meta=meta||'{"payment_time_timezone":"America/New_York"}'::jsonb where id='52930000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for changed import clock proof');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale changed import clock proof cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale changed import clock proof cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale changed import clock proof cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after changed import clock proof');
+update public.sales_import_runs set meta=meta-'payment_time_timezone' where id='52930000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored changed import clock proof restores exact snapshot identity');
+
+update public.reporting_locations set timezone='America/Denver' where id='52910000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for changed venue clock');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale changed venue clock cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale changed venue clock cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale changed venue clock cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after changed venue clock');
+update public.reporting_locations set timezone='America/Los_Angeles' where id='52910000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored changed venue clock restores exact snapshot identity');
+
+update public.machine_sales_facts set reporting_location_id='52910000-0000-4000-8000-000000000002' where id='52940000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for wrong fact location');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale wrong fact location cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale wrong fact location cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale wrong fact location cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after wrong fact location');
+update public.machine_sales_facts set reporting_location_id='52910000-0000-4000-8000-000000000001' where id='52940000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored wrong fact location restores exact snapshot identity');
+
+update public.reporting_machines set sunze_machine_id='SUNZE-REBOUND' where id='52920000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for changed provider machine');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale changed provider machine cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale changed provider machine cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale changed provider machine cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after changed provider machine');
+update public.reporting_machines set sunze_machine_id='SUNZE-POSITIVE-1' where id='52920000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored changed provider machine restores exact snapshot identity');
+
+update public.machine_sales_facts set source='manual_csv' where id='52940000-0000-4000-8000-000000000001';
+select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for wrong source');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale wrong source cannot retain preparation');
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale wrong source cannot retain a prepared purchase');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale wrong source cannot authorize a payout request');
+select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after wrong source');
+update public.machine_sales_facts set source='sunze_browser' where id='52940000-0000-4000-8000-000000000001';
+select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored wrong source restores exact snapshot identity');
+
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,source}','sunze','Restored exact positive proof resumes the existing recommendation');
+
+update public.refund_sunze_cash_correlation_candidates set selection_conflict=true
+where sales_fact_id='52940000-0000-4000-8000-000000000001';
+select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,
+ 'A current selected-sale conflict still rejects recommendation');
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),
+ 'A current selected-sale conflict still rejects payout-field eligibility');
+update public.refund_sunze_cash_correlation_candidates set selection_conflict=false
+where sales_fact_id='52940000-0000-4000-8000-000000000001';
+update public.reporting_machine_refund_managers set status='revoked'
+where reporting_machine_id='52920000-0000-4000-8000-000000000001';
+select throws_ok($call$select public.service_select_sunze_cash_candidate(
+ '52950000-0000-4000-8000-000000000001',
+ (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='52950000-0000-4000-8000-000000000001'),
+ '52940000-0000-4000-8000-000000000001',1,1,
+ '52960000-0000-4000-8000-000000000001')$call$,
+ '42501','Authorized refund manager actor required','Current selecting actor must still be authorized');
+update public.reporting_machine_refund_managers set status='active'
+where reporting_machine_id='52920000-0000-4000-8000-000000000001';
 
 insert into public.sales_import_runs (
   id, source, status, rows_seen, rows_imported, meta, completed_at
@@ -202,17 +327,15 @@ select is(
   'multiple_possible_sales',
   'A later empty import keeps the reviewed link but exposes no current candidate'
 );
-select ok((
-  select jsonb_array_length(result -> 'candidates') = 0
-    and result #>> '{selectedSale,sourceTimeUnvalidated}' = 'true'
-    and result ->> 'sourceReadiness' = 'unavailable'
-  from (
-    select public.service_get_sunze_cash_correlation(
-      '52950000-0000-4000-8000-000000000001',
-      '52960000-0000-4000-8000-000000000001', 100
-    ) as result
-  ) current_read
-), 'The selected sale retains its originating unvalidated-time proof after later attempts');
+create temporary table superseded_positive_read as select
+ public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001',
+ '52960000-0000-4000-8000-000000000001',100) result;
+select is((select jsonb_array_length(result->'candidates') from superseded_positive_read),0,
+ 'A later empty import has no current purchase candidate');
+select is((select result->'selectedSale' from superseded_positive_read),'null'::jsonb,
+ 'A superseded positive snapshot cannot present an old selection as current');
+select is((select result->>'sourceReadiness' from superseded_positive_read),'unavailable',
+ 'An empty partial import remains unavailable rather than covered');
 
 update public.refund_cases
 set incident_time_resolution = 'ambiguous'

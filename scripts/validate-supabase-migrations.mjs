@@ -551,6 +551,20 @@ async function main() {
     log(`Disposable deployed-order baseline matches production catalog: ${catalogProof.functions} functions / ${catalogProof.constraints} constraints.`);
     const inactiveSourceReceipts = restoreInactiveMigrations(repoRoot);
     log(`Applying exact reviewed backdated files: ${JSON.stringify(inactiveSourceReceipts)}`);
+    // Production releases the positive-cash and outreach fixes before the
+    // backdated exception migration. Rehearse that order with reviewed bytes.
+    const exceptionMigration = path.join(tempRoot, 'supabase/migrations',
+      '20261002042649_refund_exception_amounts.sql');
+    const outreachMigration = path.join(tempRoot, 'supabase/migrations',
+      '20261002044630_refund_portal_outreach_reuse.sql');
+    const heldExceptionMigration = path.join(tempRoot, 'refund-exception-last.sql');
+    if (!fs.existsSync(exceptionMigration) || !fs.existsSync(outreachMigration)) {
+      throw new Error('Reviewed exception/outreach migrations are required for deployed-order proof.');
+    }
+    fs.renameSync(exceptionMigration, heldExceptionMigration);
+    run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    fs.renameSync(heldExceptionMigration, exceptionMigration);
+    log('Applying reviewed exception migration after the positive-cash and outreach baseline.');
     run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
     const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
     for (const relativePath of [inactiveTest.relativePath,
