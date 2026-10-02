@@ -110,7 +110,8 @@ create function pg_temp.assist() returns jsonb language sql as $$
  select public.service_submit_refund_assisted_payout_limitation(request_id,pg_temp.gid(63),
  'd5170000-0000-4000-8000-000000000004',fact_version,action_version,body_sha,'I do not use Zelle.') from assisted_binding;
 $$;
-create temp table before_assistance as select to_jsonb(c)-array['status','automation_state','automation_follow_up_due_at','official_action_version','updated_at'] business,
+create temp table before_assistance as select to_jsonb(c)-array['status','automation_state','automation_follow_up_due_at','official_action_version','updated_at','lifecycle_revision'] business,
+ c.lifecycle_revision,
  (select jsonb_agg(to_jsonb(a)) from public.refund_customer_fact_applications a where refund_case_id=c.id) fact_receipts,
  (select jsonb_agg(to_jsonb(m) order by id) from public.refund_case_messages m where refund_case_id=c.id) messages,
  (select jsonb_agg(to_jsonb(g) order by id) from public.refund_gmail_messages g where refund_case_id=c.id) gmail,
@@ -195,8 +196,10 @@ select is(pg_temp.assist()->>'state','received','Reviewed limitation saves throu
 select is((select correction_response from public.refund_wallet_correction_contexts where id=(select request_id from assisted_binding)),
  '{"zelle_payment_contact":{"disposition":"cannot_provide"}}'::jsonb,'Only the supplied targeted limitation is recorded');
 select is((select correction_next_action from public.refund_wallet_correction_contexts where id=(select request_id from assisted_binding)),'review','No-Zelle answer returns to internal review, not another customer question');
-select is((select to_jsonb(c)-array['status','automation_state','automation_follow_up_due_at','official_action_version','updated_at'] from public.refund_cases c where id=pg_temp.cid(63)),
+select is((select to_jsonb(c)-array['status','automation_state','automation_follow_up_due_at','official_action_version','updated_at','lifecycle_revision'] from public.refund_cases c where id=pg_temp.cid(63)),
  (select business from before_assistance),'Purchase, venue, clock, financial and decision facts are all preserved');
+select is((select lifecycle_revision from public.refund_cases where id=pg_temp.cid(63)),
+ (select lifecycle_revision+1 from before_assistance),'Existing form receipt advances lifecycle metadata exactly once');
 select is((select jsonb_agg(to_jsonb(a)) from public.refund_customer_fact_applications a where refund_case_id=pg_temp.cid(63)),(select fact_receipts from before_assistance),'Existing processed Gmail fact receipt is immutable');
 select is((select jsonb_agg(to_jsonb(m) order by id) from public.refund_case_messages m where refund_case_id=pg_temp.cid(63)),(select messages from before_assistance),'No message queued, claimed or sent');
 select is((select jsonb_agg(to_jsonb(g) order by id) from public.refund_gmail_messages g where refund_case_id=pg_temp.cid(63)),(select gmail from before_assistance),'Original customer thread and provider receipt are unchanged');
