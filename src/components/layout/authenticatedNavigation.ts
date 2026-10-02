@@ -99,6 +99,8 @@ export type AuthenticatedNavBuildInput = {
   portalAccessTier: PortalAccessTier;
   canUsePortalTeam: boolean;
   canUsePortalTimekeeping: boolean;
+  canUseLaborReports?: boolean;
+  canUseRefundReports?: boolean;
   currentPathname?: string;
   showAccountLink: boolean;
 };
@@ -219,6 +221,14 @@ export const adminDestinations: AdminDestination[] = [
 
 const coreDestinations: CoreDestination[] = [
   {
+    href: '/portal/time-review',
+    labelKey: 'portal.nav.timeReview',
+    descriptionKey: 'portal.nav.timeReviewDescription',
+    icon: ClipboardCheck,
+    section: 'work',
+    access: 'time-review',
+  },
+  {
     href: '/refunds',
     labelKey: 'portal.nav.refunds',
     descriptionKey: 'portal.nav.refundsDescription',
@@ -280,6 +290,22 @@ export const getVisibleAdminDestinations = ({
     });
 };
 
+const canReviewTime = (input: AuthenticatedNavBuildInput) => {
+  const surfaces = getAllowedAdminSurfaces(input.adminAccess);
+  return input.isSuperAdmin || surfaces.has('*') || surfaces.has('payouts') || input.capabilities.includes('timekeeping.review');
+};
+
+const canOperateRefunds = (input: AuthenticatedNavBuildInput) => {
+  const surfaces = getAllowedAdminSurfaces(input.adminAccess);
+  return input.isSuperAdmin || surfaces.has('*') || surfaces.has('refunds') || input.capabilities.includes('refunds.manage');
+};
+
+const operationalDestinationHref = (href: string, input: AuthenticatedNavBuildInput) => {
+  if (href === '/portal/time-review' && !canReviewTime(input) && input.canUseLaborReports) return `${href}?view=reports`;
+  if (href === '/refunds' && !canOperateRefunds(input) && input.canUseRefundReports) return `${href}?view=reports`;
+  return href;
+};
+
 const canAccessPortalDestination = (
   destinationAccess: PortalAccessLevel,
   input: AuthenticatedNavBuildInput
@@ -293,14 +319,10 @@ const canAccessPortalDestination = (
   }
 
   if (destinationAccess === 'time-review') {
-    const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
-    return (
-      input.isSuperAdmin ||
-      allowedAdminSurfaces.has('*') ||
-      allowedAdminSurfaces.has('payouts') ||
-      input.capabilities.includes('timekeeping.review')
-    );
+    return canReviewTime(input) || input.canUseLaborReports === true;
   }
+
+  if (destinationAccess === 'refunds') return canOperateRefunds(input) || input.canUseRefundReports === true;
 
   const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
   const hasRefundOperationsAccess =
@@ -334,7 +356,7 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
   const coreItems: AuthenticatedNavItem[] = coreDestinations
     .filter((destination) => canAccessPortalDestination(destination.access, input))
     .map((destination) => ({
-      href: destination.href,
+      href: operationalDestinationHref(destination.href, input),
       labelKey: destination.labelKey,
       descriptionKey: destination.descriptionKey,
       icon: destination.icon,
@@ -385,15 +407,16 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
 };
 
 export const isAuthenticatedNavItemActive = (pathname: string, item: AuthenticatedNavItem) => {
-  if (item.href === '/portal') {
+  const href = item.href.split('?')[0];
+  if (href === '/portal') {
     return pathname === '/portal';
   }
 
-  if (item.href === '/admin') {
+  if (href === '/admin') {
     return pathname === '/admin';
   }
 
-  if (item.href === '/refunds') {
+  if (href === '/refunds') {
     return (
       pathname === '/refunds' ||
       pathname.startsWith('/refunds/') ||
@@ -404,7 +427,7 @@ export const isAuthenticatedNavItemActive = (pathname: string, item: Authenticat
     );
   }
 
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return pathname === href || pathname.startsWith(`${href}/`);
 };
 
 export const getAdminDestinationByPath = (pathname: string) =>

@@ -131,7 +131,7 @@ export const translations = {
     'portal.access.refunds': 'Refunds',
     'portal.access.team': 'Team',
     'portal.access.timekeeping': 'Timekeeping',
-    'portal.access.timeReview': 'Time Report',
+    'portal.access.timeReview': 'Timekeeping',
     'portal.access.open': 'Open',
 
     'portal.nav.dashboard': 'Dashboard',
@@ -141,9 +141,9 @@ export const translations = {
     'portal.nav.time': 'Time',
     'portal.nav.timeDescription':
       'Record completed work by machine and view your weekly time.',
-    'portal.nav.timeReview': 'Time Report',
+    'portal.nav.timeReview': 'Timekeeping',
     'portal.nav.timeReviewDescription':
-      'View and correct completed time for managed machines.',
+      'Review time and labor reports for your machines.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.team': 'Team',
@@ -900,7 +900,7 @@ export const translations = {
     'portal.access.refunds': '退款',
     'portal.access.team': '团队',
     'portal.access.timekeeping': '工时',
-    'portal.access.timeReview': '工时报告',
+    'portal.access.timeReview': '工时管理',
     'portal.access.open': '开放',
 
     'portal.nav.dashboard': '仪表盘',
@@ -909,8 +909,8 @@ export const translations = {
     'portal.nav.ordersDescription': '收据、总额和物流跟踪。',
     'portal.nav.time': '工时',
     'portal.nav.timeDescription': '按机器记录已完成的工作，并查看每周工时。',
-    'portal.nav.timeReview': '工时报告',
-    'portal.nav.timeReviewDescription': '查看并更正所管理机器的已完成工时。',
+    'portal.nav.timeReview': '工时管理',
+    'portal.nav.timeReviewDescription': '查看所管理机器的工时和人员报告。',
     'portal.nav.account': '账户设置 / Account Settings',
     'portal.nav.accountDescription': '资料、账单、收货信息和语言偏好。',
     'portal.nav.team': '团队 / Team',

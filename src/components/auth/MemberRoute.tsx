@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
+import { OperationalReportAccess } from './OperationalReportAccess';
 
 export function MemberRoute() {
   const {
@@ -71,6 +72,10 @@ export function MemberRoute() {
         Loading...
       </div>
     );
+  }
+
+  if (isTimeReviewRoute && new URLSearchParams(location.search).get('view') === 'reports') {
+    return <OperationalReportAccess domain="labor" />;
   }
 
   if (canAccessRoute || (isReportingRoute && canAccessReportingDomain)) {
