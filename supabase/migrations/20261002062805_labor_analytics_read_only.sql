@@ -3,7 +3,11 @@ create or replace function public.get_labor_analytics_access()
 returns jsonb language sql stable security definer set search_path = '' as $$
  select jsonb_build_object(
  'hasAccess', auth.uid() is not null and exists(select 1 from public.reporting_machines m where public.can_manage_operator_payout_machine(auth.uid(),m.id)),
- 'canViewPay', auth.uid() is not null and exists(select 1 from public.customer_accounts a where public.can_manage_operator_payout_account(auth.uid(),a.id)));
+ 'canViewPay', auth.uid() is not null and exists(select 1 from public.customer_accounts a where public.can_manage_operator_payout_account(auth.uid(),a.id)),
+ 'dimensions',coalesce((select jsonb_agg(jsonb_build_object('machineId',m.id,'machineLabel',m.machine_label,'locationId',l.id,'locationName',l.name) order by l.name,m.machine_label)
+ from public.reporting_machines m join public.reporting_locations l on l.id=m.location_id
+ where auth.uid() is not null and (public.can_manage_operator_payout_machine(auth.uid(),m.id)
+ or public.can_manage_operator_payout_account(auth.uid(),m.account_id))),'[]'::jsonb));
 $$;
 
 create or replace function public.get_labor_analytics_report(
