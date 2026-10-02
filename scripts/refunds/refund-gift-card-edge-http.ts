@@ -15,6 +15,7 @@ const requests: { path: string; method: string; body: Record<string, unknown>; a
 const unexpected: string[] = [];
 let activationError: string | null = null;
 let enabled = true, quoteAvailable = true, templateValue = 1500, rpcError: string | null = null;
+let reviewException = false;
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, async (req) => {
   const path = new URL(req.url).pathname;
@@ -23,12 +24,13 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
   if (path === '/auth/v1/user') return json({ id: '81000000-0000-4000-8000-000000000009', email: 'manager@example.invalid', role: 'authenticated', is_anonymous: false });
   if (path.startsWith('/rest/v1/rpc/')) {
     const name = path.split('/').at(-1);
+    if (name === 'service_begin_refund_manager_notification') return json({ claimed: false, actionId: caseId, attentionVersion: 1, channel: 'portal_only', deliveryState: 'portal_only' });
     if (name === 'service_refund_gift_card_enabled') return activationError ? json({ code: activationError, message: 'Synthetic activation query failure' }, 404) : json(enabled);
     if (name === 'service_get_refund_gift_card_offer') return json(quoteAvailable ? offer : null);
     if (name === 'service_materialize_refund_gift_card_offer') return json({ ...offer, pool_id: derivedPoolId });
     if (name === 'service_refund_machine_is_public') return json(true);
     if (name === 'record_public_intake_rate_limit_event') return json(1);
-    if (name === 'service_accept_refund_gift_card_offer') return json(gift);
+    if (name === 'service_accept_refund_gift_card_offer') return json(reviewException ? { ...gift, state: 'manager_review', issued_at: null, value: 9000 } : gift);
     if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });
     if (name === 'admin_resend_refund_gift_card' || name === 'admin_decide_refund_gift_card') {
       if (rpcError) return json({ code: rpcError, message: 'Synthetic denied or unresolved delivery' }, 403);
@@ -39,7 +41,11 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
     location_id: poolId, refund_public_display_label: null, reporting_locations: { id: poolId, name: 'Synthetic location', timezone: 'UTC', status: 'active' } });
   if (path === '/rest/v1/refund_machine_qr_codes') return json({ id: poolId, reporting_machine_id: machineId });
   if (path === '/rest/v1/refund_qr_claim_contexts') return json({ id: caseId, opened_at: new Date().toISOString(), expires_at: '2030-01-01T00:00:00Z' });
-  if (path === '/rest/v1/refund_gift_card_pools') return json({ face_value_cents: templateValue });
+  if (path === '/rest/v1/refund_gift_card_pools') return json({ ...offer, id: poolId, face_value_cents: templateValue });
+  if (path === '/rest/v1/refund_customer_contact_settings') return json({ automatic_customer_contact_enabled: false });
+  if (path === '/rest/v1/refund_case_messages') return json(req.method === 'POST' ? { id: caseId } : null);
+  if (path === '/rest/v1/refund_case_events') return json(null);
+  if (path === '/rest/v1/reporting_machine_refund_managers') return json([]);
   if (path === '/rest/v1/refund_cases') return json({ id: caseId, public_reference: 'RF-EDGE-SYNTHETIC', status: 'needs_review', correlation_status: 'not_started' });
   unexpected.push(`${req.method} ${path}`);
   return json({ message: 'Unexpected synthetic fixture request' }, 500);
@@ -91,6 +97,30 @@ try {
     assertEquals(requests.filter((r) => r.path.endsWith('/service_accept_refund_gift_card_offer')).length, 1);
     assert(!requests.some((r) => /nayax|resend|refund_case_messages/.test(r.path)));
   }
+  reviewException = true; quoteAvailable = false; requests.length = 0;
+  const reviewTerms = await post(intake, { action: 'giftCardOffer', machineId, amount: '90.00', issueCategory: 'expected_cash_change' });
+  assertEquals(reviewTerms.status, 200); assertEquals(reviewTerms.data.offer.eligible_locations, offer.eligible_locations);
+  assertEquals(reviewTerms.data.offer.one_use, true);
+  const cashChange = await post(intake, { ...submission, paymentMethod: 'cash', paymentAmount: '10.00',
+    issueCategory: 'expected_cash_change', cashInsertedAmount: '100.00', expectedChangeAmount: '90.00',
+    giftCardOffer: undefined, customerLocale: 'es' });
+  assertEquals(cashChange.status, 200, JSON.stringify(cashChange.data));
+  assertEquals(cashChange.data.gift_card.state, 'manager_review');
+  const reviewInsert = requests.find((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST');
+  assert(reviewInsert);
+  assertEquals(reviewInsert.body.payment_amount_cents, 1000);
+  assertEquals(reviewInsert.body.cash_inserted_amount_cents, 10000);
+  assertEquals(reviewInsert.body.expected_change_amount_cents, 9000);
+  assertEquals(reviewInsert.body.refund_amount_cents, 0);
+  assertEquals(reviewInsert.body.gift_card_value_cents, 9000);
+  assertEquals(reviewInsert.body.gift_card_state, 'manager_review');
+  assertEquals((reviewInsert.body.intake_meta as Record<string,unknown>).customer_locale, 'es');
+  assert(!requests.some((r) => r.path.endsWith('/service_materialize_refund_gift_card_offer')));
+  assert(!requests.some((r) => /nayax|resend/.test(r.path)));
+  const acknowledgement = requests.find((r) => r.path === '/rest/v1/refund_case_messages' && r.method === 'POST');
+  assert(acknowledgement); assertEquals(acknowledgement.body.subject, 'Recibimos su solicitud de tarjeta de regalo de Bloomjoy');
+  assert(String(acknowledgement.body.body).includes('Nuestro equipo la está revisando'));
+  quoteAvailable = true; reviewException = false;
   requests.length = 0;
   assertEquals((await post(intake, { ...submission, giftCardOffer: { ...submission.giftCardOffer, value: 2000 } })).status, 400);
   assert(!requests.some((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST'));

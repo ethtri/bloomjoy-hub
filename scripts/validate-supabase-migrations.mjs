@@ -551,7 +551,36 @@ async function main() {
     log(`Disposable deployed-order baseline matches production catalog: ${catalogProof.functions} functions / ${catalogProof.constraints} constraints.`);
     const inactiveSourceReceipts = restoreInactiveMigrations(repoRoot);
     log(`Applying exact reviewed backdated files: ${JSON.stringify(inactiveSourceReceipts)}`);
+    // Production releases the positive-cash and outreach fixes before the
+    // backdated exception migration. Rehearse that order with reviewed bytes.
+    const exceptionMigration = path.join(tempRoot, 'supabase/migrations',
+      '20261002042649_refund_exception_amounts.sql');
+    const outreachMigration = path.join(tempRoot, 'supabase/migrations',
+      '20261002044630_refund_portal_outreach_reuse.sql');
+    const heldExceptionMigration = path.join(tempRoot, 'refund-exception-last.sql');
+    if (!fs.existsSync(exceptionMigration) || !fs.existsSync(outreachMigration)) {
+      throw new Error('Reviewed exception/outreach migrations are required for deployed-order proof.');
+    }
+    const migrationDirectory = path.dirname(exceptionMigration);
+    const laterDirectory = path.join(tempRoot, 'after-exception-migrations');
+    const laterMigrations = fs.readdirSync(migrationDirectory)
+      .filter((name) => name.endsWith('.sql') && name.split('_')[0] > '20261002044630').sort();
+    fs.mkdirSync(laterDirectory);
+    for (const name of laterMigrations) {
+      fs.renameSync(path.join(migrationDirectory, name), path.join(laterDirectory, name));
+    }
+    fs.renameSync(exceptionMigration, heldExceptionMigration);
     run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    fs.renameSync(heldExceptionMigration, exceptionMigration);
+    log('Applying reviewed exception migration after the positive-cash and outreach baseline.');
+    run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    // Future files retain their chronological order after their prerequisites.
+    for (const name of laterMigrations) {
+      fs.renameSync(path.join(laterDirectory, name), path.join(migrationDirectory, name));
+    }
+    if (laterMigrations.length > 0) {
+      run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    }
     const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
     for (const relativePath of [inactiveTest.relativePath,
       'supabase/tests/refund_customer_same_case_update_access.sql',
