@@ -83,7 +83,7 @@ export default function RefundCorrectionPage() {
     },
   });
   const context = demo ? demoContext(location.search) : query.data ?? renewed;
-  const { locale, setLocale } = useRefundCustomerLanguage(received?.locale ?? context?.locale);
+  const { locale, setLocale, t } = useRefundCustomerLanguage(received?.locale ?? context?.locale);
   const es = locale === 'es';
   const hasReceived = received !== null;
   const copy = (english: string, spanish: string) => es ? spanish : english;
@@ -176,7 +176,7 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 text-sm text-muted-foreground">{copy('We’ll email you about the next step. Saving these details does not send or confirm a payment.', 'Le enviaremos un correo sobre el siguiente paso. Guardar estos detalles no envía ni confirma un pago.')}</p>
           <p className="mt-6 font-medium">{savedContext.publicReference}</p>
           {savedContext.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
-          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{t(error)}</p>}
         </section> : openingFailed ? <section aria-live="polite">
           <h1 className="text-2xl font-semibold">{copy('We couldn’t open your request.', 'No pudimos abrir su solicitud.')}</h1>
           <p className="mt-4 leading-7">{copy('Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.', 'Revise su conexión e inténtelo de nuevo. También puede responder al correo de Bloomjoy para recibir ayuda con esta misma solicitud.')}</p>
@@ -186,7 +186,7 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 leading-7">{copy('Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.', 'Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.')}</p>
           {context?.publicReference && <p className="mt-6 font-medium">{context.publicReference}</p>}
           {context?.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
-          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{t(error)}</p>}
         </section> : <>
           <p className="text-sm font-medium text-muted-foreground">{context.publicReference}</p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{payoutDestination ? copy('Add your payout destination', 'Agregue el destino de su reembolso') : copy('Update your refund request', 'Actualice su solicitud de reembolso')}</h1>
@@ -196,7 +196,7 @@ export default function RefundCorrectionPage() {
           <form onSubmit={submit} className="mt-8 space-y-7" noValidate>
             {locationChanged && <p role="status" className="text-sm leading-6 text-muted-foreground">{copy('Please check the saved date and time for this location. Use the local time where you bought the item; you do not need to work out a time zone. You can tell us if you’re not sure.', 'Revise la fecha y la hora guardadas para esta ubicación. Use la hora local del lugar de compra; no necesita calcular la zona horaria. Puede indicar que no está seguro.')}</p>}
             {!cash && (answers.payment_method?.disposition === 'changed' || answers.payment_interaction?.disposition === 'changed') && <p className="text-sm leading-6 text-muted-foreground">{copy('When you change how you paid, please check the card details for that payment. Choose “Not sure / can’t provide” if you cannot confirm them.', 'Si cambia cómo pagó, revise los detalles de la tarjeta de ese pago. Elija “No lo sé / No lo tengo” si no puede confirmarlos.')}</p>}
-            {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-4 text-sm">{error}</div>}
+            {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-4 text-sm">{t(error)}</div>}
             {fields.map((field) => {
               const answer = answers[field];
               const isRequested = requested.includes(field);

@@ -1,6 +1,10 @@
 // Refund-only copy: the portal language preference has a different audience.
 export type RefundCustomerLocale = 'en' | 'es';
 export const refundSpanishCopy = {
+  'We couldn’t open a fresh update. Your saved response is unchanged. Try again, or use the latest Bloomjoy email for help with this same request.': 'No pudimos abrir una actualización. Su respuesta guardada no cambió. Inténtelo de nuevo o use el último correo de Bloomjoy para recibir ayuda con esta misma solicitud.',
+  'Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.': 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.',
+  'Choose a saved detail to update or confirm. Your earlier answers are already saved.': 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.',
+  'We couldn’t save this response. Your answers are still here. Try again, or reply to your Bloomjoy email for help with this same request.': 'No pudimos guardar la respuesta. Sus respuestas siguen aquí. Inténtelo de nuevo o responda al correo de Bloomjoy para obtener ayuda con esta misma solicitud.',
   'Confirming this machine': 'Confirmando esta máquina',
   'We are securely recording where and when you opened the refund form.': 'Estamos registrando de forma segura dónde y cuándo abrió el formulario de reembolso.',
   'Machine confirmed': 'Máquina confirmada',
