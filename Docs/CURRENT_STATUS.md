@@ -8,6 +8,16 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- A #1429/#628 structured assistance repair is in verification. RF-FF2A88FA's
+  processed mixed reply contains an already-supplied payout limitation, while a
+  later legacy form still waits for that answer. The proposed service-only path
+  saves only that reviewed limitation through the existing same-case form,
+  preserving its fact receipt and purchase/financial evidence. The exact
+  replacement machine and purchase time remain unproved. No live assistance,
+  customer question, message, decision or payment has occurred. RF-720E12A5's
+  approved label does not prove any of its ambiguous purchase occurrences;
+  ordinary lookup eligibility has not been broadened.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.
