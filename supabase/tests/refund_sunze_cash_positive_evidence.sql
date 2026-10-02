@@ -100,6 +100,16 @@ insert into public.sales_import_runs(id,source,status,rows_seen,rows_imported,me
 values('52930000-0000-4000-8000-000000000004','sunze_browser','completed',0,0,
   '{"github_run_id":"cash-unrelated-week","window_start":"2026-10-01","window_end":"2026-10-07","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
   '2099-10-07 20:00:00+00');
+-- Partial or malformed recorded bounds do not establish relevant coverage.
+-- Completely absent legacy bounds retain their conservative superseder rule.
+insert into public.sales_import_runs(id,source,status,rows_seen,rows_imported,meta,completed_at)
+values
+  ('52930000-0000-4000-8000-000000000005','sunze_browser','completed',0,0,
+    '{"github_run_id":"cash-partial-window","window_start":"2026-09-01","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
+    '2099-10-08 20:00:00+00'),
+  ('52930000-0000-4000-8000-000000000006','sunze_browser','completed',0,0,
+    '{"github_run_id":"cash-malformed-window","window_start":"unknown","window_end":"2026-09-30","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
+    '2099-10-09 20:00:00+00');
 
 -- Model the existing historical empty research hold. It is lifted only
 -- after the exact new cash evidence has an explicit current reviewed link.

@@ -8,6 +8,17 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- PR #1705 is verifying RF-C83C2E1E's historical cash evidence and research
+  projection. A newer export for another week hid published positives, while
+  legacy stage/payment/queue labels advertised payout despite Agent research.
+  The bounded repair retains relevant positives and aligns those labels. Source
+  clock/complete coverage remain unvalidated; no purchase is selected or paid.
+- RF-6197F008's original owner-mailbox Gmail source and reminder manager copy
+  were recovered read-only (#1426). The original ledger body is reconstructed;
+  send provenance is established, customer delivery is not. Historical Reply-To
+  mailbox verification and supported case/message source adoption remain open.
+  No message was replayed or marked delivered from a later status notice.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.
