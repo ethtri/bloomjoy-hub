@@ -90,6 +90,27 @@ values
     '2026-09-29 18:00:00+00', '2026-09-29 11:00:00', 'America/Los_Angeles', 'exact',
     'cash', 1000, 'needs_review', 'manual_review');
 
+-- A newer daily export covers a different period. It cannot withdraw already
+-- published historical positives or turn a partial search into no-sale proof.
+update public.sales_import_runs set meta=meta||
+  '{"window_start":"2026-09-01","window_end":"2026-09-30"}'::jsonb
+where id in ('52930000-0000-4000-8000-000000000001',
+  '52930000-0000-4000-8000-000000000003');
+insert into public.sales_import_runs(id,source,status,rows_seen,rows_imported,meta,completed_at)
+values('52930000-0000-4000-8000-000000000004','sunze_browser','completed',0,0,
+  '{"github_run_id":"cash-unrelated-week","window_start":"2026-10-01","window_end":"2026-10-07","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
+  '2099-10-07 20:00:00+00');
+-- Partial or malformed recorded bounds do not establish relevant coverage.
+-- Completely absent legacy bounds retain their conservative superseder rule.
+insert into public.sales_import_runs(id,source,status,rows_seen,rows_imported,meta,completed_at)
+values
+  ('52930000-0000-4000-8000-000000000005','sunze_browser','completed',0,0,
+    '{"github_run_id":"cash-partial-window","window_start":"2026-09-01","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
+    '2099-10-08 20:00:00+00'),
+  ('52930000-0000-4000-8000-000000000006','sunze_browser','completed',0,0,
+    '{"github_run_id":"cash-malformed-window","window_start":"unknown","window_end":"2026-09-30","machine_coverage_verified":true,"visible_machine_count_mismatch":false}'::jsonb,
+    '2099-10-09 20:00:00+00');
+
 -- Model the existing historical empty research hold. It is lifted only
 -- after the exact new cash evidence has an explicit current reviewed link.
 update public.refund_cases set correlation_status='no_match',correlation_source='sunze',
@@ -199,6 +220,8 @@ select ok((
 
 
 create temporary table positive_current_proof as select public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z') source_key;
+select ok((select source_key like 'positive:cash-positive-run-1:%' from positive_current_proof),
+ 'Newer unrelated import does not hide the relevant historical source group');
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001'))->>'evidenceBasis','cash_multiple_reviewed','Reviewed positive purchase supplies current preparation proof');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,source}','sunze','Reviewed positive purchase uses the existing Sunze recommendation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,amountCents}','975','Reviewed source amount remains authoritative despite customer estimate');

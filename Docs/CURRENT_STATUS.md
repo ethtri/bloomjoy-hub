@@ -15,6 +15,26 @@ orientation snapshot; it is not a backlog or release ledger.
   isolated `npm run reporting:preview` serves the actual Finance UI with labeled
   synthetic data. Production and shared UAT were not changed for preview access.
 
+- PR #1705 is verifying RF-C83C2E1E's historical cash evidence and research
+  projection. A newer export for another week hid published positives, while
+  legacy stage/payment/queue labels advertised payout despite Agent research.
+  The bounded repair retains relevant positives and aligns those labels. Source
+  clock/complete coverage remain unvalidated; no purchase is selected or paid.
+- RF-6197F008's original owner-mailbox Gmail source and reminder manager copy
+  were recovered read-only (#1426). The original ledger body is reconstructed;
+  send provenance is established, customer delivery is not. Historical Reply-To
+  mailbox verification and supported case/message source adoption remain open.
+  No message was replayed or marked delivered from a later status notice.
+
+- RF-4B414AD0's due legacy cash payout reminder failed before transport because
+  the generic automatic-mail guard treats approval as terminal. A separate
+  #1707/#1429/#628 repair now binds authorization to the exact due reminder and its
+  delivered original request, preserving current Manager authority, one-followup
+  limits and customer-only correspondence. The sole migration and six dependent
+  workers are deployed; exact bodies, permissions, protected records and all
+  twelve served bundles passed verification. The existing failed reminder remains
+  unchanged and has not been retried or sent; delivery recovery is separate.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.
