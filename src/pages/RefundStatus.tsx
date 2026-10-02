@@ -74,7 +74,6 @@ const formatLastUpdated = (value: string, locale: 'en' | 'es') => {
 };
 
 export default function RefundStatusPage() {
-  const { locale, setLocale, t } = useRefundCustomerLanguage();
   const location = useLocation();
   const [token, setToken] = useState(getInitialToken);
   const isDemoMode = isLocalUatDemoForced();
@@ -121,6 +120,7 @@ export default function RefundStatusPage() {
     refetchOnWindowFocus: true,
   });
 
+  const { locale, setLocale, t } = useRefundCustomerLanguage(statusQuery.data?.customerLocale);
   const lifecycle = demoLifecycle ?? statusQuery.data?.lifecycle ?? null;
   const giftCard = statusQuery.data?.giftCard ?? null;
   const giftCopy = giftCard ? giftCardStatusCopy(giftCard) : null;

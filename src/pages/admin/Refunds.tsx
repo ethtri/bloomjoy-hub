@@ -4704,6 +4704,10 @@ export default function AdminRefundsPage() {
     const key = `${selectedCase?.id}:${officialActionVersion}:${transactionKey}`;
     return resolveManagerRefundAmountDraft(managerCardAmountDraft, key, fullAmountCents);
   };
+  useEffect(() => {
+    setManagerCardAmountDraft(null);
+  }, [selectedCase?.id, selectedCase?.officialActionVersion,
+    selectedCase?.selectedNayaxTransaction?.transactionId, editor?.matchedNayaxCandidateToken]);
 
   const handleApproveReviewedNayaxCandidate = async () => {
     if (nayaxRefundInFlightRef.current || !selectedCase || !editor ||

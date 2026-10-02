@@ -110,7 +110,7 @@ const ResultPanel = ({
             ? t("We still could not identify one transaction with enough confidence. Your request is now ready for the alternative resolution route.")
             : t("Your corrected details are saved. Our system will retry the transaction check without asking the machine manager to investigate your card details.")}
       </p>
-      <div className="mt-7 rounded-2xl bg-pink-50 px-5 py-4 text-sm text-slate-700">{t("Reference:")}<span className="font-bold text-slate-950">{publicReference}</span>
+      <div className="mt-7 rounded-2xl bg-pink-50 px-5 py-4 text-sm text-slate-700">{t("Reference:")} <span className="font-bold text-slate-950">{publicReference}</span>
       </div>
       <p className="mt-5 text-sm leading-6 text-slate-500">{t("You do not need to submit another form. We will email you when the refund request is resolved.")}</p>
     </div>
@@ -118,7 +118,6 @@ const ResultPanel = ({
 };
 
 export default function RefundWalletCorrectionPage() {
-  const { locale, setLocale, t } = useRefundCustomerLanguage();
   const [searchParams] = useSearchParams();
   const token = (searchParams.get('token') ?? '').trim();
   const isDemoMode = isLocalUatDemoForced();
@@ -152,6 +151,7 @@ export default function RefundWalletCorrectionPage() {
     () => (isDemoMode ? demoContext() : liveContext ?? null),
     [isDemoMode, liveContext]
   );
+  const { locale, setLocale, t } = useRefundCustomerLanguage(context?.customerLocale);
 
   useEffect(() => {
     if (!context) return;
@@ -186,7 +186,7 @@ export default function RefundWalletCorrectionPage() {
       return;
     }
     if (!form.amountConfirmed) {
-      toast.error(`Confirm that the purchase amount was ${formatCurrency(context.paymentAmountCents)}.`);
+      toast.error(locale === 'es' ? `Confirme que el importe de la compra fue ${formatCurrency(context.paymentAmountCents)}.` : `Confirm that the purchase amount was ${formatCurrency(context.paymentAmountCents)}.`);
       return;
     }
 
@@ -267,7 +267,7 @@ export default function RefundWalletCorrectionPage() {
                 <p>{t("Enter only the virtual card’s last four digits. We will never ask for the full card number, security code, expiration date, wallet password, or a screenshot.")}</p>
               </div>
 
-              <form className="mt-7 space-y-6" onSubmit={handleSubmit}>
+              <form noValidate className="mt-7 space-y-6" onSubmit={handleSubmit}>
                 <div className="space-y-2">
                   <Label htmlFor="walletType">{t("Mobile wallet used")}</Label>
                   <select

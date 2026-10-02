@@ -204,6 +204,6 @@ export const resolveRefundThankYouContext = ({
     ?? (canUseSavedReceipt ? savedReceipt?.paymentMethod : undefined);
 
   const resolutionMethod = navigationState?.resolutionMethod ?? (canUseSavedReceipt ? savedReceipt?.resolutionMethod : undefined);
-  const requiresManagerReview = navigationState?.requiresManagerReview ?? (canUseSavedReceipt ? savedReceipt?.requiresManagerReview : undefined);
+  const requiresManagerReview = navigationState?.requiresManagerReview ?? (canUseSavedReceipt ? savedReceipt?.requiresManagerReview : false) ?? false;
   return { reference, statusToken, paymentMethod, resolutionMethod, requiresManagerReview };
 };

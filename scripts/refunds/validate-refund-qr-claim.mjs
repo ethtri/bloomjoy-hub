@@ -142,7 +142,8 @@ expectAll(
 
 assert.ok(
   requestPageSource.includes('qrClaim ? (') &&
-    requestPageSource.includes('<Label htmlFor="machine">Machine location</Label>'),
+    requestPageSource.includes('<Label htmlFor="machine">{t("Machine location")}</Label>') &&
+    requestPageSource.includes('id="machine"'),
   'The QR journey should show a locked machine while manual intake retains the selector'
 );
 

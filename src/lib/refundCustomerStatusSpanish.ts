@@ -1,4 +1,16 @@
-import type { RefundCustomerLifecycle, RefundCustomerStatusCopy } from './refundCustomerStatus';
+import type { RefundCustomerLifecycle, RefundCustomerStatusCopy } from './refundCustomerStatus.ts';
+import { getRefundCompletionContactPresentation } from './refundCompletionContact.ts';
+
+const spanishCompletionContactDetails: Record<string, string> = {
+  'The refund is confirmed, but no customer completion update is recorded.': 'El reembolso está confirmado, pero aún no consta un correo con la actualización final.',
+  'The refund is confirmed and its saved customer update is queued or sending.': 'El reembolso está confirmado y el correo con la actualización está en cola o enviándose.',
+  'The email provider accepted the saved customer update. Inbox delivery is not confirmed.': 'El proveedor de correo aceptó la actualización. Aún no se ha confirmado la entrega en su bandeja de entrada.',
+  'A provider callback confirms delivery of the saved customer update.': 'El proveedor confirmó la entrega del correo con la actualización.',
+  'The saved customer update has a definite send failure.': 'No se pudo enviar el correo con la actualización.',
+  'The saved customer update may have reached the provider, but its send outcome is not confirmed.': 'Es posible que la actualización haya llegado al proveedor, pero aún no se ha confirmado el resultado del envío.',
+  'The email provider reported that the saved customer update bounced.': 'El proveedor informó que el correo con la actualización fue devuelto.',
+  'The email provider reported a complaint for the saved customer update.': 'El proveedor informó de una queja sobre el correo con la actualización.',
+};
 
 export function spanishRefundStatusCopy(lifecycle: RefundCustomerLifecycle, english: RefundCustomerStatusCopy): RefundCustomerStatusCopy {
   const stage = lifecycle.stage;
@@ -27,13 +39,10 @@ export function spanishRefundStatusCopy(lifecycle: RefundCustomerLifecycle, engl
   } else if (stage === 'refund_confirmed' || stage === 'customer_notified') {
     title = 'Reembolso confirmado';
     const unknownDate = lifecycle.reasonCode === 'settlement_time_unknown';
-    detail = unknownDate ? 'Nayax confirma que se completó el reembolso aprobado. No está disponible la fecha exacta de procesamiento.' : 'Nayax aprobó su reembolso. Su banco puede tardar hasta 4 días hábiles en reflejarlo en su cuenta.';
-    const message = lifecycle.messageState.state;
-    detail += message === 'delivered' ? ' Se confirmó la entrega del correo con la actualización.'
-      : ['sent', 'accepted'].includes(message) ? ' Se envió el correo con la actualización; aún no se confirmó su entrega.'
-      : ['queued', 'claimed', 'pending'].includes(message) ? ' Estamos enviando el correo con la actualización.'
-      : ' Nuestro equipo está revisando el envío del correo con la actualización.';
-    nextExpectation = unknownDate ? 'No necesita una nueva solicitud. Responda al correo de Bloomjoy si el abono no aparece.' : 'Si el abono no aparece después de 4 días hábiles, responda al correo de Bloomjoy para recibir ayuda.';
+    detail = unknownDate ? 'Se completó el reembolso aprobado. No está disponible la fecha exacta de procesamiento.' : 'Se completó el reembolso aprobado.';
+    const contact = getRefundCompletionContactPresentation(lifecycle);
+    detail += ` ${spanishCompletionContactDetails[contact.detail]}`;
+    nextExpectation = 'No necesita una nueva solicitud. Responda al correo de Bloomjoy si necesita ayuda con su reembolso.';
   } else if (stage === 'denied') {
     title = 'Revisión terminada'; detail = 'No pudimos aprobar esta solicitud de reembolso.';
     nextExpectation = 'Responda al correo de Bloomjoy si omitimos o entendimos mal algún dato. Mantendremos la misma solicitud para revisarla.';

@@ -127,6 +127,7 @@ export type RefundQrClaim = {
 };
 
 export type RefundWalletCorrectionContext = {
+  customerLocale?: 'en' | 'es';
   state: 'ready';
   expiresAt: string;
   version: number;
@@ -151,6 +152,7 @@ type InspectRefundWalletCorrectionResponse = {
 };
 
 export type SubmitRefundWalletCorrectionInput = {
+  customerLocale?: 'en' | 'es';
   token: string;
   walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
   cardNetwork: RefundCardNetwork | '';
@@ -248,6 +250,7 @@ export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['r
 };
 
 type RefundCustomerStatusResponse = {
+  customerLocale?: 'en' | 'es';
   gift_card?: unknown;
   error?: string;
   errorCode?: string;
@@ -1845,7 +1848,7 @@ export const submitRefundRequest = async (
 
 export const fetchRefundCustomerStatus = async (
   token: string,
-): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null }> => {
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null; customerLocale: 'en' | 'es' }> => {
   const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
     action: 'readStatus',
     token,
@@ -1856,6 +1859,7 @@ export const fetchRefundCustomerStatus = async (
   return {
     lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
     giftCard: requireRefundGiftCardStatus(data.gift_card),
+    customerLocale: data.customerLocale === 'es' ? 'es' : 'en',
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
   };
 };

@@ -247,6 +247,8 @@ export default function RefundRequestPage() {
 
   const isCashChange = form.paymentMethod === 'cash' && form.issueCategory === 'expected_cash_change';
   const isPartialItems = form.issueCategory === 'partial_items';
+  const reportedProductCost = Number(form.cashInsertedAmount) - Number(form.expectedChangeAmount);
+  const paymentAmount = isCashChange && reportedProductCost > 0 ? reportedProductCost.toFixed(2) : isCashChange ? '' : form.paymentAmount;
   const offerAmount = isCashChange ? form.expectedChangeAmount : form.paymentAmount;
   const requiresManagerReview = isCashChange || isPartialItems || Math.ceil(Number(offerAmount) / 5) * 5 > 25;
 
@@ -257,10 +259,10 @@ export default function RefundRequestPage() {
     (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || choosesGiftCard)
       ? form.cashMachineId : selectedMachine?.machineId);
   const offerQuery = useQuery({
-    queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, offerAmount],
+    queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, offerAmount, form.issueCategory],
     queryFn: () => fetchRefundGiftCardOffer({ machineId: offerMachineId || undefined,
       selectionKey: offerMachineId ? undefined : form.selectionKey,
-      amount: offerAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash' }),
+      amount: offerAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash', issueCategory: form.issueCategory }),
     enabled: !isDemoMode && choosesGiftCard && Boolean(form.selectionKey) && Number(offerAmount) > 0 &&
       !((form.paymentMethod === 'cash' || choosesGiftCard) && selectedMachine?.selectionKind === 'livermore_pair' && !form.cashMachineId),
     retry: false,
@@ -269,9 +271,9 @@ export default function RefundRequestPage() {
   // Only an explicit server response can preserve the pre-launch cash process.
   // Errors, stockouts and missing denominations never imply a disabled pool.
   const legacyCash = form.paymentMethod === 'cash' && (!giftCardAvailable || offerQuery.data?.giftCardEnabled === false);
-  const wantsGiftCard = (choosesGiftCard && !legacyCash) || (form.paymentMethod === 'cash' && (isCashChange || isPartialItems));
+  const wantsGiftCard = choosesGiftCard && !legacyCash;
   const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
-  const resolutionMethod: RefundResolutionMethod = wantsGiftCard || isCashChange ? 'gift_card' : 'original_payment';
+  const resolutionMethod: RefundResolutionMethod = wantsGiftCard ? 'gift_card' : 'original_payment';
   const giftCardOffer = offerQuery.data?.offer ?? null;
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
@@ -336,7 +338,7 @@ export default function RefundRequestPage() {
     if (!/^\d{2}:\d{2}$/.test(incidentTime)) {
       errors.incidentTime = t("Enter the approximate purchase time.");
     }
-    if (!/^\d+(?:\.\d{1,2})?$/.test(form.paymentAmount.trim()) || Number(form.paymentAmount) <= 0) {
+    if (!isCashChange && (!/^\d+(?:\.\d{1,2})?$/.test(paymentAmount.trim()) || Number(paymentAmount) <= 0)) {
       errors.paymentAmount = t("Enter the amount you paid.");
     }
     if (
@@ -412,7 +414,7 @@ export default function RefundRequestPage() {
         paymentMethod: form.paymentMethod as 'card' | 'cash',
         resolutionMethod,
         giftCardOffer: wantsGiftCard && giftCardOffer ? { poolId: giftCardOffer.pool_id, value: giftCardOffer.value, expiresAt: giftCardOffer.expires_at } : undefined,
-        paymentAmount: form.paymentAmount.trim(),
+        paymentAmount: paymentAmount.trim(),
         cashInsertedAmount: isCashChange ? form.cashInsertedAmount.trim() : undefined,
         expectedChangeAmount: isCashChange ? form.expectedChangeAmount.trim() : undefined,
         customerLocale: locale,
@@ -778,8 +780,8 @@ export default function RefundRequestPage() {
                   </RadioGroup>
                 </fieldset>
 
-                <div>
-                  <Label htmlFor="payment-amount">{t(isCashChange ? t("Purchase amount (cost of the items)") : t("Amount paid"))}</Label>
+                {!isCashChange && <div>
+                  <Label htmlFor="payment-amount">{t("Amount paid")}</Label>
                   <Input
                     id="payment-amount"
                     inputMode="decimal"
@@ -795,8 +797,7 @@ export default function RefundRequestPage() {
                       {t(fieldErrors.paymentAmount)}
                     </p>
                   )}
-                  {isCashChange && <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('Enter the cost of the items here. Enter the bill you inserted below.')}</p>}
-                </div>
+                </div>}
 
                 {(form.paymentMethod === 'cash' || wantsGiftCard) &&
                   selectedMachine?.selectionKind === 'livermore_pair' && (
@@ -846,6 +847,7 @@ export default function RefundRequestPage() {
                   {wantsGiftCard && <div className="space-y-2 rounded-lg border border-pink-200 bg-pink-50 p-4" aria-live="polite">
                     {requiresManagerReview ? <>
                       <p className="text-sm font-semibold leading-6">{t('Proposed gift card. A manager will review the amount before it is issued.')}</p>
+                      {giftCardOffer && <RefundGiftCardTerms offer={giftCardOffer} locale={locale} hideValue />}
                       <p className="text-xs leading-5 text-pink-900">{t('Submitting accepts the gift card terms. The final amount depends on manager review.')}</p>
                     </> : giftCardOffer ? <><RefundGiftCardTerms offer={giftCardOffer} locale={locale} />
                       <p className="text-sm leading-6">{locale === 'es' ? 'Use el código y siga las instrucciones del correo con su tarjeta de regalo.' : giftCardOffer.redemption_instructions}</p>
@@ -1008,6 +1010,7 @@ export default function RefundRequestPage() {
                       {fieldErrors[key] && <p id={`${fieldElementId[key]}-error`} role="alert" className="mt-1.5 text-sm text-destructive">{t(fieldErrors[key])}</p>}
                     </div>)}
                   </div>
+                  {reportedProductCost > 0 && form.cashInsertedAmount && form.expectedChangeAmount && <p className="text-sm leading-6">{locale === 'es' ? 'Costo de los productos informado' : 'Reported product cost'}: ${reportedProductCost.toFixed(2)}. {locale === 'es' ? 'Se calcula a partir de los importes que indicó; aún no se ha verificado.' : 'Calculated from the amounts you entered; not yet verified.'}</p>}
                 </fieldset>}
                 {requiresManagerReview && <p role="status" className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm leading-6">{t('Your request will be reviewed by a manager. We will email you when the review is complete.')}</p>}
 

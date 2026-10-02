@@ -65,9 +65,11 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
       </div>}
       {card.cash_inserted_amount != null && <p className="text-sm leading-6">Cash inserted: {giftCardAmount(card.cash_inserted_amount, card.currency)} · Expected change: {giftCardAmount(card.expected_change_amount ?? 0, card.currency)}</p>}
       <div className="border-t border-border pt-4">
-        <h4 className="mb-2 text-sm font-semibold">Proposed gift card</h4>
-        {card.can_decide && !proposedValue ? <p className="text-sm text-muted-foreground">Enter a valid amount to preview the gift card terms.</p>
-          : <RefundGiftCardTerms offer={{ ...card, value: card.can_decide && proposedValue ? proposedValue : card.value }} />}
+        <h4 className="mb-2 text-sm font-semibold">{card.can_decide ? 'Proposed gift card value' : 'Gift card terms'}</h4>
+        {card.can_decide ? <>
+          <p className="text-xl font-semibold">{proposedValue ? giftCardAmount(proposedValue, card.currency) : 'Enter a valid gift amount'}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">This previews the value only. Approval verifies an available gift card and its locations and expiry before assigning it. Verified terms appear here after the decision.</p>
+        </> : <RefundGiftCardTerms offer={card} />}
       </div>
       <div className="border-t border-border pt-4 text-sm leading-6">
         <h4 className="font-semibold">Previous gift cards in the last 12 months</h4>
