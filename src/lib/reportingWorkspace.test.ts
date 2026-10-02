@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { alignedTrend, comparisonRange, defaultWorkspaceState, knownMoney, parseSavedViews, periodChange, readWorkspaceState, reportingPeriods, salesGroups, writeWorkspaceState } from './reportingWorkspace.ts';
+import { alignedTrend, operationalReportHref, workspaceViews, comparisonRange, defaultWorkspaceState, knownMoney, parseSavedViews, periodChange, readWorkspaceState, reportingPeriods, salesGroups, writeWorkspaceState } from './reportingWorkspace.ts';
 import type { SalesReportRow } from './reporting.ts';
 const equal = (actual: unknown, expected: unknown) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); };
 const row = (patch: Partial<SalesReportRow> = {}): SalesReportRow => ({ calculationVersion: 'shared-sales-basis-v1', periodStart: '2026-09-01', machineId: 'a', machineLabel: 'Machine A', locationId: 'north', locationName: 'North', paymentMethod: 'credit', netSalesCents: 1000, grossSalesCents: 1200, refundAmountCents: 200, taxCents: 90, refundRequestDeductionCents: 200, refundReversalCents: 0, refundLegacyPaidDeductionCents: 0, refundPaidContextCents: 0, refundOutstandingContextCents: 200, unresolvedSalesCount: 0, unresolvedSalesCents: 0, unresolvedRefundCount: 0, unresolvedRefundCents: 0, unresolvedPaidContextCount: 0, unresolvedPaidContextCents: 0, transactionCount: 2, ...patch });
@@ -96,4 +96,15 @@ Deno.test('a machine without prior-year history remains unavailable and not comp
 });
 Deno.test('saved view malformed storage cannot introduce arbitrary states', () => {
   equal(parseSavedViews('not json'), []); equal(parseSavedViews('[{"id":"bad","name":"x","state":{"dateFrom":"bad"}}]'), []);
+});
+
+Deno.test('central navigation lists only business reporting destinations', () => {
+  equal(workspaceViews, ['overview', 'sales', 'finance', 'locations', 'partners']);
+  equal(readWorkspaceState(new URLSearchParams('view=labor')).view, 'labor');
+  equal(readWorkspaceState(new URLSearchParams('view=refunds')).view, 'refunds');
+});
+Deno.test('operational report links preserve explicit scope and omit sales-only controls', () => {
+  const linked = new URLSearchParams('view=labor&from=2026-02-30&to=2026-03-01&machine=a&location=north&tender=credit&compare=previous_year');
+  equal(operationalReportHref('labor', linked), '/portal/time-review?view=reports&from=2026-02-30&to=2026-03-01&location=north&machine=a');
+  equal(operationalReportHref('refunds', { dateFrom: '2026-09-01', dateTo: '2026-09-07', locationId: 'all', machineId: 'a' }), '/refunds?view=reports&from=2026-09-01&to=2026-09-07&machine=a');
 });

@@ -7,7 +7,7 @@ export type WorkspaceState = {
   locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
   comparison: ComparisonMode;
 };
-export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'finance', 'locations', 'labor', 'refunds', 'partners'];
+export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'finance', 'locations', 'partners'];
 const day = 86400000;
 const dateValue = (value: string) => new Date(`${value}T00:00:00Z`);
 export const dateString = (value: Date) => value.toISOString().slice(0, 10);
@@ -43,7 +43,7 @@ export function readWorkspaceState(params: URLSearchParams, defaults = defaultWo
   const datesValid = validDate(from) && validDate(to) && from <= to;
   const view = params.get('view') === 'operator' ? 'sales' : params.get('view') === 'partner' ? 'partners' : params.get('view');
   const compare = params.get('compare'); const tender = params.get('tender');
-  return { ...defaults, view: workspaceViews.includes(view as WorkspaceView) ? view as WorkspaceView : defaults.view,
+  return { ...defaults, view: [...workspaceViews, 'labor', 'refunds'].includes(view as WorkspaceView) ? view as WorkspaceView : defaults.view,
     ...(datesValid ? { dateFrom: from, dateTo: to } : {}),
     locationId: params.get('location') || 'all', machineId: params.get('machine') || 'all',
     paymentMethod: ['cash', 'credit', 'other', 'unknown'].includes(tender ?? '') ? tender as PaymentMethod : 'all',
@@ -117,6 +117,16 @@ export const changeLabel = (value: ReturnType<typeof periodChange>, monetary = t
 export type SavedReportingView = { id: string; name: string; state: WorkspaceState };
 export function parseSavedViews(value: string | null): SavedReportingView[] {
   try { const values: unknown = JSON.parse(value ?? '[]'); if (!Array.isArray(values)) return [];
-    return values.filter((item): item is SavedReportingView => Boolean(item && typeof item.id === 'string' && typeof item.name === 'string' && item.state && validDate(item.state.dateFrom) && validDate(item.state.dateTo) && item.state.dateFrom <= item.state.dateTo && workspaceViews.includes(item.state.view))).map(item => ({ ...item, state: readWorkspaceState(writeWorkspaceState(item.state)) }));
+    return values.filter((item): item is SavedReportingView => Boolean(item && typeof item.id === 'string' && typeof item.name === 'string' && item.state && validDate(item.state.dateFrom) && validDate(item.state.dateTo) && item.state.dateFrom <= item.state.dateTo && [...workspaceViews, 'labor', 'refunds'].includes(item.state.view))).map(item => ({ ...item, state: readWorkspaceState(writeWorkspaceState(item.state)) }));
   } catch { return []; }
+}
+
+/** Carry operational scope to the owning app. Destination access checks stay authoritative. */
+export function operationalReportHref(domain: 'labor' | 'refunds', scope: Pick<WorkspaceState, 'dateFrom' | 'dateTo' | 'locationId' | 'machineId'> | URLSearchParams) {
+  const params = new URLSearchParams({ view: 'reports' });
+  const values = scope instanceof URLSearchParams
+    ? { from: scope.get('from'), to: scope.get('to'), location: scope.get('location'), machine: scope.get('machine') }
+    : { from: scope.dateFrom, to: scope.dateTo, location: scope.locationId, machine: scope.machineId };
+  for (const [key, value] of Object.entries(values)) if (value && value !== 'all') params.set(key, value);
+  return `${domain === 'labor' ? '/portal/time-review' : '/refunds'}?${params.toString()}`;
 }

@@ -26,7 +26,7 @@ export function ReportingOperationsSummary({ labor, refunds, onNavigate }: Props
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Recorded entries in the selected period and scope. Each entry rounds independently for paid shifts; entries are not visits or staffing utilization.</p>
         {labor.entries === 0 && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">No recorded entries does not prove no work occurred. Recording coverage is unknown.</p>}
       </>}
-      <Button variant="link" className="mt-2 h-auto px-0 py-2 text-[#a93750]" onClick={() => onNavigate('labor')}>Explore labor <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true"/></Button>
+      <Button variant="link" className="mt-2 min-h-11 h-auto whitespace-normal px-0 py-2 text-left text-[#a93750]" onClick={() => onNavigate('labor')}>View labor in Timekeeping <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true"/></Button>
     </section>}
     {refunds && <section aria-labelledby="reporting-recovery-summary-title" className={`min-w-0 ${labor ? 'lg:border-l lg:border-border lg:pl-7' : ''}`}>
       <div className="flex items-center gap-2"><RotateCcw className="h-5 w-5 text-muted-foreground" aria-hidden="true"/><h2 id="reporting-recovery-summary-title" className="text-xl font-semibold tracking-tight">Refunds & recovery</h2></div>
@@ -35,7 +35,7 @@ export function ReportingOperationsSummary({ labor, refunds, onNavigate }: Props
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Requests received in the selected period. Outstanding balance is as of {refunds.asOfDate}, using the authorized recovery scope.</p>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{refunds.unknownBalanceCount ? `${number(refunds.unknownBalanceCount)} requests have unknown balances and are omitted from the known subtotal. ` : ''}Source coverage may be incomplete. Requests are not confirmed failed vends; gift resolution is separate from cash paid.</p>
       </>}
-      <Button variant="link" className="mt-2 h-auto px-0 py-2 text-[#a93750]" onClick={() => onNavigate('refunds')}>Explore refunds <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true"/></Button>
+      <Button variant="link" className="mt-2 min-h-11 h-auto whitespace-normal px-0 py-2 text-left text-[#a93750]" onClick={() => onNavigate('refunds')}>View reports in Refunds <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true"/></Button>
     </section>}
   </div>;
 }
