@@ -858,6 +858,7 @@ export default function RefundRequestPage() {
                     </Label>
                   </RadioGroup>}
                   {wantsGiftCard && <div className="space-y-2 rounded-lg border border-pink-200 bg-pink-50 p-4" aria-live="polite">
+                    {form.paymentMethod === 'cash' && !requiresManagerReview && <p className="text-sm leading-6">{t('Usually emailed within a few hours.')}</p>}
                     {requiresManagerReview ? <>
                       <p className="text-sm font-semibold leading-6">{t('Proposed gift card. A manager will review the amount before it is issued.')}</p>
                       {giftCardOffer && <RefundGiftCardTerms offer={giftCardOffer} locale={locale} hideValue />}
