@@ -18,6 +18,26 @@ export function defaultWorkspaceState(now = new Date()): WorkspaceState {
   const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
   return { view: 'overview', dateFrom: dateString(start), dateTo: dateString(end), locationId: 'all', machineId: 'all', paymentMethod: 'all', comparison: 'previous_month' };
 }
+export function reportingPeriods(now = new Date()) {
+  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const offset = (days: number) => new Date(today.getTime() + days * day);
+  const month = (offset: number, date = 1) => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + offset, date));
+  const mondayOffset = -((today.getUTCDay() + 6) % 7);
+  const period = (id: string, label: string, from: Date, to: Date) => ({ id, label, dateFrom: dateString(from), dateTo: dateString(to) });
+  return [
+    period('today', 'Today', today, today),
+    period('yesterday', 'Yesterday', offset(-1), offset(-1)),
+    period('last_7', 'Last 7 complete days', offset(-7), offset(-1)),
+    period('this_week', 'This week', offset(mondayOffset), today),
+    period('last_week', 'Last week', offset(mondayOffset - 7), offset(mondayOffset - 1)),
+    period('last_30', 'Last 30 complete days', offset(-30), offset(-1)),
+    ...(today.getUTCDate() > 1 ? [period('month_complete', 'Month through yesterday', month(0), offset(-1))] : []),
+    period('month_to_date', 'Month to date', month(0), today),
+    period('last_month', 'Last month', month(-1), month(0, 0)),
+    period('year_to_date', 'Year to date', new Date(Date.UTC(today.getUTCFullYear(), 0, 1)), today),
+    period('last_year', 'Last year', new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1)), new Date(Date.UTC(today.getUTCFullYear(), 0, 0))),
+  ];
+}
 export function readWorkspaceState(params: URLSearchParams, defaults = defaultWorkspaceState()): WorkspaceState {
   const from = params.get('from'); const to = params.get('to');
   const datesValid = validDate(from) && validDate(to) && from <= to;

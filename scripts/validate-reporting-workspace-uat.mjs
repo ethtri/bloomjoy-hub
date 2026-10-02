@@ -14,7 +14,13 @@ const url = (view = 'overview', extra = '') => `${appUrl}/portal/reports?view=${
 const open = async (persona, viewport = { width: 1440, height: 900 }) => createPageForPersona(browser, persona, viewport, { rpcHandler: workspaceRpcResponse });
 const ready = page => page.getByRole('navigation', { name: 'Reporting views' }).waitFor();
 const tab = (page, name) => page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name, exact: true });
-const fit = async page => assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'Page must not overflow horizontally');
+const fit = async page => {
+  const dimensions = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+  if (dimensions.scroll > dimensions.width + 1) {
+    await page.screenshot({ path: path.join(output, 'overflow-failure.png'), fullPage: true });
+    assert.fail(`Page must not overflow horizontally: ${page.url()} (${dimensions.scroll}/${dimensions.width})`);
+  }
+};
 let failure;
 try {
   {
@@ -69,6 +75,78 @@ try {
     checks.push('Overview, Locations, Labor and Refunds fit 360/390/768/1024px; Partners renders');
   } finally { await context.close(); }
 
+  }
+  {
+    const { page, context, state } = await open(workspacePersonas.superAdmin, { width: 390, height: 844 });
+    try {
+      await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
+      await page.locator('#reporting-period').click();
+      for (const name of ['Today', 'Yesterday', 'Last 7 complete days', 'Last week', 'Last month', 'Last year', 'Custom range…']) {
+        assert(await page.getByRole('menuitem', { name, exact: true }).isVisible(), `Period menu must expose ${name}`);
+      }
+      await page.getByRole('menuitem', { name: 'Last month', exact: true }).click();
+      await page.waitForURL('**from=2026-06-01&to=2026-06-30**');
+      await page.locator('#reporting-period').click();
+      await page.getByRole('menuitem', { name: 'Custom range…', exact: true }).click();
+      await page.getByLabel('From', { exact: true }).fill('2025-12-20');
+      await page.getByLabel('Through', { exact: true }).fill('2025-12-01');
+      assert(await page.getByRole('button', { name: 'Apply dates', exact: true }).isDisabled());
+      assert.equal(new URL(page.url()).searchParams.get('from'), '2026-06-01', 'Draft dates must not fetch or alter committed filters');
+      await page.getByLabel('Through', { exact: true }).fill('2026-01-10');
+      await fit(page); await page.screenshot({ path: path.join(output, 'custom-dates-mobile.png'), fullPage: false });
+      await page.getByRole('button', { name: 'Apply dates', exact: true }).click();
+      await page.waitForURL('**from=2025-12-20&to=2026-01-10**');
+      await page.reload({ waitUntil: 'networkidle' });
+      assert((await page.locator('#reporting-period').innerText()).includes('Dec 20, 2025'));
+      await page.goBack({ waitUntil: 'networkidle' });
+      assert.equal(new URL(page.url()).searchParams.get('from'), '2026-06-01');
+      await page.locator('#reporting-period').click();
+      await page.getByRole('menuitem', { name: 'Year to date', exact: true }).click();
+      assert.equal(new URL(page.url()).searchParams.get('compare'), 'previous_period');
+      await page.locator('#reporting-comparison').click();
+      await page.getByRole('option', { name: 'No comparison', exact: true }).click();
+      await page.locator('#reporting-period').click();
+      await page.getByRole('menuitem', { name: 'Last year', exact: true }).click();
+      assert.equal(new URL(page.url()).searchParams.get('compare'), 'none');
+      checks.push('Mobile date presets, invalid drafts, atomic cross-year custom range, refresh and Back');
+
+      await tab(page, 'Labor').click(); await page.getByRole('heading', { name: 'Recorded labor', exact: true }).waitFor();
+      assert.equal(await page.locator('#reporting-comparison').count(), 0);
+      await page.getByRole('button', { name: 'More filters', exact: true }).click();
+      assert.equal(await page.locator('#reporting-tender').count(), 0);
+      assert(await page.locator('#reporting-machine').isVisible());
+      await tab(page, 'Partners').click(); await page.getByRole('heading', { name: 'Partner performance summary', exact: true }).waitFor();
+      assert.equal(await page.getByRole('region', { name: 'Reporting filters' }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Save view', exact: true }).count(), 0);
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 }); await fit(page);
+        assert(await page.locator('#partner-dashboard-period').isVisible());
+      }
+      await page.screenshot({ path: path.join(output, 'partners-mobile.png'), fullPage: false });
+      await page.locator('[data-portal-report-export="partner"]').click();
+      const partnerExport = page.waitForResponse(response => response.url().includes('/functions/v1/partner-report-export'));
+      await page.getByRole('menuitem', { name: /Polished PDF report/ }).click(); await partnerExport;
+      assert.equal(state.partnerExports.at(-1).format, 'pdf');
+      checks.push('Only applicable domain filters; Partners mobile native period and preserved polished PDF export');
+
+      await tab(page, 'Sales').click();
+      await page.getByRole('button', { name: 'Save view', exact: true }).click();
+      await page.getByLabel('View name', { exact: true }).fill('Saved sales analysis');
+      await page.getByRole('button', { name: 'Save on this browser', exact: true }).click();
+      await page.getByRole('button', { name: 'Detailed report & PDFs', exact: true }).click();
+      await page.locator('[data-portal-report-export="operator-pdf"]').waitFor();
+      assert.equal(await page.getByRole('region', { name: 'Reporting filters' }).count(), 0);
+      await page.reload({ waitUntil: 'networkidle' });
+      assert(await page.locator('[data-portal-report-export="operator-pdf"]').isVisible());
+      await fit(page); await page.screenshot({ path: path.join(output, 'original-sales-mobile.png'), fullPage: false });
+      const salesExport = page.waitForResponse(response => response.url().includes('/functions/v1/sales-report-export'));
+      await page.locator('[data-portal-report-export="operator-pdf"]').click(); await salesExport;
+      assert(state.operatorExports.length > 0);
+      await page.getByRole('button', { name: 'Saved sales analysis', exact: true }).click();
+      assert.equal(new URL(page.url()).searchParams.get('report'), null, 'Saved analysis must leave the independent PDF view');
+      assert(await page.locator('#reporting-period').isVisible());
+      checks.push('Original sales report has a visible, reloadable entry point, preserved PDF export and correct saved-analysis return');
+    } finally { await context.close(); }
   }
   for (const [personaName, expectedView, heading, forbidden] of [
     ['operator', 'overview', 'Sales over time', ['Labor', 'Refunds & Recovery', 'Partners']],

@@ -22,7 +22,13 @@
   domain rechecks scope. A sales-only user receives no labor/refund aggregate calls,
   while time-only and refund-only managers can reach their own reporting view.
 - [ ] Existing detailed sales PDF export and partner agreement reporting remain
-  operable. Partners retain agreement-specific period controls. Verify saved view,
+  operable under Sales → Detailed report & PDFs and Partners → Export → Polished
+  PDF report. Those views show only their own filters; the original sales report
+  supports longer custom periods independently of the analytics date limit.
+- [ ] Period offers complete-day, week, month, year and Custom range choices.
+  Custom dates apply together, preserve scope and survive refresh/Back. Invalid
+  dates do not fetch data. Labor/refunds show no sales tender or comparison control.
+  Partners retain agreement-specific period controls. Verify saved view,
   briefing and CSV downloads, empty/error states and 360/390/768/1024px layouts.
 - [ ] Run `npm run reporting:test-analytics`,
   `npm run reporting:validate-workspace-uat -- --app-url http://127.0.0.1:8081`,

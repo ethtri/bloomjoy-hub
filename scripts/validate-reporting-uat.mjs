@@ -707,7 +707,7 @@ const waitForReport = async (page) => {
   const sales = page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Sales', exact: true });
   if (await sales.count()) {
     await sales.click();
-    await page.getByText('Detailed sales report and existing export', { exact: true }).click();
+    await page.getByRole('button', { name: 'Detailed report & PDFs', exact: true }).click();
     await selectRadixOption(page.locator(selectors.operatorDateRange), 'Last 7 days');
   }
 };
