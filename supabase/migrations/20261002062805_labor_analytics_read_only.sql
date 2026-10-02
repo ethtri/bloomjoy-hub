@@ -17,6 +17,7 @@ declare result jsonb; pay_rows jsonb;
 begin
  if auth.uid() is null then raise exception 'Authentication required'; end if;
  if p_date_from is null or p_date_to is null or p_date_to < p_date_from then raise exception 'Invalid date range'; end if;
+ if p_date_to-p_date_from>366 then raise exception 'Choose a reporting period of up to 367 days' using errcode='22023'; end if;
  with visible as materialized (
  select e.work_date, e.raw_duration_minutes, e.paid_shift_count,
  m.id as machine_id,m.machine_label,l.id as location_id,l.name as location_name

@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(17);
+select plan(18);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -194,6 +194,7 @@ where id='a9000000-0000-0000-0000-000000000002';
 select set_config('app.timekeeping_manager_correction','false',true);
 
 select is((select provolatile::text from pg_proc where oid='public.get_labor_analytics_report(date,date,uuid[],uuid[])'::regprocedure),'s','analytics is STABLE');
+select throws_ok($$select public.get_labor_analytics_report('2025-01-01','2026-07-31')$$,'22023',null,'bounded reporting query prevents unbounded profile-month calculations');
 select ok(not has_function_privilege('anon','public.get_labor_analytics_report(date,date,uuid[],uuid[])','EXECUTE'),'anonymous cannot call analytics');
 select is(public.get_labor_analytics_access()->>'canViewPay','false','machine manager has no account pay authority');
 select is(public.get_labor_analytics_report('2026-07-01','2026-07-31')->'pay','null'::jsonb,'time-only payload contains no compensation');
