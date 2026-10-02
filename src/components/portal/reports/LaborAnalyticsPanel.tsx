@@ -42,11 +42,10 @@ export function LaborAnalyticsPanel({ scope }: { scope: LaborAnalyticsScope }) {
     {report.access.canViewPay && report.pay && <Card><CardHeader><CardTitle className="text-base">Authorized account earnings</CardTitle></CardHeader><CardContent className="space-y-3">
       <div className="grid gap-4 sm:grid-cols-3">{[['Attributable shift earnings', money(report.pay.shiftEarningsCents)], ['Attributable commission', money(report.pay.commissionEarningsCents)], ['Unallocated other earnings', money(report.pay.unallocatedOtherEarningsCents)]].map(([label, value]) => <div key={label}><p className="text-sm text-muted-foreground">{label}</p><p className="text-xl font-semibold tabular-nums">{value}</p></div>)}</div>
       <p className="text-sm text-muted-foreground">{report.pay.coverage}</p>
-      <p className="text-sm">Account scope: {report.pay.readyCalculationCount} ready calculations · {report.pay.calculationIssueCount} calculation issues · {report.pay.revisionRequiredCount} revisions required · {report.pay.missingShiftRateEntries} entries missing a shift rate.</p>
+      <p className="text-sm">Account scope: {report.pay.readyCalculationCount} ready full-month calculations · {report.pay.partialMonthCalculationCount} partial-month estimates · {report.pay.calculationIssueCount} calculation issues · {report.pay.revisionRequiredCount} revisions required · {report.pay.missingShiftRateEntries} entries missing a shift rate.</p>
       <p className="text-sm text-muted-foreground">{report.pay.publishedStatementCount} published statements for overlapping periods, across authorized accounts. {report.pay.statementBasis}</p>
     </CardContent></Card>}
     <p className="text-xs text-muted-foreground">{report.dateBasis}</p>
     <div className="flex flex-wrap gap-3">{report.access.hasAccess && <Button variant="outline" asChild><Link to="/portal/time-review">Open Time Report<ExternalLink className="ml-2 h-4 w-4" /></Link></Button>}{report.access.canViewPay && <Button variant="outline" asChild><Link to={`/admin/payouts?month=${scope.dateFrom.slice(0, 7)}`}>Open Pay Report<ExternalLink className="ml-2 h-4 w-4" /></Link></Button>}</div>
   </div>;
 }
-
