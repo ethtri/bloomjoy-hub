@@ -146,6 +146,15 @@ begin
     end if;
     offer:=public.service_get_refund_gift_card_offer(c.reporting_machine_id,p_affected_amount_cents);
     if offer is null then raise exception 'Compatible gift-card terms are unavailable for this amount'; end if;
+    if not exists(select 1 from public.refund_gift_card_pools initial
+      join public.refund_gift_card_pools final on final.id=(offer->>'pool_id')::uuid
+      where initial.id=c.gift_card_pool_id and final.provider=initial.provider
+        and final.provider_account_id=initial.provider_account_id
+        and final.eligible_locations=initial.eligible_locations
+        and final.redemption_instructions=initial.redemption_instructions
+        and (offer->>'expires_at')::timestamptz>=c.gift_card_expires_at) then
+      raise exception 'Compatible gift-card terms are unavailable for this amount';
+    end if;
     select face_value_cents into template_value from public.refund_gift_card_pools where id=(offer->>'pool_id')::uuid;
     if template_value<>(offer->>'value')::integer then
       offer:=public.service_materialize_refund_gift_card_offer(c.reporting_machine_id,p_affected_amount_cents,

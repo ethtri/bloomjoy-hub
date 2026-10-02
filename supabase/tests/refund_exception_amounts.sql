@@ -43,6 +43,25 @@ select is((select gift_card_state from public.refund_cases where id='fa060000-00
 select is((select payment_amount_cents from public.refund_cases where id='fa060000-0000-4000-8000-000000000003'),1000,'$100 inserted never overwrites the $10 recorded sale');
 select is((select refund_amount_cents from public.refund_cases where id='fa060000-0000-4000-8000-000000000003'),0,'Change courtesy never deducts the purchase');
 select ok(not has_function_privilege('anon','public.admin_approve_selected_nayax_refund_for_system_v2(uuid,bigint,integer)','EXECUTE'),'Public cannot approve card amount');
+-- Final approval cannot promise an unsupported denomination or different scope.
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
+ incident_at,payment_method,payment_amount_cents,refund_amount_cents,resolution_method,gift_card_pool_id,
+ gift_card_value_cents,gift_card_expires_at,gift_card_state,issue_category,affected_amount_cents)
+values('fa060000-0000-4000-8000-000000000005','RF-EXCEPTION-TERMS','fa040000-0000-4000-8000-000000000001',
+ 'fa030000-0000-4000-8000-000000000001','terms@example.invalid','Synthetic partial',now(),'cash',3000,3000,
+ 'gift_card','fa050000-0000-4000-8000-000000003000',3000,now()+interval '30 days','manager_review','partial_items',3000);
+select throws_like($$select public.admin_decide_refund_gift_card('fa060000-0000-4000-8000-000000000005',true,null,1500)$$,
+ '%Compatible gift-card terms are unavailable%', 'Unconfigured final denomination does not enter an unfulfillable queue');
+insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,eligible_machine_ids,eligible_locations,
+ expires_at,enabled,redemption_instructions)
+values('fa050000-0000-4000-8000-000000001500','kemore','exception-fixture',1500,
+ array['fa040000-0000-4000-8000-000000000001']::uuid[],array['A different location'],now()+interval '30 days',true,'Enter the fixture code.');
+select throws_like($$select public.admin_decide_refund_gift_card('fa060000-0000-4000-8000-000000000005',true,null,1500)$$,
+ '%Compatible gift-card terms are unavailable%', 'Final decision cannot change the accepted redemption scope');
+select ok((select gift_card_state='manager_review' and gift_card_approved_at is null and affected_amount_cents=3000
+ from public.refund_cases where id='fa060000-0000-4000-8000-000000000005'),
+ 'Unsupported final offer leaves the one existing decision due with original amount');
+
 -- Email-linked hosted form: $100 inserted, $10 sale, $90 expected change.
 create temp table linked_contact as select public.service_ingest_refund_gmail_contact_v1(
  repeat('8',64),'exception-linked-thread','exception-linked-message','<exception-linked@example.invalid>',null,
