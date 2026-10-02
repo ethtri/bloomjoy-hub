@@ -55,8 +55,8 @@ no separate API-test approval is needed.
    `POST /payment/refund-approve` with `IsRefundedExternally: false` and the
    **identical** `TransactionId`, `SiteId`, and `MachineAuTime`. Omit
    `RefundDocumentUrl` for this ordinary API refund. Use the approval credential.
-5. Verify the exact original transaction's approved refund amount and final status in
-   DTM when report evidence is insufficient. Keep payment, accounting and email
+5. Verify the exact original transaction's approved refund amount and final status
+   independently in DTM when report evidence is insufficient. Keep payment, accounting and email
    results separate. Recover a failed email through its existing message flow,
    never by issuing another refund.
 
