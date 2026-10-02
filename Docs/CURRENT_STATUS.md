@@ -8,6 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- A bounded #1429/#628 repair is validating positive-only Sunze cash proof
+  parity. A current grounded candidate in RF-FF2A88FA had a research source key
+  that the preparation lookup could not reproduce. The existing research,
+  selection, current read and recommendation paths now share that identity,
+  retaining explicit review and unknown source-time semantics. Synthetic stale
+  source and mapping regressions pass; deployment and actual-case acceptance
+  remain pending. No live selection, communication or financial action occurred.
+
 - PR #1673 deployed the bounded lifecycle operations flag correction (#1429/#628).
   A NULL review result now serializes as false; the existing predicate and true
   review holds remain unchanged. Queued-state regression and full database
