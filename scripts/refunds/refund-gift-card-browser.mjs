@@ -20,6 +20,7 @@ const lifecycle = { schemaVersion: 'refund_lifecycle_v2', version: 1, stage: 'ma
 const status = { state: 'issued', value: 1500, currency: 'USD', eligible_locations: offer.eligible_locations,
   expires_at: offer.expires_at, issued_at: '2026-09-30T12:00:01Z', delivery_state: 'sent' };
 const artifacts = 'output/playwright/gift-card';
+const observedGiftLifecycle = JSON.parse(await readFile(new URL('./fixtures/refund-gift-manager-lifecycle.json', import.meta.url), 'utf8'));
 await mkdir(artifacts, { recursive: true });
 const evidence = [];
 try {
@@ -178,9 +179,34 @@ try {
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RefundGiftCardManagerPanel } from '/src/components/refunds/RefundGiftCardManagerPanel';
+import { RefundCaseQueuePanel } from '/src/components/refunds/RefundCaseQueuePanel';
+import { applyRefundLifecycleSafety } from '/src/lib/refundOperationsLifecycleSafety';
+import { getRefundManagerState } from '/src/lib/refundManagerState';
+import { getRefundManagerQueueBucket } from '/src/lib/refundQueue';
 import '/src/index.css';
+const observed = ${JSON.stringify(observedGiftLifecycle)};
+const delivering = new URLSearchParams(location.search).get('mode').startsWith('resend');
+const canonical = {...observed, customerAction:{...observed.customerAction,action:'none'},
+  gift_card:{...observed.gift_card,state:delivering?'issued':'manager_review',issued_at:delivering?observed.gift_card.issued_at:null},
+  paymentWorkComplete:delivering,
+  nextWork:{...observed.nextWork,actor:delivering?'system':'manager',actionCode:delivering?'none':'approve_or_deny_request',
+    actionLabel:delivering?observed.nextWork.actionLabel:'Review the previous gift card and decide this request.'},
+  managerQueue:{...observed.managerQueue,bucket:delivering?'system_processing':'decision_needed',nextAction:delivering?'none':'approve_or_deny'}};
+const safety = applyRefundLifecycleSafety({lifecycle:canonical,paymentMethod:'cash',status:'completed',
+  canPerformOfficialAction:true,officialActionVersion:6});
+const managerState = getRefundManagerState(safety.refundCase);
+const bucket = getRefundManagerQueueBucket(safety.refundCase);
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
-<main style={{maxWidth:800,margin:'24px auto',padding:12}}><RefundGiftCardManagerPanel refundCase={{id:'synthetic-case',publicReference:'RF-SYNTHETIC',customerName:'Synthetic Friend',customerEmail:'synthetic@example.test',issueSummary:'The machine did not make a treat.',paymentAmountCents:1100,locationName:'Bloomjoy Test Mall',paymentMethod:'card',resolutionMethod:'gift_card'}} /></main>
+<main style={{maxWidth:800,margin:'24px auto',padding:12}}>
+{safety.invalidLifecycle?<p role="alert">Lifecycle data unavailable</p>:<RefundCaseQueuePanel
+ cases={[{id:'synthetic-case',publicReference:'RF-SYNTHETIC',machineLabel:'Fixture machine',locationName:'Bloomjoy Test Mall',
+ amountCents:1000,createdAt:null,taskLabel:managerState.label,taskBadgeClass:'',
+ nextWorkActor:safety.refundCase.lifecycle.nextWork.actor,nextWorkActionLabel:safety.refundCase.lifecycle.nextWork.actionLabel}]}
+ showWorkflowSummary selectedCaseId="synthetic-case" hasSelectedCase={false} isMobileExpanded isLoading={false} isSearching={false}
+ emptyTitle="No requests" emptyDescription="No requests" onToggleMobile={()=>{}} onSelectCase={()=>{}}
+ formatCaseAge={()=>'1h'} formatCaseAmount={()=>'$10.00'} />}
+<p data-testid="synthetic-gift-queue-bucket">{bucket}</p>
+<RefundGiftCardManagerPanel refundCase={{id:'synthetic-case',publicReference:'RF-SYNTHETIC',customerName:'Synthetic Friend',customerEmail:'synthetic@example.test',issueSummary:'The machine did not make a treat.',paymentAmountCents:1100,locationName:'Bloomjoy Test Mall',paymentMethod:'card',resolutionMethod:'gift_card'}} /></main>
 </QueryClientProvider>);`);
   for (const width of [1280, 375, 320]) {
     for (const mode of ['approve', 'deny', 'read-only', 'resend', 'resend-read-only']) {
@@ -210,11 +236,16 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         }
         return route.fulfill({ json: [] });
       });
-      await page.goto(`${base}/${artifacts}/manager-fixture.html`);
+      await page.goto(`${base}/${artifacts}/manager-fixture.html?mode=${mode}`);
       await page.getByText('RF-SYNTHETIC-PREVIOUS', { exact: false }).waitFor();
       assert.match(await page.locator('main').innerText(), /\$15\.00/);
       assert.match(await page.locator('main').innerText(), /\$10\.00/);
       assert.match(await page.locator('main').innerText(), /The machine did not make a treat/);
+      assert.equal(await page.getByRole('alert').count(), 0, 'observed gift lifecycle passes actual safety/parser boundary');
+      assert.equal(await page.getByTestId('synthetic-gift-queue-bucket').innerText(), mode.startsWith('resend') ? 'provider_hold' : 'ready_to_pay');
+      const nextWorkText = await page.getByTestId('refund-case-next-work').innerText();
+      assert.match(nextWorkText, mode.startsWith('resend') ? /System next: The System is delivering the assigned gift card/ : /Manager next: Review the previous gift card and decide this request/);
+      assert.doesNotMatch(nextWorkText, /research|Zelle|cash refund/i);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await page.screenshot({ path: `${artifacts}/manager-${mode}-${width}.png`, fullPage: true });
       if (mode === 'resend') {

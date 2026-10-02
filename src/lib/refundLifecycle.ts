@@ -1,3 +1,5 @@
+import { requireRefundGiftCardStatus, type RefundGiftCardStatus, type RefundResolutionMethod } from './refundGiftCard.ts';
+
 export const REFUND_LIFECYCLE_SCHEMA_VERSION = "refund_lifecycle_v2" as const;
 
 export const refundLifecycleStages = [
@@ -32,7 +34,8 @@ export const refundManagerQueueBuckets = [
   "internal_archive",
 ] as const;
 
-export type RefundManagerQueueBucket = typeof refundManagerQueueBuckets[number];
+export type RefundManagerQueueBucket = typeof refundManagerQueueBuckets[number]
+  | 'system_processing' | 'decision_needed' | 'closed';
 
 export const refundNextWorkActors = ["system", "agent", "customer", "manager"] as const;
 export type RefundNextWorkActor = typeof refundNextWorkActors[number];
@@ -203,6 +206,8 @@ export type RefundLifecycleContract = {
   /** Additive rollout field. Legacy v2 payloads remain readable. */
   nextWork?: RefundNextWork;
   decisionRecommendation?: RefundDecisionRecommendation | null;
+  resolutionMethod?: RefundResolutionMethod;
+  gift_card?: RefundGiftCardStatus & { payloadRedacted: true };
   version: number;
   stage: RefundLifecycleStage;
   stageRank: number;
@@ -221,7 +226,7 @@ export type RefundLifecycleContract = {
     payloadRedacted: true;
   };
   paymentState: string;
-  paymentWorkComplete?: true;
+  paymentWorkComplete?: boolean;
   accountingState?: RefundAccountingState;
   messageState: {
     state: string;
@@ -350,6 +355,19 @@ export const isRefundLifecycleContract = (
   const hasAccountingState = contract.paymentWorkComplete !== undefined ||
     contract.accountingState !== undefined;
   const hasRestrictedManagerProjection = contract.managerVisibility !== undefined;
+  const isGiftCard = contract.resolutionMethod === 'gift_card';
+  const giftCard = contract.gift_card as Record<string, unknown> | null;
+  let validGiftStatus = false;
+  if (isGiftCard) {
+    try {
+      validGiftStatus = requireRefundGiftCardStatus(giftCard) !== null && giftCard?.payloadRedacted === true;
+    } catch { /* Invalid gift data stays unavailable; ordinary receipt rules remain strict. */ }
+  }
+  const validGiftContract = isGiftCard && validGiftStatus &&
+    contract.paymentState === 'not_requested' && contract.accountingState === undefined &&
+    typeof contract.paymentWorkComplete === 'boolean';
+  const validGiftQueue = validGiftContract &&
+    ['system_processing', 'decision_needed', 'closed'].includes(String(managerQueue?.bucket));
   const validNextWork = !nextWork || (
     exactObjectKeys(nextWork, [
       "schemaVersion", "isOpen", "actor", "actionCode", "actionLabel",
@@ -632,6 +650,7 @@ export const isRefundLifecycleContract = (
           ? operations?.nextStep === null
           : appliedPendingNextSteps.includes(operations?.nextStep as string | null)));
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
+    (!isGiftCard || validGiftContract) &&
     (contract.decisionRecommendation == null || isRefundDecisionRecommendation(contract.decisionRecommendation)) &&
     validNextWork &&
     typeof contract.version === "number" && Number.isSafeInteger(contract.version) &&
@@ -650,7 +669,7 @@ export const isRefundLifecycleContract = (
     typeof managerAction?.safeRetryEligible === "boolean" &&
     managerAction?.payloadRedacted === true &&
     typeof contract.paymentState === "string" &&
-    (!hasAccountingState || pendingAccountingContract || appliedAccountingContract) &&
+    (validGiftContract || !hasAccountingState || pendingAccountingContract || appliedAccountingContract) &&
     (!hasRestrictedManagerProjection ||
       (contract.managerVisibility === "restricted" &&
         !hasAccountingState &&
@@ -721,7 +740,7 @@ export const isRefundLifecycleContract = (
     Boolean(managerQueue) &&
     managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
     typeof managerQueue?.bucket === "string" &&
-    managerQueueBucketSet.has(managerQueue.bucket) &&
+    (managerQueueBucketSet.has(managerQueue.bucket) || validGiftQueue) &&
     typeof managerQueue?.label === "string" &&
     typeof managerQueue?.nextAction === "string" &&
     typeof managerQueue?.safeRetryEligible === "boolean" &&
