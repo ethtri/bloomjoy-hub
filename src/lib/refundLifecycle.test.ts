@@ -20,7 +20,7 @@ Deno.test('canonical gift work parses across fulfillment states without monetary
     customerAction: { ...observedGiftLifecycle.customerAction, action: 'none' } };
   for (const [state, delivery] of [
     ['pending_inventory', 'not_queued'], ['manager_review', 'not_queued'],
-    ['issued', 'claimed'], ['issued', 'sent'], ['issued', 'delivered'], ['denied', 'not_queued'],
+    ['issued', 'claimed'], ['issued', 'accepted'], ['issued', 'sent'], ['issued', 'delivered'], ['denied', 'not_queued'],
   ]) {
     const terminal = state === 'denied' || (state === 'issued' && ['sent', 'delivered'].includes(delivery));
     const review = state === 'manager_review';

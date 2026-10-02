@@ -243,8 +243,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       assert.match(await page.locator('main').innerText(), /The machine did not make a treat/);
       assert.equal(await page.getByRole('alert').count(), 0, 'observed gift lifecycle passes actual safety/parser boundary');
       assert.equal(await page.getByTestId('synthetic-gift-queue-bucket').innerText(), mode.startsWith('resend') ? 'provider_hold' : 'ready_to_pay');
-      const nextWorkText = await page.getByTestId('refund-case-next-work').innerText();
-      assert.match(nextWorkText, mode.startsWith('resend') ? /System next: The System is delivering the assigned gift card/ : /Manager next: Review the previous gift card and decide this request/);
+      const nextWorkText = await page.locator('[data-testid="refund-case-next-work"]:visible').innerText();
+      assert.match(nextWorkText, mode.startsWith('resend') ? /Bloomjoy next: The System is delivering the assigned gift card/ : /Manager next: Review the previous gift card and decide this request/);
       assert.doesNotMatch(nextWorkText, /research|Zelle|cash refund/i);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await page.screenshot({ path: `${artifacts}/manager-${mode}-${width}.png`, fullPage: true });

@@ -69,17 +69,22 @@ select is(public.get_refund_lifecycle_for_manager('ad760000-0000-4000-8000-00000
  #>>'{nextWork,isOpen}','false','Declined gift closes gift work');
 
 -- Seed only the existing synthetic outbox's observed transport state. No send occurs.
-update public.refund_case_messages set status='sent',delivery_state='sent',sent_at=now()
+update public.refund_case_messages set status='sent',manual_delivery_state='sent',
+ delivery_state='accepted',sent_at=now(),delivery_state_updated_at=now()
  where id=(select message_id from public.refund_gift_card_issuances
  where refund_case_id='ad760000-0000-4000-8000-000000000001')
  or gift_card_issuance_id=(select id from public.refund_gift_card_issuances
  where refund_case_id='ad760000-0000-4000-8000-000000000001');
+select is((select jsonb_build_array(status,manual_delivery_state,delivery_state)
+ from public.refund_case_messages where id=(select message_id from public.refund_gift_card_issuances
+ where refund_case_id='ad760000-0000-4000-8000-000000000001')),
+ '["sent","sent","accepted"]'::jsonb,'Synthetic outbox and provider ledger retain distinct sent/accepted states');
 select is(public.refund_gift_card_case_projection('ad760000-0000-4000-8000-000000000001')
- ->>'delivery_state','sent','Synthetic initial outbox reached sent');
-select * from pg_temp.gift_parity('ad760000-0000-4000-8000-000000000001','Sent');
+ ->>'delivery_state','accepted','Synthetic initial outbox reached provider acceptance');
+select * from pg_temp.gift_parity('ad760000-0000-4000-8000-000000000001','Provider accepted');
 select is(public.get_refund_lifecycle_for_manager('ad760000-0000-4000-8000-000000000001')
- #>>'{nextWork,isOpen}','false','Sent gift is terminal without monetary settlement');
-update public.refund_case_messages set delivery_state='delivered'
+ #>>'{nextWork,isOpen}','true','Accepted gift preserves canonical open delivery work');
+update public.refund_case_messages set delivery_state='delivered',delivery_state_updated_at=now()
  where id=(select message_id from public.refund_gift_card_issuances
  where refund_case_id='ad760000-0000-4000-8000-000000000001')
  or gift_card_issuance_id=(select id from public.refund_gift_card_issuances
@@ -87,6 +92,8 @@ update public.refund_case_messages set delivery_state='delivered'
 select is(public.refund_gift_card_case_projection('ad760000-0000-4000-8000-000000000001')
  ->>'delivery_state','delivered','Synthetic initial outbox reached delivered');
 select * from pg_temp.gift_parity('ad760000-0000-4000-8000-000000000001','Delivered');
+select is(public.get_refund_lifecycle_for_manager('ad760000-0000-4000-8000-000000000001')
+ #>>'{nextWork,isOpen}','false','Delivered gift is terminal without monetary settlement');
 
 select is(public.refund_next_work_for_case('ad760000-0000-4000-8000-000000000001',null),
  null::jsonb,'Null lifecycle behavior remains unchanged');
