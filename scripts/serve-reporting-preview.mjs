@@ -14,6 +14,7 @@ const port = Number(portIndex < 0 ? 8097 : process.argv[portIndex + 1]);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid --port (1024–65535).');
 const origin = `http://127.0.0.1:${port}`;
 const backendPath = '/reporting-preview-backend';
+const previewRoutes = ['/portal/reports', '/portal/time-review', '/refunds', '/admin/reporting'];
 const persona = personas.superAdmin;
 const session = makeSession(persona);
 // Vite does not read .env files, the repo config, or inherited client env values.
@@ -46,7 +47,7 @@ document.addEventListener('click', event => {
   if (!link) return;
   const target = new URL(link.href, location.href);
   if (target.protocol === 'blob:') return;
-  if (target.origin !== location.origin || !['/portal/reports', '/admin/reporting'].includes(target.pathname)) {
+  if (target.origin !== location.origin || !${JSON.stringify(previewRoutes)}.includes(target.pathname)) {
     event.preventDefault();
   }
 }, true);
@@ -103,7 +104,7 @@ const server = await createServer({
         }
         if (!['GET', 'HEAD'].includes(req.method)) return deny(res);
         if (url.pathname === '/') { res.writeHead(302, { Location: '/portal/reports?view=finance' }); return res.end(); }
-        const appRoute = ['/portal/reports', '/admin/reporting'].includes(url.pathname);
+        const appRoute = previewRoutes.includes(url.pathname);
         const moduleRoute = /^\/(?:src\/|node_modules\/|@vite\/|@id\/|@react-refresh$)/.test(url.pathname);
         const publicPath = path.resolve(root, 'public', `.${url.pathname}`);
         const publicAsset = publicPath.startsWith(`${path.join(root, 'public')}${path.sep}`) && existsSync(publicPath);
