@@ -8,6 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Ordinary sweeps on October 2 stopped before case evaluation because the
+  shared outbox rejected a System-created gift notice with no human author.
+  The bounded repair checks the existing immutable gift-message authority
+  before admitting that exact automatic shape; manual notices still require
+  their author. Deployment and ordinary processing recovery remain pending
+  under #1429/#628. No technical send, provider replay or gift reallocation
+  has occurred.
+
 - PR #1673 deployed the bounded lifecycle operations flag correction (#1429/#628).
   A NULL review result now serializes as false; the existing predicate and true
   review holds remain unchanged. Queued-state regression and full database
