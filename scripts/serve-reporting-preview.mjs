@@ -70,6 +70,7 @@ const readBody = async req => {
 
 const server = await createServer({
   root, configFile: false, envFile: false, envPrefix: '__REPORTING_PREVIEW_UNUSED__',
+  cacheDir: path.join(root, 'node_modules', '.vite-reporting-preview'),
   define: {
     'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(`${origin}${backendPath}`),
     'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('local-reporting-preview-fake-key'),
@@ -108,7 +109,7 @@ const server = await createServer({
         const moduleRoute = /^\/(?:src\/|node_modules\/|@vite\/|@id\/|@react-refresh$)/.test(url.pathname);
         const publicPath = path.resolve(root, 'public', `.${url.pathname}`);
         const publicAsset = publicPath.startsWith(`${path.join(root, 'public')}${path.sep}`) && existsSync(publicPath);
-        if ((!appRoute && !moduleRoute && !publicAsset) || /(?:^|\/)\.|\.env|\.pem|\.key/i.test(url.pathname.replace('/node_modules/.vite/', '/node_modules/vite/'))) return deny(res);
+        if ((!appRoute && !moduleRoute && !publicAsset) || /(?:^|\/)\.|\.env|\.pem|\.key/i.test(url.pathname.replace(/^\/node_modules\/\.vite(?:-reporting-preview)?\//, '/node_modules/vite/'))) return deny(res);
         next();
       });
     },
