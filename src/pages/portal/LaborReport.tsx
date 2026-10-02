@@ -11,13 +11,14 @@ import { laborReportSelectionError } from '@/lib/laborReportSelection';
 import { readWorkspaceState, writeWorkspaceState, type WorkspaceState } from '@/lib/reportingWorkspace';
 
 export function TimekeepingReportNavigation({ reports = false }: { reports?: boolean }) {
-  const { user } = useAuth();
+  const { user, isSuperAdmin, adminAccess } = useAuth();
   const access = useQuery({ queryKey: ['reporting-labor-access', user?.id], queryFn: fetchLaborAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 60000, retry: false });
+  const canReview = isSuperAdmin || adminAccess.allowedSurfaces.includes('*') || adminAccess.allowedSurfaces.includes('payouts') || user?.capabilities.includes('timekeeping.review');
   const [params] = useSearchParams();
   const reportParams = new URLSearchParams(params); reportParams.set('view', 'reports');
   const workParams = new URLSearchParams(params); workParams.delete('view');
   return <nav aria-label="Timekeeping views" className="flex flex-wrap gap-2">
-    {user?.capabilities.includes('timekeeping.review') && <Button variant={reports ? 'outline' : 'secondary'} className="min-h-11" asChild><Link to={`/portal/time-review?${workParams}`} aria-current={!reports ? 'page' : undefined}>Time review</Link></Button>}
+    {canReview && <Button variant={reports ? 'outline' : 'secondary'} className="min-h-11" asChild><Link to={`/portal/time-review?${workParams}`} aria-current={!reports ? 'page' : undefined}>Time review</Link></Button>}
     {access.isSuccess && (access.data.hasAccess || access.data.canViewPay) && <Button variant={reports ? 'secondary' : 'outline'} className="min-h-11" asChild><Link to={`/portal/time-review?${reportParams}`} aria-current={reports ? 'page' : undefined}>Reports</Link></Button>}
   </nav>;
 }
