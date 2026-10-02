@@ -8,7 +8,7 @@ const report: RefundAnalytics = {
   period: { cashPaidCents: 1000, giftPurchaseCents: 1100, giftFaceCents: 1500, goodwillCents: 400, requestDeductionExTaxCents: 2100, reversalExTaxCents: 0, legacyPaidDeductionExTaxCents: 0, unresolvedAccountingCount: 1 },
   asOf: { outstandingCents: 0, openRequestCount: 0, unknownBalanceCount: 1 },
   coverage: { unknownRequestDateCount: 1, unknownPaymentDateCount: 1 },
-  machines: [{ machineId: 'authorized-machine', machineLabel: '=HYPERLINK("evil")', locationName: 'Venue, A', requestCount: 2, requestedCents: 2100, unknownAmountCount: 1, outstandingCents: 0, unknownBalanceCount: 1 }],
+  machines: [{ machineId: 'authorized-machine', machineLabel: '=HYPERLINK("evil")', locationId: 'authorized-location', locationName: 'Venue, A', requestCount: 2, requestedCents: 2100, unknownAmountCount: 1, outstandingCents: 0, unknownBalanceCount: 1 }],
   categories: [{ category: 'other', requestCount: 2, requestedCents: 2100, unknownAmountCount: 1 }],
   aging: [{ band: 'Unknown request date', requestCount: 1, outstandingCents: 0, unknownBalanceCount: 1 }],
 };

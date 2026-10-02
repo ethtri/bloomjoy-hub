@@ -95,7 +95,7 @@ export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope })
       <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm">
         <caption className="sr-only">Machine request cohort and known as-of outstanding balances</caption>
         <thead><tr className="border-b text-muted-foreground"><th scope="col" className="pb-3 pr-4 font-medium">Machine / location</th><th scope="col" className="pb-3 pr-4 font-medium">Requests</th><th scope="col" className="pb-3 pr-4 font-medium">Requested</th><th scope="col" className="pb-3 font-medium">Outstanding</th></tr></thead>
-        <tbody>{report.machines.map(row => <tr key={row.machineId} className="border-b last:border-0">
+        <tbody>{report.machines.map(row => <tr key={`${row.machineId}:${row.locationId}`} className="border-b last:border-0">
           <th scope="row" className="py-3 pr-4 font-medium">{row.machineLabel}<span className="block text-xs font-normal text-muted-foreground">{row.locationName}</span></th>
           <td className="py-3 pr-4 tabular-nums">{row.requestCount}</td><td className="py-3 pr-4 tabular-nums">{money(row.requestedCents)}{row.unknownAmountCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownAmountCount} unknown</span>}</td>
           <td className="py-3 tabular-nums">{money(row.outstandingCents)}{row.unknownBalanceCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownBalanceCount} unknown</span>}</td>
