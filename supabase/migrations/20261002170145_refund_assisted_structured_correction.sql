@@ -41,7 +41,9 @@ begin
   if ctx.correction_kind is distinct from 'purchase' or ctx.status is distinct from 'pending'
     or ctx.correction_requested_fields is distinct from array['zelle_payment_contact']::text[]
     or ctx.expires_at<=statement_timestamp() or ctx.correction_renewed_from_id is not null
+    or ctx.reply_review_state in ('pending','claimed')
     or c.payment_method is distinct from 'cash' or c.decision is not null
+    or c.resolution_method is distinct from 'original_payment'
     or nullif(btrim(c.zelle_payment_contact),'') is not null
     or not public.refund_purchase_correction_eligible(c)
     or c.deterministic_fact_version is distinct from p_expected_fact_version
@@ -89,7 +91,7 @@ begin
   -- Reject quoted history and contradictory capability assertions. The operator
   -- selects the literal quote; no location, clock, amount or destination is extracted.
   evidence_body:=split_part(regexp_replace(source.plain_body,
-    '(^|\n)(On [^\n]+wrote:|El [^\n]+escribi[oó]:|>)[\s\S]*$','','i'),E'\n--',1);
+    '(^|\n)(On [^\n]+wrote:|El [^\n]+escribi[oó]:|>).*$','','is'),E'\n--',1);
   if coalesce(length(p_source_quote),0) not between 10 and 160
     or left(ltrim(evidence_body),length(p_source_quote)) is distinct from p_source_quote
     or p_source_quote !~* ('^I[[:space:]]+'||limitation_pattern||'[.!]?$')

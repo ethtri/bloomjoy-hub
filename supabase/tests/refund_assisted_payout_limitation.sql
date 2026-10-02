@@ -203,6 +203,9 @@ select is((select count(*) from public.refund_case_nayax_refund_attempts),(selec
 select is((select count(*) from public.refund_cases),(select cases from before_assistance),'Same case only');
 select is(pg_temp.assist()->>'state','received','Exact assisted retry returns the original receipt');
 select is((select count(*)::integer from public.refund_case_events where refund_case_id=pg_temp.cid(63) and event_type='purchase_correction_assisted_received'),1,'Retry creates no duplicate assisted receipt');
+select ok((select metadata->>'body_sha256'=(select body_sha from assisted_binding)
+ and metadata->>'quote_sha256' ~ '^[a-f0-9]{64}$' and not metadata ? 'quote'
+ from public.refund_case_events where refund_case_id=pg_temp.cid(63) and event_type='purchase_correction_assisted_received'),'Assisted provenance stores exact source/digest without copying customer content');
 select is((select count(*)::integer from public.refund_case_events where refund_case_id=pg_temp.cid(63) and event_type='purchase_correction_received'),1,'Existing form save occurred exactly once');
 select * from finish();
 rollback;
