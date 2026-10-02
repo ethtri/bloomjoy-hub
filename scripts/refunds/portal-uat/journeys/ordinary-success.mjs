@@ -539,7 +539,7 @@ export const createOrdinarySuccessChecks = ({
     recorder.assert(
       'Case header keeps one current state and one next step',
       await page.getByTestId('refund-manager-state').getByText('Selected purchase: $7.00 USD', { exact: true }).isVisible() &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Selected purchase: $7.00') &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Approve $7.00 USD refund') &&
         await page.getByTestId('refund-manager-next-step').isVisible()
     );
     recorder.assert(
@@ -581,7 +581,7 @@ export const createOrdinarySuccessChecks = ({
           diagnostics.actionVisible &&
           diagnostics.actionDisabled === false &&
           diagnostics.managerState === 'Selected purchase: $7.00 USD' &&
-          diagnostics.primaryActionText.includes('Selected purchase: $7.00') &&
+          diagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
           diagnostics.forbiddenCopyMatches.length === 0
         ? diagnostics
         : null;
@@ -593,7 +593,7 @@ export const createOrdinarySuccessChecks = ({
         inAppExecutionDiagnostics.actionVisible &&
         inAppExecutionDiagnostics.actionDisabled === false &&
         inAppExecutionDiagnostics.managerState === 'Selected purchase: $7.00 USD' &&
-        inAppExecutionDiagnostics.primaryActionText.includes('Selected purchase: $7.00') &&
+        inAppExecutionDiagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
         inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
       JSON.stringify(inAppExecutionDiagnostics)
     );
