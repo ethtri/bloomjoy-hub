@@ -18,8 +18,9 @@ export const renderRefundGiftCardEmail = (input: RefundGiftCardEmailInput) => {
       !input.code.trim() || !Number.isFinite(Date.parse(input.expiresAt)) ||
       !input.eligibleLocations.length || !input.eligibleLocations.every((item) => item.trim()) ||
       !input.redemptionInstructions.trim()) throw new Error('Gift card email requires the assigned card and complete redemption terms.');
-  const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: input.currency }).format(input.value / 100);
-  const expiry = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(input.expiresAt));
+  const locale = input.customerLocale === 'es' ? 'es-US' : 'en-US';
+  const amount = new Intl.NumberFormat(locale, { style: 'currency', currency: input.currency }).format(input.value / 100);
+  const expiry = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(input.expiresAt));
   const bilingual = (spanish: string, english: string) => input.customerLocale === 'es' ? `${spanish}\n\n${english}` : english;
   const display = (value: string) => escapeHtml(value).replaceAll('\n', '<br>');
   const greeting = bilingual(input.customerName?.trim() ? `Hola ${input.customerName.trim()},` : 'Hola,', input.customerName?.trim() ? `Hi ${input.customerName.trim()},` : 'Hi there,');
@@ -27,10 +28,18 @@ export const renderRefundGiftCardEmail = (input: RefundGiftCardEmailInput) => {
   const locations = bilingual(`Úsala en ${input.eligibleLocations.join(', ')}.`, `Use at ${input.eligibleLocations.join(', ')}.`);
   const terms = bilingual(`Vence ${expiry}. Un solo uso; el valor que no uses no queda como saldo.`, `Expires ${expiry}. One use only; any unused value is not kept as a balance.`);
   const reply = bilingual('¿Necesitas ayuda para usar tu tarjeta? Responde a este correo y te ayudaremos con la misma solicitud.', 'Need a hand using your gift card? Reply to this email and we’ll help with this same request.');
+  const redemptionTranslations: Record<string, string> = {
+    'On the machine’s touchscreen, choose ‘Enter coupon/code’ and enter your code.': 'En la pantalla táctil de la máquina, elige “Enter coupon/code” e introduce tu código.',
+    'Enter your code on the gift card screen at the machine.': 'Introduce tu código en la pantalla de tarjeta regalo de la máquina.',
+  };
+  const instructions = redemptionTranslations[input.redemptionInstructions]
+    ? bilingual(redemptionTranslations[input.redemptionInstructions], input.redemptionInstructions)
+    : input.redemptionInstructions;
+  const signoff = bilingual('Con cariño,\nEl equipo de Bloomjoy Sweets', 'Warmly,\nThe Bloomjoy Sweets Team');
   const subject = input.customerLocale === 'es' ? `Tu tarjeta regalo Bloomjoy de ${amount} / Your Bloomjoy gift card` : `A little sweetness for you: your ${amount} Bloomjoy gift card`;
-  const text = [greeting, acknowledgement, `${amount} Bloomjoy gift card`, `Your code: ${input.code}`,
-    input.redemptionInstructions, locations, terms, reply, 'Warmly,\nThe Bloomjoy Sweets Team'].join('\n\n');
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your Bloomjoy gift card</title></head>
+  const text = [greeting, acknowledgement, bilingual(`Tarjeta regalo Bloomjoy de ${amount}`, `${amount} Bloomjoy gift card`), bilingual(`Tu código: ${input.code}`, `Your code: ${input.code}`),
+    instructions, locations, terms, reply, signoff].join('\n\n');
+  const html = `<!doctype html><html lang="${input.customerLocale === 'es' ? 'es' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head>
 <body style="margin:0;padding:0;background:#fbf4ec;color:#382b35;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your ${escapeHtml(amount)} gift card and everything you need for your next Bloomjoy visit.</div>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fbf4ec;"><tr><td align="center" style="padding:24px 12px;">
@@ -46,9 +55,9 @@ export const renderRefundGiftCardEmail = (input: RefundGiftCardEmailInput) => {
 <p style="margin:0;font:700 25px/34px Consolas,monospace;overflow-wrap:anywhere;word-break:break-word;color:#4d2738;">${escapeHtml(input.code)}</p>
 </td></tr></table>
 <h2 style="margin:24px 0 8px;font-size:18px;line-height:26px;color:#4d2738;">${display(bilingual('Lista para tu próxima visita', 'Ready for your next visit'))}</h2>
-<p style="margin:0 0 16px;">${escapeHtml(input.redemptionInstructions).replaceAll('\n', '<br>')}</p>
+<p style="margin:0 0 16px;">${display(instructions)}</p>
 <p style="margin:0 0 8px;">${display(locations)}</p><p style="margin:0 0 24px;font-size:13px;line-height:21px;color:#684f61;">${display(terms)}</p>
-<p style="margin:0 0 22px;">${display(reply)}</p><p style="margin:0;color:#684f61;">Warmly,<br><strong>The Bloomjoy Sweets Team</strong></p>
+<p style="margin:0 0 22px;">${display(reply)}</p><p style="margin:0;color:#684f61;">${display(signoff)}</p>
 </td></tr></table></td></tr></table></body></html>`;
   return { subject, text, html };
 };

@@ -8,6 +8,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- The October 2 09:01 workflow health check timed out while a submitted-form
+  response repeatedly built the purchase-value selection catalog. The stack
+  helpers and health callers were unchanged by the exception backend release.
+  A separate one-evaluation repair is in verification; full-result parity,
+  authoritative database execution and actual health recovery remain pending.
+  No health replay, communications or financial action is part of that repair.
+
 - A bounded #1429/#628 repair is validating positive-only Sunze cash proof
   parity. A current grounded candidate in RF-FF2A88FA had a research source key
   that the preparation lookup could not reproduce. The existing research,

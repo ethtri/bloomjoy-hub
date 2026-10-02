@@ -48,7 +48,7 @@ Deno.test('a refresh restores the opaque identity using only a non-PII fingerpri
   const first = await prepareRefundSubmissionAttempt({ current: null, input, storage, createId });
   const reloaded = await prepareRefundSubmissionAttempt({
     current: null,
-    input: { paymentMethod: 'card', incidentTime: '12:15', ...input },
+    input: { ...input },
     storage,
     createId: () => '00000000-0000-4000-8000-000000000002',
   });
@@ -114,23 +114,29 @@ Deno.test('explicit navigation and URL context take precedence over a stale save
     hasQueryReference: false,
     queryReference: null,
     savedReceipt,
-  }), { reference: 'RF-CURRENT', statusToken: null, paymentMethod: 'card', resolutionMethod: undefined });
+  }), { reference: 'RF-CURRENT', statusToken: null, paymentMethod: 'card', resolutionMethod: undefined, requiresManagerReview: false });
   assertEquals(resolveRefundThankYouContext({
     navigationState: null,
     hasQueryReference: true,
     queryReference: 'RF-URL',
     savedReceipt,
-  }), { reference: 'RF-URL', statusToken: null, paymentMethod: undefined, resolutionMethod: undefined });
+  }), { reference: 'RF-URL', statusToken: null, paymentMethod: undefined, resolutionMethod: undefined, requiresManagerReview: false });
   assertEquals(resolveRefundThankYouContext({
     navigationState: null,
     hasQueryReference: false,
     queryReference: null,
     savedReceipt,
-  }), { reference: 'RF-STALE', statusToken: 's'.repeat(43), paymentMethod: 'cash', resolutionMethod: undefined });
+  }), { reference: 'RF-STALE', statusToken: 's'.repeat(43), paymentMethod: 'cash', resolutionMethod: undefined, requiresManagerReview: false });
 });
 
 Deno.test('gift card thank-you context survives refresh without changing original tender', () => {
   assertEquals(resolveRefundThankYouContext({ navigationState: null, hasQueryReference: false, queryReference: null,
     savedReceipt: { publicReference: 'RF-GIFT', statusToken: 'g'.repeat(43), statusExpiresAt: '2099-01-01T00:00:00Z', paymentMethod: 'card', resolutionMethod: 'gift_card' } }),
-    { reference: 'RF-GIFT', statusToken: 'g'.repeat(43), paymentMethod: 'card', resolutionMethod: 'gift_card' });
+    { reference: 'RF-GIFT', statusToken: 'g'.repeat(43), paymentMethod: 'card', resolutionMethod: 'gift_card', requiresManagerReview: false });
+});
+
+Deno.test('manager-review expectation survives receipt recovery without a quick gift promise', () => {
+  const context = resolveRefundThankYouContext({ navigationState: null, hasQueryReference: false, queryReference: null,
+    savedReceipt: { publicReference: 'RF-REVIEW', statusToken: 'r'.repeat(43), statusExpiresAt: '2099-01-01T00:00:00Z', paymentMethod: 'cash', resolutionMethod: 'gift_card', requiresManagerReview: true } });
+  assertEquals(context.requiresManagerReview, true);
 });

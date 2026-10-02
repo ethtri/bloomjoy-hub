@@ -8,6 +8,7 @@ import {
   sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
 import { inferRefundCustomerLocale } from "../_shared/refund-language.ts";
+import { refundExceptionReviewReasons, refundGiftCardFaceValue } from "../_shared/refund-exception-policy.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
@@ -283,6 +284,7 @@ const readCustomerRefundStatus = async (
   return new Response(
     JSON.stringify({
       lifecycle: result.lifecycle,
+      customerLocale: result.customerLocale,
       gift_card: result.giftCard,
       expiresAt: result.expiresAt,
       payloadRedacted: true,
@@ -1047,6 +1049,7 @@ const submitWalletCorrection = async (
     "incidentDate",
     "incidentTime",
     "amountConfirmed",
+    "customerLocale",
   ]);
   if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
     return new Response(
@@ -1074,7 +1077,8 @@ const submitWalletCorrection = async (
     !/^[0-9]{4}$/.test(cardLast4) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(incidentDate) ||
     !/^\d{2}:\d{2}$/.test(incidentTime) ||
-    body.amountConfirmed !== true
+    body.amountConfirmed !== true ||
+    (body.customerLocale !== undefined && !["en", "es"].includes(String(body.customerLocale)))
   ) {
     return new Response(
       JSON.stringify({
@@ -1139,6 +1143,7 @@ const submitWalletCorrection = async (
       p_incident_at: incidentResolution.instant,
       p_incident_local_datetime: `${incidentDate}T${incidentTime}`,
       p_amount_confirmed: true,
+      p_customer_locale: body.customerLocale ?? null,
     },
   );
   if (applyError) {
@@ -1297,10 +1302,21 @@ serve(async (req) => {
       if (!isUuid(offerMachineId)) return new Response(JSON.stringify({ offer: null }), { headers: refundStatusResponseHeaders });
       const enabled = await giftCardsEnabledForMachine(offerMachineId);
       if (!enabled) return new Response(JSON.stringify({ gift_card_enabled: false, offer: null }), { headers: refundStatusResponseHeaders });
-      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+      const { data: quote, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
         p_machine_id: offerMachineId, p_amount_cents: centsFromAmount(body.amount),
       });
       if (error) throw error;
+      let offer = quote;
+      if (!offer && (body.issueCategory === "partial_items" || body.issueCategory === "expected_cash_change")) {
+        const { data: template, error: templateError } = await supabase.from("refund_gift_card_pools")
+          .select("id,face_value_cents,currency,eligible_locations,expires_at,redemption_instructions")
+          .eq("enabled", true).contains("eligible_machine_ids", [offerMachineId])
+          .gt("expires_at", new Date().toISOString()).order("expires_at", { ascending: false }).limit(1).maybeSingle();
+        if (templateError) throw templateError;
+        if (template) offer = { pool_id: template.id, value: template.face_value_cents,
+          currency: template.currency, eligible_locations: template.eligible_locations,
+          expires_at: template.expires_at, one_use: true, redemption_instructions: template.redemption_instructions };
+      }
       return new Response(JSON.stringify({ gift_card_enabled: enabled === true, offer: offer ?? null }), { headers: refundStatusResponseHeaders });
     }
     if (action === "startQrClaim") {
@@ -1411,11 +1427,22 @@ serve(async (req) => {
       "product_problem",
       "charged_more_than_once",
       "wrong_amount",
+      "partial_items",
+      "expected_cash_change",
       "other",
     ].includes(submittedIssueCategory)
       ? submittedIssueCategory
       : "other";
     const productDescription = sanitizeText(body?.productDescription, 160);
+    const cashInsertedAmountCents = centsFromAmount(body?.cashInsertedAmount);
+    const expectedChangeAmountCents = centsFromAmount(body?.expectedChangeAmount);
+    if (issueCategory === "expected_cash_change" && (paymentMethod !== "cash" || resolutionMethod !== "gift_card" ||
+      !cashInsertedAmountCents || !expectedChangeAmountCents || expectedChangeAmountCents >= cashInsertedAmountCents)) {
+      throw new RequestValidationError("Enter the cash inserted and the change you expected, then choose a gift card.");
+    }
+    const affectedAmountCents = issueCategory === "expected_cash_change" ? expectedChangeAmountCents : amountCents;
+    const requiresGiftReview = refundExceptionReviewReasons(issueCategory,
+      affectedAmountCents ? refundGiftCardFaceValue(affectedAmountCents) : 0, false).length > 0;
     const incidentDate = sanitizeText(body?.incidentDate, 10);
     const incidentTime = sanitizeText(body?.incidentTime, 8);
     const legacyIncidentAt = parseIncidentAt(body?.incidentAt);
@@ -1591,7 +1618,7 @@ serve(async (req) => {
 
     if (
       body?.issueCategory !== undefined &&
-      !["charged_no_product", "product_problem", "charged_more_than_once", "wrong_amount", "other"].includes(
+      !["charged_no_product", "product_problem", "charged_more_than_once", "wrong_amount", "partial_items", "expected_cash_change", "other"].includes(
         submittedIssueCategory,
       )
     ) {
@@ -1885,6 +1912,7 @@ serve(async (req) => {
             incidentTimeConfidence,
             incidentTimeSource,
             issueCategory,
+            ...(issueCategory === "expected_cash_change" ? [cashInsertedAmountCents, expectedChangeAmountCents] : []),
             productDescription,
             issueSummary,
           ],
@@ -1984,12 +2012,21 @@ serve(async (req) => {
     }
     if (resolutionMethod === "gift_card") {
       const submittedOffer = body.giftCardOffer as Record<string, unknown> | undefined;
-      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
-        p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+      const { data: quotedOffer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+        p_machine_id: machineRecord.id, p_amount_cents: affectedAmountCents,
       });
       if (error) throw error;
-      if (!offer || submittedOffer?.poolId !== offer.pool_id || submittedOffer?.value !== offer.value
-        || Date.parse(String(submittedOffer?.expiresAt)) !== Date.parse(String(offer.expires_at))) {
+      let offer = quotedOffer;
+      if (requiresGiftReview && !offer) {
+        const { data: template, error: templateError } = await supabase.from("refund_gift_card_pools")
+          .select("id,expires_at").eq("enabled", true).contains("eligible_machine_ids", [machineRecord.id])
+          .gt("expires_at", new Date().toISOString()).order("expires_at", { ascending: false }).limit(1).maybeSingle();
+        if (templateError) throw templateError;
+        if (template && affectedAmountCents) offer = { pool_id: template.id,
+          value: refundGiftCardFaceValue(affectedAmountCents), expires_at: template.expires_at };
+      }
+      if (!offer || (!requiresGiftReview && (submittedOffer?.poolId !== offer.pool_id || submittedOffer?.value !== offer.value
+        || Date.parse(String(submittedOffer?.expiresAt)) !== Date.parse(String(offer.expires_at))))) {
         throw new RequestValidationError("The gift-card offer changed. Please review the current value and terms before submitting.");
       }
       // Quote reads never create stock. Materialize the exact denomination only
@@ -1998,9 +2035,9 @@ serve(async (req) => {
         .select("face_value_cents").eq("id", offer.pool_id).single();
       if (templateError) throw templateError;
       acceptedGiftCardOffer = offer;
-      if (template.face_value_cents !== offer.value) {
+      if (!requiresGiftReview && template.face_value_cents !== offer.value) {
         const { data: materialized, error: materializeError } = await supabase.rpc("service_materialize_refund_gift_card_offer", {
-          p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+          p_machine_id: machineRecord.id, p_amount_cents: affectedAmountCents,
           p_template_pool_id: offer.pool_id, p_expires_at: offer.expires_at,
         });
         if (materializeError) throw materializeError;
@@ -2023,7 +2060,7 @@ serve(async (req) => {
         gift_card_pool_id: acceptedGiftCardOffer.pool_id,
         gift_card_value_cents: acceptedGiftCardOffer.value,
         gift_card_expires_at: acceptedGiftCardOffer.expires_at,
-        gift_card_state: "pending_inventory",
+        gift_card_state: requiresGiftReview ? "manager_review" : "pending_inventory",
       } : {}),
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
@@ -2041,6 +2078,9 @@ serve(async (req) => {
       incident_time_resolution: incidentResolution.resolution,
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
+      affected_amount_cents: affectedAmountCents,
+      cash_inserted_amount_cents: issueCategory === "expected_cash_change" ? cashInsertedAmountCents : null,
+      expected_change_amount_cents: issueCategory === "expected_cash_change" ? expectedChangeAmountCents : null,
       card_last4: paymentValidation.cardLast4,
       card_last4_source: paymentValidation.paymentMethod === "card" ? cardLast4Source : null,
       card_last4_provenance: paymentValidation.paymentMethod === "card" &&
@@ -2073,7 +2113,7 @@ serve(async (req) => {
       matched_sales_fact_id: null,
       cash_match_state: cashMatchState,
       cash_match_evaluated_fact_version: null,
-      refund_amount_cents: paymentValidation.amountCents,
+      refund_amount_cents: issueCategory === "expected_cash_change" ? 0 : paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       customer_request_received_at: customerRequestReceivedAt,
       customer_request_received_source: "hosted_refund_intake",
@@ -2107,6 +2147,14 @@ serve(async (req) => {
             incidentTimeResolution: insertValues.incident_time_resolution,
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
+            resolutionMethod: insertValues.resolution_method,
+            affectedAmountCents: insertValues.affected_amount_cents,
+            cashInsertedAmountCents: insertValues.cash_inserted_amount_cents,
+            expectedChangeAmountCents: insertValues.expected_change_amount_cents,
+            giftCardPoolId: insertValues.gift_card_pool_id,
+            giftCardValueCents: insertValues.gift_card_value_cents,
+            giftCardExpiresAt: insertValues.gift_card_expires_at,
+            giftCardState: insertValues.gift_card_state,
             cardLast4: insertValues.card_last4,
             cardLast4Source: insertValues.card_last4_source,
             cardNetwork: insertValues.card_network,
@@ -2365,11 +2413,17 @@ serve(async (req) => {
       customerLocale,
     });
     if (pendingGiftCardResult) {
-      const text = pendingGiftCardResult.state === "manager_review"
-        ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
-        : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
-      email = { subject: "We received your Bloomjoy gift-card request", ...buildRefundStoredTextWithStatus({
-        headline: "We received your gift-card request", text, statusUrl: statusCapability?.url ?? null,
+      const spanish = customerLocale === "es";
+      const text = spanish
+        ? pendingGiftCardResult.state === "manager_review"
+          ? `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}). Nuestro equipo la está revisando y le enviará el resultado por correo electrónico. No necesita enviar otra solicitud.`
+          : `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}) y la estamos preparando. Le enviaremos su código por correo electrónico cuando esté listo. No necesita enviar otra solicitud.`
+        : pendingGiftCardResult.state === "manager_review"
+          ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
+          : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
+      email = { subject: spanish ? "Recibimos su solicitud de tarjeta de regalo de Bloomjoy" : "We received your Bloomjoy gift-card request", ...buildRefundStoredTextWithStatus({
+        headline: spanish ? "Recibimos su solicitud de tarjeta de regalo" : "We received your gift-card request",
+        text, statusUrl: statusCapability?.url ?? null, customerLocale,
       }) };
     }
 
@@ -2440,6 +2494,7 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          gift_card: pendingGiftCardResult,
           statusToken: statusCapability?.token ?? null,
           statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
@@ -2477,6 +2532,7 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          gift_card: pendingGiftCardResult,
           statusToken: statusCapability?.token ?? null,
           statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
