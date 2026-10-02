@@ -601,7 +601,7 @@ Deno.test("mark-only automatic crash cannot send after env shutdown and defers t
                 error: null,
               });
             }
-            if (name === "service_authorize_refund_customer_outbound") {
+            if (name === "service_authorize_refund_customer_message_outbound") {
               return Promise.resolve({
                 data: {
                   allowed: true,
@@ -996,7 +996,7 @@ Deno.test("PR #1051 regression: portal completion with a later Gmail thread uses
               error: null,
             });
           }
-          if (name === "service_authorize_refund_customer_outbound") {
+          if (name === "service_authorize_refund_customer_message_outbound") {
             return Promise.resolve({
               data: {
                 allowed: true,
@@ -1189,7 +1189,7 @@ Deno.test("mark-only automatic fallback cannot start transactional provider acce
               error: null,
             });
           }
-          if (name === "service_authorize_refund_customer_outbound") {
+          if (name === "service_authorize_refund_customer_message_outbound") {
             return Promise.resolve({
               data: {
                 allowed: true,

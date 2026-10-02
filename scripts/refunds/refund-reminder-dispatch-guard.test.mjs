@@ -85,7 +85,10 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
       return query;
     },
     async rpc(name, args) {
-      if (name === 'service_authorize_refund_customer_outbound') return { data: { allowed: true, ...route }, error: null };
+      if (name === 'service_authorize_refund_customer_message_outbound') {
+        assert.equal(args.p_refund_case_message_id, 'synthetic-reminder');
+        return { data: { allowed: true, ...route }, error: null };
+      }
       if (name === 'service_bind_refund_transactional_delivery') {
         state.binds++;
         state.acceptanceBinding = { ...args };

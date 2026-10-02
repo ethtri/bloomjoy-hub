@@ -480,7 +480,7 @@ for (
               linkLookups += 1;
               return new FakeLinkQuery(linkage.link, linkage.lookupError);
             },
-            rpc: async (name: string) => {
+            rpc: async (name: string, args?: Record<string, unknown>) => {
               rpcCalls.push(name);
               if (
                 name === "service_verify_refund_synthetic_gmail_proof_transport"
@@ -494,7 +494,9 @@ for (
                   error: null,
                 };
               }
-              if (name === "service_authorize_refund_customer_outbound") {
+              if (name === "service_authorize_refund_customer_message_outbound") {
+                assertEquals(args?.p_refund_case_message_id,
+                  "79860000-0000-4000-8000-000000000006");
                 return {
                   data: {
                     allowed: true,
@@ -537,7 +539,7 @@ for (
           assertEquals(providerCalls, 0);
           assertEquals(rpcCalls, [
             "service_verify_refund_synthetic_gmail_proof_transport",
-            "service_authorize_refund_customer_outbound",
+            "service_authorize_refund_customer_message_outbound",
           ]);
           assertEquals(
             rpcCalls.includes("service_claim_refund_gmail_outbound_v3"),
@@ -548,6 +550,42 @@ for (
     },
   );
 }
+
+Deno.test("a rejected exact payout reminder never reaches fallback provider access", async () => {
+  await withEnvironment({ ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" }, async () => {
+    let authorityCalls = 0;
+    let providerCalls = 0;
+    const supabase = {
+      from: () => { throw new Error("Unbound reminder must not guess a thread"); },
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
+          return { data: { required: false, allowed: true }, error: null };
+        }
+        assertEquals(name, "service_authorize_refund_customer_message_outbound");
+        assertEquals(args.p_refund_case_message_id, "79860000-0000-4000-8000-000000000006");
+        authorityCalls += 1;
+        return { data: { allowed: false, status: "terminal_case" }, error: null };
+      },
+    };
+    await withFetch(async () => {
+      providerCalls += 1;
+      throw new Error("Rejected reminder attempted provider access");
+    }, async () => {
+      let errorCode: string | undefined;
+      try {
+        await dispatchRefundCaseGmailReply({ supabase: supabase as never,
+          refundCaseId: "79850000-0000-4000-8000-000000000006",
+          refundCaseMessageId: "79860000-0000-4000-8000-000000000006",
+          recipientEmail: "portal-customer@example.test", email, deliveryKind: "automatic" });
+      } catch (error) {
+        errorCode = error instanceof RefundGmailError ? error.code : undefined;
+      }
+      assertEquals(errorCode, "terminal_case");
+    });
+    assertEquals(authorityCalls, 1);
+    assertEquals(providerCalls, 0);
+  });
+});
 
 Deno.test("automatic-contact shutdown settles a new Gmail claim before provider access", async () => {
   await withEnvironment(
