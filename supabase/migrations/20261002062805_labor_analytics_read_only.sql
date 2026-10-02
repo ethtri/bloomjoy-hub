@@ -4,10 +4,20 @@ returns jsonb language sql stable security definer set search_path = '' as $$
  select jsonb_build_object(
  'hasAccess', auth.uid() is not null and exists(select 1 from public.reporting_machines m where public.can_manage_operator_payout_machine(auth.uid(),m.id)),
  'canViewPay', auth.uid() is not null and exists(select 1 from public.customer_accounts a where public.can_manage_operator_payout_account(auth.uid(),a.id)),
- 'dimensions',coalesce((select jsonb_agg(jsonb_build_object('machineId',m.id,'machineLabel',m.machine_label,'locationId',l.id,'locationName',l.name) order by l.name,m.machine_label)
+ 'dimensions',coalesce((select jsonb_agg(jsonb_build_object('machineId',d.id,'machineLabel',d.machine_label,'locationId',d.location_id,'locationName',d.location_name) order by d.location_name,d.machine_label)
+ from (
+ select m.id,m.machine_label,l.id as location_id,l.name as location_name
  from public.reporting_machines m join public.reporting_locations l on l.id=m.location_id
  where auth.uid() is not null and (public.can_manage_operator_payout_machine(auth.uid(),m.id)
- or public.can_manage_operator_payout_account(auth.uid(),m.account_id))),'[]'::jsonb));
+ or public.can_manage_operator_payout_account(auth.uid(),m.account_id))
+ union
+ select m.id,m.machine_label,l.id,l.name
+ from public.time_entries e join public.reporting_machines m on m.id=e.reporting_machine_id
+ join public.reporting_locations l on l.id=e.reporting_location_id
+ where auth.uid() is not null and e.status<>'voided'
+ and (public.can_manage_operator_payout_machine(auth.uid(),m.id)
+ or public.can_manage_operator_payout_account(auth.uid(),e.account_id))
+ ) d),'[]'::jsonb));
 $$;
 
 create or replace function public.get_labor_analytics_report(
