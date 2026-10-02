@@ -8,6 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- A bounded #1429/#628 repair is validating positive-only Sunze cash proof
+  parity. A current grounded candidate in RF-FF2A88FA had a research source key
+  that the preparation lookup could not reproduce. The existing research,
+  selection, current read and recommendation paths now share that identity,
+  retaining explicit review and unknown source-time semantics. Synthetic stale
+  source and mapping regressions pass; deployment and actual-case acceptance
+  remain pending. No live selection, communication or financial action occurred.
+
 - PR #1685 deployed the bounded System gift-notice outbox repair on October 2.
   The existing immutable gift-message proof now permits its authorized automatic
   NULL-author envelope; manual notices still require their author. The sole
