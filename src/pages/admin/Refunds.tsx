@@ -6606,7 +6606,7 @@ export default function AdminRefundsPage() {
     const plainManagerState = {
       label: editor.decision === 'denied' ? 'Deny request'
         : recommendation?.kind === 'refund'
-          ? `Refund ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')}`
+          ? `Selected purchase: ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')}`
           : recommendation?.kind === 'reject' ? 'Review rejection' : refundPlainStatus(selectedCase),
       explanation: editor.decision === 'denied'
         ? 'Choose a clear customer-facing reason, then save the Manager’s final decision.'

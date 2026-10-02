@@ -137,6 +137,7 @@ export default function RefundRequestPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(emptyForm);
+  const [giftCardAvailabilityByMachine, setGiftCardAvailabilityByMachine] = useState<Record<string, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<RefundRequiredField, string>>>({});
@@ -268,13 +269,25 @@ export default function RefundRequestPage() {
     retry: false,
     staleTime: 30000,
   });
+  const giftAvailabilityKey = offerMachineId || form.selectionKey;
+  useEffect(() => {
+    const enabled = offerQuery.data?.giftCardEnabled;
+    if (typeof enabled !== 'boolean' || !giftAvailabilityKey) return;
+    setGiftCardAvailabilityByMachine((current) => current[giftAvailabilityKey] === enabled
+      ? current : { ...current, [giftAvailabilityKey]: enabled });
+  }, [offerQuery.data?.giftCardEnabled, giftAvailabilityKey]);
   // Only an explicit server response can preserve the pre-launch cash process.
   // Errors, stockouts and missing denominations never imply a disabled pool.
-  const legacyCash = form.paymentMethod === 'cash' && (!giftCardAvailable || offerQuery.data?.giftCardEnabled === false);
+  const legacyCash = form.paymentMethod === 'cash' && (!giftCardAvailable || offerQuery.data?.giftCardEnabled === false || giftCardAvailabilityByMachine[giftAvailabilityKey] === false);
   const wantsGiftCard = choosesGiftCard && !legacyCash;
   const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
   const resolutionMethod: RefundResolutionMethod = wantsGiftCard ? 'gift_card' : 'original_payment';
   const giftCardOffer = offerQuery.data?.offer ?? null;
+  useEffect(() => {
+    if (form.issueCategory === 'expected_cash_change' && (form.paymentMethod !== 'cash' || legacyCash)) {
+      setForm((current) => ({ ...current, issueCategory: 'charged_no_product' }));
+    }
+  }, [form.issueCategory, form.paymentMethod, legacyCash]);
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -987,7 +1000,7 @@ export default function RefundRequestPage() {
                       {form.paymentMethod === 'cash' ? t("Machine took the wrong amount") : t("Charged the wrong amount")}
                     </option>
                     <option value="partial_items">{t('Received fewer items than I paid for')}</option>
-                    {form.paymentMethod === 'cash' && <option value="expected_cash_change">{t('Expected change from a cash payment')}</option>}
+                    {form.paymentMethod === 'cash' && !legacyCash && <option value="expected_cash_change">{t('Expected change from a cash payment')}</option>}
                     <option value="other">{t("Something else")}</option>
                   </select>
                   {fieldErrors.issueCategory && (

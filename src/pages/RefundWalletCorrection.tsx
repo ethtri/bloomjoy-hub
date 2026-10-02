@@ -216,7 +216,7 @@ export default function RefundWalletCorrectionPage() {
 
   return (
     <Layout>
-      <main lang={locale} className="min-h-[calc(100vh-7rem)] bg-[radial-gradient(circle_at_top_left,_#fff1f5,_transparent_36%),linear-gradient(180deg,#fffafd_0%,#fff_100%)] px-4 py-12 sm:py-16">
+      <main lang={locale} className="min-h-[calc(100vh-7rem)] bg-[radial-gradient(circle_at_top_left,_#fff1f5,_transparent_36%),linear-gradient(180deg,#fffafd_0%,#fff_100%)] px-4 pb-12 pt-24 sm:pb-16 sm:pt-28">
         <div className="mx-auto max-w-5xl"><RefundCustomerLanguageToggle locale={locale} onChange={setLocale} /></div>
         {result ? (
           <ResultPanel {...result} locale={locale} />

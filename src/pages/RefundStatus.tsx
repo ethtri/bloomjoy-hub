@@ -134,7 +134,7 @@ export default function RefundStatusPage() {
 
   return (
     <Layout>
-      <section lang={locale} className="min-h-[70vh] bg-gradient-to-b from-pink-50 via-background to-background px-4 py-8 sm:py-12">
+      <section lang={locale} className="min-h-[70vh] bg-gradient-to-b from-pink-50 via-background to-background px-4 pb-8 pt-24 sm:pb-12 sm:pt-28">
         <div className="mx-auto max-w-2xl">
           <RefundCustomerLanguageToggle locale={locale} onChange={setLocale} />
           <div className="rounded-2xl border border-pink-200 bg-white p-5 shadow-sm sm:p-8">
@@ -178,7 +178,10 @@ export default function RefundStatusPage() {
                 <p className="mt-3 text-base leading-7 text-foreground">{giftCopy ? giftCard?.state === 'issued' && locale === 'es' ? `Su tarjeta de regalo Bloomjoy de ${giftCardAmount(giftCard.value, giftCard.currency)} está lista.` : t(giftCopy.detail) : copy.detail}</p>
 
                 {giftCard ? (
-                  <div className="mt-6 border-t border-border pt-5"><RefundGiftCardTerms offer={giftCard} locale={locale} /></div>
+                  <div className="mt-6 space-y-3 border-t border-border pt-5">
+                    {giftCard.state === 'manager_review' && <p className="text-sm leading-6">{t('Proposed gift card. A manager will review the amount before it is issued.')}</p>}
+                    <RefundGiftCardTerms offer={giftCard} locale={locale} hideValue={giftCard.state === 'manager_review'} />
+                  </div>
                 ) : copy.milestone === 'denied' ? (
                   <div className="mt-6 rounded-xl border border-border bg-muted/25 p-4">
                     <p className="font-semibold text-foreground">{t("Review complete")}</p>
