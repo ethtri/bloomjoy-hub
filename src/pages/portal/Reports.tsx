@@ -186,9 +186,8 @@ const PARTNER_REPORT_UNAVAILABLE_REASONS = [
   'Refresh the page or try again later.',
   'If access was just updated, sign out and sign back in before retrying.',
 ];
-const PARTNER_REPORT_DATA_INCOMPLETE_TITLE = 'Report data incomplete';
 const PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE =
-  'Export is unavailable because required report data is incomplete. Try again later.';
+  'Export is not ready for this period.';
 const PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING = 'partnership_effective_window_excluded';
 const PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING = 'partnership_effective_window_trimmed';
 const PARTNER_REPORT_OUTSIDE_WINDOW_TITLE = 'No report for this period';
@@ -1991,13 +1990,9 @@ function PartnerDashboardView() {
   const isOutsidePartnershipWindow = blockingWarnings.some(
     (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
   );
-  const reportSetupWarnings = blockingWarnings.filter(
-    (warning) => warning.warningType !== PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
-  );
   const reportingPeriodNotes = nonBlockingWarnings.filter(
     (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING
   );
-  const showPartnerWarnings = reportSetupWarnings.length > 0 || reportingPeriodNotes.length > 0;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -2018,7 +2013,7 @@ function PartnerDashboardView() {
       ? 'Preparing XLSX'
         : exportingPartnerFormat === 'csv'
           ? 'Preparing CSV'
-          : 'Export';
+          : hasBlockingWarnings ? 'Export unavailable' : 'Export';
   const showNoPartnerMachines = Boolean(preview && preview.machinePeriods.length === 0);
 
   const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
@@ -2230,6 +2225,7 @@ function PartnerDashboardView() {
                       disabled={partnerExportDisabled}
                       className="w-full justify-center sm:w-auto"
                       data-portal-report-export="partner"
+                      title={hasBlockingWarnings ? PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE : undefined}
                     >
                       {exportingPartnerFormat ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2373,29 +2369,7 @@ function PartnerDashboardView() {
             isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
           />
 
-          {showPartnerWarnings && (
-            <Alert className="border-amber/20 bg-amber/10 text-foreground">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>
-                {reportSetupWarnings.length > 0
-                  ? PARTNER_REPORT_DATA_INCOMPLETE_TITLE
-                  : 'Reporting period'}
-              </AlertTitle>
-              <AlertDescription>
-                <div className="mt-2 flex flex-col gap-2">
-                  {reportSetupWarnings.length > 0 ? (
-                    <div className="font-medium">{PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE}</div>
-                  ) : (
-                    reportingPeriodNotes.map((warning, index) => (
-                      <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
-                        {warning.message}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
+          {reportingPeriodNotes.length > 0 && <p className="text-xs text-muted-foreground">{reportingPeriodNotes.map(warning => warning.message).join(' ')}</p>}
 
           <div className="grid min-w-0 gap-6">
             <PartnerTrendCard

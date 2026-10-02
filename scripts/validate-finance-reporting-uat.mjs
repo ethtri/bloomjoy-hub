@@ -109,10 +109,18 @@ try {
         ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable' }) })
         : route.fallback());
       await page.goto(url(), { waitUntil: 'networkidle' });
-      await page.getByText(rpc.endsWith('_access') ? 'Finance access could not be loaded' : 'Finance report unavailable', { exact: true }).waitFor();
-      if (rpc.endsWith('_access')) assert(!state.rpcCalls.some(call => call.rpcName === 'get_finance_reporting'));
-      unavailable = false; await page.getByRole('button', { name: 'Retry', exact: true }).click(); await ready(page);
-      checks.push(`${rpc}: failure is explicit and retry recovers`);
+      if (rpc.endsWith('_access')) {
+        await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
+        assert.equal(new URL(page.url()).searchParams.get('view'), 'overview');
+        assert(!state.rpcCalls.some(call => call.rpcName === 'get_finance_reporting'));
+        assert.equal(await page.getByText(/Labor or refund access could not be verified/).count(), 0);
+        unavailable = false; await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
+        checks.push('Missing Finance service opens a usable Overview automatically, then recovers when available');
+      } else {
+        await page.getByText('Finance report unavailable', { exact: true }).waitFor();
+        unavailable = false; await page.getByRole('button', { name: 'Retry', exact: true }).click(); await ready(page);
+        checks.push(`${rpc}: failure is explicit and retry recovers`);
+      }
     } finally { await context.close(); }
   }
 } catch (error) { failure = error; }

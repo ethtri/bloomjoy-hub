@@ -129,11 +129,12 @@ try {
       assert.equal(state.partnerExports.at(-1).format, 'pdf');
       checks.push('Only applicable domain filters; Partners mobile native period and preserved polished PDF export');
 
-      await tab(page, 'Sales').click();
+      await tab(page, 'Overview').click();
       await page.getByRole('button', { name: 'Save view', exact: true }).click();
       await page.getByLabel('View name', { exact: true }).fill('Saved sales analysis');
       await page.getByRole('button', { name: 'Save on this browser', exact: true }).click();
-      await page.getByRole('button', { name: 'Detailed report & PDFs', exact: true }).click();
+      await tab(page, 'Sales').click();
+      assert.equal(await page.getByRole('group', { name: 'Sales display' }).count(), 0, 'Sales opens the detailed view without sub-tabs');
       await page.locator('[data-portal-report-export="operator-pdf"]').waitFor();
       assert.equal(await page.getByRole('region', { name: 'Reporting filters' }).count(), 0);
       await page.reload({ waitUntil: 'networkidle' });
@@ -185,7 +186,7 @@ try {
     await page.getByText('The linked dates are invalid', { exact: true }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
     await page.route('**/rest/v1/rpc/get_sales_report', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable source' }) }));
-    await page.goto(url('sales'), { waitUntil: 'networkidle' });
+    await page.goto(url('overview'), { waitUntil: 'networkidle' });
     await page.getByText('Sales report unavailable', { exact: true }).waitFor({ timeout: 20000 });
     checks.push('Unauthorized scope, invalid dates and oversized period fail closed; failed sales read is not zero');
   } finally { await context.close(); }

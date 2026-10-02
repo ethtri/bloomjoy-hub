@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { exportSalesReportPdf, fetchReportingDimensions, fetchSalesReport, type ReportingAccessContext, type SalesReportFilters } from '@/lib/reporting';
 import { closeReservedSignedExportWindow, openSignedExportUrl, reserveSignedExportWindow } from '@/lib/signedExportWindow';
 import { comparisonRange, defaultWorkspaceState, knownMoney, money, number, parseSavedViews, readWorkspaceState, salesGroups, validDate, workspaceViews, writeWorkspaceState, type SavedReportingView, type WorkspaceState, type WorkspaceView } from '@/lib/reportingWorkspace';
-import { ReportingLocations, ReportingOverview, ReportingSales } from './ReportingSalesAnalytics';
+import { ReportingLocations, ReportingOverview } from './ReportingSalesAnalytics';
 import { ReportingOperations } from './ReportingOperations';
 import { ReportingFilters } from './ReportingFilters';
 import { ReportingFinance } from './ReportingFinance';
@@ -45,24 +45,20 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     if (patch.view) next.delete('report');
     setParams(next);
   };
-  const showDetailed = state.view === 'sales' && (params.get('report') === 'detail' || params.get('view') === 'operator');
+  const showDetailed = state.view === 'sales';
   const workspaceMode = state.view !== 'partners' && !showDetailed;
-  const setDetailed = (open: boolean) => {
-    const next = writeWorkspaceState({ ...state, view: 'sales' }, params);
-    if (open) next.set('report', 'detail'); else next.delete('report');
-    setParams(next);
-  };
   const hasLaborPanel = Boolean(laborPanel); const hasRefundPanel = Boolean(refundPanel);
-  const financeAccess = useQuery({ queryKey: ['reporting-finance-access', user?.id], queryFn: fetchFinanceReportingAccess, enabled: Boolean(user?.id), staleTime: 60000 });
+  const financeAccess = useQuery({ queryKey: ['reporting-finance-access', user?.id], queryFn: fetchFinanceReportingAccess, enabled: Boolean(user?.id), staleTime: 60000, retry: false });
   const hasFinanceAccess = financeAccess.data?.hasAccess === true;
   const visibleViews = useMemo(() => workspaceViews.filter(view => view === 'partners' ? canUsePartners : view === 'labor' ? hasLaborPanel : view === 'refunds' ? hasRefundPanel : view === 'finance' ? hasFinanceAccess : accessContext.hasReportingAccess), [canUsePartners, hasLaborPanel, hasRefundPanel, hasFinanceAccess, accessContext.hasReportingAccess]);
   useEffect(() => {
-    if (!params.has('view') && !accessLoading && !domainAccessLoading && !financeAccess.isLoading && visibleViews.length && !visibleViews.includes(state.view)) {
+    const selectedServiceUnavailable = (state.view === 'finance' && financeAccess.isError) || (['labor', 'refunds'].includes(state.view) && domainAccessError);
+    if ((!params.has('view') || selectedServiceUnavailable) && !accessLoading && !domainAccessLoading && !financeAccess.isLoading && visibleViews.length && !visibleViews.includes(state.view)) {
       setParams(writeWorkspaceState({ ...state, view: visibleViews[0] }, params), { replace: true });
     }
-  }, [params, accessLoading, domainAccessLoading, financeAccess.isLoading, visibleViews, state, setParams]);
+  }, [params, accessLoading, domainAccessLoading, domainAccessError, financeAccess.isLoading, financeAccess.isError, visibleViews, state, setParams]);
   const selectedAllowed = visibleViews.includes(state.view);
-  const salesView = !showDetailed && ['overview', 'sales', 'locations'].includes(state.view);
+  const salesView = ['overview', 'locations'].includes(state.view);
   const rangeTooLong = (Date.parse(state.dateTo) - Date.parse(state.dateFrom)) / 86400000 > 366;
   const fromParam = params.get('from'); const toParam = params.get('to');
   const invalidLinkedDates = (params.has('from') || params.has('to')) && (!validDate(fromParam) || !validDate(toParam) || fromParam > toParam);
@@ -112,7 +108,6 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     {saving && workspaceMode && <div className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-border p-3"><div className="flex-1"><Label htmlFor="reporting-save-name">View name</Label><Input id="reporting-save-name" value={saveName} onChange={event => setSaveName(event.target.value)} maxLength={80} placeholder="My monthly review"/></div><Button disabled={!saveName.trim()} onClick={saveView}>Save on this browser</Button><Button variant="ghost" onClick={() => setSaving(false)}>Cancel</Button><p className="w-full text-xs text-muted-foreground">Stores filters only for your account. Data and permissions are checked again when opened.</p></div>}
     {saved.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs text-muted-foreground">My views</span>{saved.map(view => <div key={view.id} className="flex items-center rounded-md border border-border"><Button variant="ghost" size="sm" onClick={() => { const next = writeWorkspaceState(view.state, params); next.delete('report'); setParams(next); }}>{view.name}</Button><Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Remove ${view.name}`} onClick={() => writeSaved(saved.filter(item => item.id !== view.id))}><X className="h-3 w-3"/></Button></div>)}</div>}
     <nav aria-label="Reporting views" className="mt-5 flex max-w-full overflow-x-auto border-b border-border">{visibleViews.map(view => <button type="button" key={view} aria-current={view === state.view ? 'page' : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${view === state.view ? 'border-[#c44c64] font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={() => navigate({ view })}>{labels[view]}</button>)}</nav>
-    {selectedAllowed && state.view === 'sales' && <div role="group" aria-label="Sales display" className="mt-4 flex flex-wrap gap-2"><Button variant={showDetailed ? 'outline' : 'secondary'} className="min-h-11" aria-pressed={!showDetailed} onClick={() => setDetailed(false)}>Sales analysis</Button><Button variant={showDetailed ? 'secondary' : 'outline'} className="min-h-11" aria-pressed={showDetailed} onClick={() => setDetailed(true)}>Detailed report & PDFs</Button></div>}
     {workspaceMode && <>
       <ReportingFilters key={`${state.view}:${state.dateFrom}:${state.dateTo}`} state={state} salesView={salesView} locations={locations} machines={machines} onChange={navigate}/>
       <p className="mt-2 text-xs text-muted-foreground">{salesView && prior ? `Comparing with ${prior.dateFrom} to ${prior.dateTo}. ` : ''}{state.dateTo >= new Date().toLocaleDateString('en-CA') ? 'Current day may be partial. ' : ''}Business dates, inclusive. <a href="#reporting-coverage" className="underline underline-offset-2">Data coverage</a></p>
@@ -120,20 +115,19 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     {(accessError || (!accessLoading && !domainAccessLoading && !financeAccess.isLoading && !selectedAllowed && !(state.view === 'finance' && financeAccess.isError))) && <Alert className="mt-6"><AlertTitle>{accessError ? 'Reporting access could not be loaded' : 'This reporting view is not available to your account'}</AlertTitle><AlertDescription>Select an available view or refresh to retry access. A saved link does not grant permission.</AlertDescription></Alert>}
     {state.view === 'finance' && financeAccess.isLoading && <Skeleton aria-label="Checking finance access" className="mt-6 h-32"/>}
     {state.view === 'finance' && financeAccess.isError && <Alert className="mt-6"><AlertTitle>Finance access could not be loaded</AlertTitle><AlertDescription>Your sales and refund reporting scope could not be verified. <Button variant="outline" className="ml-2 min-h-11" onClick={() => void financeAccess.refetch()}><RefreshCw className="mr-2 h-4 w-4"/>Retry</Button></AlertDescription></Alert>}
-    {domainAccessError && <p role="status" className="mt-4 text-sm text-muted-foreground">Labor or refund access could not be verified. Those views remain unavailable until access loads successfully.</p>}
-    {rangeTooLong && workspaceMode && <Alert className="mt-6"><AlertTitle>Choose a shorter reporting period</AlertTitle><AlertDescription>Analytics supports up to 367 days at a time. Choose Custom range from Period. For longer sales periods, use Sales → Detailed report & PDFs.</AlertDescription></Alert>}
+    {rangeTooLong && workspaceMode && <Alert className="mt-6"><AlertTitle>Choose a shorter reporting period</AlertTitle><AlertDescription>Analytics supports up to 367 days at a time. Choose Custom range from Period. For longer periods, use Sales.</AlertDescription></Alert>}
     {invalidLinkedDates && workspaceMode && <Alert className="mt-6"><AlertTitle>The linked dates are invalid</AlertTitle><AlertDescription>Choose valid dates before loading this report. <Button variant="link" onClick={() => navigate({ dateFrom: state.dateFrom, dateTo: state.dateTo })}>Use the dates shown above</Button></AlertDescription></Alert>}
     {scopeInvalid && <Alert className="mt-6"><AlertTitle>Selected scope is unavailable</AlertTitle><AlertDescription>This location or machine is outside this view's currently authorized scope. <Button variant="link" onClick={() => navigate({ locationId: 'all', machineId: 'all' })}>Choose all accessible locations</Button></AlertDescription></Alert>}
     {loading && <div aria-label="Loading report" className="mt-6 space-y-5"><div className="grid grid-cols-2 gap-6 lg:grid-cols-4">{[1,2,3,4].map(item => <Skeleton className="h-24" key={item}/>)}</div><Skeleton className="h-72"/></div>}
     {salesView && (report.isError || dimensions.isError) && <Alert variant="destructive" className="mt-6"><AlertTitle>Sales report unavailable</AlertTitle><AlertDescription>Loaded records could not be fetched. This is not a zero-sales result. <Button variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => { void dimensions.refetch(); void report.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Retry</Button></AlertDescription></Alert>}
-    {salesView && prior && (comparison.isError || prior.shortened) && <p role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{comparison.isError ? 'Prior-period data could not be loaded. Current results remain available.' : 'The prior month has fewer available calendar days. Percentage comparisons are not shown for unequal durations.'}</p>}
-    {!loading && !periodInvalid && selectedAllowed && salesView && report.isSuccess && !scopeInvalid && <>{state.view === 'overview' && <ReportingOverview {...analytics}/>} {state.view === 'sales' && <ReportingSales {...analytics}/>}{state.view === 'locations' && <ReportingLocations {...analytics}>{laborPanel && <section className="mt-7">{laborPanel(scope)}</section>}{refundPanel && <section className="mt-7">{refundPanel(scope)}</section>}</ReportingLocations>}</>}
+    {salesView && prior && (comparison.isError || prior.shortened) && <p className="mt-3 text-xs text-muted-foreground">{comparison.isError ? 'Comparison unavailable for these dates.' : 'Comparison dates do not form an equal calendar window. Percentage changes are unavailable.'}</p>}
+    {!loading && !periodInvalid && selectedAllowed && salesView && report.isSuccess && !scopeInvalid && <>{state.view === 'overview' && <ReportingOverview {...analytics}/>} {state.view === 'locations' && <ReportingLocations {...analytics}>{laborPanel && <section className="mt-7">{laborPanel(scope)}</section>}{refundPanel && <section className="mt-7">{refundPanel(scope)}</section>}</ReportingLocations>}</>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'overview' && (hasLaborPanel || hasRefundPanel) && <ReportingOperations key={user?.id} scope={scope} canUseLabor={hasLaborPanel} canUseRefunds={hasRefundPanel} onNavigate={view => navigate({ view })} />}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'labor' && <div className="mt-6">{laborPanel?.(scope)}</div>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'refunds' && <div className="mt-6">{refundPanel?.(scope)}</div>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'finance' && <ReportingFinance scope={scope} onMachine={(machineId, locationId) => navigate({ machineId, locationId })}/>}
     {selectedAllowed && state.view === 'partners' && <div className="mt-6">{partnerView}</div>}
-    {selectedAllowed && showDetailed && <div className="mt-4">{detailedSales()}</div>}
+    {selectedAllowed && showDetailed && <div className="mt-4">{detailedSales(filters)}</div>}
     <details className="mt-8 border-t border-border pt-4" id="reporting-coverage"><summary className="cursor-pointer text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Data coverage and metric definitions</summary><div className="mt-3 max-w-3xl space-y-2 text-sm leading-relaxed text-muted-foreground"><p>Latest sale in authorized scope: {accessContext.latestSaleDate ?? 'Unknown'}. Latest completed import: {accessContext.latestImportCompletedAt ? new Date(accessContext.latestImportCompletedAt).toLocaleString() : 'Unknown'}. A recent import does not establish completeness across providers, machines or dates.</p><p>No loaded rows means unavailable coverage, not confirmed zero activity. Unknown amounts remain unavailable; known subtotals identify omitted rows. Prior comparisons use the same currently authorized filters and require a positive prior denominator.</p><p>Transaction counts use the canonical provider financial unit. Sales per recorded transaction uses sales before refunds, excluding tax under the shared basis. Machine-local business dates are retained. Time entries, recovery and payroll use their own permissions and date basis.</p><p>Calculation versions in loaded sales: {[...new Set(rows.map(row => row.calculationVersion))].join(', ') || 'No loaded sales'}. No provider completeness denominator or verified uptime is available.</p></div></details>
   </div>;
 }
