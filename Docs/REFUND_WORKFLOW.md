@@ -1,6 +1,8 @@
 # Refund workflow
 
 Last updated: 2026-10-01. Owner decisions: #1364, #628, #1361, #666 and #1639.
+The October 1 approved exception and English/Spanish increment is tracked in
+#1686 and #1687; approval of requirements is not proof of deployed behavior.
 
 This is the single product requirements source for refunds. The form-first and
 gift-card requirements below govern new work; implementation gaps are tracked in
@@ -61,8 +63,8 @@ Bloomjoy approval or payment block; Nayax enforces the purchase-total limit.
 ## How transaction matching works
 
 The System searches before asking the customer a question. Original-payment card
-refunds retain the matching rules below; a gift card does not require Nayax
-matching or routine Manager review. Reuse available case and machine context,
+refunds retain the matching rules below; an ordinary eligible gift card does not
+require Nayax matching or Manager review. Reuse available case and machine context,
 and keep provider/mapping defects internal. Matching uses all available evidence
 together:
 
@@ -99,8 +101,11 @@ The default card refund is the full amount actually charged on the transaction t
 Manager selects, including sales tax. If the customer reports **$10.00** and the
 selected transaction charged **$10.90**, the default refund is **$10.90**.
 
-Allowing the Manager to edit the final refund amount is a lower-priority UI
-improvement. It must not delay the default full-refund path.
+The Manager may edit the final refund amount before the same approval. Default
+to the selected transaction's full charged total, including tax. For partial
+delivery, resolve the missing portion rather than the whole purchase. Show the
+exact final amount on the approval action and bind execution to that approved
+amount and selected transaction. Nayax retains the original-purchase limit.
 
 ### Cards and contactless payments
 
@@ -127,7 +132,7 @@ That is an appropriate clarification case; a single imperfect field is not.
 
 The Manager reviews the selected transaction and makes one decision. Approval
 authorizes the System to submit the refund through the Nayax API for the exact
-selected transaction and its provider total.
+selected transaction and Manager-approved amount (the provider total by default).
 
 “Assigned Machine Manager or Super-admin” is the complete approval rule. There
 is no separate approval-access enrollment, temporary manager grant, or second
@@ -153,7 +158,8 @@ technical reference cannot add another business approval or customer step.
 Extend the existing form and branded status/email experience with one clear
 resolution choice. Keep it short, warm and usable on mobile. Gift-card cases do
 not collect Zelle, Venmo or card-refund details, run wallet corrections, or wait
-for a routine Manager decision. Cash customers see the gift-card resolution clearly
+for a routine Manager decision outside the approved exceptions below. Cash
+customers see the gift-card resolution clearly
 up front; card customers retain the original-payment refund option.
 
 **One automatic gift card per customer per year. Repeat requests need Manager
@@ -161,12 +167,17 @@ approval.** Use the customer's email and the preceding 12 months to apply this
 rule across machines and providers. Count issued gift cards, including approved
 repeats; declined offers, card refunds and resending the same code do not count.
 Keep review on the existing case, with one assigned Manager or Super-admin decision.
+Partial delivery, expected cash change, and gift values over $25 after rounding
+also require that same review. Combine applicable reasons; never require separate
+repeat, amount and issue approvals. Exactly $25 adds no high-value review reason.
+The threshold is a review trigger, not a cap; a Manager may approve a higher value.
 Show the request, previous gift-card issuance and proposed value together in the
 existing Manager view. Approval assigns and sends the code automatically.
 
 Treat the gift card as one use with no surviving balance. Before acceptance,
 show its actual value, eligible locations, expiration and these simple terms.
-Round the purchase amount up to a $5 increment ($11 becomes $15; an exact
+Round the ordinary purchase amount, or the reviewed affected/courtesy amount for
+an exception, up to a $5 increment ($11 becomes $15; an exact
 multiple stays unchanged), without another per-request approval. Bloomjoy covers
 the extra goodwill without an additional deduction from technician or partner
 payouts; the original purchase keeps its existing refund treatment.
@@ -195,6 +206,57 @@ Keep codes private and reconcile unknown outcomes before another issuance.
 Keep purchase value, gift-card value and goodwill separate in reporting; do not
 label a gift card as cash paid or deduct issuance and redemption twice. Apply the
 owner-approved goodwill treatment above through #1640.
+
+## Partial delivery and expected cash change
+
+Reuse the issue selector with explicit **Received fewer items than I paid for**
+and **Expected change from a cash payment** choices. Do not infer these only from
+free text. Keep the existing short description for quantities and circumstances;
+no automated item-price calculation or additional receipt/identity requirement.
+For expected-change claims only, clarify **Cash inserted** and collect **Change
+you expected**. A recorded product sale is not proof of the inserted bill.
+
+Both are exceptions reviewed in the existing Manager workspace before issuance.
+Show the original amount, reported cash/change facts where applicable, proposed
+affected or courtesy amount, final resolution value and all review reasons
+together. One decision approves the final value and automatically executes the
+selected resolution, or declines with an explanation. Approved cash resolutions
+are gift cards; an expected-change gift is a courtesy. No new cash payout method
+is introduced. No-change signage provides context for the courtesy decision.
+
+Before submission, explain that an exception's final amount is determined during
+review rather than promise the full purchase or inserted cash as compensation.
+Retain clear gift terms and show the approved value in the outcome. Keep the same
+case; no second acceptance form. Review timing must be truthful, rather than
+promise the ordinary few-hour gift email expectation while a decision is pending.
+
+Keep original purchase, reported cash inserted, expected change, affected amount,
+final resolution amount, gift face value and Bloomjoy-funded goodwill distinct.
+Resolve only the affected purchase portion once; gift issuance or redemption does
+not deduct the entire purchase again. An expected-change courtesy and rounding
+must not create another technician/partner deduction or negative goodwill.
+
+| Scenario | Expected behavior |
+| --- | --- |
+| $30 for three $10 candies; two received | Manager may approve a $10 Nayax refund, or a $10 gift-card resolution; retain the $30 purchase and $10 affected portion separately. |
+| Cash $20; $10 candy; $10 expected change | Existing Manager review may approve a $10 courtesy gift, adjust or decline; no automatic $20 gift. |
+| Cash $100; $10 candy; $90 expected change | Hold proposed $90 gift for one Manager review; Manager may approve, adjust or decline. No automatic issuance or new cash payout. |
+| Ordinary eligible $25 gift | No high-value review reason; annual allowance and other exception reasons still apply. |
+| $25.01 resolution basis | Round to $30, then require high-value review. |
+| Repeat request plus partial delivery/high value | Show all reasons and make one final Manager decision. |
+
+## English and Spanish customer flow
+
+Provide a visible, keyboard-accessible **English / Español** toggle on the
+existing customer refund pages. Switching preserves entered answers and
+validation. Translate labels, options, help, validation and error messages,
+resolution timing and terms, review/success/status and same-case update steps.
+Persist the choice through the same request and its secure status/update links.
+Supply that preference to the existing customer refund templates, including
+gift redemption instructions, so the follow-through uses the selected language.
+Default to English when no preference exists. This is a focused customer refund
+increment: no app-wide localization rewrite, Manager/admin translation, new
+template framework or historical-case backfill.
 
 ## Manual cash refund (until gift-card activation and existing commitments)
 
@@ -300,6 +362,15 @@ Sunze for cotton candy, and the Kexiaozhan app for SnapCase.
   usually emailed within a few hours; original-card refunds take longer because
   we investigate the purchase and request the refund from the payment processor.
   This is an expectation, not a guaranteed arrival time or bank settlement promise.
+- Explicit partial-delivery/expected-change requests and rounded gifts over $25
+  wait for one shared Manager decision. The approved card amount or rounded gift
+  value reaches Nayax or compatible gift inventory; status, email and accounting agree.
+  The scenario matrix above, exact $25 boundary, repeat combinations, corrected
+  amounts and same-case retries have focused synthetic coverage.
+- English/Spanish selection persists across form, validation, success, secure
+  status/update and existing customer emails without losing answers or creating
+  another request. Both languages remain usable on mobile, by keyboard and at
+  200% zoom; verification uses synthetic customer messages.
 - One automatic gift card per customer per year; repeats receive one Manager
   decision, using the email and preceding 12 months. Concurrent requests and retries
   cannot duplicate an allowance, code, payment or financial deduction. Measure
@@ -324,7 +395,8 @@ owner decision:
 - TOTP or another routine step-up ceremony;
 - a second approver or separate business approval for request and completion;
 - an ordinary manual-Nayax step after Manager approval;
-- a dollar cap, daily quota, case allowlist, pilot cohort, observer, or staffed
+- a dollar cap (the approved over-$25 review trigger is not a cap), daily quota,
+  case allowlist, pilot cohort, observer, or staffed
   ceremony;
 - a provider-report, optional-research, or unrelated-issue prerequisite;
 - repeated customer clarification requests; or

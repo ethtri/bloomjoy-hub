@@ -93,6 +93,77 @@ const singleRowQuery = (data: unknown) => {
   return query;
 };
 
+Deno.test("System gift author requires exact existing automatic completion authority before transport", async () => {
+  const variants = [
+    { overrides: { delivery_kind: "manual" }, proof: true, queries: 0 },
+    { overrides: { template_version: "refund_receipt_completion_v1" }, proof: true, queries: 0 },
+    { overrides: { message_type: "more_info" }, proof: true, queries: 0 },
+    { overrides: { content_source: "manager_authored" }, proof: true, queries: 0 },
+    { overrides: { manual_delivery_intent_id: null }, proof: true, queries: 0 },
+    { overrides: {}, proof: false, queries: 1 },
+    { overrides: {}, proof: null, queries: 1 },
+    { overrides: {}, proof: true, queries: 1, denied: true },
+  ];
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = (() => { providerCalls++; throw new Error("Rejected source reached provider"); }) as typeof fetch;
+  try {
+    for (const variant of variants) {
+      const calls: string[] = [];
+      const supabase = {
+        from: (table: string) => {
+          calls.push(table);
+          return singleRowQuery(claimedMessage(null, {
+            created_by: null, template_version: "refund_gift_card_v1",
+            content_source: "deterministic_template", ...variant.overrides,
+          }));
+        },
+        rpc: (name: string, args: Record<string, unknown>) => {
+          calls.push(name);
+          assertEquals(name, "is_refund_receipt_automatic_completion_message");
+          assertEquals(args, { p_message_id: messageId });
+          return Promise.resolve({ data: variant.proof, error: variant.denied ? { code: "42501" } : null });
+        },
+      } as never;
+      await assertRejects(() => deliverRefundManualMessageClaim({ supabase, reference: { messageId, claimToken } }), Error);
+      assertEquals(calls.filter((name) => name === "is_refund_receipt_automatic_completion_message").length, variant.queries);
+      assertEquals(calls.some((name) => name.includes("provider_attempt")), false);
+      assertEquals(calls.includes("refund_cases"), false);
+    }
+    assertEquals(providerCalls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+Deno.test("System gift completion retains current case version and recipient guards", async () => {
+  for (const changedCase of [
+    {...currentCase, official_action_version: 8},
+    {...currentCase, customer_email: "different@example.invalid"},
+  ]) {
+    const calls: string[] = [];
+    const supabase = {
+      from: (table: string) => {
+        calls.push(table);
+        if (table === "refund_cases") return singleRowQuery(changedCase);
+        if (table === "refund_case_messages") return singleRowQuery(claimedMessage(null, {
+          created_by: null, content_source: "deterministic_template", template_version: "refund_gift_card_v1",
+        }));
+        throw new Error(`Unexpected source access: ${table}`);
+      },
+      rpc: (name: string, args: Record<string, unknown>) => {
+        calls.push(name);
+        if (name === "is_refund_receipt_automatic_completion_message") return Promise.resolve({data:true,error:null});
+        assertEquals(name, "service_finish_refund_manual_message_delivery");
+        assertEquals(args.p_outcome, "failed");
+        return Promise.resolve({data:{finished:true,payloadRedacted:true},error:null});
+      },
+    } as never;
+    const result = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+    assertEquals(result.outcome, "failed");
+    assertEquals(calls.includes("refund_gift_card_issuances"), false);
+    assertEquals(calls.some((name) => name.includes("provider_attempt")), false);
+  }
+});
+
 Deno.test("customer-accepted gift sends the private same code once and reconciles without another provider call", async () => {
   await withAutomaticEnvironment("false", "false", async () => {
     const values = { RESEND_API_KEY: "synthetic-gift-key", REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com" };
@@ -103,6 +174,7 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
     let providerPayload: Record<string, unknown> = {};
     let idempotencyKey = "";
     let recovering = false;
+    let recoveryState = "accepted";
     let codeStatus = "issued";
     globalThis.fetch = ((_input,init) => {
       providerCalls++;
@@ -116,18 +188,25 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
         calls.push(table);
         if (table === "refund_cases") return singleRowQuery({...currentCase,customer_name:"Ana",intake_meta:{customer_locale:"es"}});
         if (table === "refund_case_messages") return singleRowQuery(claimedMessage(recovering?"2026-09-30T22:00:00Z":null,{
-          template_version:"refund_gift_card_v1",gift_card_issuance_id:"b2500000-0000-4000-8000-000000000001",
-          delivery_transport: recovering?"resend":null,delivery_state:recovering?"accepted":null,
-          provider_message_id:recovering?"synthetic-gift-delivery":null,
+          created_by:null,content_source:"deterministic_template",
+          template_version:"refund_gift_card_v1",gift_card_issuance_id:null,
+          delivery_transport: recovering?"resend":null,delivery_state:recovering?recoveryState:null,
+          provider_message_id:recovering && recoveryState !== "unknown"?"synthetic-gift-delivery":null,
           delivery_state_updated_at:recovering?"2026-09-30T22:00:01Z":null,
         }));
-        if (table === "refund_gift_card_issuances") return singleRowQuery({code_id:"private-code-id",face_value_cents:1500,
-          currency:"USD",expires_at:"2030-10-30T22:15:00Z",eligible_locations:["Fixture shop"],redemption_instructions:"Enter the code."});
+        if (table === "refund_gift_card_issuances") {
+          const query = singleRowQuery({code_id:"private-code-id",face_value_cents:1500,
+            currency:"USD",expires_at:"2030-10-30T22:15:00Z",eligible_locations:["Fixture shop"],redemption_instructions:"Enter the code."});
+          query.eq = (key, value) => { assertEquals(key, "message_id"); assertEquals(value, messageId); return query; };
+          return query;
+        }
         if (table === "refund_gift_card_codes") return singleRowQuery({code:"001234",status:codeStatus});
         throw new Error(`Unexpected gift delivery table: ${table}`);
       },
       rpc: (name: string) => {
         calls.push(name);
+        if (name === "is_refund_receipt_automatic_completion_message")
+          return Promise.resolve({data:true,error:null});
         if (name === "service_mark_refund_manual_message_provider_attempt" || name === "service_mark_refund_transactional_delivery_attempt")
           return Promise.resolve({data:{marked:true,payloadRedacted:true},error:null});
         if (name === "service_bind_refund_transactional_delivery") return Promise.resolve({data:{bound:true,payloadRedacted:true},error:null});
@@ -138,6 +217,7 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
     try {
       const first = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
       assertEquals(first.outcome,"sent");
+      assertEquals(calls.indexOf("is_refund_receipt_automatic_completion_message") < calls.indexOf("service_mark_refund_manual_message_provider_attempt"),true);
       assertEquals(providerCalls,1);
       assertEquals(idempotencyKey,`refund-message-${messageId}`);
       assertEquals(String(providerPayload.text).includes("001234"),true);
@@ -150,6 +230,13 @@ Deno.test("customer-accepted gift sends the private same code once and reconcile
       assertEquals(replay.outcome,"sent");
       assertEquals(providerCalls,1);
       assertEquals(calls.includes("refund_gift_card_codes"),false);
+      recoveryState = "unknown";
+      calls.length = 0;
+      const unknown = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
+      assertEquals(unknown.outcome,"delivery_unknown");
+      assertEquals(providerCalls,1);
+      assertEquals(calls.includes("refund_gift_card_codes"),false);
+      assertEquals(calls.includes("refund_gift_card_issuances"),false);
       recovering = false;
       codeStatus = "used";
       const unavailable = await deliverRefundManualMessageClaim({supabase,reference:{messageId,claimToken}});
