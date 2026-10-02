@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(6);
+select plan(8);
 
 insert into public.customer_accounts (id, name, account_type)
 values ('ac100000-0000-4000-8000-000000000001', 'Acknowledgement boundary', 'internal');
@@ -51,9 +51,16 @@ select is(
     'public.is_refund_receipt_automatic_completion_message(uuid)',
     'execute'
   ),
-  false,
-  'The service role still cannot call the private receipt predicate directly'
+  true,
+  'The outbox service can read the existing immutable automatic completion proof'
 );
+
+select ok(not has_function_privilege('anon',
+  'public.is_refund_receipt_automatic_completion_message(uuid)', 'execute'),
+  'Anonymous clients cannot read private completion authority');
+select ok(not has_function_privilege('authenticated',
+  'public.is_refund_receipt_automatic_completion_message(uuid)', 'execute'),
+  'Signed-in clients cannot read private completion authority');
 
 set local role service_role;
 
