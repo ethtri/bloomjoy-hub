@@ -223,9 +223,14 @@ export const dispatchRefundCaseGmailReply = async ({
     const mailboxIdentities = getRefundGmailMailboxIdentities();
     const { data: deliveryAuthorization, error: recipientResolutionError } =
       await supabase.rpc(
-        "service_authorize_refund_customer_outbound",
+        deliveryKind === "automatic"
+          ? "service_authorize_refund_customer_message_outbound"
+          : "service_authorize_refund_customer_outbound",
         {
           p_refund_case_id: refundCaseId,
+          ...(deliveryKind === "automatic"
+            ? { p_refund_case_message_id: refundCaseMessageId }
+            : {}),
           p_recipient_email: recipientEmail,
           p_mailbox_identities: mailboxIdentities,
           p_delivery_kind: deliveryKind,

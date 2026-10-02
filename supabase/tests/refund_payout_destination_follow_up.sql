@@ -3,7 +3,15 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(55);
+select no_plan();
+
+-- Negative probes roll back their data, never their TAP results.
+create function pg_temp.require_ok(result text) returns text language plpgsql as $$
+begin
+  if result is null or result !~ '^ok ' then raise exception '%',result; end if;
+  return result;
+end;
+$$;
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -392,6 +400,106 @@ select is(
   'The reminder creates one durable deterministic ledger intent before delivery'
 );
 reset role;
+
+-- Reproduce RF-4B414AD0: approved is not terminal for this exact due
+-- destination reminder. Generic automatic contact retains its old boundary.
+create function pg_temp.reminder_authorization_probe(mutation text)
+returns jsonb language plpgsql as $$
+declare result jsonb;
+begin
+  begin
+    execute mutation;
+    result := public.service_authorize_refund_customer_message_outbound(
+      'c1400000-0000-4000-8000-000000000001',
+      (select (reminder.result->>'messageId')::uuid from payout_reminder_message reminder),
+      'payout-customer@example.invalid',array['refunds@example.invalid'],'automatic');
+    raise exception using errcode='P9999',message='Rollback authorization probe';
+  exception when sqlstate 'P9999' then return result;
+  end;
+end;
+$$;
+
+select pg_temp.require_ok(is(public.service_authorize_refund_customer_outbound(
+  'c1400000-0000-4000-8000-000000000001','payout-customer@example.invalid',
+  array['refunds@example.invalid'],'automatic')->>'status','terminal_case',
+  'Generic automatic authority still denies approved cash contact'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe('select 1')->>'allowed',
+  'true','Exact due approved cash reminder passes current authorization'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe('select 1')->'managerCcEmails',
+  '[]'::jsonb,'Due reminder never copies managers on customer correspondence'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe('select 1')->>'managerRecipientCount',
+  '1','Due reminder still requires the current mapped manager authority'));
+select pg_temp.require_ok(is(public.service_authorize_refund_customer_message_outbound(
+  'c1400000-0000-4000-8000-000000000001','c1500000-0000-4000-8000-000000000099',
+  'payout-customer@example.invalid',array['refunds@example.invalid'],'automatic')->>'status',
+  'terminal_case','Unrelated or missing message cannot lift approved contact boundary'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_cases set zelle_payment_contact='fulfilled@example.invalid'
+  where id='c1400000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','Satisfied destination cannot receive the due reminder'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_payout_destination_follow_ups
+  set reminder_due_at=statement_timestamp()+interval '1 day'
+  where refund_case_id='c1400000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','Not-yet-due reminder is not authorized'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  delete from public.refund_gmail_messages
+  where id='c1650000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','Unknown original delivery without bound receipt cannot authorize a followup'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.reporting_machine_refund_managers set active=false
+  where reporting_machine_id='c1300000-0000-4000-8000-000000000001'
+$probe$)->>'status','manager_cc_required','Exact reminder cannot bypass revoked current manager authority'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false
+$probe$)->>'status','automatic_contact_disabled','Reminder respects the current automatic contact switch'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_cases set payment_method='card'
+  where id='c1400000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','Approved card case does not inherit the legacy cash exception'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_cases set status='closed'
+  where id='c1400000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','A genuinely closed case does not inherit the reminder exception'));
+select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
+  update public.refund_payout_destination_follow_ups
+  set status='manual_review',manual_review_at=statement_timestamp(),reminder_claim_token=null
+  where refund_case_id='c1400000-0000-4000-8000-000000000001'
+$probe$)->>'allowed','false','Failed or released followup cannot authorize another transport'));
+select pg_temp.require_ok(ok(not has_function_privilege('authenticated',
+  'public.service_authorize_refund_customer_message_outbound(uuid,uuid,text,text[],text)','EXECUTE'),
+  'Message-specific authority is not exposed to authenticated customer or operator clients'));
+
+create function pg_temp.reminder_claim_probe() returns jsonb language plpgsql as $$
+declare first_claim jsonb; second_claim jsonb; message_id uuid;
+begin
+  begin
+    select (reminder.result->>'messageId')::uuid into message_id
+    from payout_reminder_message reminder;
+    first_claim := public.service_claim_refund_gmail_outbound_v3(
+      'c1400000-0000-4000-8000-000000000001',message_id,
+      'payout-approved-reminder-claim','refunds@example.invalid',
+      'payout-customer@example.invalid','Zelle email or phone number:',
+      array['refunds@example.invalid'],'automatic',
+      'c1600000-0000-4000-8000-000000000001');
+    second_claim := public.service_claim_refund_gmail_outbound_v3(
+      'c1400000-0000-4000-8000-000000000001',message_id,
+      'payout-approved-reminder-claim','refunds@example.invalid',
+      'payout-customer@example.invalid','Zelle email or phone number:',
+      array['refunds@example.invalid'],'automatic',
+      'c1600000-0000-4000-8000-000000000001');
+    raise exception using errcode='P9999',message='Rollback claim probe';
+  exception when sqlstate 'P9999' then
+    return jsonb_build_object('first',first_claim,'second',second_claim);
+  end;
+end;
+$$;
+select pg_temp.require_ok(is(pg_temp.reminder_claim_probe()#>>'{first,claimed}',
+  'true','Actual existing Gmail claim accepts the exact due approved-cash reminder'));
+select pg_temp.require_ok(is(pg_temp.reminder_claim_probe()#>>'{first,managerCcCount}',
+  '0','Actual claim retains customer-only correspondence'));
+select pg_temp.require_ok(is(pg_temp.reminder_claim_probe()#>>'{second,claimed}',
+  'false','Repeated exact claim cannot authorize a second provider attempt'));
 
 insert into public.refund_gmail_messages (
   id, gmail_thread_id, refund_case_id, refund_case_message_id,
