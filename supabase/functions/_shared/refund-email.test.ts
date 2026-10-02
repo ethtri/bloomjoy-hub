@@ -105,7 +105,7 @@ Deno.test("cash payout request asks for one protected destination in English and
   assertIncludes(email.text, "Zelle email or phone number:", "English reply line");
   assertIncludes(
     email.text,
-    "Correo electrÃ³nico o nÃºmero de telÃ©fono de Zelle:",
+    "Correo electrónico o número de teléfono de Zelle:",
     "Spanish reply line",
   );
   assertNotIncludes(email.text, "Approximate purchase time", "no purchase-time request");
@@ -276,11 +276,11 @@ Deno.test("Spanish-locale cases receive useful bilingual lifecycle copy", () => 
     statusUpdateReason: "provider_delay",
   });
 
-  assertIncludes(confirmation.subject, "[EspaÃ±ol / English]", "bilingual subject label");
-  assertIncludes(confirmation.text, "InformaciÃ³n en espaÃ±ol", "Spanish section heading");
+  assertIncludes(confirmation.subject, "[Español / English]", "bilingual subject label");
+  assertIncludes(confirmation.text, "Información en español", "Spanish section heading");
   assertIncludes(confirmation.text, "Recibimos su solicitud de reembolso", "Spanish confirmation");
   assertIncludes(confirmation.text, "datos de la compra", "cash-specific Spanish copy");
-  assertIncludes(delay.text, "esperando una confirmaciÃ³n del proveedor de pago", "Spanish provider-delay copy");
+  assertIncludes(delay.text, "esperando una confirmación del proveedor de pago", "Spanish provider-delay copy");
   assertIncludes(delay.text, "No necesita enviar otra solicitud", "Spanish no-duplicate guidance");
 });
 
@@ -632,7 +632,7 @@ Deno.test("confirmed card copy names approval without claiming bank posting", ()
 Deno.test("Spanish stored gift acknowledgement translates its secure status action", () => {
   const copy = buildRefundStoredTextWithStatus({ headline: "Recibimos su solicitud", text: "Estamos revisando su solicitud.",
     customerLocale: "es", statusUrl: "https://www.bloomjoyusa.com/refunds/status#token=" + "a".repeat(43) });
-  assertEquals(copy.text.includes("Consultar el estado del reembolso"), true);
-  assertEquals(copy.html.includes("Consultar el estado del reembolso"), true);
-  assertEquals(copy.text.includes("Check refund status"), false);
+  assertIncludes(copy.text, "Consultar el estado del reembolso", "Spanish text action");
+  assertIncludes(copy.html, "Consultar el estado del reembolso", "Spanish HTML action");
+  assert(!copy.text.includes("Check refund status"), "No English action in Spanish copy");
 });

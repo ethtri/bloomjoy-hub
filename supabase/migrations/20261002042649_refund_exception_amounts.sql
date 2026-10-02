@@ -38,7 +38,10 @@ returns text[] language sql stable security definer set search_path='' as $$
     case when c.issue_category='partial_items' then 'partial_items' end,
     case when c.issue_category='expected_cash_change' then 'expected_cash_change' end,
     case when c.gift_card_value_cents>2500 then 'gift_value_over_25' end,
-    case when not public.refund_gift_card_automatic_eligible(c.customer_email,statement_timestamp())
+    case when exists(select 1 from public.refund_gift_card_issuances i
+      where i.refund_case_id<>c.id and i.issued_at+interval '12 months'>statement_timestamp()
+        and (i.normalized_email=lower(btrim(c.customer_email)) or exists(select 1 from public.refund_case_messages m
+          where m.gift_card_issuance_id=i.id and m.recipient_email=lower(btrim(c.customer_email)))))
       then 'repeat_within_12_months' end],null)
   from public.refund_cases c where c.id=p_case_id;
 $$;

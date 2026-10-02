@@ -2416,8 +2416,8 @@ serve(async (req) => {
       const spanish = customerLocale === "es";
       const text = spanish
         ? pendingGiftCardResult.state === "manager_review"
-          ? `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}). Nuestro equipo la est· revisando y le enviar· el resultado por correo electrÛnico. No necesita enviar otra solicitud.`
-          : `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}) y la estamos preparando. Le enviaremos su cÛdigo por correo electrÛnico cuando estÈ listo. No necesita enviar otra solicitud.`
+          ? `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}). Nuestro equipo la est√° revisando y le enviar√° el resultado por correo electr√≥nico. No necesita enviar otra solicitud.`
+          : `Gracias por contarnos lo sucedido. Recibimos su solicitud de tarjeta de regalo (${refundCase.public_reference}) y la estamos preparando. Le enviaremos su c√≥digo por correo electr√≥nico cuando est√© listo. No necesita enviar otra solicitud.`
         : pendingGiftCardResult.state === "manager_review"
           ? `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}). Our team is reviewing it and will email the outcome. You do not need to submit another request.`
           : `Thank you for telling us what happened. We received your gift-card request (${refundCase.public_reference}) and are preparing it. We will email your code when it is ready. You do not need to submit another request.`;
