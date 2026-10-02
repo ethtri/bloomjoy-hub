@@ -16,6 +16,10 @@ try {
     try {
       await page.goto(`${reportUrl}&location=location-north`, { waitUntil: 'networkidle' });
       await page.getByRole('heading', { name: 'Refunds & recovery', exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: 'Business overview' }).count(), 0, 'Refund-only actor must not get a link that loops back');
+      await page.getByLabel('Period', { exact: true }).waitFor();
+      assert.equal(await page.getByLabel('From', { exact: true }).count(), 0, 'Dates belong in the custom period editor');
+      assert.equal(await page.getByLabel('Machine', { exact: true }).count(), 0, 'Machine belongs in More filters');
       assert(state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics' && call.body.p_location_ids?.[0] === 'location-north'));
       assert(!state.rpcCalls.some(call => /refund.*(queue|overview|operations)/.test(call.rpcName)), 'Report must not mount queue reads');
       assert.equal(await page.getByRole('link', { name: 'Open authorized refund queue' }).count(), 0);
@@ -34,6 +38,15 @@ try {
         await page.getByRole('alert').waitFor();
         assert.equal(state.rpcCalls.filter(call => call.rpcName === 'get_refund_analytics').length, count, 'Invalid scope/date must not load widened data');
       }
+      await page.goto(`${appUrl}/refunds?view=reports&from=2026-02-30&to=2026-07-22`, { waitUntil: 'networkidle' });
+      const invalidCount = state.rpcCalls.filter(call => call.rpcName === 'get_refund_analytics').length;
+      await page.getByLabel('Location', { exact: true }).click();
+      await page.getByRole('option', { name: 'North Hall', exact: true }).click();
+      assert.equal(new URL(page.url()).searchParams.get('from'), '2026-02-30', 'Scope changes must preserve invalid linked dates');
+      assert.equal(state.rpcCalls.filter(call => call.rpcName === 'get_refund_analytics').length, invalidCount);
+      await page.getByLabel('Period', { exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Last 7 complete days', exact: true }).click();
+      await page.getByRole('heading', { name: 'Refunds & recovery', exact: true }).waitFor();
     } finally { await context.close(); }
   }
   console.log('Refund report desktop/390px/320px, linked scope, CSV, queue isolation and invalid links passed.');
