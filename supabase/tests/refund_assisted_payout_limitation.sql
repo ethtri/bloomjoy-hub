@@ -173,7 +173,8 @@ select throws_ok('select pg_temp.assist()','P4672',null,'Unresolved supplied amo
 rollback to bad_source;
 savepoint bad_source;
 update public.admin_roles set active=false where user_id='d5170000-0000-4000-8000-000000000004';
-update public.reporting_machine_refund_managers set revoked_at=statement_timestamp() where manager_user_id='d5170000-0000-4000-8000-000000000004';
+update public.reporting_machine_refund_managers set revoked_at=statement_timestamp(),revoke_reason='Synthetic authority revocation'
+ where manager_user_id='d5170000-0000-4000-8000-000000000004';
 select throws_ok('select pg_temp.assist()','42501',null,'Revoked current actor cannot perform assisted handling');
 rollback to bad_source;
 savepoint bad_source;
