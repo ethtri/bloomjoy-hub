@@ -41,19 +41,6 @@ export function MemberRoute() {
     adminAccess.allowedSurfaces.includes('*') ||
     adminAccess.allowedSurfaces.includes('access');
 
-  if (
-    loading ||
-    (isTeamRoute && isResolvingPortalTeam) ||
-    (isTimekeepingRoute && isResolvingPortalTimekeeping) ||
-    (isReportingRoute && !hasReportingAccess && analyticsAccess.isLoading)
-  ) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
-
   const canAccessRoute = isTimeReviewRoute
     ? canUseTimeReview
     : isTeamRoute
@@ -71,7 +58,22 @@ export function MemberRoute() {
           canUsePortalTimekeeping
         );
 
-  if (canAccessRoute || (isReportingRoute && (analyticsAccess.canUseLabor || analyticsAccess.canUseRefunds))) {
+  const canAccessReportingDomain = analyticsAccess.canUseLabor || analyticsAccess.canUseRefunds;
+
+  if (
+    loading ||
+    (isTeamRoute && isResolvingPortalTeam) ||
+    (isTimekeepingRoute && isResolvingPortalTimekeeping) ||
+    (isReportingRoute && !canAccessRoute && !canAccessReportingDomain && analyticsAccess.isLoading)
+  ) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading...
+      </div>
+    );
+  }
+
+  if (canAccessRoute || (isReportingRoute && canAccessReportingDomain)) {
     return <Outlet />;
   }
 
