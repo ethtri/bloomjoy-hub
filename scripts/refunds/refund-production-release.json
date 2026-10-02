@@ -312,7 +312,8 @@
     "20261002044630_refund_portal_outreach_reuse.sql",
     "20261002092533_refund_form_outreach_value_reuse.sql",
     "20261002170300_refund_legacy_payout_reminder_authority.sql",
-    "20261002220122_refund_cash_research_projection.sql"
+    "20261002220122_refund_cash_research_projection.sql",
+    "20261002232736_refund_assisted_structured_correction.sql"
   ],
   "migrationFilesSha256": "191d4a76ead241329dcd8ea995409f63a5948294c20105dca033447ae6ae75a6",
   "migrationVersionSetSha256": "bbbcd940f1c81749a2d6dd8b2462076201689dcc4c684a7b336ad0b04a38522e",
