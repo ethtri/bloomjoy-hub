@@ -34,6 +34,12 @@ select lives_ok($$select public.admin_decide_refund_gift_card('fa060000-0000-400
 select results_eq($$select purchase_amount_cents,affected_purchase_amount_cents,face_value_cents,goodwill_amount_cents from public.refund_gift_card_issuances where refund_case_id='fa060000-0000-4000-8000-000000000002'$$,
   $$select 3000::integer,1000::integer,1000::integer,0::integer$$,'Original, affected amount, gift face and goodwill are separate');
 select is((select refund_amount_cents from public.refund_cases where id='fa060000-0000-4000-8000-000000000002'),1000,'Accounting request adjusts only the affected portion');
+select ok(public.refund_gift_card_case_projection('fa060000-0000-4000-8000-000000000002') @>
+ '{"state":"issued","purchase_amount":3000,"affected_amount":1000,"value":1000,"goodwill_amount":0,"currency":"USD","eligible_locations":["Exceptions venue"]}'::jsonb,
+ 'Actual public partial projection preserves original $30 while showing approved $10 without negative goodwill');
+select ok(public.get_refund_gift_card_case('fa060000-0000-4000-8000-000000000002') @>
+ '{"state":"issued","purchase_amount":3000,"affected_amount":1000,"value":1000,"goodwill_amount":0}'::jsonb,
+ 'Actual Manager API projection retains original and affected amounts for the existing client');
 select is(private.refund_gift_card_resolved_purchase_cents('fa060000-0000-4000-8000-000000000002',current_date),1000::bigint,'Reporting resolves the affected amount only');
 select lives_ok($$select public.admin_decide_refund_gift_card('fa060000-0000-4000-8000-000000000002',true,null,1000)$$,'Same decision replay allocates no second code');
 select throws_ok($$select public.admin_decide_refund_gift_card('fa060000-0000-4000-8000-000000000002',true,null,1500)$$,'P4620',null,'Changed replay amount rejects');
