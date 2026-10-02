@@ -29,12 +29,22 @@ Presence does not prove correct merchant ownership or functional behavior.
 
 ## Account preparation — pending
 
+The owner opened Bloomjoy Services LLC account `acct_1UMDXoAw1uae6O3W` under
+the existing login on October 2, 2026. Its nonbinding onboarding has saved the
+separate legal name/EIN, Multi-member LLC structure, confirmed business address,
+bloomjoyusa.com, Other merchandise category, actual business description, and
+BLOOMJOY statement descriptor. Included Radar Lite is selected; tax calculation
+and climate contributions are off. Ethan's initial owner name/email record is
+present, but owner and representative identity details remain incomplete.
+Bank setup and final submission are pending. Neither charges nor payouts have
+been verified enabled. No new catalog, webhook, or production switch is complete.
+
 Use a separate Bloomjoy Services LLC account under the existing login. Keep
 TGPaci's legal entity, bank, transactions, and access intact. No Connect or
 organization-wide access change is needed for this request.
 
-The owner must complete final financial account opening, authentication,
-identity verification, personal attestations, and required bank confirmations.
+The owner must complete authentication, identity verification, personal
+attestations, final activation submission, and required bank confirmations.
 Use the owner's private business records for EIN and bank information; never
 place them, credentials, or customer documents in this repository.
 Describe commercial cotton-candy machine sales, related supplies, and optional

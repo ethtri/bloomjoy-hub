@@ -11,9 +11,11 @@ orientation snapshot; it is not a backlog or release ledger.
 - #1693 tracks routing new website supply and optional Plus revenue to a separate
   Bloomjoy Services LLC Stripe account. The October 1 production credential and
   recorded Checkout audit confirms the current merchant is TGPaci LLC. No
-  production account/secret switch has occurred. Final Services account opening,
-  verification, tax setup, test rehearsal, and live no-charge checks remain
-  pending. See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
+  production account/secret switch has occurred. The owner opened separate
+  Services account `acct_1UMDXoAw1uae6O3W` on October 2. Business and public
+  details are saved; personal/owner verification, bank setup, final activation,
+  tax setup, test rehearsal, and live no-charge checks remain pending.
+  See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
   settings, and rollback procedure. Preserve TGPaci's historical records.
 
 ## Refund workflow (current)
