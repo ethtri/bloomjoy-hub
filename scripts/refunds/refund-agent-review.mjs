@@ -4,7 +4,11 @@ import ts from 'typescript';
 
 // Execute the existing pure contract validator, including on the CI Node 20 runtime.
 const lifecycleSource = await readFile(new URL('../../src/lib/refundLifecycle.ts', import.meta.url), 'utf8');
-const lifecycleModule = ts.transpileModule(lifecycleSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+const giftSource = await readFile(new URL('../../src/lib/refundGiftCard.ts', import.meta.url), 'utf8');
+const giftModule = ts.transpileModule(giftSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+const giftModuleUrl = `data:text/javascript;base64,${Buffer.from(giftModule).toString('base64')}`;
+const lifecycleModule = ts.transpileModule(lifecycleSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText
+  .replace("'./refundGiftCard.ts'", JSON.stringify(giftModuleUrl));
 const { requireRefundLifecycleContract } = await import(`data:text/javascript;base64,${Buffer.from(lifecycleModule).toString('base64')}`);
 
 export const schemaVersion = 'refund_agent_review_v1';

@@ -73,8 +73,9 @@ async function currentSavedResponse(supabase: SupabaseClient, tokenHash: string,
 export async function handlePurchaseCorrection(body: Record<string, unknown>, supabase: SupabaseClient) {
   const submitting = body.action === 'submitPurchaseCorrection';
   const renewing = body.action === 'renewPurchaseCorrection';
-  const allowed = submitting ? ['action','token','version','answers'] : ['action','token'];
+  const allowed = submitting ? ['action','token','version','answers','customerLocale'] : ['action','token'];
   if (Object.keys(body).some((key) => !allowed.includes(key)) || typeof body.token !== 'string' || !isCorrectionToken(body.token)) return unavailable();
+  if (body.customerLocale !== undefined && !['en','es'].includes(String(body.customerLocale))) return json({ errorCode: 'correction_invalid_answers' }, 400);
   const hash = await hashCorrectionToken(body.token);
   if (renewing) {
     const token = await renewalCorrectionToken(body.token);
@@ -104,7 +105,7 @@ export async function handlePurchaseCorrection(body: Record<string, unknown>, su
   let saveResult: Awaited<ReturnType<typeof supabase.rpc>>;
   try {
     saveResult = await supabase.rpc('service_submit_refund_purchase_correction', {
-      p_token_hash: hash, p_expected_fact_version: body.version, p_answers: answers,
+      p_token_hash: hash, p_expected_fact_version: body.version, p_answers: answers, p_customer_locale: body.customerLocale ?? null,
     });
   } catch { return temporarilyUnavailable(); }
   const { data: saved, error: saveError } = saveResult;

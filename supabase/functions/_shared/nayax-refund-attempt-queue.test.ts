@@ -39,6 +39,18 @@ Deno.test("parses one frozen System-owned attempt claim", () => {
   assertEquals(parseNayaxQueuedRefundClaim({ ...claim(), accountKey: "secret" }), null);
 });
 
+Deno.test("partial amount stays distinct from original and cannot exceed it", () => {
+  const partial = claim();
+  const wire = { ...partial.providerWireContext, originalAmountCents: 3000, refundAmountCents: 1000 };
+  const parsed = parseNayaxQueuedRefundClaim({ ...partial, providerWireContext: wire });
+  assertEquals(parsed?.wire.originalAmountCents, 3000);
+  assertEquals(parsed?.wire.refundAmountCents, 1000);
+  for (const refundAmountCents of [0, -100, 3001, 10.5]) {
+    assertEquals(parseNayaxQueuedRefundClaim({ ...partial, providerWireContext: { ...wire, refundAmountCents } }), null);
+  }
+  assertEquals(parseNayaxQueuedRefundClaim(claim())?.wire.refundAmountCents, 1090);
+});
+
 Deno.test("one claim executes and settles once", async () => {
   let claimed = false;
   let executions = 0;

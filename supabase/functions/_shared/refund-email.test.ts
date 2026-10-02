@@ -628,3 +628,11 @@ Deno.test("confirmed card copy names approval without claiming bank posting", ()
     "no false bank-posting claim",
   );
 });
+
+Deno.test("Spanish stored gift acknowledgement translates its secure status action", () => {
+  const copy = buildRefundStoredTextWithStatus({ headline: "Recibimos su solicitud", text: "Estamos revisando su solicitud.",
+    customerLocale: "es", statusUrl: "https://www.bloomjoyusa.com/refunds/status#token=" + "a".repeat(43) });
+  assertIncludes(copy.text, "Consultar el estado del reembolso", "Spanish text action");
+  assertIncludes(copy.html, "Consultar el estado del reembolso", "Spanish HTML action");
+  assert(!copy.text.includes("Check refund status"), "No English action in Spanish copy");
+});
