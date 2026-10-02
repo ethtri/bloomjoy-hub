@@ -2399,8 +2399,8 @@ function TaxChangeDialog({
           <DialogTitle>{isInitialSetup ? 'Set reporting tax rate' : 'Change reporting tax rate'}</DialogTitle>
           <DialogDescription>
             {isInitialSetup
-              ? 'Add the rate used for this machine’s reporting history. Confirm the effective date before saving.'
-              : 'Use this when a machine moves or a jurisdiction changes. The previous rate closes the day before this one applies.'}
+              ? 'Add reporting settings for this machine’s history. Confirm the effective date before saving.'
+              : 'Choose when these reporting settings take effect. The previous rate ends the day before.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 gap-4 overflow-y-auto px-1">
