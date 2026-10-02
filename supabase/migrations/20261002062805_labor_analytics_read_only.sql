@@ -44,9 +44,13 @@ begin
  with authorized_profiles as materialized (
  select p.id,p.account_id from public.operator_payout_profiles p
  where public.can_manage_operator_payout_account(auth.uid(),p.account_id)
+ ), months as (
+ select month_start::date as month_start,(month_start+interval '1 month - 1 day')::date as month_end
+ from generate_series(date_trunc('month',p_date_from::timestamp),date_trunc('month',p_date_to::timestamp),interval '1 month') month_start
  ), calculations as materialized (
- select private.calculate_technician_pay_report(p.account_id,p.id,p_date_from,p_date_to) as report
- from authorized_profiles p
+ select private.calculate_technician_pay_report(p.account_id,p.id,greatest(p_date_from,m.month_start),least(p_date_to,m.month_end)) as report,
+ p_date_from<=m.month_start and p_date_to>=m.month_end as complete_month
+ from authorized_profiles p cross join months m
  ), machines as (
  select machine.value as line from calculations c cross join lateral jsonb_array_elements(coalesce(c.report->'machines','[]'::jsonb)) machine
  where (p_machine_ids is null or (machine.value->>'machineId')::uuid=any(p_machine_ids))
@@ -60,17 +64,18 @@ begin
  'commissionEarningsCents',(select sum((line->>'commissionEarningsCents')::bigint) from machines),
  'missingShiftRateEntries',(select count(*) from shifts where line->>'shiftRateCents' is null),
  'calculationIssueCount',(select coalesce(sum(jsonb_array_length(coalesce(report->'blockers','[]'::jsonb))),0) from calculations),
- 'readyCalculationCount',(select count(*) from calculations where (report->>'publishable')::boolean),
- 'revisionRequiredCount',(select count(*) from calculations where coalesce((report->>'payStubRegenerationRequired')::boolean,false)),
+ 'readyCalculationCount',(select count(*) from calculations where complete_month and (report->>'publishable')::boolean),
+ 'partialMonthCalculationCount',(select count(*) from calculations where not complete_month),
+ 'revisionRequiredCount',(select count(*) from calculations where complete_month and coalesce((report->>'payStubRegenerationRequired')::boolean,false)),
  'publishedStatementCount',(select count(distinct s.operator_profile_id::text || ':' || r.payout_period_id::text)
  from public.pay_statements s join public.payout_runs r on r.id=s.payout_run_id
  join public.payout_periods pp on pp.id=r.payout_period_id
  where s.status in ('issued','revised') and pp.period_start_date <= p_date_to and pp.period_end_date >= p_date_from
  and public.can_manage_operator_payout_account(auth.uid(),s.account_id)),
- 'unallocatedOtherEarningsCents',case when p_machine_ids is null and p_location_ids is null then
+ 'unallocatedOtherEarningsCents',case when p_machine_ids is null and p_location_ids is null and not exists(select 1 from calculations where not complete_month) then
  (select sum(coalesce((report->>'bonusCents')::bigint,0)+coalesce((report->>'supplyCreditCents')::bigint,0)+coalesce((report->>'expenseReimbursementCents')::bigint,0)) from calculations) else null end,
- 'statementBasis','Calculation readiness for selected dates. Open Pay Report for published statements; publication is not payment.',
- 'coverage','Estimates reuse canonical rate and commission rules. Calculation issues may omit earnings; other earnings are unallocated and only shown for unfiltered scope. Fleet sales are not derived from technician sales.'
+ 'statementBasis','Readiness is counted only for complete calendar-month calculations across authorized accounts. Partial months are estimates. Open Pay Report for statements; publication is not payment.',
+ 'coverage','Estimates reuse canonical monthly rate and commission rules. Calculation issues may omit earnings; other earnings are unallocated and only shown for unfiltered complete months. Fleet sales are not derived from technician sales.'
  ) into pay_rows;
  return result || jsonb_build_object('pay',case when (result->'access'->>'canViewPay')::boolean then pay_rows else null end);
 end;

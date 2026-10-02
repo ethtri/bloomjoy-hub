@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(13);
+select plan(16);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -206,8 +206,13 @@ select set_config('request.jwt.claim.sub','a1000000-0000-0000-0000-000000000004'
 select is(jsonb_array_length(public.get_labor_analytics_report('2026-07-01','2026-07-31')->'rows'),0,'outsider cannot see recorded effort');
 select set_config('request.jwt.claim.sub','a1000000-0000-0000-0000-000000000003',true);
 create temporary table before_analytics as select (select count(*) from public.payout_periods) periods,(select count(*) from public.payout_period_machine_revenue_snapshots) snapshots;
+insert into public.operator_recurring_compensation_items(account_id,operator_profile_id,item_type,description,amount_cents,effective_start_date)
+values('a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001','bonus','Synthetic monthly bonus',1000,'2026-07-01');
 select ok(public.get_labor_analytics_report('2026-07-01','2026-07-31')->'pay' <> 'null'::jsonb,'account owner receives sanitized canonical earnings');
 select is(public.get_labor_analytics_report('2026-07-01','2026-07-31',array['a4000000-0000-0000-0000-000000000001'::uuid])->'pay'->'unallocatedOtherEarningsCents','null'::jsonb,'machine filtering cannot allocate account bonuses or reimbursements');
+select is(public.get_labor_analytics_report('2026-07-10','2026-07-20')->'pay'->'unallocatedOtherEarningsCents','null'::jsonb,'partial-month dates cannot invent bonus proration');
+select is((public.get_labor_analytics_report('2026-07-10','2026-07-20')->'pay'->>'readyCalculationCount')::integer,0,'partial-month estimates are not full statement readiness');
+select is((public.get_labor_analytics_report('2026-07-01','2026-08-31')->'pay'->>'unallocatedOtherEarningsCents')::bigint,2000::bigint,'multi-month recurring bonus follows one canonical calculation per month');
 select ok((select periods=(select count(*) from public.payout_periods) and snapshots=(select count(*) from public.payout_period_machine_revenue_snapshots) from before_analytics),'analytics never creates periods or snapshots');
 select * from finish();
 rollback;

@@ -13,7 +13,7 @@ export type LaborAnalyticsReport = {
   pay: null | {
     shiftEarningsCents: number | null; commissionEarningsCents: number | null;
     missingShiftRateEntries: number; calculationIssueCount: number; readyCalculationCount: number;
-    revisionRequiredCount: number; publishedStatementCount: number; unallocatedOtherEarningsCents: number | null;
+    revisionRequiredCount: number; partialMonthCalculationCount: number; publishedStatementCount: number; unallocatedOtherEarningsCents: number | null;
     coverage: string; statementBasis: string;
   };
 };
@@ -50,6 +50,7 @@ export function laborAnalyticsCsv(report: LaborAnalyticsReport): string {
     ['Missing shift rates', report.pay.missingShiftRateEntries],
     ['Account-scope calculation issues', report.pay.calculationIssueCount],
     ['Account-scope ready calculations', report.pay.readyCalculationCount],
+    ['Account-scope partial-month estimates', report.pay.partialMonthCalculationCount],
     ['Account-scope revisions required', report.pay.revisionRequiredCount],
     ['Account-scope published statements', report.pay.publishedStatementCount],
   );
