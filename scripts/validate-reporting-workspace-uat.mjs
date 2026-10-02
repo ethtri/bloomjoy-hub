@@ -97,11 +97,25 @@ try {
     await page.goto(`${appUrl}/portal/reports?view=refunds&from=2024-01-01&to=2026-07-22`, { waitUntil: 'networkidle' });
     await page.getByText('Choose a shorter reporting period', { exact: true }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
+    await page.goto(`${appUrl}/portal/reports?view=refunds&from=2026-02-30&to=2026-07-22`, { waitUntil: 'networkidle' });
+    await page.getByText('The linked dates are invalid', { exact: true }).waitFor();
+    assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
     await page.route('**/rest/v1/rpc/get_sales_report', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable source' }) }));
     await page.goto(url('sales'), { waitUntil: 'networkidle' });
     await page.getByText('Sales report unavailable', { exact: true }).waitFor({ timeout: 20000 });
-    checks.push('Unauthorized scope and oversized period fail closed; failed sales read is not zero');
+    checks.push('Unauthorized scope, invalid dates and oversized period fail closed; failed sales read is not zero');
   } finally { await context.close(); }
+
+  {
+    const { page, context } = await open(workspacePersonas.baseline);
+    try {
+      await page.route('**/rest/v1/rpc/get_*_analytics_access', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable permission service' }) }));
+      await page.goto(url('labor'), { waitUntil: 'networkidle' });
+      await page.getByRole('heading', { name: 'Reporting access could not be verified', exact: true }).waitFor();
+      assert(await page.getByRole('button', { name: 'Retry access check', exact: true }).isEnabled());
+      checks.push('Permission-service failure remains retryable and is distinct from access denial');
+    } finally { await context.close(); }
+  }
 } catch (error) { failure = error.stack ?? String(error); }
 finally { await browser.close(); }
 fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ status: failure ? 'fail' : 'pass', syntheticOnly: true, checks, failure }, null, 2));

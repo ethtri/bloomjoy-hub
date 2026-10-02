@@ -152,7 +152,7 @@ begin
     from balances b where b.request_date between p_date_from and p_date_to group by b.issue_category
   ), aging_rows as (
     select case when b.request_date is null then 'Unknown request date'
-      when p_date_to-b.request_date<1 then 'Under 24 hours (date precision)'
+      when p_date_to-b.request_date<1 then 'Same business date'
       when p_date_to-b.request_date<=3 then '1–3 days'
       when p_date_to-b.request_date<=7 then '4–7 days'
       when p_date_to-b.request_date<=30 then '8–30 days' else 'Over 30 days' end as band,
