@@ -309,7 +309,8 @@
     "20261002031754_refund_system_completion_delivery_authority.sql",
     "20261002042132_refund_positive_cash_snapshot_parity.sql",
     "20261002042649_refund_exception_amounts.sql",
-    "20261002044630_refund_portal_outreach_reuse.sql"
+    "20261002044630_refund_portal_outreach_reuse.sql",
+    "20261002092533_refund_form_outreach_value_reuse.sql"
   ],
   "migrationFilesSha256": "c07e10d10a380f759eefc006fcfdba5ccddc264b4d2ba40934a29dceac619419",
   "migrationVersionSetSha256": "ac5e12d4289314f6bbc88045dd622ea9b1c1f2c36e11ceb85fdfa7377dc80475",
