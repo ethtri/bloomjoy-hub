@@ -52,7 +52,7 @@ begin
     join public.reporting_locations l on l.id=m.location_id
     where (p_machine_ids is null or m.id=any(p_machine_ids))
   ), roots as materialized (
-    select c.id,c.reporting_machine_id,c.issue_category,c.customer_request_received_at,
+    select c.id,c.reporting_machine_id,c.reporting_location_id,c.issue_category,c.customer_request_received_at,
       c.reporting_adjustment_id,s.machine_label,cl.name as location_name,cl.timezone,
       (c.customer_request_received_at at time zone cl.timezone)::date as request_date
     from public.refund_cases c join scope s on s.id=c.reporting_machine_id
@@ -138,13 +138,13 @@ begin
     where p_location_ids is null or d.reporting_location_id=any(p_location_ids)
   ), machine_rows as (
     select b.reporting_machine_id as "machineId",b.machine_label as "machineLabel",
-      b.location_name as "locationName",
+      b.reporting_location_id as "locationId",b.location_name as "locationName",
       count(*) filter(where b.request_date between p_date_from and p_date_to) as "requestCount",
       coalesce(sum(b.requested_cents) filter(where b.request_date between p_date_from and p_date_to),0) as "requestedCents",
       count(*) filter(where b.request_date between p_date_from and p_date_to and b.requested_cents is null) as "unknownAmountCount",
       coalesce(sum(b.outstanding_cents),0) as "outstandingCents",
       count(*) filter(where b.outstanding_cents is null) as "unknownBalanceCount"
-    from balances b group by b.reporting_machine_id,b.machine_label,b.location_name
+    from balances b group by b.reporting_machine_id,b.machine_label,b.reporting_location_id,b.location_name
   ), category_rows as (
     select b.issue_category as category,count(*) as "requestCount",
       coalesce(sum(b.requested_cents),0) as "requestedCents",

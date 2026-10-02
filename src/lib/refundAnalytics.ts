@@ -24,7 +24,7 @@ export type RefundAnalytics = {
   asOf: { outstandingCents: number; openRequestCount: number; unknownBalanceCount: number };
   coverage: { unknownRequestDateCount: number; unknownPaymentDateCount: number };
   machines: {
-    machineId: string; machineLabel: string; locationName: string; requestCount: number;
+    machineId: string; machineLabel: string; locationId: string; locationName: string; requestCount: number;
     requestedCents: number; unknownAmountCount: number; outstandingCents: number; unknownBalanceCount: number;
   }[];
   categories: { category: string; requestCount: number; requestedCents: number; unknownAmountCount: number }[];
