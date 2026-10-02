@@ -176,6 +176,20 @@ update public.admin_roles set active=false where user_id='d5170000-0000-4000-800
 update public.reporting_machine_refund_managers set revoked_at=statement_timestamp() where manager_user_id='d5170000-0000-4000-8000-000000000004';
 select throws_ok('select pg_temp.assist()','42501',null,'Revoked current actor cannot perform assisted handling');
 rollback to bad_source;
+savepoint bad_source;
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,status,
+ sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+select gen_random_uuid(),gmail_thread_id,refund_case_id,'newer-assisted-answer','inbound','message','received',sender_email,
+ recipient_email,'customer','verified','New answer','I can use Zelle now.',statement_timestamp(),retention_expires_at
+ from public.refund_gmail_messages where id=pg_temp.gid(63);
+select throws_ok('select pg_temp.assist()','P4672',null,'Newer customer evidence prevents consuming an old limitation');
+rollback to bad_source;
+savepoint bad_source;
+select public.service_submit_refund_purchase_correction(
+ (select token_hash from public.refund_wallet_correction_contexts where id=(select request_id from assisted_binding)),
+ (select fact_version from assisted_binding),'{"zelle_payment_contact":{"disposition":"cannot_provide"}}');
+select throws_ok('select pg_temp.assist()','P4672',null,'A submitted customer receipt cannot be relabelled as assisted');
+rollback to bad_source;
 select is(pg_temp.assist()->>'state','received','Reviewed limitation saves through the unchanged same-case structured writer');
 select is((select correction_response from public.refund_wallet_correction_contexts where id=(select request_id from assisted_binding)),
  '{"zelle_payment_contact":{"disposition":"cannot_provide"}}'::jsonb,'Only the supplied targeted limitation is recorded');
