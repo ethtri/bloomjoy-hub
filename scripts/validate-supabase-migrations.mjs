@@ -561,11 +561,26 @@ async function main() {
     if (!fs.existsSync(exceptionMigration) || !fs.existsSync(outreachMigration)) {
       throw new Error('Reviewed exception/outreach migrations are required for deployed-order proof.');
     }
+    const migrationDirectory = path.dirname(exceptionMigration);
+    const laterDirectory = path.join(tempRoot, 'after-exception-migrations');
+    const laterMigrations = fs.readdirSync(migrationDirectory)
+      .filter((name) => name.endsWith('.sql') && name.split('_')[0] > '20261002044630').sort();
+    fs.mkdirSync(laterDirectory);
+    for (const name of laterMigrations) {
+      fs.renameSync(path.join(migrationDirectory, name), path.join(laterDirectory, name));
+    }
     fs.renameSync(exceptionMigration, heldExceptionMigration);
     run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
     fs.renameSync(heldExceptionMigration, exceptionMigration);
     log('Applying reviewed exception migration after the positive-cash and outreach baseline.');
     run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    // Future files retain their chronological order after their prerequisites.
+    for (const name of laterMigrations) {
+      fs.renameSync(path.join(laterDirectory, name), path.join(migrationDirectory, name));
+    }
+    if (laterMigrations.length > 0) {
+      run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+    }
     const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
     for (const relativePath of [inactiveTest.relativePath,
       'supabase/tests/refund_customer_same_case_update_access.sql',
