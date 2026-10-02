@@ -1,5 +1,8 @@
 export type LaborAnalyticsScope = { dateFrom: string; dateTo: string; machineIds?: string[]; locationIds?: string[] };
-export type LaborAnalyticsAccess = { hasAccess: boolean; canViewPay: boolean };
+export type LaborAnalyticsAccess = {
+  hasAccess: boolean; canViewPay: boolean;
+  dimensions?: { machineId: string; machineLabel: string; locationId: string; locationName: string }[];
+};
 export type LaborAnalyticsRow = {
   machineId: string; machineLabel: string; locationId: string; locationName: string;
   week: string; entryCount: number; actualMinutes: number; paidShifts: number;
