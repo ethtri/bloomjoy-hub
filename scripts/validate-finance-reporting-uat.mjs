@@ -102,6 +102,52 @@ try {
       checks.push('Empty projection does not claim zero activity');
     } finally { await context.close(); }
   }
+  {
+  const { page, context, state } = await createPageForPersona(browser, workspacePersonas.superAdmin, { width: 1440, height: 1000 }, { rpcHandler: financeRpcResponse });
+  let financeUnavailable = false;
+  let failedFinanceChecks = 0;
+  try {
+    await page.route('**/rest/v1/rpc/get_labor_analytics_access', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable labor check' }) }));
+    await page.route('**/rest/v1/rpc/get_finance_reporting_access', route => {
+      if (!financeUnavailable) return route.fallback();
+      failedFinanceChecks++;
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable finance check' }) });
+    });
+    const scope = new URLSearchParams({ view: 'finance', from: '2026-07-16', to: '2026-07-22', location: domainDimensions[0].locationId, machine: domainDimensions[0].machineId, compare: 'previous_year' });
+    await page.goto(`${appUrl}/portal/reports?${scope}`, { waitUntil: 'networkidle' });
+    await page.locator('[data-reporting-finance]').waitFor();
+    assert((await page.locator('[data-reporting-finance]').innerText()).includes('$89.00'), 'Start from successful authorized Finance data');
+    assert(state.rpcCalls.some(call => call.rpcName === 'get_finance_reporting_access'));
+    const financeReportsBefore = state.rpcCalls.filter(call => call.rpcName === 'get_finance_reporting').length;
+    await page.evaluate(() => { window.__financeRegressionSpaMarker = 'same-document'; });
+    await page.locator('a[href="/admin/reporting"]').filter({ visible: true }).click();
+    await page.waitForURL('**/admin/reporting');
+    await page.getByRole('button', { name: 'Recheck services', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.__financeRegressionSpaMarker), 'same-document', 'Navigate through SPA to retain query cache');
+    financeUnavailable = true;
+    await page.getByRole('button', { name: 'Recheck services', exact: true }).click();
+    await page.getByText('get_finance_reporting_access', { exact: true }).waitFor();
+    assert(failedFinanceChecks > 0, 'Recheck must actually fail the previously successful cached Finance access query');
+    await page.evaluate(() => {
+      window.__financeAfterFailureSnapshots = [];
+      new MutationObserver(() => {
+        if (document.querySelector('[data-reporting-finance]')) window.__financeAfterFailureSnapshots.push(document.querySelector('[data-reporting-finance]').textContent);
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.goBack();
+    await page.waitForURL('**view=overview**');
+    await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
+    const actual = new URL(page.url()).searchParams;
+    for (const key of ['from', 'to', 'location', 'machine', 'compare']) assert.equal(actual.get(key), scope.get(key), `Fallback preserves ${key}`);
+    assert.equal(await page.evaluate(() => window.__financeRegressionSpaMarker), 'same-document', 'Browser back must preserve cached query state');
+    assert.equal(await page.locator('[data-reporting-finance]').count(), 0);
+    assert.equal(await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Finance', exact: true }).count(), 0);
+    assert.equal(state.rpcCalls.filter(call => call.rpcName === 'get_finance_reporting').length, financeReportsBefore, 'No Finance projection refetch after failed access verification');
+    assert.deepEqual(await page.evaluate(() => window.__financeAfterFailureSnapshots), [], 'No cached Finance panel appears even transiently after returning');
+    await page.screenshot({ path: `${output}/overview-after-cached-finance-check-failure.png`, fullPage: true });
+    checks.push('Cached successful Finance access, failed service recheck, same-document browser back, Overview fallback preserving dates/location/machine/comparison, no transient Finance panel or projection refetch');
+  } finally { await context.close(); }
+  }
   for (const rpc of ['get_finance_reporting_access', 'get_finance_reporting']) {
     const { page, context, state } = await open(); let unavailable = true;
     try {

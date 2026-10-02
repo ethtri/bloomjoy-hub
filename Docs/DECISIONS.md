@@ -1073,3 +1073,11 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
   thread keeps that thread eligible.
 - Ordinary Info, Support, technician, vendor, and account mail does not become a
   refund request merely because it shares the same Gmail account or label.
+
+## 2026-10-02 - Reporting review refinements (#1708, #1709)
+
+- New reporting visits use the last seven completed local calendar days. Explicit URL and saved-view dates remain authoritative. Prior-year comparison uses the same calendar dates; missing machine history is unavailable, and leap/unequal windows never fabricate percentage changes.
+- Sales opens the detailed sales report directly. Overview owns trends and the optional machine/payment breakdown; no Sales analysis sub-tabs remain. Entering Sales preserves visible machine/location scope, and Reset clears inherited location scope explicitly.
+- Unavailable optional reporting services cannot strand navigation on an empty hidden view. Fall back to an authorized view without broadening date/location/machine filters. Failed cached access is not continuing authorization.
+- Technical service diagnostics belong in Admin Reporting; partner setup diagnostics remain in Admin Partnerships Weekly Preview. Partner export/print guards remain enforced, with a concise unavailable export action and preliminary figures label instead of a report-wide setup alert.
+- Frontend preview readiness does not prove backend readiness. The local interactive preview is explicitly synthetic and cannot contact or modify production.

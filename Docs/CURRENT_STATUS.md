@@ -8,6 +8,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Reporting PR #1709 includes the October 2 review fixes: seven completed days
+  by default, prior-year comparison, a single detailed Sales view, and admin-only
+  service diagnostics. The hosted preview still lacks the Finance/Labor/Refund
+  access services; frontend deployment alone cannot enable those views. The
+  isolated `npm run reporting:preview` serves the actual Finance UI with labeled
+  synthetic data. Production and shared UAT were not changed for preview access.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.

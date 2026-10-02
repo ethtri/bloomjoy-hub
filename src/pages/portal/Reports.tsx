@@ -293,8 +293,8 @@ const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
 
   if (preset === 'last_7_days') {
     return {
-      dateFrom: toDateInput(addDays(today, -6)),
-      dateTo: toDateInput(today),
+      dateFrom: toDateInput(addDays(today, -7)),
+      dateTo: toDateInput(addDays(today, -1)),
       grain: 'day' as ReportGrain,
     };
   }
@@ -872,11 +872,12 @@ function OperatorReportingView({
     [t]
   );
   const defaultRange = useMemo(() => getOperatorPresetRange('last_7_days'), []);
-  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters ? 'custom' : 'last_7_days');
+  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters && (workspaceFilters.dateFrom !== defaultRange.dateFrom || workspaceFilters.dateTo !== defaultRange.dateTo) ? 'custom' : 'last_7_days');
   const [dateFrom, setDateFrom] = useState(workspaceFilters?.dateFrom ?? defaultRange.dateFrom);
   const [dateTo, setDateTo] = useState(workspaceFilters?.dateTo ?? defaultRange.dateTo);
   const [grain, setGrain] = useState<ReportGrain>('day');
   const [machineId, setMachineId] = useState(workspaceFilters?.machineIds?.[0] ?? 'all');
+  const [locationIds, setLocationIds] = useState<string[]>(workspaceFilters?.locationIds ?? []);
   const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(workspaceFilters?.paymentMethods ?? []);
   const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
   const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
@@ -892,13 +893,8 @@ function OperatorReportingView({
     staleTime: 1000 * 60,
   });
 
-  const machineOptions = useMemo(() => dimensions, [dimensions]);
-
-  useEffect(() => {
-    if (machineId !== 'all' && !machineOptions.some((machine) => machine.machineId === machineId)) {
-      setMachineId('all');
-    }
-  }, [machineId, machineOptions]);
+  const machineOptions = useMemo(() => dimensions.filter(machine => !locationIds.length || locationIds.includes(machine.locationId)), [dimensions, locationIds]);
+  const machineUnavailable = !dimensionsLoading && !dimensionsError && machineId !== 'all' && !machineOptions.some(machine => machine.machineId === machineId);
 
   const filters: SalesReportFilters = useMemo(
     () => ({
@@ -907,9 +903,9 @@ function OperatorReportingView({
       grain,
       machineIds: machineId === 'all' ? [] : [machineId],
       paymentMethods: selectedPayments,
-      locationIds: workspaceFilters?.locationIds,
+      locationIds,
     }),
-    [dateFrom, dateTo, grain, machineId, selectedPayments, workspaceFilters?.locationIds]
+    [dateFrom, dateTo, grain, machineId, selectedPayments, locationIds]
   );
 
   const {
@@ -920,7 +916,7 @@ function OperatorReportingView({
   } = useQuery({
     queryKey: ['sales-report', user?.id, filters],
     queryFn: () => fetchSalesReport(filters),
-    enabled: !dimensionsLoading,
+    enabled: !dimensionsLoading && !dimensionsError && !machineUnavailable,
     staleTime: 1000 * 30,
   });
 
@@ -968,6 +964,7 @@ function OperatorReportingView({
     setDateTo(nextRange.dateTo);
     setGrain('day');
     setMachineId('all');
+    setLocationIds([]);
     setSelectedPayments([]);
     setAreMoreFiltersOpen(false);
   };
@@ -989,6 +986,7 @@ function OperatorReportingView({
     periodPreset !== 'last_7_days' ||
     grain !== 'day' ||
     machineId !== 'all' ||
+    locationIds.length > 0 ||
     selectedPayments.length > 0;
 
   const exportPdf = async () => {
@@ -1010,6 +1008,8 @@ function OperatorReportingView({
   };
 
   const hasLoadError = Boolean(error || dimensionsError);
+  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected machine is unavailable" description="Choose a machine available in this report."/><Button variant="outline" onClick={() => setMachineId('all')}>Choose all available machines</Button></div>;
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -1164,6 +1164,7 @@ function OperatorReportingView({
                 <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{t(reportGrainLabelKeys[grain])}</span>
                 <span aria-hidden="true" className="text-border">•</span>
+                {locationIds.length > 0 && <span className="inline-flex flex-wrap items-center gap-1 text-muted-foreground" data-reporting-operator-location-scope>{locationIds.map(id => dimensions.find(item => item.locationId === id)?.locationName ?? 'Selected location').join(', ')}<Button variant="link" size="sm" className="h-auto px-1 py-0" onClick={() => setLocationIds([])}>Clear location</Button></span>}
                 <span className="text-muted-foreground">{selectedMachineLabel}</span>
                 <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{selectedPaymentLabel}</span>
@@ -2359,6 +2360,7 @@ function PartnerDashboardView() {
             />
           ) : (
             <>
+          {hasBlockingWarnings && <p className="text-xs text-muted-foreground">Preliminary figures</p>}
           <PartnerAnswerBand
             preview={preview}
             currentPeriod={currentPeriod}

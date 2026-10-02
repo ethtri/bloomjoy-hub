@@ -130,6 +130,8 @@ try {
       checks.push('Only applicable domain filters; Partners mobile native period and preserved polished PDF export');
 
       await tab(page, 'Overview').click();
+      await page.locator('#reporting-period').click();
+      await page.getByRole('menuitem', { name: 'Last 7 complete days', exact: true }).click();
       await page.getByRole('button', { name: 'Save view', exact: true }).click();
       await page.getByLabel('View name', { exact: true }).fill('Saved sales analysis');
       await page.getByRole('button', { name: 'Save on this browser', exact: true }).click();
@@ -149,6 +151,27 @@ try {
       checks.push('Original sales report has a visible, reloadable entry point, preserved PDF export and correct saved-analysis return');
     } finally { await context.close(); }
   }
+  {
+    const { page, context, state } = await open(workspacePersonas.superAdmin);
+    try {
+      await page.goto(url('sales', '&machine=operator-machine-north&location=location-north'), { waitUntil: 'networkidle' });
+      await page.locator('[data-reporting-operator-period-summary]').waitFor();
+      const scoped = state.rpcCalls.filter(call => call.rpcName === 'get_sales_report');
+      assert(scoped.length > 0);
+      assert(scoped.every(call => call.body.p_machine_ids?.[0] === 'operator-machine-north' && call.body.p_location_ids?.[0] === 'location-north'), 'Detailed Sales must not widen inherited scope while dimensions load');
+      assert((await page.locator('[data-reporting-operator-location-scope]').innerText()).includes('North Hall'));
+      const resetResponse = page.waitForResponse(response => response.url().includes('/rpc/get_sales_report'));
+      await page.locator('[data-reporting-operator-reset]').click();
+      await resetResponse;
+      const reset = state.rpcCalls.filter(call => call.rpcName === 'get_sales_report').at(-1).body;
+      assert(!reset.p_machine_ids?.length && !reset.p_location_ids?.length, 'Reset clears visible and inherited scope together');
+      assert.equal(await page.locator('[data-reporting-operator-location-scope]').count(), 0);
+      await page.goto(url('sales', '&machine=unauthorized-machine'), { waitUntil: 'networkidle' });
+      await page.getByText('Selected scope is unavailable', { exact: true }).waitFor();
+      checks.push('Sales preserves inherited machine/location scope, displays location and resets it explicitly');
+    } finally { await context.close(); }
+  }
+
   for (const [personaName, expectedView, heading, forbidden] of [
     ['operator', 'overview', 'Sales over time', ['Labor', 'Refunds & Recovery', 'Partners']],
     ['timeOnly', 'labor', 'Recorded labor', ['Overview', 'Sales', 'Locations', 'Refunds & Recovery', 'Partners']],
@@ -165,6 +188,30 @@ try {
       if (personaName === 'refundOnly') assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report' || call.rpcName === 'get_labor_analytics_report'));
       if (personaName === 'operator') assert(!state.rpcCalls.some(call => ['get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)));
       checks.push(`${personaName} receives only authorized views/data; time-only never receives pay`);
+    } finally { await context.close(); }
+  }
+
+  {
+    const actor = workspacePersonas.superAdmin;
+    const { page, context, state } = await createPageForPersona(browser, actor, { width: 390, height: 844 }, {
+      rpcHandler: (name, persona, body, freshness) => {
+        const response = workspaceRpcResponse(name, persona, body, freshness);
+        return name === 'admin_preview_partner_period_report'
+          ? { ...response, warnings: [{ warning_type: 'missing_financial_rule', severity: 'blocking', message: 'SYNTHETIC ADMIN SETUP DETAIL' }] }
+          : response;
+      },
+    });
+    try {
+      await page.goto(url('partners'), { waitUntil: 'networkidle' });
+      await page.getByRole('heading', { name: 'Partner performance summary', exact: true }).waitFor();
+      const exportButton = page.locator('[data-portal-report-export="partner"]');
+      assert(await exportButton.isDisabled());
+      assert.equal((await exportButton.innerText()).trim(), 'Export unavailable');
+      assert.equal(await page.getByText('Report data incomplete', { exact: true }).count(), 0);
+      assert.equal(await page.getByText('SYNTHETIC ADMIN SETUP DETAIL', { exact: true }).count(), 0);
+      assert.equal(state.partnerExports.length, 0);
+      await fit(page);
+      checks.push('Partner setup diagnostics stay off report while blocked exports remain clearly unavailable');
     } finally { await context.close(); }
   }
 
