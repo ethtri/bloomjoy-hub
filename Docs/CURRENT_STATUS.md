@@ -21,10 +21,12 @@ orientation snapshot; it is not a backlog or release ledger.
 
 - RF-4B414AD0's due legacy cash payout reminder failed before transport because
   the generic automatic-mail guard treats approval as terminal. A separate
-  #1429/#628 repair binds authorization to the exact due reminder and its
+  #1707/#1429/#628 repair now binds authorization to the exact due reminder and its
   delivered original request, preserving current Manager authority, one-followup
-  limits and customer-only correspondence. Database and deployment verification
-  remain pending; the failed reminder has not been retried or sent.
+  limits and customer-only correspondence. The sole migration and six dependent
+  workers are deployed; exact bodies, permissions, protected records and all
+  twelve served bundles passed verification. The existing failed reminder remains
+  unchanged and has not been retried or sent; delivery recovery is separate.
 
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
