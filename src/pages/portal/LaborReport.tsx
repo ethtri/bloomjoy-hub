@@ -34,10 +34,18 @@ export default function LaborReportPage() {
   const machines = choices.filter(item => state.locationId === 'all' || item.locationId === state.locationId);
   const selectionError = laborReportSelectionError(params, state, choices);
   const change = (patch: Partial<WorkspaceState>) => {
-    const next = writeWorkspaceState({ ...state, ...patch }, params); next.set('view', 'reports'); setParams(next);
+    const next = writeWorkspaceState({ ...state, ...patch }, params);
+    // Scope edits cannot silently repair a malformed date link. Only a date action replaces it.
+    if (patch.dateFrom === undefined && patch.dateTo === undefined) {
+      for (const key of ['from', 'to']) {
+        if (params.has(key)) next.set(key, params.get(key)!);
+        else next.delete(key);
+      }
+    }
+    next.set('view', 'reports'); setParams(next);
   };
   return <PortalLayout><section className="portal-section"><div className="container-page min-w-0 space-y-5">
-    <PortalPageIntro eyebrow="Timekeeping" title="Timekeeping" description="Review recorded effort across weeks, locations and machines." />
+    <PortalPageIntro title="Timekeeping" description="Review recorded effort across weeks, locations and machines." />
     <TimekeepingReportNavigation reports />
     {access.isPending ? <p role="status" className="py-8 text-muted-foreground">Checking labor report access…</p> : access.isError ? <div role="alert"><p>Labor report access could not load.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !authorized ? <p>Labor reports require Time Report or account Pay Report access.</p> : <>
       <ReportingFilters state={state} salesView={false} locations={locations} machines={machines} onChange={change} />
