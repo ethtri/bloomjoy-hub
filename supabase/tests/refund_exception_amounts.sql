@@ -50,7 +50,7 @@ create temp table linked_contact as select public.service_ingest_refund_gmail_co
  'Synthetic refund','Please help.',false,statement_timestamp(),null,'[]'::jsonb,'{}'::text[],
  array['info@bloomjoysweets.com','support@bloomjoysweets.com'],'direct_human',false,false,'{}'::text[]) result;
 create temp table linked_contact_claim as select public.service_claim_refund_gmail_contact_first_response(
- (select (result->>'messageId')::uuid from linked_contact),'active',statement_timestamp(),
+ (select (result->>'messageId')::uuid from linked_contact),'active',statement_timestamp()-interval '1 minute',
  'refund_first_contact_v1','info@bloomjoysweets.com','Synthetic secure form link.') result;
 select public.service_register_refund_gmail_contact_link(
  (select (result->>'operationId')::uuid from linked_contact_claim),repeat('a',64),now()+interval '14 days');

@@ -231,7 +231,7 @@ create temp table approval_result as select jsonb_build_object('attemptId',id,'a
 from public.refund_case_nayax_refund_attempts where refund_case_id='e1450000-0000-4000-8000-000000000001';
 create temp table second_claim as select public.service_claim_due_nayax_refund_attempts_v1(
  'partial-executor','REVIEWED_ACCOUNT','exact_source','empty_string',1) result;
-select is((select result#>>'{claims,0,wire,refundAmountCents}' from second_claim),'1000','System claim retains approved amount');
+select is((select result#>>'{claims,0,providerWireContext,refundAmountCents}' from second_claim),'1000','System claim retains approved amount');
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'partial-executor',
   p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
@@ -331,6 +331,7 @@ select lives_ok($sql$select public.service_settle_nayax_refund_attempt('partial-
  'Partial System settlement commits affected financial amount');
 select results_eq($$select original_amount_cents,refunded_amount_cents from public.refund_authoritative_receipts where refund_case_id='e1450000-0000-4000-8000-000000000001'$$,
  $$select 3000::integer,1000::integer$$,'Receipt retains original $30 and proved refund $10');
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
 create temp table completion_result as select public.service_claim_nayax_refund_completion('partial-executor',
  (select (result->>'attemptId')::uuid from approval_result)) result;
 select is((select result->>'status' from completion_result),'queued','Partial form completion enters existing transactional queue');

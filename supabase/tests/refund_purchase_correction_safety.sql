@@ -268,10 +268,10 @@ select isnt(
   'Completed form recheck cannot continue after its resulting fact version becomes stale'
 );
 rollback to savepoint stale_form_answer;
-select pg_temp.make_scope(15,true);
-select lives_ok($$select public.service_submit_refund_purchase_correction(lpad(to_hex(15),64,'0'),1,
+select pg_temp.make_scope(25,true);
+select lives_ok($$select public.service_submit_refund_purchase_correction(lpad(to_hex(25),64,'0'),1,
  '{"amount":{"disposition":"cannot_provide"}}','es')$$,'Locale saves atomically with authorized purchase correction');
-select is((select intake_meta->>'customer_locale' from public.refund_cases where id='dd000000-0000-4000-8001-000000000015'),
+select is((select intake_meta->>'customer_locale' from public.refund_cases where id='dd000000-0000-4000-8001-000000000025'),
  'es','Corrected case retains selected Spanish for future emails');
 select ok(not has_function_privilege('authenticated','public.service_submit_refund_purchase_correction(text,bigint,jsonb,text)','execute'),
  'Browser cannot bypass correction capability to write locale');
