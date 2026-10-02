@@ -433,6 +433,10 @@ select pg_temp.require_ok(is(public.service_authorize_refund_customer_message_ou
   'c1400000-0000-4000-8000-000000000001','c1500000-0000-4000-8000-000000000099',
   'payout-customer@example.invalid',array['refunds@example.invalid'],'automatic')->>'status',
   'terminal_case','Unrelated or missing message cannot lift approved contact boundary'));
+select pg_temp.require_ok(is(public.service_authorize_refund_customer_message_outbound(
+  'c1400000-0000-4000-8000-000000000001','c1450000-0000-4000-8000-000000000004',
+  'payout-customer@example.invalid',array['refunds@example.invalid'],'automatic')->>'status',
+  'terminal_case','Existing foreign-case request cannot lift the exact reminder boundary'));
 select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
   update public.refund_cases set zelle_payment_contact='fulfilled@example.invalid'
   where id='c1400000-0000-4000-8000-000000000001'
