@@ -16,7 +16,7 @@ function Metric({ label, value, detail }: { label: string; value: string | numbe
   </div>;
 }
 
-export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope }) {
+export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: RefundAnalyticsScope; showQueueLink?: boolean }) {
   const { user } = useAuth();
   const query = useQuery({
     queryKey: ['refund-analytics', user?.id, scope.dateFrom, scope.dateTo,
@@ -53,7 +53,7 @@ export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope })
     </div>
     <div>
       <h3 className="mb-3 text-sm font-semibold">Requests received in this period</h3>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Unique requests" value={report.cohort.requestCount} detail="Confirmed duplicate lineage counted once. A request is not a confirmed failed vend." />
         <Metric label="Requested purchase value" value={money(report.cohort.requestedCents)} detail={`Original received-event amounts; ${report.cohort.unknownAmountCount} unknown amounts omitted.`} />
         <Metric label="Resolved by period end" value={money(report.cohort.resolvedCashCents + report.cohort.resolvedGiftPurchaseCents)} detail={`${money(report.cohort.resolvedCashCents)} recorded money refunds; ${money(report.cohort.resolvedGiftPurchaseCents)} purchase value resolved by gifts.`} />
@@ -62,7 +62,7 @@ export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope })
     </div>
     <div>
       <h3 className="mb-3 text-sm font-semibold">Activity booked in this period</h3>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Recorded money refunds" value={money(report.period.cashPaidCents)} detail="Case-linked cash/card payments on recorded adjustment dates. Bank settlement is not established." />
         <Metric label="Purchase resolved by gifts" value={money(report.period.giftPurchaseCents)} detail={`${money(report.period.giftFaceCents)} gift face value; ${money(report.period.goodwillCents)} Bloomjoy goodwill. Issuance is not cash paid or redemption.`} />
         <Metric label="Request deductions" value={money(report.period.requestDeductionExTaxCents)} detail="Canonical tax-exclusive request/change-period deduction. Later payments do not deduct again." />
@@ -91,8 +91,15 @@ export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope })
       </div>
     </div>
     <div className="rounded-xl border p-4 sm:p-5">
-      <div className="flex flex-wrap justify-between gap-2"><h3 className="font-semibold">Machine patterns</h3><Link className="inline-flex items-center gap-1 text-sm text-primary underline-offset-4 hover:underline" to="/portal/refunds">Open authorized refund queue <ArrowUpRight className="h-4 w-4" /></Link></div>
-      <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm">
+      <div className="flex flex-wrap justify-between gap-2"><h3 className="font-semibold">Machine patterns</h3>{showQueueLink && <Link className="inline-flex min-h-11 items-center gap-1 text-sm text-primary underline-offset-4 hover:underline" to="/refunds">Open authorized refund queue <ArrowUpRight className="h-4 w-4" /></Link>}</div>
+      <div className="mt-4 divide-y sm:hidden">{report.machines.map(row => <article key={`${row.machineId}:${row.locationId}`} className="min-w-0 space-y-3 py-4">
+        <div><h4 className="break-words text-sm font-medium">{row.machineLabel}</h4><p className="break-words text-xs text-muted-foreground">{row.locationName}</p></div>
+        <dl className="space-y-2 text-sm"><div className="flex flex-wrap justify-between gap-2"><dt>Requests</dt><dd className="tabular-nums">{row.requestCount}</dd></div>
+          <div className="flex flex-wrap justify-between gap-2"><dt>Requested</dt><dd className="tabular-nums">{money(row.requestedCents)}{row.unknownAmountCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownAmountCount} unknown</span>}</dd></div>
+          <div className="flex flex-wrap justify-between gap-2"><dt>Outstanding</dt><dd className="tabular-nums">{money(row.outstandingCents)}{row.unknownBalanceCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownBalanceCount} unknown</span>}</dd></div>
+        </dl>
+      </article>)}</div>
+      <div className="mt-4 hidden sm:block"><table className="w-full text-left text-sm">
         <caption className="sr-only">Machine request cohort and known as-of outstanding balances</caption>
         <thead><tr className="border-b text-muted-foreground"><th scope="col" className="pb-3 pr-4 font-medium">Machine / location</th><th scope="col" className="pb-3 pr-4 font-medium">Requests</th><th scope="col" className="pb-3 pr-4 font-medium">Requested</th><th scope="col" className="pb-3 font-medium">Outstanding</th></tr></thead>
         <tbody>{report.machines.map(row => <tr key={`${row.machineId}:${row.locationId}`} className="border-b last:border-0">
@@ -100,7 +107,7 @@ export function RefundAnalyticsPanel({ scope }: { scope: RefundAnalyticsScope })
           <td className="py-3 pr-4 tabular-nums">{row.requestCount}</td><td className="py-3 pr-4 tabular-nums">{money(row.requestedCents)}{row.unknownAmountCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownAmountCount} unknown</span>}</td>
           <td className="py-3 tabular-nums">{money(row.outstandingCents)}{row.unknownBalanceCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownBalanceCount} unknown</span>}</td>
         </tr>)}</tbody>
-      </table>{report.machines.length === 0 && <p className="py-4 text-sm text-muted-foreground">No received refund cases for the selected authorized scope.</p>}</div>
+      </table></div>{report.machines.length === 0 && <p className="py-4 text-sm text-muted-foreground">No received refund cases for the selected authorized scope.</p>}
     </div>
     <p className="text-xs text-muted-foreground">{report.calculationVersion} · Generated {new Date(report.generatedAt).toLocaleString()} · Existing refund pages recheck access. API confirmation does not establish bank settlement or gift redemption.</p>
   </section>;
