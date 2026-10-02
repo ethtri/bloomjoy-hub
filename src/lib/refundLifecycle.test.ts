@@ -8,10 +8,48 @@ import {
 } from "./refundLifecycle.ts";
 import { getRefundLifecycleProgressPresentation } from './refundLifecyclePresentation.ts';
 import { getRefundManagerQueueBucket } from './refundQueue.ts';
+import observedGiftLifecycle from '../../scripts/refunds/fixtures/refund-gift-manager-lifecycle.json' with { type: 'json' };
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+
+Deno.test('canonical gift work parses across fulfillment states without monetary accounting', () => {
+  assert(!isRefundLifecycleContract(observedGiftLifecycle), 'observed missing customer action fails the original action contract');
+  const repaired = { ...observedGiftLifecycle,
+    customerAction: { ...observedGiftLifecycle.customerAction, action: 'none' } };
+  for (const [state, delivery] of [
+    ['pending_inventory', 'not_queued'], ['manager_review', 'not_queued'],
+    ['issued', 'claimed'], ['issued', 'accepted'], ['issued', 'sent'], ['issued', 'delivered'], ['denied', 'not_queued'],
+  ]) {
+    const terminal = state === 'denied' || (state === 'issued' && ['sent', 'delivered'].includes(delivery));
+    const review = state === 'manager_review';
+    const lifecycle = { ...repaired,
+      gift_card: { ...repaired.gift_card, state, delivery_state: delivery,
+        issued_at: state === 'issued' ? repaired.gift_card.issued_at : null },
+      paymentWorkComplete: state === 'issued', terminal, refreshAfterSeconds: terminal ? null : 5,
+      stage: state === 'denied' ? 'denied' : terminal ? 'customer_notified' : 'matching',
+      nextWork: { ...repaired.nextWork, actor: review ? 'manager' : 'system', isOpen: !terminal,
+        actionCode: review ? 'approve_or_deny_request' : 'none' },
+      managerQueue: { ...repaired.managerQueue,
+        bucket: terminal ? 'closed' : review ? 'decision_needed' : 'system_processing',
+        nextAction: review ? 'approve_or_deny' : 'none' },
+    };
+    assert(isRefundLifecycleContract(lifecycle), `${state}/${delivery} is a legitimate gift lifecycle`);
+    assert(!isRefundLifecycleContract({ ...lifecycle, resolutionMethod: 'original_payment' }), 'gift exception cannot relax monetary completion or queue validation');
+    assert(isRefundLifecycleContract({ ...lifecycle, refreshAfterSeconds: terminal ? null : 10 }), 'poll cadence is not a gift contract gate');
+  }
+  for (const invalid of [
+    { ...repaired, gift_card: null },
+    { ...repaired, gift_card: { ...repaired.gift_card, payloadRedacted: false } },
+    { ...repaired, gift_card: { ...repaired.gift_card, value: 0 } },
+    { ...repaired, paymentWorkComplete: 'true' },
+    { ...repaired, accountingState: { state: 'applied' } },
+    { ...repaired, paymentState: 'confirmed' },
+    { ...repaired, customerAction: { ...repaired.customerAction, required: 'false' } },
+    { ...repaired, managerQueue: { ...repaired.managerQueue, bucket: 'invented_gift_bucket' } },
+  ]) assert(!isRefundLifecycleContract(invalid), 'invalid gift marker/state/completion remains unavailable');
+});
 
 Deno.test('every v2 lifecycle has an explicit progress label and nonpayment states have no payment milestones', () => {
   for (const stage of refundLifecycleStages) {
