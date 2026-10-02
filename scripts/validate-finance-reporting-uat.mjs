@@ -23,6 +23,8 @@ let failure;
 try {
   {
     const { page, context, state } = await open();
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
     try {
       await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
       const main = page.locator('[data-reporting-finance]');
@@ -54,6 +56,7 @@ try {
       const scopedDownloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
       const scopedCsv = fs.readFileSync(await (await scopedDownloadEvent).path(), 'utf8');
       assert(scopedCsv.includes('North Atrium') && !scopedCsv.includes('Garden Annex'));
+      assert.deepEqual(pageErrors, [], 'Finance must not raise browser runtime errors');
       checks.push('Finance formula, collapsed keyboard-operable detail, scoped CSV/drilldown, and 320/390/768/1440px layouts');
     } finally { await context.close(); }
   }
