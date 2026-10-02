@@ -70,7 +70,7 @@ $before$;
     queue:=case when jsonb_typeof(result->'managerQueue')='object'
       then result->'managerQueue' else '{}'::jsonb end;
     result:=result||jsonb_build_object(
-      'stage','matching','stageRank',10,'actor','agent',
+      'stage','matching','stageRank',10,
       'reasonCode','cash_purchase_research_required',
       'paymentState','not_requested','managerNextAction','research_purchase',
       'publicCopyKey','refund_reviewing_purchase',
