@@ -451,7 +451,7 @@ select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
   where id='c1650000-0000-4000-8000-000000000001'
 $probe$)->>'allowed','false','Unknown original delivery without bound receipt cannot authorize a followup'));
 select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
-  update public.reporting_machine_refund_managers set active=false
+  update public.reporting_machine_refund_managers set status='revoked'
   where reporting_machine_id='c1300000-0000-4000-8000-000000000001'
 $probe$)->>'status','manager_cc_required','Exact reminder cannot bypass revoked current manager authority'));
 select pg_temp.require_ok(is(pg_temp.reminder_authorization_probe($probe$
