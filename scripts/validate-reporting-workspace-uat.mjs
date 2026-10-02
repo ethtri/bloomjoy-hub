@@ -91,6 +91,12 @@ try {
 
   const { page, context, state } = await open(workspacePersonas.superAdmin);
   try {
+    // One permission service may resolve before the other. The first domain
+    // must still validate its own filters before issuing an aggregate request.
+    await page.route('**/rest/v1/rpc/get_refund_analytics_access', async route => {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(workspaceRpcResponse('get_refund_analytics_access', workspacePersonas.superAdmin)) });
+    });
     await page.goto(url('labor', '&machine=unauthorized-machine'), { waitUntil: 'networkidle' });
     await page.getByText('Selected scope is unavailable', { exact: true }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report'));

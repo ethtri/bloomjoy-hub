@@ -56,7 +56,7 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
   const choices = state.view === 'labor' ? laborDimensions ?? [] : state.view === 'refunds' ? refundDimensions ?? [] : dimensions.data ?? [];
   const locations = [...new Map(choices.map(item => [item.locationId, item.locationName])).entries()];
   const machines = [...new Map(choices.filter(item => state.locationId === 'all' || item.locationId === state.locationId).map(item => [item.machineId, item])).values()];
-  const choicesReady = salesView ? dimensions.isSuccess : !domainAccessLoading;
+  const choicesReady = state.view === 'labor' ? laborDimensions !== undefined : state.view === 'refunds' ? refundDimensions !== undefined : dimensions.isSuccess;
   const scopeInvalid = Boolean(choicesReady && state.view !== 'partners' && ((state.locationId !== 'all' && !locations.some(([id]) => id === state.locationId)) || (state.machineId !== 'all' && !machines.some(item => item.machineId === state.machineId))));
   const filters: SalesReportFilters = useMemo(() => ({ dateFrom: state.dateFrom, dateTo: state.dateTo, grain: 'day', machineIds: state.machineId === 'all' ? [] : [state.machineId], locationIds: state.locationId === 'all' ? [] : [state.locationId], paymentMethods: state.paymentMethod === 'all' ? [] : [state.paymentMethod] }), [state]);
   const prior = useMemo(() => comparisonRange(state), [state]);

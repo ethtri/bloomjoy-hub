@@ -9,7 +9,6 @@ import {
   useState,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -64,12 +63,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from '@/components/ui/chart';
+import type { ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -93,7 +87,6 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PartnerWaterfall } from '@/components/portal/reports/PartnerWaterfall';
-import { ReportingWorkspace } from '@/components/portal/reports/ReportingWorkspace';
 import { LaborAnalyticsPanel } from '@/components/portal/reports/LaborAnalyticsPanel';
 import { RefundAnalyticsPanel } from '@/components/portal/reports/RefundAnalyticsPanel';
 import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
@@ -177,6 +170,8 @@ type PartnerMachineOption = {
   displayLabel: string;
 };
 
+const ReportingBarChart = lazy(() => import('@/components/portal/reports/ReportingBarChart'));
+const ReportingWorkspace = lazy(() => import('@/components/portal/reports/ReportingWorkspace').then(module => ({ default: module.ReportingWorkspace })));
 const PartnerPrintableReport = lazy(
   () => import('@/components/portal/reports/PartnerPrintableReport')
 );
@@ -845,7 +840,7 @@ export default function ReportsPage() {
     staleTime: 60000,
   });
   return <PortalLayout><section className="portal-section"><div className="container-page">
-    <ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
+    <Suspense fallback={<p role="status" className="py-8 text-muted-foreground">Loading reporting workspace…</p>}><ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
       canUsePartners={isSuperAdmin || isScopedAdmin || isCorporatePartner}
       domainAccessLoading={analyticsAccess.isLoading}
       domainAccessError={analyticsAccess.labor.isError || analyticsAccess.refunds.isError}
@@ -855,7 +850,7 @@ export default function ReportsPage() {
       refundPanel={analyticsAccess.canUseRefunds ? scope => <RefundAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
       partnerView={<PartnerDashboardView />}
       detailedSales={(filters) => <OperatorReportingView key={JSON.stringify(filters)} accessContext={accessContext} accessContextFetching={accessLoading} workspaceFilters={filters} />}
-    />
+    /></Suspense>
   </div></section></PortalLayout>;
 }
 
@@ -1479,23 +1474,7 @@ function OperatorReportingView({
             ) : chartRows.length === 0 ? (
               <EmptyPanel title={t('reports.noSalesFound')} description={t('reports.noSalesDescription')} />
             ) : (
-              <ChartContainer
-                config={operatorChartConfig}
-                className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
-              >
-                <BarChart data={chartRows}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="period" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={56} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="netSales"
-                    fill="var(--color-netSales)"
-                    radius={[5, 5, 0, 0]}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ChartContainer>
+              <Suspense fallback={<ChartSkeleton />}><ReportingBarChart config={operatorChartConfig} data={chartRows} dataKey="netSales" /></Suspense>
             )}
           </CardContent>
         </Card>
@@ -2750,40 +2729,7 @@ function PartnerTrendCard({
           <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
         ) : (
           <>
-            <ChartContainer
-              config={config}
-              className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
-            >
-              <BarChart data={data} margin={{ left: 8, right: 8 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="period" tickLine={false} axisLine={false} />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  width={64}
-                  tickFormatter={(tick) =>
-                    valueFormatter ? valueFormatter(Number(tick)) : numberFormatter.format(Number(tick))
-                  }
-                />
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      formatter={(tooltipValue) =>
-                        valueFormatter
-                          ? valueFormatter(Number(tooltipValue))
-                          : numberFormatter.format(Number(tooltipValue))
-                      }
-                    />
-                  }
-                />
-                <Bar
-                  dataKey={dataKey}
-                  fill={`var(--color-${dataKey})`}
-                  radius={[5, 5, 0, 0]}
-                  isAnimationActive={false}
-                />
-              </BarChart>
-            </ChartContainer>
+            <Suspense fallback={<ChartSkeleton />}><ReportingBarChart config={config} data={data} dataKey={dataKey} valueFormatter={valueFormatter ?? (value => numberFormatter.format(value))} /></Suspense>
             <div className="mt-4 grid gap-2 md:hidden">
               {data.map((point) => {
                 const rawValue = Number(point[dataKey] ?? 0);
