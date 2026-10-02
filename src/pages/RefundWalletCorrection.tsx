@@ -386,15 +386,15 @@ export default function RefundWalletCorrectionPage() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="h-12 w-full rounded-full bg-pink-600 text-base font-bold hover:bg-pink-700"
+                  className="h-auto min-h-12 w-full whitespace-normal rounded-full bg-pink-600 py-3 text-base font-bold hover:bg-pink-700"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />{t("Checking transactions…")}</>
+                      <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden="true" /><span className="min-w-0">{t("Checking transactions…")}</span></>
                   ) : (
                     <>
-                      <LockKeyhole className="mr-2 h-5 w-5" aria-hidden="true" />{t("Save and check my purchase")}</>
+                      <LockKeyhole className="h-5 w-5 shrink-0" aria-hidden="true" /><span className="min-w-0">{t("Save and check my purchase")}</span></>
                   )}
                 </Button>
               </form>
