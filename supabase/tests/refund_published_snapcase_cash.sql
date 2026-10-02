@@ -588,19 +588,18 @@ select is(public.service_correlate_sunze_cash_case('16617000-0000-4000-8000-0000
 select ok(exists(select 1 from public.refund_sunze_cash_correlation_candidates candidate join public.refund_sunze_cash_correlation_attempts attempt on attempt.id=candidate.attempt_id where attempt.refund_case_id='16617000-0000-4000-8000-000000000001' and candidate.sales_fact_id='16619100-0000-4000-8000-000000000001'),'Sunze positive is retained on its exact source');
 select is(public.refund_purchase_correction_request_fields('16617000-0000-4000-8000-000000000001'),
  '{}'::text[],'Changing to new grounded Sunze evidence requires a fresh reviewed selection');
--- Existing limitation under #1429/#628: positive-only Sunze research uses a
--- positive snapshot key that the current preparation source-key helper does not
--- reproduce. Retain the candidate without claiming reviewed preparation parity.
+-- Grounded partial-history evidence is current, but the previous SnapCase
+-- selection cannot authorize the new Sunze purchase without explicit review.
 select is(public.refund_manager_preparation_snapshot(
  '16617000-0000-4000-8000-000000000001',
- (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001')),
- null::jsonb,'Unvalidated Sunze positive retains the existing preparation source-key limitation');
+ (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001'))->>'evidenceBasis',
+ 'cash_multiple_reviewed','Current positive Sunze research retains its partial-history evidence basis');
 select is(public.service_refund_manager_ready_notice_snapshot(
  '16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001'),
  null::jsonb,'Unvalidated Sunze positive cannot borrow ready-notice authority');
 
 -- Separate current, clock-validated Sunze proof exercises the same bounded
--- payout exception without changing the positive-only source contract above.
+-- payout exception while retaining the covered-source precedence.
 insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,status,sunze_machine_id)
 values('16612000-0000-4000-8000-000000000003','16610000-0000-4000-8000-000000000001',
  '16611000-0000-4000-8000-000000000001','Validated cash fixture','commercial','active','SUNZE-PAYOUT-VALIDATED');
