@@ -160,7 +160,7 @@ $after$;
   before_text:=$before$      when attempt_row.source_snapshot_key like 'positive:%'
         then 'unavailable'$before$;
   after_text:=$after$      when attempt_row.source_snapshot_key like 'positive:%'
-        or current_snapshot like 'unavailable:%' then 'unavailable'$after$;
+        or current_snapshot='unavailable:none' then 'unavailable'$after$;
   if cardinality(string_to_array(definition,before_text))<>2 then
     raise exception 'Positive cash getter coverage anchor changed';
   end if;
@@ -168,16 +168,16 @@ $after$;
 
   definition:=replace(pg_get_functiondef(
     'public.refund_manager_preparation_snapshot(uuid,bigint)'::regprocedure),E'\r\n',E'\n');
-  before_text:=$before$  if case_row.payment_method = 'cash' then
-    select attempt.* into cash_attempt$before$;
-  after_text:=$after$  if case_row.payment_method = 'cash' then
+  before_text:=$before$    proof_id := cash_attempt.id;$before$;
+  after_text:=$after$    if cash_attempt.source_snapshot_key like 'positive:%' then
     -- A source clock/location change cannot borrow a previous case clock.
     if not exists(select 1 from public.reporting_machines machine
       join public.reporting_locations location on location.id=machine.location_id
       where machine.id=case_row.reporting_machine_id and machine.status='active'
         and location.id=case_row.reporting_location_id and location.status='active'
         and location.timezone=case_row.incident_timezone) then return null; end if;
-    select attempt.* into cash_attempt$after$;
+    end if;
+    proof_id := cash_attempt.id;$after$;
   if cardinality(string_to_array(definition,before_text))<>2 then
     raise exception 'Positive cash preparation clock anchor changed';
   end if;
