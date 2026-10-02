@@ -91,6 +91,30 @@ select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000001'
 set local role authenticated;
 select is(jsonb_array_length(public.get_finance_reporting('2026-02-01','2026-02-28')->'rows'),1,'Authenticated role can call guarded read API');
 reset role;
+-- Historical-only payment and recognition locations remain selectable even
+-- without current machine placement, original sales, or a case at that location.
+set local session_replication_role=replica;
+insert into public.reporting_locations(id,account_id,name,timezone) values
+ ('fb730000-0000-4000-8000-000000000002','fb720000-0000-4000-8000-000000000001','Paid archive','America/Los_Angeles'),
+ ('fb730000-0000-4000-8000-000000000003','fb720000-0000-4000-8000-000000000001','Recognition archive','America/Los_Angeles');
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+ adjustment_type,amount_cents,source,source_row_hash,raw_payload,created_at)
+ values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000002','2026-06-01',
+ 'refund',321,'manual',repeat('6',64),'{"amountBasis":"tax_exclusive"}','2025-12-01');
+insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
+ booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
+ request_target_before_cents,request_target_after_cents,recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance)
+ values('finance:historic-location','fb750000-0000-4000-8000-000000000003','late_request_opening','2026-06-01T12:00Z','2026-06-01T12:00Z',
+ '2026-06-01','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000003','card','hosted_refund_intake',
+ '2026-02-01',0,500,0,500,'tax_inclusive','synthetic');
+set local session_replication_role=origin;
+select ok(exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000002'),'Independent historical payment location is selectable');
+select ok(exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000003'),'Immutable historical recognition location is selectable');
+select is((public.get_finance_reporting('2026-06-01','2026-06-30',null,array['fb730000-0000-4000-8000-000000000002']::uuid[])#>>'{rows,0,moneyPaidCents}')::bigint,321::bigint,'Selected historical-only payment location reconciles recorded money');
+select is((public.get_finance_reporting('2026-06-01','2026-06-30',null,array['fb730000-0000-4000-8000-000000000002']::uuid[])#>>'{rows,0,legacyPaidDeductionExTaxCents}')::bigint,321::bigint,'Historical-only payment location retains canonical legacy deduction');
+select is((public.get_finance_reporting('2026-06-01','2026-06-30',null,array['fb730000-0000-4000-8000-000000000003']::uuid[])#>>'{rows,0,requestedDeductionExTaxCents}')::bigint,455::bigint,'Selected immutable recognition location retains canonical request impact');
 -- April amount change does not rewrite the original month or deduct payment twice.
 set local session_replication_role=replica;
 insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
@@ -145,5 +169,16 @@ select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,co
 select ok(public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%88888%'
  and public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%77777%'
  and public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%99999%','Restricted amounts never enter API payload');
+set local session_replication_role=replica;
+insert into public.reporting_locations(id,account_id,name,timezone)
+ values('fb730000-0000-4000-8000-000000000004','fb720000-0000-4000-8000-000000000001','Restricted archive','America/Los_Angeles');
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+ adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at)
+ values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000004','2026-03-01',
+ 'refund',55555,'manual',repeat('7',64),'fb750000-0000-4000-8000-000000000005','{"amountBasis":"tax_exclusive"}','2025-12-01');
+set local session_replication_role=origin;
+select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000004'),'Internal-only payment location does not broaden selectable dimensions');
+select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,array['fb730000-0000-4000-8000-000000000004']::uuid[])->'rows'),0,'Internal-only location cannot expose a component row');
 select * from finish();
 rollback;

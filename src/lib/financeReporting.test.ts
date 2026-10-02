@@ -1,4 +1,5 @@
 /// <reference lib="deno.ns" />
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- Deno needs Vite's global ImportMeta declarations when checking the RPC client graph.
 /// <reference path="../vite-env.d.ts" />
 import { financeReportingCsv, normalizeFinanceReporting, type FinanceReporting, type FinanceReportingRow } from './financeReporting.ts';
 
