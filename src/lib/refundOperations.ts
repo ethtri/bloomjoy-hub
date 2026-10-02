@@ -68,6 +68,8 @@ export type RefundIssueCategory =
   | 'product_problem'
   | 'charged_more_than_once'
   | 'wrong_amount'
+  | 'partial_items'
+  | 'expected_cash_change'
   | 'other';
 export type RefundCaseStatus =
   | 'draft'
@@ -195,6 +197,9 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
+  customerLocale?: 'en' | 'es';
+  cashInsertedAmount?: string;
+  expectedChangeAmount?: string;
   resolutionMethod?: RefundResolutionMethod;
   giftCardOffer?: { poolId: string; value: number; expiresAt: string };
   submissionId?: string;
@@ -1572,6 +1577,7 @@ export type ExecuteNayaxCardRefundInput = {
 };
 
 export type ApproveReviewedNayaxCandidateInput = {
+  refundAmountCents?: number;
   caseId: string;
   expectedOfficialActionVersion: number;
   preparationProofId: string;
@@ -1590,6 +1596,7 @@ export type ApproveReviewedNayaxCandidateResponse = {
 };
 
 export type ApproveSelectedNayaxCandidateInput = {
+  refundAmountCents?: number;
   caseId: string;
   expectedOfficialActionVersion: number;
 };
@@ -4047,6 +4054,7 @@ export const executeNayaxCardRefund = async ({
   );
 
 export const approveReviewedNayaxCandidate = async ({
+  refundAmountCents,
   caseId,
   expectedOfficialActionVersion,
   preparationProofId,
@@ -4055,7 +4063,7 @@ export const approveReviewedNayaxCandidate = async ({
   const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
     'nayax-card-refund',
     { operation: 'approve_reviewed', caseId, expectedOfficialActionVersion,
-      preparationProofId, candidateToken },
+      preparationProofId, candidateToken, refundAmountCents },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to decide this reviewed card refund.',
@@ -4071,12 +4079,13 @@ export const approveReviewedNayaxCandidate = async ({
 };
 
 export const approveSelectedNayaxCandidate = async ({
+  refundAmountCents,
   caseId,
   expectedOfficialActionVersion,
 }: ApproveSelectedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
   const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
     'nayax-card-refund',
-    { operation: 'approve_selected', caseId, expectedOfficialActionVersion },
+    { operation: 'approve_selected', caseId, expectedOfficialActionVersion, refundAmountCents },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to approve this selected card refund.',

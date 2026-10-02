@@ -8,6 +8,7 @@ import {
   sendRefundTransactionalEmail,
 } from "../_shared/refund-email.ts";
 import { inferRefundCustomerLocale } from "../_shared/refund-language.ts";
+import { refundExceptionReviewReasons, refundGiftCardFaceValue } from "../_shared/refund-exception-policy.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
@@ -1411,11 +1412,22 @@ serve(async (req) => {
       "product_problem",
       "charged_more_than_once",
       "wrong_amount",
+      "partial_items",
+      "expected_cash_change",
       "other",
     ].includes(submittedIssueCategory)
       ? submittedIssueCategory
       : "other";
     const productDescription = sanitizeText(body?.productDescription, 160);
+    const cashInsertedAmountCents = centsFromAmount(body?.cashInsertedAmount);
+    const expectedChangeAmountCents = centsFromAmount(body?.expectedChangeAmount);
+    if (issueCategory === "expected_cash_change" && (paymentMethod !== "cash" || resolutionMethod !== "gift_card" ||
+      !cashInsertedAmountCents || !expectedChangeAmountCents || expectedChangeAmountCents >= cashInsertedAmountCents)) {
+      throw new RequestValidationError("Enter the cash inserted and the change you expected, then choose a gift card.");
+    }
+    const affectedAmountCents = issueCategory === "expected_cash_change" ? expectedChangeAmountCents : amountCents;
+    const requiresGiftReview = refundExceptionReviewReasons(issueCategory,
+      affectedAmountCents ? refundGiftCardFaceValue(affectedAmountCents) : 0, false).length > 0;
     const incidentDate = sanitizeText(body?.incidentDate, 10);
     const incidentTime = sanitizeText(body?.incidentTime, 8);
     const legacyIncidentAt = parseIncidentAt(body?.incidentAt);
@@ -1885,6 +1897,7 @@ serve(async (req) => {
             incidentTimeConfidence,
             incidentTimeSource,
             issueCategory,
+            ...(issueCategory === "expected_cash_change" ? [cashInsertedAmountCents, expectedChangeAmountCents] : []),
             productDescription,
             issueSummary,
           ],
@@ -1984,12 +1997,21 @@ serve(async (req) => {
     }
     if (resolutionMethod === "gift_card") {
       const submittedOffer = body.giftCardOffer as Record<string, unknown> | undefined;
-      const { data: offer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
-        p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+      const { data: quotedOffer, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
+        p_machine_id: machineRecord.id, p_amount_cents: affectedAmountCents,
       });
       if (error) throw error;
-      if (!offer || submittedOffer?.poolId !== offer.pool_id || submittedOffer?.value !== offer.value
-        || Date.parse(String(submittedOffer?.expiresAt)) !== Date.parse(String(offer.expires_at))) {
+      let offer = quotedOffer;
+      if (requiresGiftReview && !offer) {
+        const { data: template, error: templateError } = await supabase.from("refund_gift_card_pools")
+          .select("id,expires_at").eq("enabled", true).contains("eligible_machine_ids", [machineRecord.id])
+          .gt("expires_at", new Date().toISOString()).order("expires_at", { ascending: false }).limit(1).maybeSingle();
+        if (templateError) throw templateError;
+        if (template && affectedAmountCents) offer = { pool_id: template.id,
+          value: refundGiftCardFaceValue(affectedAmountCents), expires_at: template.expires_at };
+      }
+      if (!offer || (!requiresGiftReview && (submittedOffer?.poolId !== offer.pool_id || submittedOffer?.value !== offer.value
+        || Date.parse(String(submittedOffer?.expiresAt)) !== Date.parse(String(offer.expires_at))))) {
         throw new RequestValidationError("The gift-card offer changed. Please review the current value and terms before submitting.");
       }
       // Quote reads never create stock. Materialize the exact denomination only
@@ -1998,9 +2020,9 @@ serve(async (req) => {
         .select("face_value_cents").eq("id", offer.pool_id).single();
       if (templateError) throw templateError;
       acceptedGiftCardOffer = offer;
-      if (template.face_value_cents !== offer.value) {
+      if (!requiresGiftReview && template.face_value_cents !== offer.value) {
         const { data: materialized, error: materializeError } = await supabase.rpc("service_materialize_refund_gift_card_offer", {
-          p_machine_id: machineRecord.id, p_amount_cents: paymentValidation.amountCents,
+          p_machine_id: machineRecord.id, p_amount_cents: affectedAmountCents,
           p_template_pool_id: offer.pool_id, p_expires_at: offer.expires_at,
         });
         if (materializeError) throw materializeError;
@@ -2023,7 +2045,7 @@ serve(async (req) => {
         gift_card_pool_id: acceptedGiftCardOffer.pool_id,
         gift_card_value_cents: acceptedGiftCardOffer.value,
         gift_card_expires_at: acceptedGiftCardOffer.expires_at,
-        gift_card_state: "pending_inventory",
+        gift_card_state: requiresGiftReview ? "manager_review" : "pending_inventory",
       } : {}),
       reporting_machine_id: machineRecord.id,
       reporting_location_id: machineRecord.location_id,
@@ -2041,6 +2063,9 @@ serve(async (req) => {
       incident_time_resolution: incidentResolution.resolution,
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
+      affected_amount_cents: affectedAmountCents,
+      cash_inserted_amount_cents: issueCategory === "expected_cash_change" ? cashInsertedAmountCents : null,
+      expected_change_amount_cents: issueCategory === "expected_cash_change" ? expectedChangeAmountCents : null,
       card_last4: paymentValidation.cardLast4,
       card_last4_source: paymentValidation.paymentMethod === "card" ? cardLast4Source : null,
       card_last4_provenance: paymentValidation.paymentMethod === "card" &&
@@ -2073,7 +2098,7 @@ serve(async (req) => {
       matched_sales_fact_id: null,
       cash_match_state: cashMatchState,
       cash_match_evaluated_fact_version: null,
-      refund_amount_cents: paymentValidation.amountCents,
+      refund_amount_cents: issueCategory === "expected_cash_change" ? 0 : paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       customer_request_received_at: customerRequestReceivedAt,
       customer_request_received_source: "hosted_refund_intake",

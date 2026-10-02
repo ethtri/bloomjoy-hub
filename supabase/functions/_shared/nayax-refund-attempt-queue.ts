@@ -34,6 +34,7 @@ export type NayaxQueuedRefundClaim = {
       | "source_with_bound_offset";
     refundEmailListMode: "omit" | "empty_string";
     originalAmountCents: number;
+    refundAmountCents: number;
     currencyCode: "USD";
   };
 };
@@ -72,6 +73,7 @@ export const parseNayaxQueuedRefundClaim = (
   const executionPlan = String(wire?.executionPlan);
   const siteId = Number(wire?.siteId);
   const amountCents = Number(wire?.originalAmountCents);
+  const refundAmountCents = Number(wire?.refundAmountCents ?? wire?.originalAmountCents);
   const rawTime = typeof wire?.machineAuthorizationTime === "string"
     ? wire.machineAuthorizationTime
     : "";
@@ -114,6 +116,7 @@ export const parseNayaxQueuedRefundClaim = (
     !new Set(["exact_source", "source_with_bound_offset"]).has(mode) ||
     !new Set(["omit", "empty_string"]).has(String(wire?.refundEmailListMode)) ||
     !Number.isInteger(amountCents) || amountCents <= 0 || wire?.currencyCode !== "USD" ||
+    !Number.isSafeInteger(refundAmountCents) || refundAmountCents <= 0 || refundAmountCents > amountCents ||
     !new Set(["machine_manager", "super_admin"]).has(String(authorization?.authorityKind))
   ) return null;
   return {
@@ -141,6 +144,7 @@ export const parseNayaxQueuedRefundClaim = (
       machineAuthorizationTimeSerializationMode: mode as "exact_source" | "source_with_bound_offset",
       refundEmailListMode: wire!.refundEmailListMode as "omit" | "empty_string",
       originalAmountCents: amountCents,
+      refundAmountCents,
       currencyCode: "USD",
     },
   };

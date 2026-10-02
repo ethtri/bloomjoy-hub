@@ -13,6 +13,11 @@ export const fetchRefundGiftCardOffer = async (input: {
 };
 
 export type RefundGiftCardManagerContext = RefundGiftCardStatus & {
+  affected_amount: number;
+  purchase_amount: number;
+  cash_inserted_amount: number | null;
+  expected_change_amount: number | null;
+  review_reasons: string[];
   can_decide: boolean;
   can_resend: boolean;
   customer_email: string;
@@ -29,12 +34,17 @@ export const fetchRefundGiftCardManagerContext = async (caseId: string) => {
     throw new Error('Gift card review is temporarily unavailable.');
   }
   return { ...status, can_decide: data.can_decide, can_resend: data.can_resend === true, customer_email: typeof data.customer_email === 'string' ? data.customer_email : '', prior_issued_count: data.prior_issued_count,
+    affected_amount: data.affected_amount ?? data.purchase_amount ?? data.value,
+    purchase_amount: data.purchase_amount ?? data.value,
+    cash_inserted_amount: data.cash_inserted_amount ?? null,
+    expected_change_amount: data.expected_change_amount ?? null,
+    review_reasons: Array.isArray(data.review_reasons) ? data.review_reasons : [],
     latest_issued_at: data.latest_issued_at, previous_issuance: data.previous_issuance } as RefundGiftCardManagerContext;
 };
 
-export const decideRefundGiftCard = (caseId: string, approve: boolean, notes: string) =>
+export const decideRefundGiftCard = (caseId: string, approve: boolean, notes: string, affectedAmountCents?: number) =>
   invokeEdgeFunction<{ ok?: boolean; error?: string }>('refund-case-admin-update', {
-    action: approve ? 'approveGiftCard' : 'denyGiftCard', caseId, notes,
+    action: approve ? 'approveGiftCard' : 'denyGiftCard', caseId, notes, affectedAmountCents,
   }, { requireUserAuth: true });
 
 export const resendRefundGiftCard = (caseId: string, intentId: string, customerEmail: string) =>
