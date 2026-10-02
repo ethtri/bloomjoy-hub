@@ -1,5 +1,32 @@
 # Decisions
 
+## 2026-10-01 - Partial refunds, cash-change courtesy review and English/Spanish
+
+The owner approved implementation of the presented exception plan and requested
+an English/Spanish toggle on the customer page. #666 owns the parent scope;
+#1686 and #1687 track the focused implementation and acceptance.
+
+- Card refund amount defaults to the full selected provider charge including tax;
+  the Manager may edit the affected amount before the same final approval.
+- Explicit partial-delivery and expected-cash-change claims receive the existing
+  Manager review. Approved cash resolutions are gift cards; expected-change
+  gifts are a courtesy. No new cash payout method. Keep reported cash inserted
+  and expected change separate from
+  recorded sale and affected purchase amount.
+- Gift value rounds the affected/courtesy amount up to $5. A value strictly over
+  $25 after rounding requires review; exactly $25 adds no high-value reason.
+  This is a review trigger, not a cap. A Manager may approve a higher value,
+  adjust or decline. Repeat, amount and issue reasons share one decision.
+- Preserve original purchase, affected amount, final resolution, gift value and
+  Bloomjoy-funded goodwill separately. Resolve the affected portion once;
+  courtesy/rounding must not add another technician/partner deduction.
+- Visible English/Spanish selection persists across existing customer refund
+  pages and supplies the language to existing customer templates. Default English
+  where absent; no app-wide/admin translation, new framework or old-case backfill.
+- Ordinary gift email expectation remains a few hours; reviewed exceptions show
+  truthful review timing. This decision supersedes deferred editable-amount/full-
+  amount-only language for the approved cases, but does not claim deployment.
+
 ## 2026-10-01 - Show resolution timing before the customer chooses
 
 The owner requested clear timing beside each existing refund resolution in #666.
