@@ -60,6 +60,7 @@ Set the following values before launch.
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_STICKS_MEMBER_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe member sticks price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID` | Server-only | `stripe-customer-portal` | Explicit Stripe Billing Portal configuration for the same merchant and Plus price | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Verified sender in Resend | Technical owner |
@@ -380,11 +381,17 @@ Stripe endpoint URL:
 
 Required events:
 - `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
 
 After endpoint creation/update, copy new signing secret to `STRIPE_WEBHOOK_SECRET`.
+
+For the pending move to Bloomjoy Services LLC, follow
+`Docs/STRIPE_MERCHANT_CUTOVER.md`. Credentials, price IDs, portal configuration,
+and webhook signing secret belong to the same merchant and must be coordinated;
+updating this document does not switch the deployed account.
 
 ### Step E: Deploy frontend SPA
 Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:

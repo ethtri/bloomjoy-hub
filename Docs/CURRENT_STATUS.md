@@ -6,6 +6,16 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Website billing merchant (pending)
+
+- #1693 tracks routing new website supply and optional Plus revenue to a separate
+  Bloomjoy Services LLC Stripe account. The October 1 production credential and
+  recorded Checkout audit confirms the current merchant is TGPaci LLC. No
+  production account/secret switch has occurred. Final Services account opening,
+  verification, tax setup, test rehearsal, and live no-charge checks remain
+  pending. See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
+  settings, and rollback procedure. Preserve TGPaci's historical records.
+
 ## Refund workflow (current)
 
 - PR #1685 deployed the bounded System gift-notice outbox repair on October 2.
