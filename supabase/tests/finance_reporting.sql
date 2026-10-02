@@ -1,0 +1,147 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path=public,extensions;
+select no_plan();
+-- Synthetic evidence only; triggers disabled so no provider or outbox work runs.
+set local session_replication_role=replica;
+insert into auth.users(id,email) values
+ ('fb710000-0000-4000-8000-000000000001','finance@example.invalid'),
+ ('fb710000-0000-4000-8000-000000000002','sales-only@example.invalid'),
+ ('fb710000-0000-4000-8000-000000000003','refund-only@example.invalid');
+insert into public.customer_accounts(id,name,account_type)
+ values('fb720000-0000-4000-8000-000000000001','Finance synthetic','internal');
+insert into public.reporting_locations(id,account_id,name,timezone)
+ values('fb730000-0000-4000-8000-000000000001','fb720000-0000-4000-8000-000000000001','Finance fixture','America/Los_Angeles');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status) values
+ ('fb740000-0000-4000-8000-000000000001','fb720000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','Authorized finance','active'),
+ ('fb740000-0000-4000-8000-000000000002','fb720000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','Hidden finance','active');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
+ ('fb740000-0000-4000-8000-000000000001','fb710000-0000-4000-8000-000000000001','finance@example.invalid','active'),
+ ('fb740000-0000-4000-8000-000000000001','fb710000-0000-4000-8000-000000000003','refund-only@example.invalid','active');
+insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) values
+ ('fb710000-0000-4000-8000-000000000001','fb740000-0000-4000-8000-000000000001','2020-01-01'),
+ ('fb710000-0000-4000-8000-000000000002','fb740000-0000-4000-8000-000000000001','2020-01-01');
+insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
+ values('fb740000-0000-4000-8000-000000000001',10,'2020-01-01','active');
+insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
+ values(true,'2026-01-01','Synthetic finance test');
+insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
+ net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',11000,10,'manual_csv',repeat('a',64),'{"amountBasis":"tax_inclusive"}'),
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','cash',2000,2,'sunze_browser',repeat('b',64),'{}'),
+ ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',99999,100,'manual_csv',repeat('c',64),'{"amountBasis":"tax_exclusive"}');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+ issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,
+ customer_request_received_at,customer_request_received_source) values
+ ('fb750000-0000-4000-8000-000000000001','RF-FINANCE-1','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','private@example.invalid','Private free text','2026-02-01T12:00Z','card',1100,1100,'completed','2026-02-01T12:00Z','hosted_refund_intake'),
+ ('fb750000-0000-4000-8000-000000000002','RF-FINANCE-2','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','gift@example.invalid','Partial gift','2026-02-01T12:00Z','card',3300,1100,'completed','2026-02-01T12:00Z','hosted_refund_intake'),
+ ('fb750000-0000-4000-8000-000000000003','RF-FINANCE-3','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','legacy@example.invalid','Unknown history','2026-02-01T12:00Z','card',500,500,'needs_review','2026-02-01T12:00Z','hosted_refund_intake');
+insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
+ booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
+ request_target_before_cents,request_target_after_cents,recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance)
+ select 'finance:'||id,id,'request_received','2026-02-01T12:00Z','2026-02-01T12:00Z','2026-02-01',
+ reporting_machine_id,reporting_location_id,'card','hosted_refund_intake','2026-02-01',0,refund_amount_cents,
+ 0,refund_amount_cents,'tax_inclusive','synthetic' from public.refund_cases
+ where id in ('fb750000-0000-4000-8000-000000000001','fb750000-0000-4000-8000-000000000002');
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+ adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload) values
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',440,'manual',repeat('d',64),'fb750000-0000-4000-8000-000000000001','{"amountBasis":"tax_inclusive"}'),
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-02','refund',200,'manual',repeat('e',64),null,'{"amountBasis":"tax_exclusive"}');
+update public.sales_adjustment_facts set created_at='2025-12-01'
+ where source_row_hash=repeat('e',64);
+insert into public.refund_gift_card_issuances(refund_case_id,code_id,pool_id,normalized_email,
+ purchase_amount_cents,affected_purchase_amount_cents,face_value_cents,goodwill_amount_cents,currency,eligible_locations,
+ expires_at,redemption_instructions,message_id,message_identity_digest,issued_at)
+ values('fb750000-0000-4000-8000-000000000002',gen_random_uuid(),gen_random_uuid(),'gift@example.invalid',3300,1100,1500,400,
+ 'USD',array['Finance fixture'],'2027-01-01','Private instructions',gen_random_uuid(),repeat('f',64),'2026-03-02T12:00Z');
+set local session_replication_role=origin;
+select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000001',true);
+create temporary table finance_reports as select
+ public.get_finance_reporting('2026-02-01','2026-02-28')#>'{rows,0}' as feb,
+ public.get_finance_reporting('2026-03-01','2026-03-31')#>'{rows,0}' as march;
+select is((select (feb->>'recordedSalesCents')::bigint from finance_reports),13000::bigint,'Recorded sales include card and cash');
+select is((select (feb->>'cardRecordedSalesCents')::bigint from finance_reports),11000::bigint,'Card recorded basis retained');
+select is((select (feb->>'cashRecordedSalesCents')::bigint from finance_reports),2000::bigint,'Cash reporting retains historical sales');
+select is((select (feb->>'reportingTaxRemovedCents')::bigint from finance_reports),1000::bigint,'Reporting tax removed uses canonical normalization');
+select is((select (feb->>'salesExTaxCents')::bigint from finance_reports),12000::bigint,'Canonical sales basis retained');
+select is((select (feb->>'requestedDeductionExTaxCents')::bigint from finance_reports),2000::bigint,'Requested basis books both affected portions in February');
+select is((select (feb->>'netSalesExTaxCents')::bigint from finance_reports),10000::bigint,'Finance net reconciles canonical equation');
+select is((select (feb->>'asOfOutstandingCents')::bigint from finance_reports),2200::bigint,'February outstanding ignores later payment and gift');
+select is((select (march->>'moneyPaidCents')::bigint from finance_reports),640::bigint,'Recorded money includes partial and independent legacy paid facts');
+select is((select (march->>'giftPurchaseCents')::bigint from finance_reports),1100::bigint,'Gift affected value does not use full purchase');
+select is((select (march->>'giftFaceCents')::bigint from finance_reports),1500::bigint,'Gift face value is separate');
+select is((select (march->>'goodwillCents')::bigint from finance_reports),400::bigint,'Goodwill is separate');
+select is((select (march->>'requestedDeductionExTaxCents')::bigint from finance_reports),0::bigint,'Later payment and gift do not deduct again');
+select is((select (march->>'legacyPaidDeductionExTaxCents')::bigint from finance_reports),200::bigint,'Independent legacy paid fact remains canonical fallback');
+select is((select (march->>'asOfOutstandingCents')::bigint from finance_reports),660::bigint,'Partial money and affected gift resolve balance once');
+select is((select (feb#>>'{coverage,unknownBalanceCount}')::int from finance_reports),1,'Legacy missing immutable history stays unknown');
+select ok((select feb::text not like '%example.invalid%' and feb::text not like '%Private%' from finance_reports),'No customer, code or free-text data returned');
+select is(jsonb_array_length(public.get_finance_reporting('2026-02-01','2026-02-28',array['fb740000-0000-4000-8000-000000000002']::uuid[])->'rows'),0,'Forged machine filter cannot broaden access');
+select ok(not has_function_privilege('anon','public.get_finance_reporting(date,date,uuid[],uuid[])','EXECUTE'),'Anonymous endpoint execution revoked');
+select ok(not has_function_privilege('authenticated','private.finance_reporting_machine_scope(uuid)','EXECUTE'),'Private actor lookup never exposed');
+select is((select provolatile::text from pg_proc where oid='public.get_finance_reporting(date,date,uuid[],uuid[])'::regprocedure),'s','Finance is read-only STABLE');
+select throws_ok($$select public.get_finance_reporting('2025-01-01','2026-03-01')$$,'22023',null,'Unbounded scans rejected');
+select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000002',true);
+select is((public.get_finance_reporting_access()->>'hasAccess')::boolean,false,'Sales access does not grant refund finance scope');
+select throws_ok($$select public.get_finance_reporting('2026-02-01','2026-02-28')$$,'42501',null,'Direct sales-only call denied');
+select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000003',true);
+select is((public.get_finance_reporting_access()->>'hasAccess')::boolean,false,'Refund scope does not grant sales');
+select throws_ok($$select public.get_finance_reporting('2026-02-01','2026-02-28')$$,'42501',null,'Direct refund-only call denied');
+select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select is(jsonb_array_length(public.get_finance_reporting('2026-02-01','2026-02-28')->'rows'),1,'Authenticated role can call guarded read API');
+reset role;
+-- April amount change does not rewrite the original month or deduct payment twice.
+set local session_replication_role=replica;
+insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
+ booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
+ request_target_before_cents,request_target_after_cents,paid_cumulative_cents,
+ recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance)
+ values('finance:denied','fb750000-0000-4000-8000-000000000001','denied','2026-04-01T12:00Z','2026-04-01T12:00Z',
+ '2026-04-01','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','card','hosted_refund_intake',
+ '2026-02-01',1100,0,440,1100,440,'tax_inclusive','synthetic');
+insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
+ net_sales_cents,transaction_count,source,source_row_hash,raw_payload)
+ values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-05-01','credit',1234,1,'manual_csv',repeat('1',64),'{}');
+insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
+ original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
+ evidence_reference_digest,observed_at,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+ values('fb750000-0000-4000-8000-000000000003','fb740000-0000-4000-8000-000000000001','fixture-account','fixture-device',
+ 'private-transaction',500,500,'USD',62,repeat('2',64),'2026-05-02T12:00Z','fb710000-0000-4000-8000-000000000001',
+ 'no_attempt_integrity_hold',true);
+set local session_replication_role=origin;
+select is((public.get_finance_reporting('2026-04-01','2026-04-30')#>>'{rows,0,reversalExTaxCents}')::bigint,600::bigint,'Change period reverses only unpaid normalized amount');
+select is((public.get_finance_reporting('2026-04-01','2026-04-30')#>>'{rows,0,netSalesExTaxCents}')::bigint,600::bigint,'Reversal is positive activity in April');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,requestedDeductionExTaxCents}')::bigint,2000::bigint,'Later denial leaves February untouched');
+select ok(public.get_finance_reporting('2026-05-01','2026-05-31')#>'{rows,0,salesExTaxCents}'='null'::jsonb,'Unknown source accounting is unavailable, not zero');
+select ok(public.get_finance_reporting('2026-05-01','2026-05-31')#>'{rows,0,netSalesExTaxCents}'='null'::jsonb,'Unknown sales cannot produce apparently complete net');
+select is((public.get_finance_reporting('2026-05-01','2026-05-31')#>>'{rows,0,coverage,unknownPaymentDateCount}')::int,1,'Observed money without payment date stays out of period activity');
+select is((public.get_finance_reporting('2026-05-01','2026-05-31')#>>'{rows,0,moneyPaidCents}')::bigint,0::bigint,'Undated receipt is never attributed to observed date');
+
+-- A malformed duplicate or backlink cannot reveal hidden financial evidence.
+set local session_replication_role=replica;
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+ issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,duplicate_of_refund_case_id) values
+ ('fb750000-0000-4000-8000-000000000004','RF-FINANCE-4','fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001',
+ 'hidden@example.invalid','Hidden duplicate','2026-02-01T12:00Z','card',99999,99999,'completed','fb750000-0000-4000-8000-000000000001');
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+ adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at) values
+ ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',99999,'manual',repeat('3',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01'),
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',88888,'manual',repeat('4',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+ issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,case_population)
+ values('fb750000-0000-4000-8000-000000000005','RF-FINANCE-5','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001',
+ 'test@example.invalid','Private internal test','2026-02-01T12:00Z','card',77777,77777,'completed','internal_test');
+insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+ adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at)
+ values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',77777,'manual',repeat('5',64),
+ 'fb750000-0000-4000-8000-000000000005','{"amountBasis":"tax_exclusive"}','2025-12-01');
+set local session_replication_role=origin;
+select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,moneyPaidCents}')::bigint,640::bigint,'Hidden and internal-test payments excluded from recorded money');
+select ok(public.get_finance_reporting('2026-03-01','2026-03-31')#>'{rows,0,netSalesExTaxCents}'='null'::jsonb,'Restricted accounting is unavailable rather than leaking canonical legacy amounts');
+select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,coverage,unknownBalanceCount}')::int,2,'Cross-scope lineage marks balance unknown without revealing hidden recovery');
+select ok(public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%88888%'
+ and public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%77777%'
+ and public.get_finance_reporting('2026-03-01','2026-03-31')::text not like '%99999%','Restricted amounts never enter API payload');
+select * from finish();
+rollback;
