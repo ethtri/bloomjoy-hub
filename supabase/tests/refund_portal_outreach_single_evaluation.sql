@@ -101,8 +101,27 @@ select is((select value->>'claimed' from claimed_cycle),'true','A real supported
 select * from pg_temp.compare_readers('Preparing clarification');
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
 select * from pg_temp.compare_readers('Contact policy disabled');
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,
+ recipient_email,subject,body,content_source,delivery_kind,reason_code,
+ template_version,follow_up_cycle_id,requested_fields)
+select 'ab456000-0000-4000-8000-000000000001',c.id,'more_info','pending',
+ c.customer_email,'Please update your request','[Secure refund correction link included at delivery]',
+ 'deterministic_template','automatic',cycle.reason_code,cycle.template_version,
+ cycle.id,cycle.requested_fields
+from public.refund_follow_up_cycles cycle join public.refund_cases c on c.id=cycle.refund_case_id
+where cycle.id=(select (value#>>'{cycle,id}')::uuid from claimed_cycle);
+update public.refund_case_messages set status='failed',error_message='synthetic_pretransport_failure'
+where id='ab456000-0000-4000-8000-000000000001';
+select * from pg_temp.compare_readers('Failed delivery for assigned Manager');
+select is(public.get_refund_lifecycle_for_manager('ab455000-0000-4000-8000-000000000001')
+ #>>'{customerOutreach,state}','delivery_failed','Actual failed delivery remains an internal obligation');
+select is(public.get_refund_lifecycle_for_manager('ab455000-0000-4000-8000-000000000001')
+ #>>'{customerOutreach,failureCode}',null::text,'Assigned Manager failure detail remains redacted');
 select pg_temp.set_actor('ab450000-0000-4000-8000-000000000002');
 select * from pg_temp.compare_readers('Current Super-admin');
+select ok(public.get_refund_lifecycle_for_manager('ab455000-0000-4000-8000-000000000001')
+ #>>'{customerOutreach,failureCode}' is not null,'Current Super-admin retains operations failure detail');
 select pg_temp.set_actor('ab450000-0000-4000-8000-000000000001');
 delete from public.reporting_machine_refund_managers
 where manager_user_id='ab450000-0000-4000-8000-000000000001';
