@@ -32,10 +32,11 @@ export function SalesMetricBand({ rows, previous, compareAvailable }: Pick<Props
 }
 
 export function SalesTrend({ rows, previous, state, priorFrom, compareAvailable }: Props) {
-  const trend = useMemo(() => alignedTrend(rows, previous, state.dateFrom, state.dateTo, priorFrom), [rows, previous, state.dateFrom, state.dateTo, priorFrom]);
+  const trend = useMemo(() => alignedTrend(rows, previous, state.dateFrom, state.dateTo, priorFrom, state.comparison), [rows, previous, state.dateFrom, state.dateTo, priorFrom, state.comparison]);
+  const calendarComparison = state.comparison === 'previous_year';
   return <section className="min-w-0" aria-labelledby="sales-trend-title"><h2 id="sales-trend-title" className={titleClass}>Sales over time</h2>
     <p className={`${noteClass} mt-1`}>Net sales by machine-local business date. Gaps mean no loaded rows.</p>
-    <div className="mt-4 h-[240px] w-full" role="img" aria-label="Current and prior net sales by elapsed day. Exact values are in the table below.">
+    <div className="mt-4 h-[240px] w-full" role="img" aria-label={`Current and prior net sales by ${calendarComparison ? 'calendar date' : 'elapsed day'}. Exact values are in the table below.`}>
       <ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
         <CartesianGrid stroke="hsl(var(--border))" vertical={false}/><XAxis dataKey="date" tickFormatter={date => String(date).slice(5)} tick={{ fontSize: 12 }} minTickGap={35} tickLine={false}/>
         <YAxis tickFormatter={value => `$${number(value / 100)}`} tick={{ fontSize: 12 }} tickLine={false} width={65}/>
@@ -44,7 +45,7 @@ export function SalesTrend({ rows, previous, state, priorFrom, compareAvailable 
         {compareAvailable && <Line name="previous" dataKey="previous" stroke="#7b8494" strokeWidth={1.5} strokeDasharray="5 5" dot={false} connectNulls={false} isAnimationActive={false}/>}
       </LineChart></ResponsiveContainer>
     </div>
-    <div className="flex flex-wrap gap-5 text-xs text-muted-foreground"><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#c44c64]"/>Current period</span>{compareAvailable && <span><span className="mr-2 inline-block h-0.5 w-5 bg-[#7b8494]"/>Prior period, aligned by elapsed day</span>}</div>
+    <div className="flex flex-wrap gap-5 text-xs text-muted-foreground"><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#c44c64]"/>Current period</span>{compareAvailable && <span><span className="mr-2 inline-block h-0.5 w-5 bg-[#7b8494]"/>{calendarComparison ? 'Same calendar dates, prior year' : 'Prior period, aligned by elapsed day'}</span>}</div>
     <details className="mt-4 rounded-lg border border-border"><summary className="cursor-pointer p-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Daily values and comparison dates</summary>
       <Table><TableHeader><TableRow><TableHead>Business date</TableHead><TableHead>Net sales</TableHead><TableHead>Transactions</TableHead>{compareAvailable && <><TableHead>Prior date</TableHead><TableHead>Prior net sales</TableHead></>}</TableRow></TableHeader><TableBody>{trend.map(item => <TableRow key={item.date}><TableCell>{item.date}</TableCell><TableCell>{money(item.current)}</TableCell><TableCell>{number(item.transactions)}</TableCell>{compareAvailable && <><TableCell>{item.priorDate}</TableCell><TableCell>{money(item.previous)}</TableCell></>}</TableRow>)}</TableBody></Table>
     </details><p className="mt-3 text-xs leading-relaxed text-muted-foreground">Sales exclude tax. Refund deductions use the request period; later payments add no second deduction. A sales record does not establish machine uptime.</p>

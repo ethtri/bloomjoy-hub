@@ -10,6 +10,18 @@ Deno.test('complete-day and week presets cross DST without losing a business dat
   equal(range('last_week'), ['2026-03-02', '2026-03-08']);
   equal(range('this_week'), ['2026-03-09', '2026-03-09']);
 });
+Deno.test('new workspace defaults to seven completed local calendar days across boundaries', () => {
+  for (const [now, dates] of [
+    [new Date(2026, 9, 2, 12), ['2026-09-25', '2026-10-01']],
+    [new Date(2026, 0, 1, 12), ['2025-12-25', '2025-12-31']],
+    [new Date(2026, 2, 9, 12), ['2026-03-02', '2026-03-08']],
+    [new Date(2024, 2, 1, 12), ['2024-02-23', '2024-02-29']],
+  ] as const) {
+    const state = defaultWorkspaceState(now);
+    equal([state.dateFrom, state.dateTo], dates);
+    equal(state.comparison, 'previous_period');
+  }
+});
 Deno.test('month and year presets handle leap years and January rollover', () => {
   const march = reportingPeriods(new Date(2024, 2, 1, 12));
   const february = march.find(item => item.id === 'last_month')!;
@@ -35,6 +47,21 @@ Deno.test('month-to-date uses same elapsed days and marks shorter prior months',
   equal(comparisonRange({ dateFrom: '2026-09-01', dateTo: '2026-09-12', comparison: 'previous_month' }), { dateFrom: '2026-08-01', dateTo: '2026-08-12', days: 12, shortened: false });
   equal(comparisonRange({ dateFrom: '2026-03-01', dateTo: '2026-03-31', comparison: 'previous_month' }), { dateFrom: '2026-02-01', dateTo: '2026-02-28', days: 28, shortened: true });
 });
+Deno.test('prior-year ranges preserve calendar dates across the year boundary', () => {
+  equal(comparisonRange({ dateFrom: '2026-09-25', dateTo: '2026-10-01', comparison: 'previous_year' }), { dateFrom: '2025-09-25', dateTo: '2025-10-01', days: 7, shortened: false });
+  equal(comparisonRange({ dateFrom: '2026-12-29', dateTo: '2027-01-04', comparison: 'previous_year' }), { dateFrom: '2025-12-29', dateTo: '2026-01-04', days: 7, shortened: false });
+});
+Deno.test('prior-year leap windows never establish equal-duration comparisons with missing calendar dates', () => {
+  equal(comparisonRange({ dateFrom: '2024-02-28', dateTo: '2024-03-01', comparison: 'previous_year' }), { dateFrom: '2023-02-28', dateTo: '2023-03-01', days: 2, shortened: true });
+  equal(comparisonRange({ dateFrom: '2025-02-28', dateTo: '2025-03-01', comparison: 'previous_year' }), { dateFrom: '2024-02-28', dateTo: '2024-03-01', days: 3, shortened: true });
+  equal(comparisonRange({ dateFrom: '2024-02-29', dateTo: '2024-02-29', comparison: 'previous_year' }), { dateFrom: '2023-02-28', dateTo: '2023-02-28', days: 1, shortened: true });
+  equal(comparisonRange({ dateFrom: '2024-02-29', dateTo: '2024-03-01', comparison: 'previous_year' }), { dateFrom: '2023-02-28', dateTo: '2023-03-01', days: 2, shortened: true });
+});
+Deno.test('explicit URL and saved periods preserve dates and prior-year comparison', () => {
+  const state = { ...defaultWorkspaceState(new Date(2026, 9, 2)), dateFrom: '2024-01-01', dateTo: '2024-12-31', comparison: 'previous_year' as const };
+  equal(readWorkspaceState(new URLSearchParams('from=2024-01-01&to=2024-12-31&compare=previous_year')), state);
+  equal(parseSavedViews(JSON.stringify([{ id: 'historical', name: 'Historical year', state }]))[0].state, state);
+});
 Deno.test('no prior rows and zero/negative denominators never fabricate percent growth', () => {
   equal(periodChange(1000, null), { absolute: null, percent: null }); equal(periodChange(1000, 0), { absolute: 1000, percent: null }); equal(periodChange(1000, -200), { absolute: 1200, percent: null });
 });
@@ -52,6 +79,20 @@ Deno.test('cohort separates unmatched records without treating absence as zero',
 Deno.test('trend gaps remain null with explicit elapsed comparison dates', () => {
   const trend = alignedTrend([row()], [row({ periodStart: '2026-08-01', netSalesCents: 500 })], '2026-09-01', '2026-09-03', '2026-08-01');
   equal(trend.length, 3); equal(trend[0].previous, 500); equal(trend[1].current, null); equal(trend[1].priorDate, '2026-08-02');
+});
+Deno.test('prior-year trend uses matching dates and leaves leap day unavailable without shifting March', () => {
+  const prior = [row({ periodStart: '2023-02-28', netSalesCents: 500 }), row({ periodStart: '2023-03-01', netSalesCents: 600 })];
+  const trend = alignedTrend([], prior, '2024-02-28', '2024-03-01', '2023-02-28', 'previous_year');
+  equal(trend.map(item => [item.priorDate, item.previous]), [['2023-02-28', 500], [null, null], ['2023-03-01', 600]]);
+  const nonLeap = alignedTrend([], [row({ periodStart: '2024-02-29', netSalesCents: 500 }), row({ periodStart: '2024-03-01', netSalesCents: 600 })], '2025-02-28', '2025-03-01', '2024-02-28', 'previous_year');
+  equal(nonLeap.map(item => [item.priorDate, item.previous]), [['2024-02-28', null], ['2024-03-01', 600]]);
+});
+Deno.test('a machine without prior-year history remains unavailable and not comparable', () => {
+  const groups = salesGroups([row()], [], 'machine');
+  equal(groups[0].previous, null); equal(groups[0].previousTransactions, null);
+  equal(groups[0].change, { absolute: null, percent: null });
+  const trend = alignedTrend([row()], [], '2026-09-01', '2026-09-01', '2025-09-01', 'previous_year');
+  equal(trend[0].previous, null); equal(knownMoney([], 'netSalesCents').value, null);
 });
 Deno.test('saved view malformed storage cannot introduce arbitrary states', () => {
   equal(parseSavedViews('not json'), []); equal(parseSavedViews('[{"id":"bad","name":"x","state":{"dateFrom":"bad"}}]'), []);

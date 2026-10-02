@@ -1,7 +1,7 @@
 import type { PaymentMethod, SalesReportRow } from './reporting';
 
 export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'labor' | 'refunds' | 'partners';
-export type ComparisonMode = 'previous_period' | 'previous_month' | 'none';
+export type ComparisonMode = 'previous_period' | 'previous_month' | 'previous_year' | 'none';
 export type WorkspaceState = {
   view: WorkspaceView; dateFrom: string; dateTo: string;
   locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
@@ -15,8 +15,8 @@ export const validDate = (value: string | null): value is string => Boolean(valu
 export function defaultWorkspaceState(now = new Date()): WorkspaceState {
   const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const end = new Date(today.getTime() - day);
-  const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
-  return { view: 'overview', dateFrom: dateString(start), dateTo: dateString(end), locationId: 'all', machineId: 'all', paymentMethod: 'all', comparison: 'previous_month' };
+  const start = new Date(today.getTime() - 7 * day);
+  return { view: 'overview', dateFrom: dateString(start), dateTo: dateString(end), locationId: 'all', machineId: 'all', paymentMethod: 'all', comparison: 'previous_period' };
 }
 export function reportingPeriods(now = new Date()) {
   const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -47,7 +47,7 @@ export function readWorkspaceState(params: URLSearchParams, defaults = defaultWo
     ...(datesValid ? { dateFrom: from, dateTo: to } : {}),
     locationId: params.get('location') || 'all', machineId: params.get('machine') || 'all',
     paymentMethod: ['cash', 'credit', 'other', 'unknown'].includes(tender ?? '') ? tender as PaymentMethod : 'all',
-    comparison: ['previous_period', 'previous_month', 'none'].includes(compare ?? '') ? compare as ComparisonMode : defaults.comparison };
+    comparison: ['previous_period', 'previous_month', 'previous_year', 'none'].includes(compare ?? '') ? compare as ComparisonMode : defaults.comparison };
 }
 export function writeWorkspaceState(state: WorkspaceState, existing = new URLSearchParams()): URLSearchParams {
   const params = new URLSearchParams(existing);
@@ -61,11 +61,24 @@ export function comparisonRange(state: Pick<WorkspaceState, 'dateFrom' | 'dateTo
   const start = dateValue(state.dateFrom); const end = dateValue(state.dateTo);
   const days = Math.round((end.getTime() - start.getTime()) / day) + 1;
   if (state.comparison === 'previous_period') return { dateFrom: dateString(new Date(start.getTime() - days * day)), dateTo: dateString(new Date(start.getTime() - day)), days, shortened: false };
+  if (state.comparison === 'previous_year') {
+    const priorStart = priorYearDate(start); const priorEnd = priorYearDate(end);
+    const priorDays = Math.round((priorEnd.getTime() - priorStart.getTime()) / day) + 1;
+    // Leap-day endpoints clamp to February 28 for the query, but never establish
+    // an equal calendar-date comparison or a fabricated daily match.
+    const leapEndpoint = priorStart.getUTCDate() !== start.getUTCDate() || priorEnd.getUTCDate() !== end.getUTCDate();
+    return { dateFrom: dateString(priorStart), dateTo: dateString(priorEnd), days: priorDays, shortened: priorDays !== days || leapEndpoint };
+  }
   const previousMonthLast = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 0));
   const priorStart = new Date(Date.UTC(previousMonthLast.getUTCFullYear(), previousMonthLast.getUTCMonth(), Math.min(start.getUTCDate(), previousMonthLast.getUTCDate())));
   const priorEnd = new Date(Math.min(priorStart.getTime() + (days - 1) * day, previousMonthLast.getTime()));
   const priorDays = Math.round((priorEnd.getTime() - priorStart.getTime()) / day) + 1;
   return { dateFrom: dateString(priorStart), dateTo: dateString(priorEnd), days: priorDays, shortened: priorDays !== days };
+}
+function priorYearDate(value: Date) {
+  const year = value.getUTCFullYear() - 1; const month = value.getUTCMonth();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(value.getUTCDate(), lastDay)));
 }
 export function periodChange(current: number | null, previous: number | null) {
   if (current == null || previous == null) return { absolute: null, percent: null };
@@ -87,10 +100,12 @@ export function salesGroups(current: SalesReportRow[], previous: SalesReportRow[
       cohort: rows.length && prior.length ? 'both' : rows.length ? 'current_only' : 'previous_only', rows } as SalesGroup;
   }).sort((a, b) => (b.current ?? -Infinity) - (a.current ?? -Infinity));
 }
-export function alignedTrend(current: SalesReportRow[], previous: SalesReportRow[], from: string, to: string, priorFrom?: string) {
+export function alignedTrend(current: SalesReportRow[], previous: SalesReportRow[], from: string, to: string, priorFrom?: string, comparison: ComparisonMode = 'previous_period') {
   const result: { date: string; priorDate: string | null; current: number | null; previous: number | null; transactions: number | null }[] = [];
   for (let stamp = dateValue(from).getTime(), index = 0; stamp <= dateValue(to).getTime(); stamp += day, index++) {
-    const date = dateString(new Date(stamp)); const priorDate = priorFrom ? dateString(new Date(dateValue(priorFrom).getTime() + index * day)) : null;
+    const currentDate = new Date(stamp); const date = dateString(currentDate);
+    const calendarPrior = comparison === 'previous_year' ? priorYearDate(currentDate) : null;
+    const priorDate = !priorFrom ? null : calendarPrior ? calendarPrior.getUTCDate() === currentDate.getUTCDate() ? dateString(calendarPrior) : null : dateString(new Date(dateValue(priorFrom).getTime() + index * day));
     const rows = current.filter(row => row.periodStart.slice(0, 10) === date); const prior = previous.filter(row => row.periodStart.slice(0, 10) === priorDate);
     result.push({ date, priorDate, current: knownMoney(rows, 'netSalesCents').value, previous: knownMoney(prior, 'netSalesCents').value, transactions: rows.length ? rows.reduce((sum, row) => sum + row.transactionCount, 0) : null });
   }
