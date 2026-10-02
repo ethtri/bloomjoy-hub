@@ -165,6 +165,23 @@ where token_hash=lpad('1',64,'0');
 select * from pg_temp.parity('Empty response retains earlier result',0);
 rollback to empty_response;
 
+savepoint missing_required_answer;
+update public.refund_cases set payment_amount_cents=null
+where id='dd000000-0000-4000-8001-000000000001';
+update public.refund_wallet_correction_contexts
+set correction_response=correction_response-'amount',
+  correction_resulting_fact_version=(select deterministic_fact_version
+    from public.refund_cases where id='dd000000-0000-4000-8001-000000000001')
+where token_hash=lpad('1',64,'0');
+select pg_temp.require_ok(ok('amount'=any(public.refund_purchase_correction_request_fields(
+  'dd000000-0000-4000-8001-000000000001')),
+  'Current required amount answer remains missing in the fixture'));
+select * from pg_temp.parity('Still-required missing answer retains early return',0);
+select pg_temp.require_ok(isnt(pg_temp.current_outreach(
+  'dd000000-0000-4000-8001-000000000001')->>'reasonCode',
+  'verified_form_response_applied','Missing required answer cannot complete the proof'));
+rollback to missing_required_answer;
+
 savepoint stale_fact;
 update public.refund_wallet_correction_contexts
 set correction_resulting_fact_version=correction_resulting_fact_version-1
