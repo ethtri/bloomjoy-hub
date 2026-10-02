@@ -285,7 +285,7 @@ export default function RefundRequestPage() {
   const giftCardOffer = offerQuery.data?.offer ?? null;
   useEffect(() => {
     if (form.issueCategory === 'expected_cash_change' && (form.paymentMethod !== 'cash' || legacyCash)) {
-      setForm((current) => ({ ...current, issueCategory: 'charged_no_product' }));
+      setForm((current) => ({ ...current, issueCategory: '' }));
     }
   }, [form.issueCategory, form.paymentMethod, legacyCash]);
 
