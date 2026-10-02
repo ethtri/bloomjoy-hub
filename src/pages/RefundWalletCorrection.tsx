@@ -233,12 +233,12 @@ export default function RefundWalletCorrectionPage() {
             <p className="mt-4 leading-7 text-slate-600">{t("It may have expired or already been used. Reply to the Bloomjoy refund email so we can continue helping with your existing request.")}</p>
           </div>
         ) : (
-          <div className="mx-auto grid max-w-5xl gap-7 lg:grid-cols-[0.82fr_1.18fr]">
-            <section lang={locale} className="rounded-[2rem] bg-slate-950 p-7 text-white sm:p-9">
+          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-7 lg:grid-cols-[0.82fr_1.18fr]">
+            <section lang={locale} className="min-w-0 rounded-[2rem] bg-slate-950 p-7 text-white sm:p-9">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
                 <Smartphone className="h-6 w-6 text-pink-200" aria-hidden="true" />
               </div>
-              <p className="mt-7 text-xs font-bold uppercase tracking-[0.18em] text-pink-200">
+              <p className="mt-7 break-words text-xs font-bold uppercase tracking-[0.18em] text-pink-200">
                 {locale === 'es' ? 'Reembolso' : 'Refund'} {context.publicReference}
               </p>
               <h1 className="mt-3 font-display text-3xl leading-tight sm:text-4xl">{t("Check the card details shown inside your mobile wallet.")}</h1>
@@ -261,7 +261,7 @@ export default function RefundWalletCorrectionPage() {
               </dl>
             </section>
 
-            <section className="rounded-[2rem] border border-pink-100 bg-white p-6 shadow-[0_24px_80px_-42px_rgba(137,48,80,0.45)] sm:p-9">
+            <section className="min-w-0 rounded-[2rem] border border-pink-100 bg-white p-6 shadow-[0_24px_80px_-42px_rgba(137,48,80,0.45)] sm:p-9">
               <div className="flex items-start gap-3 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
                 <p>{t("Enter only the virtual card’s last four digits. We will never ask for the full card number, security code, expiration date, wallet password, or a screenshot.")}</p>
