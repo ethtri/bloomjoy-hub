@@ -26,10 +26,10 @@ insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effec
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
  values(true,'2026-01-01','Synthetic finance test');
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
- net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
- ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',11000,10,'manual_csv',repeat('a',64),'{"amountBasis":"tax_inclusive"}'),
- ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','cash',2000,2,'sunze_browser',repeat('b',64),'{}'),
- ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',99999,100,'manual_csv',repeat('c',64),'{"amountBasis":"tax_exclusive"}');
+ net_sales_cents,transaction_count,source,source_row_hash,source_order_hash,raw_payload) values
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',11000,10,'manual_csv',repeat('a',64),null,'{"amountBasis":"tax_inclusive"}'),
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-02-01','cash',2000,2,'sunze_browser',repeat('b',64),repeat('b',32),'{}'),
+ ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-02-01','credit',99999,100,'manual_csv',repeat('c',64),null,'{"amountBasis":"tax_exclusive"}');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,
  customer_request_received_at,customer_request_received_source) values
