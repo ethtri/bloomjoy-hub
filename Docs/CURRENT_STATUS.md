@@ -13,8 +13,11 @@ orientation snapshot; it is not a backlog or release ledger.
   recorded Checkout audit confirms the current merchant is TGPaci LLC. No
   production account/secret switch has occurred. The owner opened separate
   Services account `acct_1UMDXoAw1uae6O3W` on October 2. Business and public
-  details are saved; personal/owner verification, bank setup, final activation,
-  tax setup, test rehearsal, and live no-charge checks remain pending.
+  details are saved. October 2 Dashboard readback shows Payments, Payouts and ACH
+  Active after owner verification and bank confirmation. Customer receipts and
+  owner payment emails are enabled; the authorized standalone deposit link is
+  privately verified. Catalog preparation is partial; Services connector access,
+  tax setup, portal/webhook configuration, and test rehearsal remain pending.
   See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
   settings, and rollback procedure. Preserve TGPaci's historical records.
 

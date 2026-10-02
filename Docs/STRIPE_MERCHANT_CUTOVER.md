@@ -27,17 +27,27 @@ The existing Stripe webhook is enabled at
 secret-presence checks, including the explicit Customer Portal configuration.
 Presence does not prove correct merchant ownership or functional behavior.
 
-## Account preparation — pending
+## Account preparation — activated; website configuration pending
 
 The owner opened Bloomjoy Services LLC account `acct_1UMDXoAw1uae6O3W` under
 the existing login on October 2, 2026. Its nonbinding onboarding has saved the
 separate legal name/EIN, Multi-member LLC structure, confirmed business address,
 bloomjoyusa.com, Other merchandise category, actual business description, and
 BLOOMJOY statement descriptor. Included Radar Lite is selected; tax calculation
-and climate contributions are off. Ethan's initial owner name/email record is
-present, but owner and representative identity details remain incomplete.
-Bank setup and final submission are pending. Neither charges nor payouts have
-been verified enabled. No new catalog, webhook, or production switch is complete.
+and climate contributions are off. After the owner completed verification and
+bank confirmation, the October 2 Dashboard readback showed Payments, Payouts,
+and ACH Direct Debit Active with no active verification tasks. The USD default
+payout bank matches the supplied business bank; automatic daily payouts are
+configured. ACH is enabled in the default payment-method configuration.
+Successful-payment and refund receipts and the owner's successful-payment
+emails are enabled. This verifies configuration, not actual settlement.
+
+The Services live sugar product has the standard USD 10/kg and member USD 8/kg
+one-off prices. Remaining catalog tax codes/metadata, sticks and Plus prices,
+test-mode catalog, portal, webhook, tax setup, and test rehearsal are pending.
+Browser control became unavailable during an unsaved sticks entry; no sticks
+product was saved. The connector still has only old-account access; Services
+connector access has been requested from the owner. Production remains unchanged.
 
 Use a separate Bloomjoy Services LLC account under the existing login. Keep
 TGPaci's legal entity, bank, transactions, and access intact. No Connect or
@@ -154,7 +164,16 @@ finishing the new-account repair. Preserve both account histories and signing
 secrets; do not cancel, recreate, replay charge actions, or delete obligations
 as a shortcut. Record the actual rollback outcome separately from the plan.
 
-## Fixed machine deposit link — pending account readiness
+## Fixed machine deposit link — created and verified privately
+
+After account readiness was verified, the authorized live deposit link was
+created and read back with USD 3,425.00, fixed quantity one, one completed-payment
+limit (zero used), no automatic tax/shipping, no future payment-detail saving,
+and distinct `checkout_source=machine_sale_deposit` metadata. Hosted Checkout
+shows Bloomjoy Services LLC and card/US bank account choices. No payment was
+submitted. Customer identifiers and the link are kept outside the repository.
+The existing unsent reply draft was updated privately with the verified link
+and preserved corrected PDF attachments; payment follows the signed agreement.
 
 Check the verified Services live account for an existing matching link before
 creating one. Use one USD 3,425.00 equipment-only deposit, quantity one with no
