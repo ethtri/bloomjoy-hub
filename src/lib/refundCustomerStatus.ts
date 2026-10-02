@@ -306,7 +306,7 @@ export const getRefundCustomerStatusCopy = (
         const contact = getRefundCompletionContactPresentation(lifecycle);
         return {
         title: 'Refund confirmed',
-        detail: `Nayax confirms that the full refund was completed. The exact processing date is not available. ${contact.detail}`,
+        detail: `Nayax confirms that the approved refund was completed. The exact processing date is not available. ${contact.detail}`,
         nextExpectation: 'No new refund request is needed. Reply to your existing Bloomjoy email if the credit is not visible.',
         milestone: 'confirmed',
         };
