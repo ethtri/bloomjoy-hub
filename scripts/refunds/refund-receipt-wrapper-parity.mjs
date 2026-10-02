@@ -9,6 +9,7 @@ export const TERMINAL_API_MIGRATION = '20260908163714_refund_terminal_receipt_ca
 export const RECEIPT_HANDOFF_MIGRATION = '20260930234847_refund_api_receipt_completion_handoff.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 export const GIFT_CARD_MIGRATION = '20260930222531_refund_gift_card_issuance.sql';
+export const PAYOUT_REMINDER_MIGRATION = '20261002170300_refund_legacy_payout_reminder_authority.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
@@ -46,6 +47,15 @@ export function applyOwnerResolutionBoundary(body, runtimeName, ownerResolutionS
   return body.replace(anchor, `${anchor}\n${statement}`);
 }
 
+export function applyPayoutReminderMessageBoundary(body, migrationSource) {
+  const anchor = 'delivery_authorization := public.service_authorize_refund_customer_outbound(\n    p_refund_case_id,\n    normalized_recipient,';
+  const replacement = 'delivery_authorization := public.service_authorize_refund_customer_message_outbound(\n    p_refund_case_id,\n    p_refund_case_message_id,\n    normalized_recipient,';
+  if (body.split(anchor).length !== 2 || !migrationSource.replaceAll('\r\n', '\n').includes(replacement)) {
+    throw new Error('Payout reminder exact-message boundary is not exact');
+  }
+  return body.replace(anchor, replacement);
+}
+
 export function buildReceiptWrapperParityTest(repoRoot) {
   const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
   const files = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
@@ -68,6 +78,12 @@ export function buildReceiptWrapperParityTest(repoRoot) {
   }
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
     let body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
+    if (runtimeName === 'service_claim_refund_gmail_outbound_pre_receipt_v1' && files.includes(PAYOUT_REMINDER_MIGRATION)) {
+      // The complete retained delegate changes only its exact-message
+      // authorization call. Every thread, receipt and replay guard stays exact.
+      body = applyPayoutReminderMessageBoundary(body,
+        fs.readFileSync(path.join(migrationsDir, PAYOUT_REMINDER_MIGRATION), 'utf8'));
+    }
     if (runtimeName === 'service_mark_refund_manual_message_provider_attempt' && files.includes(GIFT_CARD_MIGRATION)) {
       // Preserve complete-body parity: apply only the reviewed transactional
       // gift receipt exception. All original-payment and claim guards stay exact.

@@ -18,6 +18,27 @@ orientation snapshot; it is not a backlog or release ledger.
   approved label does not prove any of its ambiguous purchase occurrences;
   ordinary lookup eligibility has not been broadened.
 
+- PR #1705 deployed historical cash evidence retention and consistent research
+  work. RF-C83C2E1E now has three retained positive candidates and shows Agent
+  purchase research with no Manager action. Source clock and complete coverage
+  remain unvalidated; the three current Manager-ready snapshots remain empty.
+  Protected records and all twelve worker sources passed verification. No
+  selection, decision, payment, customer send or Manager notice occurred.
+- RF-6197F008's original owner-mailbox Gmail source and reminder manager copy
+  were recovered read-only (#1426). The original ledger body is reconstructed;
+  send provenance is established, customer delivery is not. Historical Reply-To
+  mailbox verification and supported case/message source adoption remain open.
+  No message was replayed or marked delivered from a later status notice.
+
+- RF-4B414AD0's due legacy cash payout reminder failed before transport because
+  the generic automatic-mail guard treats approval as terminal. A separate
+  #1707/#1429/#628 repair now binds authorization to the exact due reminder and its
+  delivered original request, preserving current Manager authority, one-followup
+  limits and customer-only correspondence. The sole migration and six dependent
+  workers are deployed; exact bodies, permissions, protected records and all
+  twelve served bundles passed verification. The existing failed reminder remains
+  unchanged and has not been retried or sent; delivery recovery is separate.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.
