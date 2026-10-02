@@ -701,14 +701,14 @@ const buildPartnerMachineOptions = (
       (candidate) => candidate.locationName === machine.locationName
     ).length;
     if (machine.locationName && sameLocationCount === 1) {
-      return { ...machine, displayLabel: `${machine.label} Â· ${machine.locationName}` };
+      return { ...machine, displayLabel: `${machine.label} · ${machine.locationName}` };
     }
 
     const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === machine.id) + 1;
-    const locationPrefix = machine.locationName ? `${machine.locationName} Â· ` : '';
+    const locationPrefix = machine.locationName ? `${machine.locationName} · ` : '';
     return {
       ...machine,
-      displayLabel: `${machine.label} Â· ${locationPrefix}Machine ${duplicateIndex}`,
+      displayLabel: `${machine.label} · ${locationPrefix}Machine ${duplicateIndex}`,
     };
   });
 };
@@ -1162,11 +1162,11 @@ function OperatorReportingView({
                 <span className="text-muted-foreground">
                   {formatDateRange(dateFrom, dateTo)}
                 </span>
-                <span aria-hidden="true" className="text-border">â€¢</span>
+                <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{t(reportGrainLabelKeys[grain])}</span>
-                <span aria-hidden="true" className="text-border">â€¢</span>
+                <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{selectedMachineLabel}</span>
-                <span aria-hidden="true" className="text-border">â€¢</span>
+                <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{selectedPaymentLabel}</span>
               </div>
               {hasNonDefaultFilters && (
