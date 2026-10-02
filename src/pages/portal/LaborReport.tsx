@@ -1,0 +1,46 @@
+import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/contexts/auth-context';
+import { Button } from '@/components/ui/button';
+import { PortalLayout } from '@/components/portal/PortalLayout';
+import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { LaborAnalyticsPanel } from '@/components/portal/reports/LaborAnalyticsPanel';
+import { ReportingFilters } from '@/components/portal/reports/ReportingFilters';
+import { fetchLaborAnalyticsAccess } from '@/lib/laborAnalytics';
+import { laborReportSelectionError } from '@/lib/laborReportSelection';
+import { readWorkspaceState, writeWorkspaceState, type WorkspaceState } from '@/lib/reportingWorkspace';
+
+export function TimekeepingReportNavigation({ reports = false }: { reports?: boolean }) {
+  const { user } = useAuth();
+  const access = useQuery({ queryKey: ['reporting-labor-access', user?.id], queryFn: fetchLaborAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 60000, retry: false });
+  const [params] = useSearchParams();
+  const reportParams = new URLSearchParams(params); reportParams.set('view', 'reports');
+  const workParams = new URLSearchParams(params); workParams.delete('view');
+  return <nav aria-label="Timekeeping views" className="flex flex-wrap gap-2">
+    {user?.capabilities.includes('timekeeping.review') && <Button variant={reports ? 'outline' : 'secondary'} className="min-h-11" asChild><Link to={`/portal/time-review?${workParams}`} aria-current={!reports ? 'page' : undefined}>Time review</Link></Button>}
+    {access.isSuccess && (access.data.hasAccess || access.data.canViewPay) && <Button variant={reports ? 'secondary' : 'outline'} className="min-h-11" asChild><Link to={`/portal/time-review?${reportParams}`} aria-current={reports ? 'page' : undefined}>Reports</Link></Button>}
+  </nav>;
+}
+
+export default function LaborReportPage() {
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const state = readWorkspaceState(params);
+  const access = useQuery({ queryKey: ['reporting-labor-access', user?.id], queryFn: fetchLaborAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 60000, retry: false });
+  const authorized = access.isSuccess && (access.data.hasAccess || access.data.canViewPay);
+  const choices = access.data?.dimensions ?? [];
+  const locations: [string, string][] = [...new Map(choices.map(item => [item.locationId, item.locationName])).entries()];
+  const machines = choices.filter(item => state.locationId === 'all' || item.locationId === state.locationId);
+  const selectionError = laborReportSelectionError(params, state, choices);
+  const change = (patch: Partial<WorkspaceState>) => {
+    const next = writeWorkspaceState({ ...state, ...patch }, params); next.set('view', 'reports'); setParams(next);
+  };
+  return <PortalLayout><section className="portal-section"><div className="container-page min-w-0 space-y-5">
+    <PortalPageIntro eyebrow="Timekeeping" title="Timekeeping" description="Review recorded effort across weeks, locations and machines." />
+    <TimekeepingReportNavigation reports />
+    {access.isPending ? <p role="status" className="py-8 text-muted-foreground">Checking labor report access…</p> : access.isError ? <div role="alert"><p>Labor report access could not load.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !authorized ? <p>Labor reports require Time Report or account Pay Report access.</p> : <>
+      <ReportingFilters state={state} salesView={false} locations={locations} machines={machines} onChange={change} />
+      {selectionError === 'dates' ? <p role="alert">Choose a valid date range of up to 367 days to load labor reports.</p> : selectionError === 'scope' ? <p role="alert">This linked location or machine is outside your labor report access. Choose an accessible scope above.</p> : <LaborAnalyticsPanel key={user?.id} scope={{ dateFrom: state.dateFrom, dateTo: state.dateTo, ...(state.locationId !== 'all' ? { locationIds: [state.locationId] } : {}), ...(state.machineId !== 'all' ? { machineIds: [state.machineId] } : {}) }} />}
+    </>}
+  </div></section></PortalLayout>;
+}
