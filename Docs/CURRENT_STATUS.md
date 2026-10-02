@@ -16,6 +16,16 @@ orientation snapshot; it is not a backlog or release ledger.
   source and mapping regressions pass; deployment and actual-case acceptance
   remain pending. No live selection, communication or financial action occurred.
 
+- PR #1685 deployed the bounded System gift-notice outbox repair on October 2.
+  The existing immutable gift-message proof now permits its authorized automatic
+  NULL-author envelope; manual notices still require their author. The sole
+  service-only read grant and two worker bundles passed protected-state and
+  all twelve served-source checks; ten other worker bundles were unchanged.
+  RF-033A3ED3's original notice remains failed after three pre-transport claims,
+  with no provider marker or receipt. Ordinary processing recovery and any
+  exact-message reconciliation remain pending under #1429/#628. No technical
+  claim, send, replay, payment or gift reallocation occurred.
+
 - PR #1673 deployed the bounded lifecycle operations flag correction (#1429/#628).
   A NULL review result now serializes as false; the existing predicate and true
   review holds remain unchanged. Queued-state regression and full database

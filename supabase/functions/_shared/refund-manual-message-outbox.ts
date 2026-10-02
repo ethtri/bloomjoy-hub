@@ -72,6 +72,7 @@ type RefundManualMessageRow = {
   subject: string;
   body: string;
   delivery_kind: "manual" | "automatic";
+  content_source: string | null;
   nayax_refund_attempt_id: string | null;
   manual_delivery_intent_id: string;
   manual_delivery_provider_attempted_at: string | null;
@@ -85,7 +86,7 @@ type RefundManualMessageRow = {
   manual_delivery_status_link_requested: boolean;
   synthetic_gmail_proof_authorization_id: string | null;
   manual_delivery_triage_suggestion_id: string | null;
-  created_by: string;
+  created_by: string | null;
 };
 
 export const refundManualMessageManagerCopyPolicy = (
@@ -213,6 +214,7 @@ const getClaimedMessage = async (
       subject,
       body,
       delivery_kind,
+      content_source,
       nayax_refund_attempt_id,
       manual_delivery_intent_id,
       manual_delivery_provider_attempted_at,
@@ -233,18 +235,34 @@ const getClaimedMessage = async (
     .maybeSingle();
   if (error) throw error;
   const message = data as RefundManualMessageRow | null;
+  const systemGiftCompletion = message?.created_by === null &&
+    message.delivery_kind === "automatic" && message.message_type === "completed" &&
+    message.template_version === "refund_gift_card_v1" &&
+    message.content_source === "deterministic_template" &&
+    UUID_PATTERN.test(message.manual_delivery_intent_id ?? "");
   if (
     !message || message.status !== "pending" ||
     message.manual_delivery_state !== "claimed" ||
     message.manual_delivery_claim_token !== reference.claimToken ||
     !UUID_PATTERN.test(message.refund_case_id) ||
-    !UUID_PATTERN.test(message.created_by) ||
+    (!UUID_PATTERN.test(message.created_by ?? "") && !systemGiftCompletion) ||
     !Number.isSafeInteger(message.manual_delivery_expected_case_version) ||
     message.manual_delivery_expected_case_version < 1 ||
     !["manual", "automatic"].includes(message.delivery_kind) ||
     !message.recipient_email || !message.subject || !message.body
   ) {
     throw new Error("Manual-message outbox row is not deliverable.");
+  }
+  if (systemGiftCompletion) {
+    // The existing database predicate proves the immutable issuance/message
+    // identity. A missing human author is not authority to send any other row.
+    const { data: authorized, error: authorityError } = await supabase.rpc(
+      "is_refund_receipt_automatic_completion_message",
+      { p_message_id: message.id },
+    );
+    if (authorityError || authorized !== true) {
+      throw new Error("System gift completion source binding is unavailable.");
+    }
   }
   return message;
 };

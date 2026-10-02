@@ -36,6 +36,32 @@ select results_eq($$select purchase_amount_cents,face_value_cents,goodwill_amoun
  from public.refund_gift_card_issuances where refund_case_id='fc760000-0000-4000-8000-000000000001'$$,
  $$select 1100::integer,1500::integer,400::integer,'gift-fixture@example.invalid'::text$$,'Receipt separates purchase, face and goodwill and normalizes email');
 select is((select count(*) from public.refund_case_messages where refund_case_id='fc760000-0000-4000-8000-000000000001'),1::bigint,'Exactly one existing outbox message');
+select ok((select created_by is null and delivery_kind='automatic'
+  and template_version='refund_gift_card_v1' and content_source='deterministic_template'
+  and manual_delivery_intent_id is not null
+  from public.refund_case_messages where refund_case_id='fc760000-0000-4000-8000-000000000001'),
+  'The actual first-generation gift producer creates a System-authored deterministic intent');
+set local role service_role;
+select ok(public.is_refund_receipt_automatic_completion_message(
+  (select message_id from public.refund_gift_card_issuances
+    where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+  'The outbox service proves the exact automatic gift message using the existing issuance binding');
+select ok(not public.is_refund_receipt_automatic_completion_message(
+  'fc770000-0000-4000-8000-000000000099'),
+  'An unbound message cannot acquire automatic completion authority');
+reset role;
+select ok(not public.is_refund_gift_card_message(
+  (select to_jsonb(m)||jsonb_build_object('recipient_email','foreign@example.invalid')
+   from public.refund_case_messages m where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+  'The immutable gift proof rejects a foreign recipient');
+select ok(not public.is_refund_gift_card_message(
+  (select to_jsonb(m)||jsonb_build_object('refund_case_id','fc760000-0000-4000-8000-000000000099')
+   from public.refund_case_messages m where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+  'The immutable gift proof rejects a foreign case');
+select ok(not public.is_refund_gift_card_message(
+  (select to_jsonb(m)||jsonb_build_object('manual_delivery_intent_id','fc770000-0000-4000-8000-000000000099')
+   from public.refund_case_messages m where refund_case_id='fc760000-0000-4000-8000-000000000001')),
+  'The immutable gift proof rejects an altered original intent');
 select is(public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001')->>'delivery_state','queued',
  'Fresh provider-ledger default unknown is correctly projected as queued before an attempt');
 select lives_ok($$select public.service_issue_refund_gift_card('fc760000-0000-4000-8000-000000000001')$$,'Same-case replay works');
