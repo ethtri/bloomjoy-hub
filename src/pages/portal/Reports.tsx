@@ -94,6 +94,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PartnerWaterfall } from '@/components/portal/reports/PartnerWaterfall';
 import { ReportingWorkspace } from '@/components/portal/reports/ReportingWorkspace';
+import { LaborAnalyticsPanel } from '@/components/portal/reports/LaborAnalyticsPanel';
+import { RefundAnalyticsPanel } from '@/components/portal/reports/RefundAnalyticsPanel';
+import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
@@ -834,6 +837,7 @@ const formatSalesRefundCurrency = (value: number | null, usesSharedSalesBasis: b
 
 export default function ReportsPage() {
   const { user, isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const analyticsAccess = useReportingAnalyticsAccess();
   const { data: accessContext = emptyReportingAccessContext, isLoading: accessLoading, isError: accessError } = useQuery({
     queryKey: ['reporting-access-context', user?.id],
     queryFn: fetchReportingAccessContext,
@@ -843,6 +847,12 @@ export default function ReportsPage() {
   return <PortalLayout><section className="portal-section"><div className="container-page">
     <ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
       canUsePartners={isSuperAdmin || isScopedAdmin || isCorporatePartner}
+      domainAccessLoading={analyticsAccess.isLoading}
+      domainAccessError={analyticsAccess.labor.isError || analyticsAccess.refunds.isError}
+      laborDimensions={analyticsAccess.labor.data?.dimensions}
+      refundDimensions={analyticsAccess.refunds.data?.dimensions}
+      laborPanel={analyticsAccess.canUseLabor ? scope => <LaborAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
+      refundPanel={analyticsAccess.canUseRefunds ? scope => <RefundAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
       partnerView={<PartnerDashboardView />}
       detailedSales={(filters) => <OperatorReportingView key={JSON.stringify(filters)} accessContext={accessContext} accessContextFetching={accessLoading} workspaceFilters={filters} />}
     />

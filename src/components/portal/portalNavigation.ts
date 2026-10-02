@@ -232,7 +232,8 @@ export const canAccessPortalLevel = (
     case 'support':
       return accessTier === 'plus' || hasCapability('support.request');
     case 'reporting':
-      return hasReportingAccess || hasCapability('reports.partner.view');
+      return hasReportingAccess || hasCapability('reports.partner.view') ||
+        hasCapability('timekeeping.review') || hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'refunds':
       return hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'team':

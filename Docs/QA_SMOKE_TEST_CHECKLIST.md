@@ -1,5 +1,35 @@
 # QA Smoke Test Checklist
 
+## Reporting workspace
+
+- [ ] Open `/portal/reports` with authorized sales access. Overview, Sales and
+  Locations retain the selected dates, comparison, location, machine and sales
+  tender in the URL. Saved views store filters for the current user only; reopening
+  or sharing a URL never grants data access.
+- [ ] Compare equal periods, unequal prior-month lengths, missing source rows and
+  failed reads. Missing data is unavailable, never fabricated zero activity.
+  Open daily chart values with the keyboard; location drilldown and browser Back
+  preserve the selected period. Read coverage before interpreting a quiet machine.
+- [ ] Labor is independently authorized. Three 20-minute entries show one recorded
+  hour and three paid shifts. Time-only managers see no earnings or pay export.
+  Monthly estimates, partial months, missing rates and account-wide statement
+  readiness remain explicit; publication is not payment.
+- [ ] Refunds & Recovery independently authorizes every machine. Request cohorts,
+  payment/accounting activity and period-end balances stay separate; partial cash,
+  gifts, unknown dates and incomplete history remain distinguishable. CSV matches
+  the visible authorized scope and contains no customer/payment identifiers.
+- [ ] Open a location's 360 view and inspect permitted labor/refund panels; each
+  domain rechecks scope. A sales-only user receives no labor/refund aggregate calls,
+  while time-only and refund-only managers can reach their own reporting view.
+- [ ] Existing detailed sales PDF export and partner agreement reporting remain
+  operable. Partners retain agreement-specific period controls. Verify saved view,
+  briefing and CSV downloads, empty/error states and 360/390/768/1024px layouts.
+- [ ] Run `npm run reporting:test-analytics`,
+  `npm run reporting:validate-workspace-uat -- --app-url http://127.0.0.1:8081`,
+  and `npm run reporting:validate-portal-uat -- --app-url http://127.0.0.1:8081`
+  against a local server with synthetic fixtures. Run disposable database replay
+  for the real authorization and canonical financial-calculation assertions.
+
 ## Refund workflow
 
 Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior. Tests and
@@ -1001,4 +1031,3 @@ npm run refunds:validate-portal-uat-lifecycle
 - As a Super-admin, expand the initially collapsed **Gift card supply** section below the existing workspace. Verify denomination, locations, usable stock and automatic replenishment status. Configure the minimum/target/maximum stock only for an already configured pool; saving preserves provider setup and validity. A Manager sees no section or stock controls, and server authorization denial never reveals settings. There is no routine manual refill or code display.
 - Render the gift-card email at desktop, 375 px and 320 px with images blocked. Value, code, one redemption step, locations and exact expiry/one-use terms remain readable. All checks use synthetic codes and email addresses; do not send a customer email or perform a financial test.
 - Focused browser verification: start a local server with synthetic Supabase URL `http://127.0.0.1:59999` and a synthetic public key, then run `node scripts/refunds/refund-gift-card-browser.mjs` (default local URL `http://127.0.0.1:8097`; override with `REFUND_GIFT_CARD_UAT_URL`). Synthetic transport cannot certify real inbox timing or provider redemption.
-

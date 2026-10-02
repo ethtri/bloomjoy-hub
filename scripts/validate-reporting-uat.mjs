@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -561,11 +561,11 @@ const createPageForPersona = async (
   browser,
   persona,
   viewport,
-  { freshness = 'fresh' } = {},
+  { freshness = 'fresh', rpcHandler = rpcResponse } = {},
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
-  const state = { operatorExports: [], partnerExports: [], adminRpcCalls: [] };
+  const state = { operatorExports: [], partnerExports: [], adminRpcCalls: [], rpcCalls: [] };
 
   await context.addInitScript(
     ({ sessionValue, fixedNow, email }) => {
@@ -613,6 +613,7 @@ const createPageForPersona = async (
     if (url.pathname.includes('/rest/v1/rpc/')) {
       const rpcName = decodeURIComponent(url.pathname.split('/').pop());
       const body = parsePostBody(route.request());
+      state.rpcCalls.push({ rpcName, body });
       if (debug) console.log(`[${persona.email}] rpc ${rpcName}`, body);
       if (rpcName.startsWith('admin_upsert_reporting_')) {
         state.adminRpcCalls.push({ rpcName, body });
@@ -620,7 +621,7 @@ const createPageForPersona = async (
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(rpcResponse(rpcName, persona, body, freshness)),
+        body: JSON.stringify(rpcHandler(rpcName, persona, body, freshness)),
       });
     }
     if (debug) console.log(`[${persona.email}] rest ${route.request().method()} ${url.pathname}`);
@@ -703,6 +704,12 @@ const textOf = async (locator) => (await locator.innerText()).replace(/\s+/g, ' 
 
 const waitForReport = async (page) => {
   await page.getByRole('heading', { name: 'Reporting', level: 1 }).waitFor();
+  const sales = page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Sales', exact: true });
+  if (await sales.count()) {
+    await sales.click();
+    await page.getByText('Detailed sales report and existing export', { exact: true }).click();
+    await selectRadixOption(page.locator(selectors.operatorDateRange), 'Last 7 days');
+  }
 };
 
 const visibleLocator = async (locator, description) => {
@@ -956,7 +963,7 @@ const settleScreenshotViewport = async (page, toastPattern) => {
               if (document.activeElement instanceof HTMLElement) {
                 document.activeElement.blur();
               }
-              window.scrollTo(0, 0);
+              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
               document.documentElement.scrollTop = 0;
               document.body.scrollTop = 0;
               resolve(undefined);
@@ -985,7 +992,7 @@ const assertOperatorDesktop = async (browser) => {
     await waitForReport(page);
     await check('Operator-only reporting user cannot see partner controls or revenue-share data', async () => {
       assert(
-        (await page.getByRole('radio', { name: /partner dashboard/i }).count()) === 0,
+        (await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }).count()) === 0,
         'Operator-only reporting must not expose the partner dashboard toggle.',
       );
       assert(
@@ -1418,7 +1425,7 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
     await waitForReport(page);
     await check('Super Admin can open and leave a scoped partner machine drilldown', async () => {
       const partnerToggle = await visibleLocator(
-        page.getByRole('radio', { name: /partner dashboard/i }),
+        page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }),
         'Super Admin partner dashboard toggle',
       );
       await partnerToggle.click();
@@ -1658,6 +1665,11 @@ const writeResults = () => {
   fs.writeFileSync(path.join(outputDir, 'reporting-uat-results.md'), `${markdown}\n`);
 };
 
+export { personas, operatorDimensions, rpcResponse, makeUser, makeSession, createPageForPersona, fixedNowIso };
+
+// Let the expansion suite reuse the established synthetic personas and finance
+// fixtures without starting the legacy browser run during import.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
 fs.mkdirSync(outputDir, { recursive: true });
 for (const artifactName of fs.readdirSync(outputDir)) {
   if (/\.(?:json|md|png|txt)$/i.test(artifactName)) {
@@ -1691,4 +1703,5 @@ if (runError) {
 } else {
   console.log(`Reporting UAT passed at ${appUrl}`);
   console.log(`Screenshots and results written to ${path.relative(repoRoot, outputDir)}`);
+}
 }
