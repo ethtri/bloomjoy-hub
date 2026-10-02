@@ -1,3 +1,5 @@
+import { useRefundCustomerLanguage } from '@/hooks/useRefundCustomerLanguage';
+import { RefundCustomerLanguageToggle } from '@/components/refunds/RefundCustomerLanguageToggle';
 import { giftCardStatusCopy } from '@/lib/refundGiftCard';
 import { RefundGiftCardTerms } from '@/components/refunds/RefundGiftCardTerms';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,6 +18,8 @@ import {
 } from '@/lib/refundCustomerStatus';
 import { buildRefundCustomerStatusDemo } from '@/lib/refundCustomerStatusDemo';
 import { cn } from '@/lib/utils';
+import { spanishRefundStatusCopy } from '@/lib/refundCustomerStatusSpanish';
+import { giftCardAmount } from '@/lib/refundGiftCard';
 
 const SESSION_TOKEN_KEY = 'bloomjoy-refund-status-capability';
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -58,18 +62,19 @@ const milestoneRank: Record<RefundCustomerStatusCopy['milestone'], number> = {
   denied: -1,
 };
 
-const formatLastUpdated = (value: string) => {
+const formatLastUpdated = (value: string, locale: 'en' | 'es') => {
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(locale === 'es' ? 'es-US' : 'en-US', {
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(new Date(value));
   } catch {
-    return 'Recently';
+    return locale === 'es' ? 'Recientemente' : 'Recently';
   }
 };
 
 export default function RefundStatusPage() {
+  const { locale, setLocale, t } = useRefundCustomerLanguage();
   const location = useLocation();
   const [token, setToken] = useState(getInitialToken);
   const isDemoMode = isLocalUatDemoForced();
@@ -120,8 +125,8 @@ export default function RefundStatusPage() {
   const giftCard = statusQuery.data?.giftCard ?? null;
   const giftCopy = giftCard ? giftCardStatusCopy(giftCard) : null;
   const copy = useMemo(
-    () => lifecycle ? getRefundCustomerStatusCopy(lifecycle) : null,
-    [lifecycle],
+    () => { if (!lifecycle) return null; const english = getRefundCustomerStatusCopy(lifecycle); return locale === 'es' ? spanishRefundStatusCopy(lifecycle, english) : english; },
+    [lifecycle, locale],
   );
   const isChecking = !isDemoMode && tokenPattern.test(token) && statusQuery.isPending;
   const genericUnavailable = !isDemoMode && (!tokenPattern.test(token) || statusQuery.isError);
@@ -129,80 +134,58 @@ export default function RefundStatusPage() {
 
   return (
     <Layout>
-      <section className="min-h-[70vh] bg-gradient-to-b from-pink-50 via-background to-background px-4 py-8 sm:py-12">
+      <section lang={locale} className="min-h-[70vh] bg-gradient-to-b from-pink-50 via-background to-background px-4 py-8 sm:py-12">
         <div className="mx-auto max-w-2xl">
+          <RefundCustomerLanguageToggle locale={locale} onChange={setLocale} />
           <div className="rounded-2xl border border-pink-200 bg-white p-5 shadow-sm sm:p-8">
             <div className="flex items-center gap-2 text-sm font-semibold text-pink-800">
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              Secure refund status
-            </div>
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />{t("Secure refund status")}</div>
 
             {isDemoMode && (
-              <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
-                DEMO DATA — visual review only. No case or refund was read or changed.
-              </div>
+              <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">{t("DEMO DATA — visual review only. No case or refund was read or changed.")}</div>
             )}
 
             {isChecking && (
               <div className="flex min-h-64 flex-col items-center justify-center text-center" role="status">
                 <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
-                <h1 className="mt-4 font-display text-2xl font-bold text-foreground">
-                  Checking your request
-                </h1>
-                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-                  This page is read-only. It cannot submit or retry a refund.
-                </p>
+                <h1 className="mt-4 font-display text-2xl font-bold text-foreground">{t("Checking your request")}</h1>
+                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{t("This page is read-only. It cannot submit or retry a refund.")}</p>
               </div>
             )}
 
             {genericUnavailable && !isChecking && (
               <div className="py-8 text-center" role="alert">
-                <h1 className="font-display text-3xl font-bold text-foreground">
-                  This secure link is not available
-                </h1>
-                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                  The link may be incomplete or no longer active. This does not create a new
-                  request or change an existing refund.
-                </p>
+                <h1 className="font-display text-3xl font-bold text-foreground">{t("This secure link is not available")}</h1>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">{t("The link may be incomplete or no longer active. This does not create a new request or change an existing refund.")}</p>
                 <div className="mx-auto mt-6 max-w-md rounded-xl border border-border bg-muted/30 p-4 text-left text-sm text-muted-foreground">
                   <div className="flex gap-3">
                     <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                    <p>
-                      Reply to your Bloomjoy refund email or contact customer service with your
-                      reference. You do not need to submit another form.
-                    </p>
+                    <p>{t("Reply to your Bloomjoy refund email or contact customer service with your reference. You do not need to submit another form.")}</p>
                   </div>
                 </div>
                 <Button asChild className="mt-6">
-                  <a href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20status%20help">
-                    Email Bloomjoy customer service
-                  </a>
+                  <a href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20status%20help">{t("Email Bloomjoy customer service")}</a>
                 </Button>
               </div>
             )}
 
             {lifecycle && copy && !genericUnavailable && (
               <div className="mt-5" aria-live="polite">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pink-700">
-                  Current status
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pink-700">{t("Current status")}</p>
                 <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                  {giftCopy?.title ?? copy.title}
+                  {giftCopy ? t(giftCopy.title) : copy.title}
                 </h1>
-                <p className="mt-3 text-base leading-7 text-foreground">{giftCopy?.detail ?? copy.detail}</p>
+                <p className="mt-3 text-base leading-7 text-foreground">{giftCopy ? giftCard?.state === 'issued' && locale === 'es' ? `Su tarjeta de regalo Bloomjoy de ${giftCardAmount(giftCard.value, giftCard.currency)} está lista.` : t(giftCopy.detail) : copy.detail}</p>
 
                 {giftCard ? (
-                  <div className="mt-6 border-t border-border pt-5"><RefundGiftCardTerms offer={giftCard} /></div>
+                  <div className="mt-6 border-t border-border pt-5"><RefundGiftCardTerms offer={giftCard} locale={locale} /></div>
                 ) : copy.milestone === 'denied' ? (
                   <div className="mt-6 rounded-xl border border-border bg-muted/25 p-4">
-                    <p className="font-semibold text-foreground">Review complete</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      No refund was issued. Reply to your Bloomjoy email if you want us to review
-                      the same request again.
-                    </p>
+                    <p className="font-semibold text-foreground">{t("Review complete")}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("No refund was issued. Reply to your Bloomjoy email if you want us to review the same request again.")}</p>
                   </div>
                 ) : (
-                  <ol className="mt-7 grid gap-2 sm:grid-cols-5" aria-label="Refund progress">
+                  <ol className="mt-7 grid gap-2 sm:grid-cols-5" aria-label={t("Refund progress")}>
                     {milestones.map((milestone, index) => {
                       const complete = index <= activeRank;
                       const current = index === activeRank;
@@ -222,7 +205,7 @@ export default function RefundStatusPage() {
                           ) : (
                             <Circle className="h-4 w-4 shrink-0" aria-hidden="true" />
                           )}
-                          {milestone.label}
+                          {t(milestone.label)}
                         </li>
                       );
                     })}
@@ -230,18 +213,17 @@ export default function RefundStatusPage() {
                 )}
 
                 <section className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950">
-                  <h2 className="font-semibold">What happens next</h2>
-                  <p className="mt-1 text-sm leading-6">{giftCopy?.next ?? copy.nextExpectation}</p>
+                  <h2 className="font-semibold">{t("What happens next")}</h2>
+                  <p className="mt-1 text-sm leading-6">{giftCopy ? t(giftCopy.next) : copy.nextExpectation}</p>
                 </section>
 
                 <div className="mt-5 flex flex-col gap-2 border-t border-border pt-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <p className="flex items-center gap-2">
-                    <Clock3 className="h-4 w-4" aria-hidden="true" />
-                    Last updated {formatLastUpdated(lifecycle.lastUpdatedAt)}
+                    <Clock3 className="h-4 w-4" aria-hidden="true" />{t("Last updated")} {formatLastUpdated(lifecycle.lastUpdatedAt, locale)}
                   </p>
                   {(!lifecycle.terminal || Boolean(giftCard && giftCard.delivery_state !== 'delivered' && giftCard.state !== 'denied')) && (
                     <p role="status">
-                      {statusQuery.isFetching ? 'Checking for updates…' : 'Updates automatically'}
+                      {statusQuery.isFetching ? t("Checking for updates…") : t("Updates automatically")}
                     </p>
                   )}
                 </div>
@@ -249,10 +231,7 @@ export default function RefundStatusPage() {
             )}
           </div>
 
-          <p className="mx-auto mt-4 max-w-xl text-center text-xs leading-5 text-muted-foreground">
-            For your privacy, this page does not show card digits, payment-provider details, or
-            internal review notes.
-          </p>
+          <p className="mx-auto mt-4 max-w-xl text-center text-xs leading-5 text-muted-foreground">{t("For your privacy, this page does not show card digits, payment-provider details, or internal review notes.")}</p>
         </div>
       </section>
     </Layout>

@@ -1,6 +1,8 @@
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 type RefundCardManagerStatePresentation = {
   label: string;
@@ -31,6 +33,7 @@ type RefundCardManagerDecisionPanelProps = {
   purchase?: { amount: string; time: string | null; timeLabel: string; card: string | null } | null;
   onDeny?: (trigger: HTMLButtonElement) => void;
   denialDisabled?: boolean;
+  refundAmount?: { value: string; maximum: string; error: string | null; onChange: (value: string) => void } | null;
 };
 
 export function RefundCardManagerDecisionPanel({
@@ -41,6 +44,7 @@ export function RefundCardManagerDecisionPanel({
   purchase,
   onDeny,
   denialDisabled,
+  refundAmount,
 }: RefundCardManagerDecisionPanelProps) {
   return (
     <div
@@ -63,6 +67,15 @@ export function RefundCardManagerDecisionPanel({
         {purchase.card && <div><dt className="text-muted-foreground">Nayax card</dt><dd className="mt-1 font-medium">{purchase.card}</dd></div>}
       </dl>}
       {action.kind !== 'hidden' && (
+        <>
+        {refundAmount && <div className="max-w-sm space-y-2">
+          <Label htmlFor="manager-card-refund-amount">Refund amount (USD)</Label>
+          <Input id="manager-card-refund-amount" inputMode="decimal" value={refundAmount.value}
+            onChange={(event) => refundAmount.onChange(event.target.value)} aria-invalid={Boolean(refundAmount.error)}
+            aria-describedby="manager-card-refund-amount-help" disabled={action.kind === 'button' && action.pending} />
+          <p id="manager-card-refund-amount-help" className="text-sm leading-5 text-muted-foreground">Default is the full selected purchase. Refund only the affected portion when appropriate. Maximum: {refundAmount.maximum}.</p>
+          {refundAmount.error && <p role="alert" className="text-sm text-destructive">{refundAmount.error}</p>}
+        </div>}
         <div className="flex flex-wrap items-center gap-3">
           {action.kind === 'status' ? (
             <div
@@ -98,6 +111,7 @@ export function RefundCardManagerDecisionPanel({
           {onDeny && <Button data-testid="refund-deny-instead" type="button" variant="outline"
             className="min-h-11 px-5" disabled={denialDisabled} onClick={(event) => onDeny(event.currentTarget)}>Deny</Button>}
         </div>
+        </>
       )}
     </div>
   );

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useRefundCustomerLanguage } from '@/hooks/useRefundCustomerLanguage';
+import { RefundCustomerLanguageToggle } from '@/components/refunds/RefundCustomerLanguageToggle';
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
@@ -81,7 +83,8 @@ export default function RefundCorrectionPage() {
     },
   });
   const context = demo ? demoContext(location.search) : query.data ?? renewed;
-  const es = (received?.locale ?? context?.locale) === 'es';
+  const { locale, setLocale } = useRefundCustomerLanguage(received?.locale ?? context?.locale);
+  const es = locale === 'es';
   const hasReceived = received !== null;
   const copy = (english: string, spanish: string) => es ? spanish : english;
   useEffect(() => {
@@ -144,9 +147,9 @@ export default function RefundCorrectionPage() {
     setSaving(true);
     try {
       const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }
-        : await invokeRefundCorrection<{ correction: CorrectionContext }>({ action: 'submitPurchaseCorrection', token, version: context.version, answers: validated });
+        : await invokeRefundCorrection<{ correction: CorrectionContext }>({ action: 'submitPurchaseCorrection', token, version: context.version, answers: validated, customerLocale: locale });
       if (result?.correction?.state !== 'received') throw new Error('Response not confirmed');
-      setReceived({ publicReference: context.publicReference, locale: context.locale, ...result.correction });
+      setReceived({ publicReference: context.publicReference, locale, ...result.correction });
     } catch (failure) {
       if (isEdgeFunctionError(failure) && failure.data?.errorCode === 'correction_unavailable') { setUnavailable(true); return; }
       setError(copy('We couldn’t save this response. Your answers are still here. Try again, or reply to your Bloomjoy email for help with this same request.', 'No pudimos guardar la respuesta. Sus respuestas siguen aquí. Inténtelo de nuevo o responda al correo de Bloomjoy para obtener ayuda con esta misma solicitud.'));
@@ -159,8 +162,9 @@ export default function RefundCorrectionPage() {
 
   return <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:py-12" lang={es ? 'es' : 'en'}>
     <div className="mx-auto max-w-xl">
+      <RefundCustomerLanguageToggle locale={locale} onChange={setLocale} />
       <p className="mb-8 font-display text-2xl font-bold">Bloomjoy</p>
-      {query.isFetching && !context ? <p role="status">Opening your secure refund request… <span lang="es">Abriendo su solicitud segura…</span></p>
+      {query.isFetching && !context ? <p role="status">{copy('Opening your secure refund request…', 'Abriendo su solicitud segura…')}</p>
         : savedContext ? <section aria-live="polite">
           <CheckCircle2 aria-hidden className="mb-5 h-9 w-9 text-emerald-700" />
           <h1 ref={resultRef} tabIndex={-1} className="text-2xl font-semibold">{copy('Your response is saved.', 'Su respuesta se guardó.')}</h1>
@@ -169,20 +173,17 @@ export default function RefundCorrectionPage() {
             : savedContext.nextAction === 'review'
               ? copy('Someone at Bloomjoy will review your response and continue handling this request. You do not need to submit another one.', 'Una persona de Bloomjoy revisará su respuesta y continuará con esta solicitud. No necesita enviar otra.')
               : copy('Bloomjoy has your response and will continue handling this request. You do not need to submit another one.', 'Bloomjoy recibió su respuesta y continuará con esta solicitud. No necesita enviar otra.')}</p>
-          {!savedContext.locale && <p className="mt-4 leading-7" lang="es">{savedContext.nextAction === 'recheck' ? 'Su respuesta se guardó. Bloomjoy está volviendo a comprobar la compra. No necesita enviar otra solicitud.' : savedContext.nextAction === 'review' ? 'Su respuesta se guardó. Una persona de Bloomjoy la revisará. No necesita enviar otra solicitud.' : 'Bloomjoy recibió su respuesta y continuará con esta solicitud. No necesita enviar otra.'}</p>}
           <p className="mt-4 text-sm text-muted-foreground">{copy('We’ll email you about the next step. Saving these details does not send or confirm a payment.', 'Le enviaremos un correo sobre el siguiente paso. Guardar estos detalles no envía ni confirma un pago.')}</p>
           <p className="mt-6 font-medium">{savedContext.publicReference}</p>
           {savedContext.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
           {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
         </section> : openingFailed ? <section aria-live="polite">
-          <h1 className="text-2xl font-semibold">We couldn’t open your request.</h1>
-          <p className="mt-4 leading-7">Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.</p>
-          <p className="mt-4 leading-7" lang="es">No pudimos abrir su solicitud. Revise su conexión e inténtelo de nuevo, o responda al correo de Bloomjoy para recibir ayuda con esta misma solicitud.</p>
-          <Button className="mt-6 min-h-12 whitespace-normal" onClick={() => void query.refetch()}>Try again / Intentar de nuevo</Button>
+          <h1 className="text-2xl font-semibold">{copy('We couldn’t open your request.', 'No pudimos abrir su solicitud.')}</h1>
+          <p className="mt-4 leading-7">{copy('Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.', 'Revise su conexión e inténtelo de nuevo. También puede responder al correo de Bloomjoy para recibir ayuda con esta misma solicitud.')}</p>
+          <Button className="mt-6 min-h-12 whitespace-normal" onClick={() => void query.refetch()}>{copy('Try again', 'Intentar de nuevo')}</Button>
         </section> : unavailable || !context || context.state !== 'ready' ? <section>
-          <h1 className="text-2xl font-semibold">This link is no longer available.</h1>
-          <p className="mt-4 leading-7">Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.</p>
-          <p className="mt-4 leading-7" lang="es">Este enlace ya no está disponible. Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.</p>
+          <h1 className="text-2xl font-semibold">{copy('This link is no longer available.', 'Este enlace ya no está disponible.')}</h1>
+          <p className="mt-4 leading-7">{copy('Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.', 'Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.')}</p>
           {context?.publicReference && <p className="mt-6 font-medium">{context.publicReference}</p>}
           {context?.canRenew && <Button className="mt-6 min-h-12 whitespace-normal" disabled={saving} onClick={() => void renew()}>{copy(saving ? 'Opening update…' : 'Update your request', saving ? 'Abriendo actualización…' : 'Actualizar su solicitud')}</Button>}
           {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}

@@ -1,3 +1,5 @@
+import { useRefundCustomerLanguage } from '@/hooks/useRefundCustomerLanguage';
+import { RefundCustomerLanguageToggle } from '@/components/refunds/RefundCustomerLanguageToggle';
 import { fetchRefundGiftCardOffer } from '@/lib/refundGiftCardApi';
 import { type RefundResolutionMethod } from '@/lib/refundGiftCard';
 import { RefundGiftCardTerms } from '@/components/refunds/RefundGiftCardTerms';
@@ -48,6 +50,8 @@ const emptyForm = {
   incidentDate: '',
   incidentTime: '',
   paymentAmount: '',
+  cashInsertedAmount: '',
+  expectedChangeAmount: '',
   paymentMethod: 'card' as RefundPaymentMethod,
   resolutionMethod: 'gift_card' as RefundResolutionMethod,
   cardLast4: '',
@@ -69,6 +73,8 @@ type RefundRequiredField =
   | 'incidentDate'
   | 'incidentTime'
   | 'paymentAmount'
+  | 'cashInsertedAmount'
+  | 'expectedChangeAmount'
   | 'cashMachineId'
   | 'cardLast4'
   | 'issueCategory';
@@ -79,6 +85,8 @@ const fieldElementId: Record<RefundRequiredField, string> = {
   incidentDate: 'incident-date',
   incidentTime: 'incident-time',
   paymentAmount: 'payment-amount',
+  cashInsertedAmount: 'cash-inserted-amount',
+  expectedChangeAmount: 'expected-change-amount',
   cashMachineId: 'cash-machine',
   cardLast4: 'card-last4',
   issueCategory: 'issue-category',
@@ -111,20 +119,21 @@ const formatMachineOption = (locationName: string, machineLabel: string) => {
   return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
 
-const formatQrOpenedTime = (openedAt: string, timeZone: string) => {
+const formatQrOpenedTime = (openedAt: string, timeZone: string, locale: 'en' | 'es') => {
   try {
-    return new Intl.DateTimeFormat('en-US', {
+    return new Intl.DateTimeFormat(locale === 'es' ? 'es-US' : 'en-US', {
       hour: 'numeric',
       minute: '2-digit',
       timeZone,
       timeZoneName: 'short',
     }).format(new Date(openedAt));
   } catch {
-    return 'the time you scanned the code';
+    return locale === 'es' ? 'la hora en que escaneó el código' : 'the time you scanned the code';
   }
 };
 
 export default function RefundRequestPage() {
+  const { locale, setLocale, t } = useRefundCustomerLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(emptyForm);
@@ -236,6 +245,11 @@ export default function RefundRequestPage() {
     [form.selectionKey, machines]
   );
 
+  const isCashChange = form.paymentMethod === 'cash' && form.issueCategory === 'expected_cash_change';
+  const isPartialItems = form.issueCategory === 'partial_items';
+  const offerAmount = isCashChange ? form.expectedChangeAmount : form.paymentAmount;
+  const requiresManagerReview = isCashChange || isPartialItems || Math.ceil(Number(offerAmount) / 5) * 5 > 25;
+
   const giftCardAvailable = selectedMachine?.cashMachineOptions?.find((machine) => machine.machineId === form.cashMachineId)?.giftCardEnabled
     ?? selectedMachine?.giftCardEnabled === true;
   const choosesGiftCard = giftCardAvailable && form.resolutionMethod === 'gift_card';
@@ -243,11 +257,11 @@ export default function RefundRequestPage() {
     (selectedMachine?.selectionKind === 'livermore_pair' && (form.paymentMethod === 'cash' || choosesGiftCard)
       ? form.cashMachineId : selectedMachine?.machineId);
   const offerQuery = useQuery({
-    queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, form.paymentAmount],
+    queryKey: ['refund-gift-card-offer', form.selectionKey, offerMachineId, form.paymentMethod, offerAmount],
     queryFn: () => fetchRefundGiftCardOffer({ machineId: offerMachineId || undefined,
       selectionKey: offerMachineId ? undefined : form.selectionKey,
-      amount: form.paymentAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash' }),
-    enabled: !isDemoMode && choosesGiftCard && Boolean(form.selectionKey) && Number(form.paymentAmount) > 0 &&
+      amount: offerAmount.trim(), paymentMethod: form.paymentMethod as 'card' | 'cash' }),
+    enabled: !isDemoMode && choosesGiftCard && Boolean(form.selectionKey) && Number(offerAmount) > 0 &&
       !((form.paymentMethod === 'cash' || choosesGiftCard) && selectedMachine?.selectionKind === 'livermore_pair' && !form.cashMachineId),
     retry: false,
     staleTime: 30000,
@@ -255,9 +269,9 @@ export default function RefundRequestPage() {
   // Only an explicit server response can preserve the pre-launch cash process.
   // Errors, stockouts and missing denominations never imply a disabled pool.
   const legacyCash = form.paymentMethod === 'cash' && (!giftCardAvailable || offerQuery.data?.giftCardEnabled === false);
-  const wantsGiftCard = choosesGiftCard && !legacyCash;
+  const wantsGiftCard = (choosesGiftCard && !legacyCash) || (form.paymentMethod === 'cash' && (isCashChange || isPartialItems));
   const needsCardDetails = form.paymentMethod === 'card' && !wantsGiftCard;
-  const resolutionMethod: RefundResolutionMethod = wantsGiftCard ? 'gift_card' : 'original_payment';
+  const resolutionMethod: RefundResolutionMethod = wantsGiftCard || isCashChange ? 'gift_card' : 'original_payment';
   const giftCardOffer = offerQuery.data?.offer ?? null;
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
@@ -281,6 +295,7 @@ export default function RefundRequestPage() {
       paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
       walletProvider: '',
       walletDeviceKind: '',
+      issueCategory: current.issueCategory === 'expected_cash_change' && paymentMethod !== 'cash' ? '' : current.issueCategory,
     }));
   };
 
@@ -301,39 +316,44 @@ export default function RefundRequestPage() {
     ).trim();
 
     if (hasNoLiveMachineOptions) {
-      toast.error('This refund form is not open for customer submissions yet.');
+      toast.error(t("This refund form is not open for customer submissions yet."));
       return;
     }
 
     if (hasQrCode && !qrClaim) {
-      toast.error('Scan the machine refund code again or use the regular refund form.');
+      toast.error(t("Scan the machine refund code again or use the regular refund form."));
       return;
     }
 
     const errors: Partial<Record<RefundRequiredField, string>> = {};
-    if (!form.selectionKey) errors.selectionKey = 'Choose the Bloomjoy machine you used.';
+    if (!form.selectionKey) errors.selectionKey = t("Choose the Bloomjoy machine you used.");
     if (!/^\S+@\S+\.\S+$/.test(form.customerEmail.trim())) {
-      errors.customerEmail = 'Enter a valid email address.';
+      errors.customerEmail = t("Enter a valid email address.");
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(incidentDate)) {
-      errors.incidentDate = 'Enter the purchase date.';
+      errors.incidentDate = t("Enter the purchase date.");
     }
     if (!/^\d{2}:\d{2}$/.test(incidentTime)) {
-      errors.incidentTime = 'Enter the approximate purchase time.';
+      errors.incidentTime = t("Enter the approximate purchase time.");
     }
-    if (!form.paymentAmount.trim() || Number(form.paymentAmount) <= 0) {
-      errors.paymentAmount = 'Enter the amount you paid.';
+    if (!/^\d+(?:\.\d{1,2})?$/.test(form.paymentAmount.trim()) || Number(form.paymentAmount) <= 0) {
+      errors.paymentAmount = t("Enter the amount you paid.");
     }
     if (
       (form.paymentMethod === 'cash' || wantsGiftCard) &&
       selectedMachine?.selectionKind === 'livermore_pair' &&
       !form.cashMachineId
-    ) errors.cashMachineId = 'Choose the machine you used.';
+    ) errors.cashMachineId = t("Choose the machine you used.");
     if (needsCardDetails && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
-      errors.cardLast4 = 'Enter only the last 4 digits shown for this payment.';
+      errors.cardLast4 = t("Enter only the last 4 digits shown for this payment.");
     }
     if (!form.issueCategory) {
-      errors.issueCategory = 'Choose the option that best describes the problem.';
+      errors.issueCategory = t("Choose the option that best describes the problem.");
+    }
+    if (isCashChange) {
+      if (!/^\d+(?:\.\d{1,2})?$/.test(form.cashInsertedAmount) || Number(form.cashInsertedAmount) <= 0) errors.cashInsertedAmount = t('Enter the cash you inserted.');
+      if (!/^\d+(?:\.\d{1,2})?$/.test(form.expectedChangeAmount) || Number(form.expectedChangeAmount) <= 0) errors.expectedChangeAmount = t('Enter the change you expected.');
+      else if (Number(form.expectedChangeAmount) >= Number(form.cashInsertedAmount)) errors.expectedChangeAmount = t('Expected change must be less than the cash inserted.');
     }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -344,13 +364,13 @@ export default function RefundRequestPage() {
         );
         field?.focus();
       });
-      toast.error('Please check the highlighted fields.');
+      toast.error(t("Please check the highlighted fields."));
       return;
     }
     if (!hasValidIncidentLocalTime(incidentDate, incidentTime)) return;
 
-    if (wantsGiftCard && !giftCardOffer && !isDemoMode) {
-      setSubmissionError('Please wait for your gift card terms to load, then try again.');
+    if (wantsGiftCard && !requiresManagerReview && !giftCardOffer && !isDemoMode) {
+      setSubmissionError(t("Please wait for your gift card terms to load, then try again."));
       requestAnimationFrame(() => submissionErrorRef.current?.focus());
       return;
     }
@@ -362,7 +382,7 @@ export default function RefundRequestPage() {
     try {
       if (isDemoMode) {
         navigate('/refunds/thank-you?demo=on', {
-          state: { reference: 'RF-DEMO-REQUEST', statusToken: null },
+          state: { reference: 'RF-DEMO-REQUEST', statusToken: null, paymentMethod: form.paymentMethod, resolutionMethod, requiresManagerReview },
         });
         return;
       }
@@ -389,10 +409,13 @@ export default function RefundRequestPage() {
         issueSummary: form.issueSummary.trim(),
         incidentDate,
         incidentTime,
-        paymentMethod: form.paymentMethod,
+        paymentMethod: form.paymentMethod as 'card' | 'cash',
         resolutionMethod,
         giftCardOffer: wantsGiftCard && giftCardOffer ? { poolId: giftCardOffer.pool_id, value: giftCardOffer.value, expiresAt: giftCardOffer.expires_at } : undefined,
         paymentAmount: form.paymentAmount.trim(),
+        cashInsertedAmount: isCashChange ? form.cashInsertedAmount.trim() : undefined,
+        expectedChangeAmount: isCashChange ? form.expectedChangeAmount.trim() : undefined,
+        customerLocale: locale,
         cardLast4: needsCardDetails ? form.cardLast4.trim() : undefined,
         cardLast4Source:
           needsCardDetails && form.cardLast4Source ? form.cardLast4Source : undefined,
@@ -435,8 +458,9 @@ export default function RefundRequestPage() {
         publicReference: refundCase.publicReference,
         statusToken: refundCase.statusToken,
         statusExpiresAt: refundCase.statusExpiresAt,
-        paymentMethod: form.paymentMethod,
+        paymentMethod: form.paymentMethod as 'card' | 'cash',
         resolutionMethod,
+        requiresManagerReview,
       });
       if (receiptPersisted && clearRefundSubmissionAttempt(storage)) {
         setForm(emptyForm);
@@ -450,6 +474,7 @@ export default function RefundRequestPage() {
           statusExpiresAt: refundCase.statusExpiresAt,
           paymentMethod: form.paymentMethod,
           resolutionMethod,
+          requiresManagerReview,
         },
       });
     } catch (error) {
@@ -462,10 +487,10 @@ export default function RefundRequestPage() {
       ) {
         setQrSubmissionError(true);
       }
-      const message = error instanceof Error ? error.message : 'Unable to submit refund request.';
+      const message = locale === 'es' ? t('Unable to submit refund request.') : error instanceof Error ? error.message : t('Unable to submit refund request.');
       const recoveryGuidance = submissionAttemptPersistedRef.current
-        ? 'Your answers are still here. Try again to safely continue this same submission, even after refreshing this page.'
-        : 'Your answers are still here. Try again without refreshing this page so we can safely continue this same submission.';
+        ? t("Your answers are still here. Try again to safely continue this same submission, even after refreshing this page.")
+        : t("Your answers are still here. Try again without refreshing this page so we can safely continue this same submission.");
       setSubmissionError(
         `${message} ${recoveryGuidance}`,
       );
@@ -478,51 +503,35 @@ export default function RefundRequestPage() {
 
   return (
     <Layout>
-      <section className="section-padding bg-gradient-to-b from-pink-50 via-background to-background">
+      <section lang={locale} className="section-padding bg-gradient-to-b from-pink-50 via-background to-background">
         <div className="container-page">
+          <RefundCustomerLanguageToggle locale={locale} onChange={setLocale} />
           <div className="mx-auto max-w-3xl">
             <div className="mb-6 rounded-2xl border border-pink-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="inline-flex items-center gap-2 rounded-full bg-pink-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-pink-700">
                 <Sparkles className="h-3.5 w-3.5" />
                 Bloomjoy Sweets
               </div>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Request a refund
-              </h1>
+              <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">{t("Request a refund")}</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                {giftCardAvailable ? 'Let’s make your next visit a little sweeter. Tell us about one purchase and choose a Bloomjoy gift card, or an original-payment refund for a card purchase.' : 'Tell us about one purchase so our team can review your request.'}
+                {giftCardAvailable ? t("Let’s make your next visit a little sweeter. Tell us about one purchase and choose a Bloomjoy gift card, or an original-payment refund for a card purchase.") : t("Tell us about one purchase so our team can review your request.")}
               </p>
             </div>
 
             {isDemoMode && (
-              <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-                DEMO DATA - visual review only. This form uses synthetic locations and redirects
-                to a demo thank-you page instead of creating a real refund case.
-              </div>
+              <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">{t("DEMO DATA - visual review only. This form uses synthetic locations and redirects to a demo thank-you page instead of creating a real refund case.")}</div>
             )}
 
             {hasNoLiveMachineOptions && (
               <div className="mb-4 rounded-md border border-pink-200 bg-pink-50 px-4 py-3 text-sm text-pink-950">
                 {hasEmailContext ? (
-                  <>
-                    We could not load the Bloomjoy machine list right now. Please reply in the
-                    same email conversation with the machine location or a description of the
-                    machine, and our team will continue from there. You do not need to complete a
-                    second form.
-                  </>
+                  <>{t("We could not load the Bloomjoy machine list right now. Please reply in the same email conversation with the machine location or a description of the machine, and our team will continue from there. You do not need to complete a second form.")}</>
                 ) : (
-                  <>
-                    We could not load the Bloomjoy machine list right now. Please try this page
-                    again shortly. If it still does not load,{' '}
+                  <>{t("We could not load the Bloomjoy machine list right now. Please try this page again shortly. If it still does not load,")}{' '}
                     <a
                       href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20form%20help"
                       className="font-semibold underline underline-offset-2"
-                    >
-                      email Bloomjoy customer service
-                    </a>
-                    . We will help you return to this Bloomjoy form. Sending an email does not
-                    submit a refund request.
-                  </>
+                    >{t("email Bloomjoy customer service")}</a>{t(". We will help you return to this Bloomjoy form. Sending an email does not submit a refund request.")}</>
                 )}
               </div>
             )}
@@ -534,10 +543,8 @@ export default function RefundRequestPage() {
               >
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 <div>
-                  <p className="font-semibold">Confirming this machine</p>
-                  <p className="mt-0.5 text-muted-foreground">
-                    We are securely recording where and when you opened the refund form.
-                  </p>
+                  <p className="font-semibold">{t("Confirming this machine")}</p>
+                  <p className="mt-0.5 text-muted-foreground">{t("We are securely recording where and when you opened the refund form.")}</p>
                 </div>
               </div>
             )}
@@ -547,28 +554,20 @@ export default function RefundRequestPage() {
                 className="mb-4 rounded-lg border border-pink-200 bg-pink-50 px-4 py-4 text-sm text-pink-950"
                 role="alert"
               >
-                <p className="font-semibold">This machine's refund code is not available.</p>
+                <p className="font-semibold">{t("This machine's refund code is not available.")}</p>
                 {hasEmailContext ? (
-                  <p className="mt-1 leading-6">
-                    Please reply in the same email conversation with the machine location or a
-                    description of the machine. You do not need to open another form.
-                  </p>
+                  <p className="mt-1 leading-6">{t("Please reply in the same email conversation with the machine location or a description of the machine. You do not need to open another form.")}</p>
                 ) : (
                   <>
-                    <p className="mt-1 leading-6">
-                      The code may have been replaced or disabled. You can still submit a request
-                      using the regular form and choose the machine yourself.
-                    </p>
+                    <p className="mt-1 leading-6">{t("The code may have been replaced or disabled. You can still submit a request using the regular form and choose the machine yourself.")}</p>
                     <div className="mt-3 flex flex-wrap gap-3">
                       <Button asChild size="sm">
-                        <Link to="/refunds/request">Use regular refund form</Link>
+                        <Link to="/refunds/request">{t("Use regular refund form")}</Link>
                       </Button>
                       <a
                         href="mailto:info@bloomjoysweets.com?subject=Bloomjoy%20refund%20form%20help"
                         className="inline-flex min-h-9 items-center font-semibold underline underline-offset-2"
-                      >
-                        Email Bloomjoy customer service
-                      </a>
+                      >{t("Email Bloomjoy customer service")}</a>
                     </div>
                   </>
                 )}
@@ -580,24 +579,16 @@ export default function RefundRequestPage() {
                 className="mb-4 rounded-lg border border-pink-200 bg-pink-50 px-4 py-4 text-sm text-pink-950"
                 role="alert"
               >
-                <p className="font-semibold">This QR session needs to be restarted.</p>
+                <p className="font-semibold">{t("This QR session needs to be restarted.")}</p>
                 {hasEmailContext ? (
-                  <p className="mt-1 leading-6">
-                    Please reply in the same email conversation so our team can continue without
-                    creating a second request.
-                  </p>
+                  <p className="mt-1 leading-6">{t("Please reply in the same email conversation so our team can continue without creating a second request.")}</p>
                 ) : (
                   <>
-                    <p className="mt-1 leading-6">
-                      Your form is still here. Start a new QR session, then submit it again. You can
-                      also switch to the regular form.
-                    </p>
+                    <p className="mt-1 leading-6">{t("Your form is still here. Start a new QR session, then submit it again. You can also switch to the regular form.")}</p>
                     <div className="mt-3 flex flex-wrap gap-3">
-                      <Button type="button" size="sm" onClick={() => window.location.reload()}>
-                        Start new QR session
-                      </Button>
+                      <Button type="button" size="sm" onClick={() => window.location.reload()}>{t("Start new QR session")}</Button>
                       <Button asChild type="button" size="sm" variant="outline">
-                        <Link to="/refunds/request">Use regular refund form</Link>
+                        <Link to="/refunds/request">{t("Use regular refund form")}</Link>
                       </Button>
                     </div>
                   </>
@@ -614,8 +605,8 @@ export default function RefundRequestPage() {
               >
                 <div className="grid grid-cols-1 gap-5">
                   <div>
-                    <h2 className="text-lg font-semibold text-foreground">Purchase</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">Where and when did you make the purchase?</p>
+                    <h2 className="text-lg font-semibold text-foreground">{t("Purchase")}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("Where and when did you make the purchase?")}</p>
                   </div>
                   {qrClaim ? (
                     <div className="rounded-lg border border-pink-200 bg-pink-50 px-4 py-4 text-pink-950">
@@ -625,11 +616,9 @@ export default function RefundRequestPage() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold">Machine confirmed</p>
+                            <p className="font-semibold">{t("Machine confirmed")}</p>
                             <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs font-semibold text-pink-800">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              QR verified
-                            </span>
+                              <CheckCircle2 className="h-3.5 w-3.5" />{t("QR verified")}</span>
                           </div>
                           <p className="mt-1 text-sm leading-6">
                             {formatMachineOption(
@@ -639,23 +628,20 @@ export default function RefundRequestPage() {
                           </p>
                           <p className="mt-2 flex items-start gap-2 text-xs leading-5 text-pink-900">
                             <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                            <span>
-                              We saved the server time as{' '}
+                            <span>{t("We saved the server time as")}{' '}
                               <strong>
                                 {formatQrOpenedTime(
                                   qrClaim.openedAt,
-                                  qrClaim.machine.locationTimezone
+                                  qrClaim.machine.locationTimezone, locale
                                 )}
-                              </strong>
-                              . You will still enter the approximate purchase time below.
-                            </span>
+                              </strong>{t(". You will still enter the approximate purchase time below.")}</span>
                           </p>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <Label htmlFor="machine">Machine location</Label>
+                      <Label htmlFor="machine">{t("Machine location")}</Label>
                       <select
                         id="machine"
                         value={form.selectionKey}
@@ -667,10 +653,10 @@ export default function RefundRequestPage() {
                       >
                         <option value="">
                           {isLoadingMachines
-                            ? 'Loading locations...'
+                            ? t("Loading locations...")
                             : hasNoLiveMachineOptions
-                              ? 'Refund form is not open yet'
-                              : 'Choose a location'}
+                              ? t("Refund form is not open yet")
+                              : t("Choose a location")}
                         </option>
                         {machines.map((machine) => (
                           <option key={machine.selectionKey} value={machine.selectionKey}>
@@ -680,14 +666,14 @@ export default function RefundRequestPage() {
                       </select>
                       {fieldErrors.selectionKey && (
                         <p id="machine-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                          {fieldErrors.selectionKey}
+                          {t(fieldErrors.selectionKey)}
                         </p>
                       )}
                     </div>
                   )}
 
                 <div>
-                  <Label htmlFor="customer-email">Email</Label>
+                  <Label htmlFor="customer-email">{t("Email")}</Label>
                   <Input
                     id="customer-email"
                     type="email"
@@ -700,17 +686,15 @@ export default function RefundRequestPage() {
                   />
                   {fieldErrors.customerEmail && (
                     <p id="customer-email-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                      {fieldErrors.customerEmail}
+                      {t(fieldErrors.customerEmail)}
                     </p>
                   )}
-                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-                    We use this only for this request and its secure status link.
-                  </p>
+                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{t("We use this only for this request and its secure status link.")}</p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="incident-date">Purchase date</Label>
+                    <Label htmlFor="incident-date">{t("Purchase date")}</Label>
                     <Input
                       id="incident-date"
                       name="incidentDate"
@@ -723,12 +707,12 @@ export default function RefundRequestPage() {
                     />
                     {fieldErrors.incidentDate && (
                       <p id="incident-date-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                        {fieldErrors.incidentDate}
+                        {t(fieldErrors.incidentDate)}
                       </p>
                     )}
                   </div>
                   <div>
-                    <Label htmlFor="incident-time">Approximate purchase time</Label>
+                    <Label htmlFor="incident-time">{t("Approximate purchase time")}</Label>
                     <Input
                       id="incident-time"
                       name="incidentTime"
@@ -741,7 +725,7 @@ export default function RefundRequestPage() {
                     />
                     {fieldErrors.incidentTime && (
                       <p id="incident-time-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                        {fieldErrors.incidentTime}
+                        {t(fieldErrors.incidentTime)}
                       </p>
                     )}
                   </div>
@@ -752,14 +736,14 @@ export default function RefundRequestPage() {
                   className="space-y-4 border-t border-border pt-5"
                 >
                   <div>
-                    <h2 className="text-lg font-semibold text-foreground">Payment</h2>
+                    <h2 className="text-lg font-semibold text-foreground">{t("Payment")}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {giftCardAvailable ? 'Cash purchases receive a Bloomjoy gift card. For card purchases, you can choose a gift card or a refund to your original payment.' : 'Tell us how you paid. Our team will review your request.'}
+                      {giftCardAvailable ? t("Cash purchases receive a Bloomjoy gift card. For card purchases, you can choose a gift card or a refund to your original payment.") : t("Tell us how you paid. Our team will review your request.")}
                     </p>
                   </div>
 
                 <fieldset className="min-w-0">
-                  <legend className="text-sm font-medium leading-none">How did you pay?</legend>
+                  <legend className="text-sm font-medium leading-none">{t("How did you pay?")}</legend>
                   <RadioGroup
                     name="paymentMethod"
                     value={form.paymentMethod}
@@ -773,9 +757,9 @@ export default function RefundRequestPage() {
                     >
                       <RadioGroupItem id="payment-method-card" value="card" />
                       <span>
-                        <span className="block font-semibold text-foreground">Card</span>
+                        <span className="block font-semibold text-foreground">{t("Card")}</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          {giftCardAvailable ? 'Gift card or original-payment refund.' : 'Refund to your original card payment.'}
+                          {giftCardAvailable ? t("Gift card or original-payment refund.") : t("Refund to your original card payment.")}
                         </span>
                       </span>
                     </Label>
@@ -785,9 +769,9 @@ export default function RefundRequestPage() {
                     >
                       <RadioGroupItem id="payment-method-cash" value="cash" />
                       <span>
-                        <span className="block font-semibold text-foreground">Cash</span>
+                        <span className="block font-semibold text-foreground">{t("Cash")}</span>
                         <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                          {giftCardAvailable ? 'Bloomjoy gift card. No payment details needed.' : 'Cash purchase. No card details needed.'}
+                          {giftCardAvailable ? t("Bloomjoy gift card. No payment details needed.") : t("Cash purchase. No card details needed.")}
                         </span>
                       </span>
                     </Label>
@@ -795,11 +779,11 @@ export default function RefundRequestPage() {
                 </fieldset>
 
                 <div>
-                  <Label htmlFor="payment-amount">Amount paid</Label>
+                  <Label htmlFor="payment-amount">{t(isCashChange ? t("Purchase amount (cost of the items)") : t("Amount paid"))}</Label>
                   <Input
                     id="payment-amount"
                     inputMode="decimal"
-                    placeholder="Example: 12.00"
+                    placeholder={t("Example: 12.00")}
                     value={form.paymentAmount}
                     onChange={(event) => updateForm('paymentAmount', event.target.value)}
                     aria-invalid={Boolean(fieldErrors.paymentAmount)}
@@ -808,15 +792,16 @@ export default function RefundRequestPage() {
                   />
                   {fieldErrors.paymentAmount && (
                     <p id="payment-amount-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                      {fieldErrors.paymentAmount}
+                      {t(fieldErrors.paymentAmount)}
                     </p>
                   )}
+                  {isCashChange && <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('Enter the cost of the items here. Enter the bill you inserted below.')}</p>}
                 </div>
 
                 {(form.paymentMethod === 'cash' || wantsGiftCard) &&
                   selectedMachine?.selectionKind === 'livermore_pair' && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                      <Label htmlFor="cash-machine">Which machine did you use?</Label>
+                      <Label htmlFor="cash-machine">{t("Which machine did you use?")}</Label>
                       <select
                         id="cash-machine"
                         value={form.cashMachineId}
@@ -825,7 +810,7 @@ export default function RefundRequestPage() {
                         aria-describedby={fieldErrors.cashMachineId ? 'cash-machine-error' : undefined}
                         className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                       >
-                        <option value="">Choose the machine label</option>
+                        <option value="">{t("Choose the machine label")}</option>
                         {(selectedMachine.cashMachineOptions ?? []).map((machine) => (
                           <option key={machine.machineId} value={machine.machineId}>
                             {machine.displayLabel}
@@ -834,49 +819,48 @@ export default function RefundRequestPage() {
                       </select>
                       {fieldErrors.cashMachineId && (
                         <p id="cash-machine-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                          {fieldErrors.cashMachineId}
+                          {t(fieldErrors.cashMachineId)}
                         </p>
                       )}
-                      <p className="mt-2 text-xs leading-5 text-amber-900">
-                        Look for the small TT label on the machine.
-                      </p>
+                      <p className="mt-2 text-xs leading-5 text-amber-900">{t("Look for the small TT label on the machine.")}</p>
                     </div>
                   )}
 
                 <section aria-labelledby="resolution-heading" className="space-y-3 border-t border-border pt-5">
-                  <h2 id="resolution-heading" className="text-lg font-semibold">How can we make it right?</h2>
+                  <h2 id="resolution-heading" className="text-lg font-semibold">{t("How can we make it right?")}</h2>
                   {form.paymentMethod === 'card' && giftCardAvailable && <RadioGroup value={form.resolutionMethod}
                     onValueChange={(value) => { updateForm('resolutionMethod', value); setFieldErrors((current) => ({ ...current, cardLast4: undefined })); }}
-                    aria-label="Resolution" className="gap-3">
+                    aria-label={t("Resolution")} className="gap-3">
                     <Label htmlFor="resolution-gift-card" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
                       <RadioGroupItem id="resolution-gift-card" value="gift_card" />
-                      <span><span className="font-semibold">Bloomjoy gift card</span> <span className="text-xs text-pink-800">Recommended</span>
-                        <span className="block text-sm leading-6 text-muted-foreground">Usually emailed within a few hours.</span>
+                      <span><span className="font-semibold">{t("Bloomjoy gift card")}</span> <span className="text-xs text-pink-800">{t("Recommended")}</span>
+                        <span className="block text-sm leading-6 text-muted-foreground">{t(requiresManagerReview ? t("Your request will be reviewed by a manager. We will email you when the review is complete.") : t("Usually emailed within a few hours."))}</span>
                       </span>
                     </Label>
                     <Label htmlFor="resolution-original" className="flex min-h-11 cursor-pointer items-center gap-3 font-normal">
                       <RadioGroupItem id="resolution-original" value="original_payment" />
-                      <span>Refund to my original card payment
-                        <span className="block text-sm leading-6 text-muted-foreground">We investigate the purchase and request your refund from the payment processor, so this takes longer.</span>
+                      <span>{t("Refund to my original card payment")}<span className="block text-sm leading-6 text-muted-foreground">{t("We investigate the purchase and request your refund from the payment processor, so this takes longer.")}</span>
                       </span>
                     </Label>
                   </RadioGroup>}
                   {wantsGiftCard && <div className="space-y-2 rounded-lg border border-pink-200 bg-pink-50 p-4" aria-live="polite">
-                    {form.paymentMethod === 'cash' && <p className="text-sm leading-6">Usually emailed within a few hours.</p>}
-                    {giftCardOffer ? <><RefundGiftCardTerms offer={giftCardOffer} />
-                      <p className="text-sm leading-6">{giftCardOffer.redemption_instructions}</p>
-                      <p className="text-xs leading-5 text-pink-900">Submitting accepts this gift card and its terms. One automatic gift card per email in 12 months; repeat requests are reviewed by our team.</p>
+                    {requiresManagerReview ? <>
+                      <p className="text-sm font-semibold leading-6">{t('Proposed gift card. A manager will review the amount before it is issued.')}</p>
+                      <p className="text-xs leading-5 text-pink-900">{t('Submitting accepts the gift card terms. The final amount depends on manager review.')}</p>
+                    </> : giftCardOffer ? <><RefundGiftCardTerms offer={giftCardOffer} locale={locale} />
+                      <p className="text-sm leading-6">{locale === 'es' ? 'Use el código y siga las instrucciones del correo con su tarjeta de regalo.' : giftCardOffer.redemption_instructions}</p>
+                      <p className="text-xs leading-5 text-pink-900">{t("Submitting accepts this gift card and its terms. One automatic gift card per email in 12 months; repeat requests are reviewed by our team.")}</p>
                     </> : <p className="text-sm leading-6">{!form.selectionKey || Number(form.paymentAmount) <= 0
-                      ? 'Choose the machine and enter your purchase amount to see your gift card value and terms.'
-                      : offerQuery.isFetching ? 'Loading your gift card value and terms…'
-                      : 'We could not load a gift card offer for this purchase right now. Please try again, or contact us using the same email conversation.'}</p>}
-                    {offerQuery.isError && <Button type="button" variant="outline" onClick={() => void offerQuery.refetch()}>Try loading the offer again</Button>}
+                      ? t("Choose the machine and enter your purchase amount to see your gift card value and terms.")
+                      : offerQuery.isFetching ? t("Loading your gift card value and terms…")
+                      : t("We could not load a gift card offer for this purchase right now. Please try again, or contact us using the same email conversation.")}</p>}
+                    {!requiresManagerReview && offerQuery.isError && <Button type="button" variant="outline" onClick={() => void offerQuery.refetch()}>{t("Try loading the offer again")}</Button>}
                   </div>}
                   {!wantsGiftCard && <p className="text-sm leading-6 text-muted-foreground">{giftCardAvailable
-                    ? 'Most requests are reviewed within 5 business days. We’ll email you with an update.'
+                    ? t("Most requests are reviewed within 5 business days. We’ll email you with an update.")
                     : form.paymentMethod === 'card'
-                      ? 'We investigate the purchase and request your refund from the payment processor, so this takes longer. Most requests are reviewed within 5 business days.'
-                      : 'We’ll find your payment and send it to our team for a refund decision. Most requests are reviewed within 5 business days.'}</p>}
+                      ? t("We investigate the purchase and request your refund from the payment processor, so this takes longer. Most requests are reviewed within 5 business days.")
+                      : t("We’ll find your payment and send it to our team for a refund decision. Most requests are reviewed within 5 business days.")}</p>}
                 </section>
 
                 {needsCardDetails && (
@@ -884,8 +868,8 @@ export default function RefundRequestPage() {
                     <div>
                       <Label htmlFor="card-last4">
                         {form.cardWalletUsed
-                          ? 'Virtual last 4 shown in your wallet'
-                          : 'Last 4 digits shown for this payment'}
+                          ? t("Virtual last 4 shown in your wallet")
+                          : t("Last 4 digits shown for this payment")}
                       </Label>
                       <Input
                         id="card-last4"
@@ -902,13 +886,13 @@ export default function RefundRequestPage() {
                       />
                       {fieldErrors.cardLast4 && (
                         <p id="card-last4-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                          {fieldErrors.cardLast4}
+                          {t(fieldErrors.cardLast4)}
                         </p>
                       )}
                       <p id="card-last4-guidance" className="mt-2 leading-6 text-pink-900">
                         {form.cardWalletUsed
-                          ? 'Open the card details in Apple Pay or your wallet on the exact phone or watch you used. A phone and watch can show different last 4 digits for the same physical card. Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.'
-                          : 'Enter only 4 digits—never a full card number, security code, or screenshot.'}
+                          ? t("Open the card details in Apple Pay or your wallet on the exact phone or watch you used. A phone and watch can show different last 4 digits for the same physical card. Use the virtual last 4 shown for this wallet payment. Do not use the last 4 printed on the physical card.")
+                          : t("Enter only 4 digits—never a full card number, security code, or screenshot.")}
                       </p>
                     </div>
                     <label className="mt-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-pink-200 bg-white px-3 py-2.5">
@@ -927,12 +911,12 @@ export default function RefundRequestPage() {
                         }}
                         className="h-4 w-4 rounded border-input accent-pink-600"
                       />
-                      <span>I used Apple Pay or another phone/watch wallet</span>
+                      <span>{t("I used Apple Pay or another phone/watch wallet")}</span>
                     </label>
                     {form.cardWalletUsed && (
                       <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <div>
-                        <Label htmlFor="wallet-provider">Wallet (optional)</Label>
+                        <Label htmlFor="wallet-provider">{t("Wallet (optional)")}</Label>
                         <select
                           id="wallet-provider"
                           value={form.walletProvider}
@@ -941,15 +925,15 @@ export default function RefundRequestPage() {
                           }
                           className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                         >
-                          <option value="">Choose if known</option>
+                          <option value="">{t("Choose if known")}</option>
                           <option value="apple_pay">Apple Pay</option>
                           <option value="google_wallet">Google Wallet</option>
-                          <option value="other">Another wallet</option>
-                          <option value="unsure">I am not sure</option>
+                          <option value="other">{t("Another wallet")}</option>
+                          <option value="unsure">{t("I am not sure")}</option>
                         </select>
                         </div>
                         <div>
-                          <Label htmlFor="wallet-device-kind">Device used (optional)</Label>
+                          <Label htmlFor="wallet-device-kind">{t("Device used (optional)")}</Label>
                           <select
                             id="wallet-device-kind"
                             value={form.walletDeviceKind}
@@ -958,10 +942,10 @@ export default function RefundRequestPage() {
                             }
                             className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                           >
-                            <option value="">Choose if known</option>
-                            <option value="phone">Phone</option>
-                            <option value="watch">Watch</option>
-                            <option value="unknown">I am not sure</option>
+                            <option value="">{t("Choose if known")}</option>
+                            <option value="phone">{t("Phone")}</option>
+                            <option value="watch">{t("Watch")}</option>
+                            <option value="unknown">{t("I am not sure")}</option>
                           </select>
                         </div>
                       </div>
@@ -971,12 +955,12 @@ export default function RefundRequestPage() {
                 </section>
 
                 <div className="border-t border-border pt-5">
-                  <h2 className="text-lg font-semibold text-foreground">What happened</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Tell us what went wrong with the purchase.</p>
+                  <h2 className="text-lg font-semibold text-foreground">{t("What happened")}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("Tell us what went wrong with the purchase.")}</p>
                 </div>
 
                 <div>
-                  <Label htmlFor="issue-category">What best describes the problem?</Label>
+                  <Label htmlFor="issue-category">{t("What best describes the problem?")}</Label>
                   <select
                     id="issue-category"
                     value={form.issueCategory}
@@ -987,39 +971,53 @@ export default function RefundRequestPage() {
                     aria-describedby={fieldErrors.issueCategory ? 'issue-category-error' : undefined}
                     className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    <option value="">Choose one</option>
+                    <option value="">{t("Choose one")}</option>
                     <option value="charged_no_product">
                       {form.paymentMethod === 'cash'
-                        ? 'Paid, but no product came out'
-                        : 'Charged, but no product came out'}
+                        ? t("Paid, but no product came out")
+                        : t("Charged, but no product came out")}
                     </option>
-                    <option value="product_problem">The product came out incorrectly</option>
+                    <option value="product_problem">{t("The product came out incorrectly")}</option>
                     <option value="charged_more_than_once">
-                      {form.paymentMethod === 'cash' ? 'Paid more than once' : 'Charged more than once'}
+                      {form.paymentMethod === 'cash' ? t("Paid more than once") : t("Charged more than once")}
                     </option>
                     <option value="wrong_amount">
-                      {form.paymentMethod === 'cash' ? 'Machine took the wrong amount' : 'Charged the wrong amount'}
+                      {form.paymentMethod === 'cash' ? t("Machine took the wrong amount") : t("Charged the wrong amount")}
                     </option>
-                    <option value="other">Something else</option>
+                    <option value="partial_items">{t('Received fewer items than I paid for')}</option>
+                    {form.paymentMethod === 'cash' && <option value="expected_cash_change">{t('Expected change from a cash payment')}</option>}
+                    <option value="other">{t("Something else")}</option>
                   </select>
                   {fieldErrors.issueCategory && (
                     <p id="issue-category-error" className="mt-1.5 text-sm text-destructive" role="alert">
-                      {fieldErrors.issueCategory}
+                      {t(fieldErrors.issueCategory)}
                     </p>
                   )}
                 </div>
 
+                {isPartialItems && <p className="text-sm leading-6 text-muted-foreground">{t('Tell us how many items you paid for and how many you received in the optional details below.')}</p>}
+                {isCashChange && <fieldset className="space-y-4 rounded-xl border border-pink-200 bg-pink-50 p-4">
+                  <legend className="px-1 text-sm font-semibold">{t('Expected change from a cash payment')}</legend>
+                  <p className="text-sm leading-6">{t('Our machines do not provide change. Our team will review your request for a courtesy gift card.')}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {(['cashInsertedAmount', 'expectedChangeAmount'] as const).map((key) => <div key={key}>
+                      <Label htmlFor={fieldElementId[key]}>{t(key === 'cashInsertedAmount' ? t("Cash inserted") : t("Change you expected"))}</Label>
+                      <Input id={fieldElementId[key]} inputMode="decimal" className="mt-2 h-11 bg-white" value={form[key]}
+                        onChange={(event) => updateForm(key, event.target.value)} aria-invalid={Boolean(fieldErrors[key])}
+                        aria-describedby={fieldErrors[key] ? `${fieldElementId[key]}-error` : undefined} />
+                      {fieldErrors[key] && <p id={`${fieldElementId[key]}-error`} role="alert" className="mt-1.5 text-sm text-destructive">{t(fieldErrors[key])}</p>}
+                    </div>)}
+                  </div>
+                </fieldset>}
+                {requiresManagerReview && <p role="status" className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm leading-6">{t('Your request will be reviewed by a manager. We will email you when the review is complete.')}</p>}
+
                 <details className="rounded-xl border border-border bg-muted/20 p-4">
-                  <summary className="cursor-pointer font-semibold text-foreground">
-                    Add optional details
-                  </summary>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    These can help with unusual purchases. You can submit your request without them.
-                  </p>
+                  <summary className="cursor-pointer font-semibold text-foreground">{t("Add optional details")}</summary>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("These can help with unusual purchases. You can submit your request without them.")}</p>
                   <div className="mt-4 grid gap-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <Label htmlFor="customer-name">Name (optional)</Label>
+                        <Label htmlFor="customer-name">{t("Name (optional)")}</Label>
                         <Input
                           id="customer-name"
                           value={form.customerName}
@@ -1029,7 +1027,7 @@ export default function RefundRequestPage() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="customer-phone">Phone (optional)</Label>
+                        <Label htmlFor="customer-phone">{t("Phone (optional)")}</Label>
                         <Input
                           id="customer-phone"
                           value={form.customerPhone}
@@ -1041,7 +1039,7 @@ export default function RefundRequestPage() {
                     </div>
 
                     <div>
-                      <Label htmlFor="incident-time-confidence">How close is the time? (optional)</Label>
+                      <Label htmlFor="incident-time-confidence">{t("How close is the time? (optional)")}</Label>
                       <select
                         id="incident-time-confidence"
                         value={form.incidentTimeConfidence}
@@ -1053,16 +1051,16 @@ export default function RefundRequestPage() {
                         }
                         className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                       >
-                        <option value="">Just a rough estimate</option>
-                        <option value="exact">Exact or within a few minutes</option>
-                        <option value="within_15_minutes">Within about 15 minutes</option>
-                        <option value="within_1_hour">Within about 1 hour</option>
-                        <option value="rough">Just a rough estimate</option>
+                        <option value="">{t("Just a rough estimate")}</option>
+                        <option value="exact">{t("Exact or within a few minutes")}</option>
+                        <option value="within_15_minutes">{t("Within about 15 minutes")}</option>
+                        <option value="within_1_hour">{t("Within about 1 hour")}</option>
+                        <option value="rough">{t("Just a rough estimate")}</option>
                       </select>
                     </div>
 
                     <div>
-                      <Label htmlFor="incident-time-source">How did you find the time? (optional)</Label>
+                      <Label htmlFor="incident-time-source">{t("How did you find the time? (optional)")}</Label>
                       <select
                         id="incident-time-source"
                         value={form.incidentTimeSource}
@@ -1071,21 +1069,19 @@ export default function RefundRequestPage() {
                         }
                         className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                       >
-                        <option value="">Choose if known</option>
-                        <option value="transaction_alert_or_receipt">Purchase alert or receipt</option>
-                        <option value="memory">From memory</option>
-                        <option value="unknown">I am not sure</option>
+                        <option value="">{t("Choose if known")}</option>
+                        <option value="transaction_alert_or_receipt">{t("Purchase alert or receipt")}</option>
+                        <option value="memory">{t("From memory")}</option>
+                        <option value="unknown">{t("I am not sure")}</option>
                       </select>
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                        A bank posting time can differ from when you used the machine.
-                      </p>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("A bank posting time can differ from when you used the machine.")}</p>
                     </div>
 
                     {needsCardDetails && (
                       <div className="grid gap-4 sm:grid-cols-2">
                         {!form.cardWalletUsed && (
                           <div>
-                            <Label htmlFor="payment-interaction">How did you use the card? (optional)</Label>
+                            <Label htmlFor="payment-interaction">{t("How did you use the card? (optional)")}</Label>
                             <select
                               id="payment-interaction"
                               value={form.paymentInteraction}
@@ -1094,17 +1090,17 @@ export default function RefundRequestPage() {
                               }
                               className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                             >
-                              <option value="">Not sure</option>
-                              <option value="tap_card">Tapped the card</option>
-                              <option value="insert_card">Inserted the card</option>
-                              <option value="swipe_card">Swiped the card</option>
-                              <option value="insert_or_swipe">Inserted or swiped — not sure which</option>
-                              <option value="unsure">I am not sure</option>
+                              <option value="">{t("Not sure")}</option>
+                              <option value="tap_card">{t("Tapped the card")}</option>
+                              <option value="insert_card">{t("Inserted the card")}</option>
+                              <option value="swipe_card">{t("Swiped the card")}</option>
+                              <option value="insert_or_swipe">{t("Inserted or swiped — not sure which")}</option>
+                              <option value="unsure">{t("I am not sure")}</option>
                             </select>
                           </div>
                         )}
                         <div>
-                          <Label htmlFor="card-network">Card type (optional)</Label>
+                          <Label htmlFor="card-network">{t("Card type (optional)")}</Label>
                           <select
                             id="card-network"
                             value={form.cardNetwork}
@@ -1113,16 +1109,16 @@ export default function RefundRequestPage() {
                             }
                             className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                           >
-                            <option value="">Choose if known</option>
+                            <option value="">{t("Choose if known")}</option>
                             <option value="visa">Visa</option>
                             <option value="mastercard">Mastercard</option>
                             <option value="discover">Discover</option>
                             <option value="american_express">American Express</option>
-                            <option value="other_unknown">Other / Not sure</option>
+                            <option value="other_unknown">{t("Other / Not sure")}</option>
                           </select>
                         </div>
                         <div>
-                          <Label htmlFor="card-last4-source">Where did you find the last 4? (optional)</Label>
+                          <Label htmlFor="card-last4-source">{t("Where did you find the last 4? (optional)")}</Label>
                           <select
                             id="card-last4-source"
                             value={form.cardLast4Source}
@@ -1131,24 +1127,24 @@ export default function RefundRequestPage() {
                             }
                             className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
                           >
-                            <option value="">Choose if known</option>
-                            <option value="physical_card">Physical card</option>
-                            <option value="wallet_device">Card shown for the wallet or device</option>
-                            <option value="bank_record">Bank record or purchase alert</option>
-                            <option value="unknown">I am not sure</option>
+                            <option value="">{t("Choose if known")}</option>
+                            <option value="physical_card">{t("Physical card")}</option>
+                            <option value="wallet_device">{t("Card shown for the wallet or device")}</option>
+                            <option value="bank_record">{t("Bank record or purchase alert")}</option>
+                            <option value="unknown">{t("I am not sure")}</option>
                           </select>
                         </div>
                       </div>
                     )}
 
                     <div>
-                      <Label htmlFor="issue-summary">Anything else? (optional)</Label>
+                      <Label htmlFor="issue-summary">{t("Anything else? (optional)")}</Label>
                       <Textarea
                         id="issue-summary"
                         value={form.issueSummary}
                         onChange={(event) => updateForm('issueSummary', event.target.value)}
                         rows={4}
-                        placeholder="For example, whether anything came out or what the screen showed."
+                        placeholder={t("For example, whether anything came out or what the screen showed.")}
                         className="mt-2 bg-white"
                       />
                     </div>
@@ -1162,7 +1158,7 @@ export default function RefundRequestPage() {
                       role="alert"
                       className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm leading-6 text-foreground"
                     >
-                      <p className="font-semibold">We could not confirm your request.</p>
+                      <p className="font-semibold">{t("We could not confirm your request.")}</p>
                       <p className="mt-1">{submissionError}</p>
                     </div>
                   )}
@@ -1173,25 +1169,23 @@ export default function RefundRequestPage() {
                       <span>
                         {selectedMachine
                           ? qrClaim
-                            ? `QR confirmed: ${selectedMachine.displayLabel}`
-                            : `Selected: ${selectedMachine.displayLabel}`
-                          : 'Your request goes to the manager responsible for that machine.'}
+                            ? `${locale === 'es' ? 'QR confirmado' : 'QR confirmed'}: ${selectedMachine.displayLabel}`
+                            : `${locale === 'es' ? 'Seleccionada' : 'Selected'}: ${selectedMachine.displayLabel}`
+                          : t("Your request goes to the manager responsible for that machine.")}
                       </span>
                     </div>
                     <Button
                       type="submit"
                       className="min-h-11"
                       disabled={
-                        isSubmitting || isLoadingMachineContext || hasNoLiveMachineOptions || (wantsGiftCard && !giftCardOffer && !isDemoMode)
+                        isSubmitting || isLoadingMachineContext || hasNoLiveMachineOptions || (wantsGiftCard && !requiresManagerReview && !giftCardOffer && !isDemoMode)
                       }
                     >
                       {isSubmitting ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Sending your request...
-                        </>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />{t("Sending your request...")}</>
                       ) : (
-                        wantsGiftCard ? 'Accept gift card & send request' : 'Send refund request'
+                        requiresManagerReview ? t('Send request for review') : wantsGiftCard ? t("Accept gift card & send request") : t("Send refund request")
                       )}
                     </Button>
                   </div>

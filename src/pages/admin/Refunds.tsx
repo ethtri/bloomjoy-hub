@@ -1,4 +1,5 @@
 import { RefundGiftCardSupplySection } from '@/components/refunds/RefundGiftCardSupplySection';
+import { resolveManagerRefundAmountDraft } from '@/lib/refundManagerAmount';
 import { RefundGiftCardManagerPanel } from '@/components/refunds/RefundGiftCardManagerPanel';
 import { searchRefundCases } from '@/lib/refundCaseSearch';
 import {
@@ -1654,7 +1655,7 @@ const nayaxNextActionText = (
       return 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'manual_exception':
       return summary.confidenceClass === 'evidence_aware_review'
-        ? "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."
+        ? "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund defaults to the selected purchase amount; the Manager can refund the affected portion."
         : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
@@ -2800,6 +2801,7 @@ export default function AdminRefundsPage() {
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [managerCardAmountDraft, setManagerCardAmountDraft] = useState<{ key: string; value: string } | null>(null);
   const [officialActionVersion, setOfficialActionVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
@@ -4698,12 +4700,18 @@ export default function AdminRefundsPage() {
     await availabilityRefresh;
   };
 
+  const managerCardAmount = (transactionKey: string, fullAmountCents: number) => {
+    const key = `${selectedCase?.id}:${officialActionVersion}:${transactionKey}`;
+    return resolveManagerRefundAmountDraft(managerCardAmountDraft, key, fullAmountCents);
+  };
+
   const handleApproveReviewedNayaxCandidate = async () => {
     if (nayaxRefundInFlightRef.current || !selectedCase || !editor ||
         selectedCase.paymentMethod !== 'card' || isUsingDemoData) return;
     const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    const approvalAmount = selectedCandidate ? managerCardAmount(selectedCandidate.candidateToken, selectedCandidate.amountCents).cents : null;
     const proofId = selectedCase.lifecycle?.nextWork?.preparationProofId;
-    if (!selectedCandidate || selectedCandidate.selectionAllowed === false ||
+    if (!selectedCandidate || !approvalAmount || selectedCandidate.selectionAllowed === false ||
         !proofId || selectedCase.canPerformOfficialAction !== true ||
         !selectedCase.lifecycle?.nextWork?.eligibleCandidateTokens?.includes(selectedCandidate.candidateToken) ||
         selectedCase.decision != null || officialActionVersion <= 0) return;
@@ -4730,6 +4738,7 @@ export default function AdminRefundsPage() {
         expectedOfficialActionVersion: officialActionVersion,
         preparationProofId: proofId,
         candidateToken: selectedCandidate.candidateToken,
+        refundAmountCents: approvalAmount,
       });
       if (result.approved === true) holdConfirmedCardApproval(targetCaseId, result.status);
       await refresh();
@@ -4763,9 +4772,10 @@ export default function AdminRefundsPage() {
         selectedCase.paymentMethod !== 'card' || isUsingDemoData ||
         selectedCase.canPerformOfficialAction !== true || officialActionVersion <= 0) return;
     const targetCaseId = selectedCase.id;
-    const selectedTransactionId = selectedCase.matchedNayaxTransactionId;
-    const selectedAmountCents = selectedCase.matchedNayaxAmountCents;
-    if (!selectedTransactionId || !selectedAmountCents) return;
+    const selectedTransactionId = selectedCase.selectedNayaxTransaction?.transactionId;
+    const selectedAmountCents = selectedCase.selectedNayaxTransaction?.saleAmountCents;
+    const approvalAmount = selectedTransactionId && selectedAmountCents ? managerCardAmount(selectedTransactionId, selectedAmountCents).cents : null;
+    if (!selectedTransactionId || !selectedAmountCents || !approvalAmount) return;
     nayaxRefundInFlightRef.current = true;
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
@@ -4778,8 +4788,8 @@ export default function AdminRefundsPage() {
       if (selectedIdRef.current !== targetCaseId || !freshCase ||
           freshCase.decision != null || freshCase.canPerformOfficialAction !== true ||
           freshCase.officialActionVersion !== officialActionVersion ||
-          freshCase.matchedNayaxTransactionId !== selectedTransactionId ||
-          freshCase.matchedNayaxAmountCents !== selectedAmountCents ||
+          freshCase.selectedNayaxTransaction?.transactionId !== selectedTransactionId ||
+          freshCase.selectedNayaxTransaction?.saleAmountCents !== selectedAmountCents ||
           freshCase.lifecycle?.stage !== 'transaction_confirmed' ||
           freshCase.lifecycle.managerAction?.action !== 'refund' ||
           freshWork?.isOpen !== true || freshWork.actor !== 'manager' ||
@@ -4790,6 +4800,7 @@ export default function AdminRefundsPage() {
       await approveSelectedNayaxCandidate({
         caseId: targetCaseId,
         expectedOfficialActionVersion: officialActionVersion,
+        refundAmountCents: approvalAmount,
       });
       holdConfirmedCardApproval(targetCaseId);
       await refresh();
@@ -6572,7 +6583,7 @@ export default function AdminRefundsPage() {
             id: 'match_attention',
             label: 'Review transaction',
             explanation: 'Bloomjoy found one transaction on the matching machine. The customer and provider amounts are shown for comparison. Its card identifier differs, and Nayax has not proved the compared fields are equivalent. Timing is shown separately and may be unproved.',
-            nextStep: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
+            nextStep: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund defaults to the selected purchase amount; the Manager can refund the affected portion.",
             tone: 'info',
           }
       : !hasSelectedMatch &&
@@ -6613,6 +6624,13 @@ export default function AdminRefundsPage() {
       primaryAction?.mode === 'case_update' &&
       primaryAction.targetDecision === 'denied';
     const reviewedChoice = selectedNayaxCandidate(editor, effectiveCandidates);
+    const canEditCardAmount = selectedCase.decision == null &&
+      (primaryAction?.mode === 'reviewed_nayax_final_decision' || primaryAction?.mode === 'selected_nayax_final_decision');
+    const amountTransactionKey = primaryAction?.mode === 'reviewed_nayax_final_decision'
+      ? reviewedChoice?.candidateToken : selectedCase.selectedNayaxTransaction?.transactionId;
+    const amountTransactionCents = primaryAction?.mode === 'reviewed_nayax_final_decision'
+      ? reviewedChoice?.amountCents : selectedCase.selectedNayaxTransaction?.saleAmountCents;
+    const cardApprovalAmount = amountTransactionKey && amountTransactionCents ? managerCardAmount(amountTransactionKey, amountTransactionCents) : null;
     const cardActionDisabled = primaryAction?.mode === 'nayax_refund_execution'
       ? isRefundCardActionDisabled(selectedCase, selectedRefundReadiness, {
           busy: isSaving || isSendingCustomerMessage || isRunningNayaxRefund,
@@ -6654,10 +6672,11 @@ export default function AdminRefundsPage() {
                 : primaryAction.mode === 'selected_nayax_final_decision'
                   ? 'refund-approve-selected-purchase'
                 : hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
-              label: recommendation?.kind === 'refund' && editor.decision !== 'denied'
-                ? `Approve ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')} refund`
+              label: (canEditCardAmount || recommendation?.kind === 'refund') && editor.decision !== 'denied'
+                ? canEditCardAmount && !cardApprovalAmount?.cents ? 'Enter a valid refund amount'
+                  : `Approve ${formatProviderCurrency(canEditCardAmount ? cardApprovalAmount!.cents! : recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')} refund`
                 : topActionLabel,
-              disabled: cardActionDisabled,
+              disabled: cardActionDisabled || (canEditCardAmount && !cardApprovalAmount?.cents),
               pending: isSaving || isRunningNayaxRefund,
             }
           : { kind: 'empty' };
@@ -6878,6 +6897,12 @@ export default function AdminRefundsPage() {
       <div data-testid="refund-card-workbench" className="space-y-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
           <RefundCardManagerDecisionPanel
+            refundAmount={canEditCardAmount && cardApprovalAmount ? {
+              value: cardApprovalAmount.value,
+              maximum: formatCurrency(amountTransactionCents),
+              error: cardApprovalAmount.cents ? null : 'Enter a positive amount no greater than the selected purchase, with at most two decimal places.',
+              onChange: (value) => setManagerCardAmountDraft({ key: cardApprovalAmount.key, value }),
+            } : null}
             managerState={plainManagerState}
             managerNextStep={displayedManagerNextStep}
             action={recommendation?.kind === 'reject' && editor.decision !== 'denied'
