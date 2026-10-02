@@ -19,6 +19,13 @@ orientation snapshot; it is not a backlog or release ledger.
   mailbox verification and supported case/message source adoption remain open.
   No message was replayed or marked delivered from a later status notice.
 
+- RF-4B414AD0's due legacy cash payout reminder failed before transport because
+  the generic automatic-mail guard treats approval as terminal. A separate
+  #1429/#628 repair binds authorization to the exact due reminder and its
+  delivered original request, preserving current Manager authority, one-followup
+  limits and customer-only correspondence. Database and deployment verification
+  remain pending; the failed reminder has not been retried or sent.
+
 - The October 2 09:01 workflow health check timed out while a submitted-form
   response repeatedly built the purchase-value selection catalog. The stack
   helpers and health callers were unchanged by the exception backend release.

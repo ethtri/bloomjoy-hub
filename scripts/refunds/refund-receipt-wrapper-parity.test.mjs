@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION,
-  CORE_DISPATCH_MIGRATION, TERMINAL_API_MIGRATION, RECEIPT_HANDOFF_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
+  CORE_DISPATCH_MIGRATION, TERMINAL_API_MIGRATION, RECEIPT_HANDOFF_MIGRATION,
+  PAYOUT_REMINDER_MIGRATION, applyPayoutReminderMessageBoundary } from './refund-receipt-wrapper-parity.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8');
@@ -12,7 +13,10 @@ test('source-derived runtime proof includes exact current core delegates and rec
   const sql = buildReceiptWrapperParityTest(root);
   assert(sql.includes('select plan(30)'));
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
-    const core = extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), name);
+    let core = extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), name);
+    if (name === 'service_claim_refund_gmail_outbound_v3') {
+      core = applyPayoutReminderMessageBoundary(core, read(PAYOUT_REMINDER_MIGRATION));
+    }
     const receipt = extractReceiptParityBody(read(
       name === 'service_claim_refund_gmail_outbound_v3'
         ? TERMINAL_API_MIGRATION
@@ -45,6 +49,9 @@ test('source-derived runtime proof includes exact current core delegates and rec
 test('parity extraction fails closed on missing or unsafe source', () => {
   assert.throws(() => extractReceiptParityBody('', 'missing'), /Missing exact/);
   assert.throws(() => extractReceiptParityBody('create function public.f()\nreturns void as $$\n$receipt_parity$\n$$;', 'f'), /Unsafe/);
+  assert.throws(() => applyPayoutReminderMessageBoundary('', read(PAYOUT_REMINDER_MIGRATION)), /not exact/);
+  assert.throws(() => applyPayoutReminderMessageBoundary(
+    extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), 'service_claim_refund_gmail_outbound_v3'), ''), /not exact/);
 });
 test('disposable runner proves wrapper composition before and after populated upgrade work', () => {
   const source = fs.readFileSync(path.join(root, 'scripts/validate-supabase-migrations.mjs'), 'utf8');
