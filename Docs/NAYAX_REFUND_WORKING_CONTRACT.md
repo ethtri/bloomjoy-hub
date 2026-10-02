@@ -34,16 +34,18 @@ examples use a QA URL; do not copy that host into production.
 
 Use `Authorization: Bearer <stage-specific credential>`, `Content-Type:
 application/json`, and `Accept: application/json`. Credentials stay server-side.
-An ordinary manager decision authorizes the exact matched purchase and full
-original amount; no separate API-test approval is needed.
+An ordinary manager decision authorizes the exact matched purchase and approved
+refund amount, defaulting to the full selected charge including tax. Freeze that
+amount with the selected transaction through request, approval and execution;
+no separate API-test approval is needed.
 
 1. Obtain the exact original transaction and Site ID from the selected machine's
    Last Sales evidence. Site ID is a provider identifier, not a location name.
 2. Send `POST /payment/refund-request` using numeric `TransactionId` and `SiteId`,
-   full `RefundAmount` in **major currency units** with exact-cent conversion,
+   approved `RefundAmount` in **major currency units** with exact-cent conversion,
    `RefundReason`, and **`RefundEmailList: ""` explicitly present**. Do not omit
-   the email field or replace it with null. An original 1090 cents becomes 10.9,
-   not 1090; zero or omitted amount is not a full-refund shortcut.
+   the email field or replace it with null. An approved 1090 cents becomes 10.9,
+   not 1090; zero or omitted amount is not a refund shortcut.
 3. For `MachineAuTime`, preserve the exact raw `MachineAuthorizationTime` string
    and fractional precision from the selected evidence. Use `exact_source`.
    Do not substitute `AuthorizationDateTimeGMT`, normalize through a local Date,
@@ -53,8 +55,8 @@ original amount; no separate API-test approval is needed.
    `POST /payment/refund-approve` with `IsRefundedExternally: false` and the
    **identical** `TransactionId`, `SiteId`, and `MachineAuTime`. Omit
    `RefundDocumentUrl` for this ordinary API refund. Use the approval credential.
-5. Verify the exact original's full amount and final status independently in
-   DTM when report evidence is insufficient. Keep payment, accounting and email
+5. Verify the exact original transaction's approved refund amount and final status
+   independently in DTM when report evidence is insufficient. Keep payment, accounting and email
    results separate. Recover a failed email through its existing message flow,
    never by issuing another refund.
 
@@ -136,6 +138,8 @@ authority; this document does not authorize correspondence.
 `npm run refunds:validate-nayax-provider` exercises the working contract through
 the real adapter with synthetic transactions and mocked transport, including
 stage separation and failure holds. It sends no real refunds.
+The September 8 evidence above proves full refunds. Partial amount binding is
+verified with synthetic transport; no live partial refund is claimed here.
 
 [Nayax request guide](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/request-refunds)
 documents the fields and source identifiers;
