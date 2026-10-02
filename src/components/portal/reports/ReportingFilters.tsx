@@ -14,7 +14,14 @@ type Props = {
   machines: { machineId: string; machineLabel: string }[];
   onChange: (patch: Partial<WorkspaceState>) => void;
 };
-const displayRange = (from: string, to: string) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).formatRange(new Date(`${from}T00:00:00Z`), new Date(`${to}T00:00:00Z`));
+const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fullDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const displayRange = (from: string, to: string) => {
+  const end = fullDate.format(new Date(`${to}T00:00:00Z`));
+  if (from === to) return end;
+  const start = (from.slice(0, 4) === to.slice(0, 4) ? shortDate : fullDate).format(new Date(`${from}T00:00:00Z`));
+  return `${start} – ${end}`;
+};
 
 export function ReportingFilters({ state, salesView, locations, machines, onChange }: Props) {
   const [more, setMore] = useState(false);
