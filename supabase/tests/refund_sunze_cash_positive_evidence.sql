@@ -210,7 +210,7 @@ select ok((
 
 
 create temporary table positive_current_proof as select public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z') source_key;
-select like((select source_key from positive_current_proof),'positive:cash-positive-run-1:%',
+select ok((select source_key like 'positive:cash-positive-run-1:%' from positive_current_proof),
  'Newer unrelated import does not hide the relevant historical source group');
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001'))->>'evidenceBasis','cash_multiple_reviewed','Reviewed positive purchase supplies current preparation proof');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,source}','sunze','Reviewed positive purchase uses the existing Sunze recommendation');
