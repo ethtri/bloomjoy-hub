@@ -47,6 +47,6 @@ export function LaborAnalyticsPanel({ scope }: { scope: LaborAnalyticsScope }) {
       <p className="text-sm text-muted-foreground">{report.pay.publishedStatementCount} published statements for overlapping periods, across authorized accounts. {report.pay.statementBasis}</p>
     </CardContent></Card>}
     <p className="text-xs text-muted-foreground">{report.dateBasis}</p>
-    <div className="flex flex-wrap gap-3">{report.access.hasAccess && <Button variant="outline" asChild><Link to="/portal/time-review">Open Time Report<ExternalLink className="ml-2 h-4 w-4" /></Link></Button>}{report.access.canViewPay && <Button variant="outline" asChild><Link to={`/admin/payouts?month=${scope.dateFrom.slice(0, 7)}`}>Open Pay Report<ExternalLink className="ml-2 h-4 w-4" /></Link></Button>}</div>
+    <div className="flex flex-wrap gap-3">{report.access.canViewPay && <Button variant="outline" asChild><Link to={`/admin/payouts?month=${scope.dateFrom.slice(0, 7)}`}>Open Pay Report<ExternalLink className="ml-2 h-4 w-4" /></Link></Button>}</div>
   </div>;
 }
