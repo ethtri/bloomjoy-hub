@@ -51,7 +51,8 @@ try {
       await page.goto(`${base}/refunds/correct#token=${original}`);
       if(mode==='superseded-during-renewal') {
         await page.getByRole('button',{name:'Update your request',exact:true}).click();
-        await page.waitForFunction(()=>document.querySelector('button')?.textContent==='Opening update…');
+        const openingUpdate=page.getByRole('button',{name:'Opening update…',exact:true});
+        await openingUpdate.waitFor();assert.equal(await openingUpdate.isDisabled(),true);
         await page.evaluate(()=>{window.location.hash=`token=${'c'.repeat(43)}`;});
         await page.waitForFunction(()=>sessionStorage.getItem('bloomjoy-refund-correction-v1')==='c'.repeat(43));
         const completed=page.waitForResponse(response=>response.url().includes('/functions/v1/refund-case-intake')&&response.request().postDataJSON()?.action==='renewPurchaseCorrection');

@@ -189,6 +189,7 @@ test('current card capability remains visible in the composed manager presentati
   primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
  });
   const presentedAction=load('cardManagerCapabilityAction',{
+    canEditCardAmount:false,
     transactionDecisionPending,
     reviewedFinalDecisionReady:false,
   showDisabledActionStatus:false,
@@ -207,6 +208,7 @@ test('current card capability remains visible in the composed manager presentati
   kind:'button',testId:'refund-run-nayax-refund',label:'Refund $7.00',disabled:false,pending:false,
  });
  const denialAfterRecommendation=load('cardManagerCapabilityAction',{
+  canEditCardAmount:false,
   transactionDecisionPending:false,
   reviewedFinalDecisionReady:false,
   showDisabledActionStatus:false,

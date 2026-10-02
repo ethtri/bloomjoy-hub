@@ -15,7 +15,8 @@ assert.match(page, /paymentMethod: 'card' as RefundPaymentMethod/u);
 assert.match(page, /<RadioGroupItem id="payment-method-card" value="card"/u);
 assert.match(page, /<RadioGroupItem id="payment-method-cash" value="cash"/u);
 assert.match(page, /const choosesGiftCard = giftCardAvailable && form\.resolutionMethod === 'gift_card'/u);
-assert.match(page, /const legacyCash = form\.paymentMethod === 'cash' && \(!giftCardAvailable \|\| offerQuery\.data\?\.giftCardEnabled === false\)/u);
+assert.match(page, /const legacyCash = form\.paymentMethod === 'cash' && \(!giftCardAvailable \|\| offerQuery\.data\?\.giftCardEnabled === false \|\| giftCardAvailabilityByMachine\[giftAvailabilityKey\] === false\)/u);
+assert.match(page, /form\.paymentMethod === 'cash' && !legacyCash && <option value="expected_cash_change"/u);
 assert.match(page, /const wantsGiftCard = choosesGiftCard && !legacyCash/u);
 assert.match(page, /const needsCardDetails = form\.paymentMethod === 'card' && !wantsGiftCard/u);
 assert.equal([...page.matchAll(/\{needsCardDetails && \(/gu)].length, 2,
