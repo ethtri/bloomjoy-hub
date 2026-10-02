@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-10-02 - Finance reconciliation and editable reporting tax treatment
+
+The owner authorized the engineering follow-up in #1708, extending the existing
+reporting workspace in #1696/#1702. Keep the routine machine tax rate/date/reason
+form simple; optional card/cash amount basis and taxable portion use dated,
+audited settings and an atomic save. Explicit source tax metadata takes
+precedence. Existing defaults remain until configured; engineering does not
+assign legal exemptions, alter card-reader rates or change production settings.
+
+Finance reporting keeps requested-refund deductions as the shared sales basis,
+with recorded money refunds, gift purchase/face/goodwill values and outstanding
+balances as separate context. “Reporting tax removed” describes a calculation,
+not a tax return or proof of tax collected. Reuse canonical accounting and
+existing authorized sales/refund scope; no new payment authority or ledger.
+Historical cash-filing decisions and pending Adam/Nayax access remain outside
+this implementation. This decision authorizes code, tests and a reviewable PR;
+it does not claim production deployment or change issued statement snapshots.
+
 ## 2026-10-01 - Partial refunds, cash-change courtesy review and English/Spanish
 
 The owner approved implementation of the presented exception plan and requested

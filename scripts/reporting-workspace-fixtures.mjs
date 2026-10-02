@@ -14,6 +14,9 @@ export function workspaceRpcResponse(name, persona, body = {}, freshness = 'fres
   if (name === 'get_my_time_report_access') return canLabor;
   if (name === 'get_labor_analytics_access') return { hasAccess: canLabor, canViewPay: persona.isSuperAdmin, dimensions: canLabor ? domainDimensions : [] };
   if (name === 'get_refund_analytics_access') return { hasAccess: canRefunds, dimensions: canRefunds ? domainDimensions : [] };
+  // Existing workspace journeys retain their original six-domain permissions.
+  // The Finance UAT supplies its separately authorized intersection explicitly.
+  if (name === 'get_finance_reporting_access') return { hasAccess: false, dimensions: [] };
   if (name === 'get_labor_analytics_report') return {
     access: { hasAccess: canLabor, canViewPay: persona.isSuperAdmin }, dateFrom: body.p_date_from, dateTo: body.p_date_to,
     generatedAt: fixedNowIso, calculationVersion: 'labor-analytics-v1',

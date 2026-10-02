@@ -1,5 +1,13 @@
 # QA Smoke Test Checklist
 
+## Finance reporting and dated tax treatment (`#1708`)
+
+- In a disposable migrated environment, open `/portal/reports?view=finance` with an authorized sales/refund manager or Super-admin. Verify sales excluding tax minus requested refund impact equals net sales. Expand the breakdown: recorded money refunds, gifts and outstanding balances are separate, with no second deduction. Select a machine and export CSV; dates, scope, values and unavailable/partial coverage agree.
+- Open Finance directly as a sales-only or refund-only user and with a saved out-of-scope machine. No Finance data request is made for a denied/unverified scope. A missing optional Finance service leaves existing reporting usable and provides Retry on the Finance link. An empty response is not labeled zero activity.
+- In `/admin/machines` → Reporting as a Super-admin and as a scoped admin for an assigned machine, retain the existing rate/date/reason flow. Expand the optional tax-treatment settings, change card/cash amount basis and taxable portion, and save once. Reload to verify the dated values and audit reason. Rate-only edits must not reset treatments; invalid or failed combined saves must not partially change configuration. Scoped tax editing must not expose machine identity editing or expand machine scope.
+- In synthetic accounting fixtures, verify tax-inclusive full/partial taxable amounts, tax-exclusive and separately recorded tax, explicit zero versus unknown, an effective-date boundary, and a refund of an earlier purchase. Explicit source metadata wins; current source defaults and issued snapshots remain unchanged.
+- Verify Finance and the tax editor at desktop and 320/390 px, including keyboard disclosure, visible validation, empty/loading/error states, and no page overflow. Automated Finance browser coverage: `node scripts/validate-finance-reporting-uat.mjs --app-url http://127.0.0.1:8084`; use the existing synthetic reporting Auth/RPC fixtures rather than production changes.
+
 ## Reporting workspace
 
 - [ ] Open `/portal/reports` with authorized sales access. Overview, Sales and
