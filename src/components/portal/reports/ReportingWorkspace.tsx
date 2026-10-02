@@ -15,6 +15,8 @@ import { comparisonRange, defaultWorkspaceState, knownMoney, money, number, pars
 import { ReportingLocations, ReportingOverview, ReportingSales } from './ReportingSalesAnalytics';
 import { ReportingOperations } from './ReportingOperations';
 import { ReportingFilters } from './ReportingFilters';
+import { ReportingFinance } from './ReportingFinance';
+import { fetchFinanceReportingAccess } from '@/lib/financeReporting';
 
 export type ReportingScope = { dateFrom: string; dateTo: string; machineIds?: string[]; locationIds?: string[] };
 export type ReportingDomainPanel = (scope: ReportingScope) => ReactNode;
@@ -27,7 +29,7 @@ type Props = {
   domainAccessLoading?: boolean; domainAccessError?: boolean;
   detailedSales: (filters?: SalesReportFilters) => ReactNode;
 };
-const labels: Record<WorkspaceView, string> = { overview: 'Overview', sales: 'Sales', locations: 'Locations', labor: 'Labor', refunds: 'Refunds & Recovery', partners: 'Partners' };
+const labels: Record<WorkspaceView, string> = { overview: 'Overview', sales: 'Sales', finance: 'Finance', locations: 'Locations', labor: 'Labor', refunds: 'Refunds & Recovery', partners: 'Partners' };
 
 export function ReportingWorkspace({ accessContext, accessLoading, accessError, canUsePartners, partnerView, laborPanel, refundPanel, laborDimensions, refundDimensions, domainAccessLoading, domainAccessError, detailedSales }: Props) {
   const { user, isCorporatePartner } = useAuth();
@@ -51,12 +53,14 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     setParams(next);
   };
   const hasLaborPanel = Boolean(laborPanel); const hasRefundPanel = Boolean(refundPanel);
-  const visibleViews = useMemo(() => workspaceViews.filter(view => view === 'partners' ? canUsePartners : view === 'labor' ? hasLaborPanel : view === 'refunds' ? hasRefundPanel : accessContext.hasReportingAccess), [canUsePartners, hasLaborPanel, hasRefundPanel, accessContext.hasReportingAccess]);
+  const financeAccess = useQuery({ queryKey: ['reporting-finance-access', user?.id], queryFn: fetchFinanceReportingAccess, enabled: Boolean(user?.id), staleTime: 60000 });
+  const hasFinanceAccess = financeAccess.data?.hasAccess === true;
+  const visibleViews = useMemo(() => workspaceViews.filter(view => view === 'partners' ? canUsePartners : view === 'labor' ? hasLaborPanel : view === 'refunds' ? hasRefundPanel : view === 'finance' ? hasFinanceAccess : accessContext.hasReportingAccess), [canUsePartners, hasLaborPanel, hasRefundPanel, hasFinanceAccess, accessContext.hasReportingAccess]);
   useEffect(() => {
-    if (!params.has('view') && !accessLoading && !domainAccessLoading && visibleViews.length && !visibleViews.includes(state.view)) {
+    if (!params.has('view') && !accessLoading && !domainAccessLoading && !financeAccess.isLoading && visibleViews.length && !visibleViews.includes(state.view)) {
       setParams(writeWorkspaceState({ ...state, view: visibleViews[0] }, params), { replace: true });
     }
-  }, [params, accessLoading, domainAccessLoading, visibleViews, state, setParams]);
+  }, [params, accessLoading, domainAccessLoading, financeAccess.isLoading, visibleViews, state, setParams]);
   const selectedAllowed = visibleViews.includes(state.view);
   const salesView = !showDetailed && ['overview', 'sales', 'locations'].includes(state.view);
   const rangeTooLong = (Date.parse(state.dateTo) - Date.parse(state.dateFrom)) / 86400000 > 366;
@@ -64,10 +68,10 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
   const invalidLinkedDates = (params.has('from') || params.has('to')) && (!validDate(fromParam) || !validDate(toParam) || fromParam > toParam);
   const periodInvalid = rangeTooLong || invalidLinkedDates;
   const dimensions = useQuery({ queryKey: ['reporting-workspace-dimensions', user?.id], queryFn: fetchReportingDimensions, enabled: Boolean(user?.id && accessContext.hasReportingAccess), staleTime: 60000 });
-  const choices = state.view === 'labor' ? laborDimensions ?? [] : state.view === 'refunds' ? refundDimensions ?? [] : dimensions.data ?? [];
+  const choices = state.view === 'finance' ? financeAccess.data?.dimensions ?? [] : state.view === 'labor' ? laborDimensions ?? [] : state.view === 'refunds' ? refundDimensions ?? [] : dimensions.data ?? [];
   const locations = [...new Map(choices.map(item => [item.locationId, item.locationName])).entries()];
   const machines = [...new Map(choices.filter(item => state.locationId === 'all' || item.locationId === state.locationId).map(item => [item.machineId, item])).values()];
-  const choicesReady = state.view === 'labor' ? laborDimensions !== undefined : state.view === 'refunds' ? refundDimensions !== undefined : dimensions.isSuccess;
+  const choicesReady = state.view === 'finance' ? financeAccess.isSuccess : state.view === 'labor' ? laborDimensions !== undefined : state.view === 'refunds' ? refundDimensions !== undefined : dimensions.isSuccess;
   const scopeInvalid = Boolean(choicesReady && workspaceMode && ((state.locationId !== 'all' && !locations.some(([id]) => id === state.locationId)) || (state.machineId !== 'all' && !machines.some(item => item.machineId === state.machineId))));
   const filters: SalesReportFilters = useMemo(() => ({ dateFrom: state.dateFrom, dateTo: state.dateTo, grain: 'day', machineIds: state.machineId === 'all' ? [] : [state.machineId], locationIds: state.locationId === 'all' ? [] : [state.locationId], paymentMethods: state.paymentMethod === 'all' ? [] : [state.paymentMethod] }), [state]);
   const prior = useMemo(() => comparisonRange(state), [state]);
@@ -113,7 +117,9 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
       <ReportingFilters key={`${state.view}:${state.dateFrom}:${state.dateTo}`} state={state} salesView={salesView} locations={locations} machines={machines} onChange={navigate}/>
       <p className="mt-2 text-xs text-muted-foreground">{salesView && prior ? `Comparing with ${prior.dateFrom} to ${prior.dateTo}. ` : ''}{state.dateTo >= new Date().toLocaleDateString('en-CA') ? 'Current day may be partial. ' : ''}Business dates, inclusive. <a href="#reporting-coverage" className="underline underline-offset-2">Data coverage</a></p>
     </>}
-    {(accessError || (!accessLoading && !domainAccessLoading && !selectedAllowed)) && <Alert className="mt-6"><AlertTitle>{accessError ? 'Reporting access could not be loaded' : 'This reporting view is not available to your account'}</AlertTitle><AlertDescription>Select an available view or refresh to retry access. A saved link does not grant permission.</AlertDescription></Alert>}
+    {(accessError || (!accessLoading && !domainAccessLoading && !financeAccess.isLoading && !selectedAllowed && !(state.view === 'finance' && financeAccess.isError))) && <Alert className="mt-6"><AlertTitle>{accessError ? 'Reporting access could not be loaded' : 'This reporting view is not available to your account'}</AlertTitle><AlertDescription>Select an available view or refresh to retry access. A saved link does not grant permission.</AlertDescription></Alert>}
+    {state.view === 'finance' && financeAccess.isLoading && <Skeleton aria-label="Checking finance access" className="mt-6 h-32"/>}
+    {state.view === 'finance' && financeAccess.isError && <Alert className="mt-6"><AlertTitle>Finance access could not be loaded</AlertTitle><AlertDescription>Your sales and refund reporting scope could not be verified. <Button variant="outline" className="ml-2 min-h-11" onClick={() => void financeAccess.refetch()}><RefreshCw className="mr-2 h-4 w-4"/>Retry</Button></AlertDescription></Alert>}
     {domainAccessError && <p role="status" className="mt-4 text-sm text-muted-foreground">Labor or refund access could not be verified. Those views remain unavailable until access loads successfully.</p>}
     {rangeTooLong && workspaceMode && <Alert className="mt-6"><AlertTitle>Choose a shorter reporting period</AlertTitle><AlertDescription>Analytics supports up to 367 days at a time. Choose Custom range from Period. For longer sales periods, use Sales → Detailed report & PDFs.</AlertDescription></Alert>}
     {invalidLinkedDates && workspaceMode && <Alert className="mt-6"><AlertTitle>The linked dates are invalid</AlertTitle><AlertDescription>Choose valid dates before loading this report. <Button variant="link" onClick={() => navigate({ dateFrom: state.dateFrom, dateTo: state.dateTo })}>Use the dates shown above</Button></AlertDescription></Alert>}
@@ -125,6 +131,7 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'overview' && (hasLaborPanel || hasRefundPanel) && <ReportingOperations key={user?.id} scope={scope} canUseLabor={hasLaborPanel} canUseRefunds={hasRefundPanel} onNavigate={view => navigate({ view })} />}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'labor' && <div className="mt-6">{laborPanel?.(scope)}</div>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'refunds' && <div className="mt-6">{refundPanel?.(scope)}</div>}
+    {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'finance' && <ReportingFinance scope={scope} onMachine={(machineId, locationId) => navigate({ machineId, locationId })}/>}
     {selectedAllowed && state.view === 'partners' && <div className="mt-6">{partnerView}</div>}
     {selectedAllowed && showDetailed && <div className="mt-4">{detailedSales()}</div>}
     <details className="mt-8 border-t border-border pt-4" id="reporting-coverage"><summary className="cursor-pointer text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Data coverage and metric definitions</summary><div className="mt-3 max-w-3xl space-y-2 text-sm leading-relaxed text-muted-foreground"><p>Latest sale in authorized scope: {accessContext.latestSaleDate ?? 'Unknown'}. Latest completed import: {accessContext.latestImportCompletedAt ? new Date(accessContext.latestImportCompletedAt).toLocaleString() : 'Unknown'}. A recent import does not establish completeness across providers, machines or dates.</p><p>No loaded rows means unavailable coverage, not confirmed zero activity. Unknown amounts remain unavailable; known subtotals identify omitted rows. Prior comparisons use the same currently authorized filters and require a positive prior denominator.</p><p>Transaction counts use the canonical provider financial unit. Sales per recorded transaction uses sales before refunds, excluding tax under the shared basis. Machine-local business dates are retained. Time entries, recovery and payroll use their own permissions and date basis.</p><p>Calculation versions in loaded sales: {[...new Set(rows.map(row => row.calculationVersion))].join(', ') || 'No loaded sales'}. No provider completeness denominator or verified uptime is available.</p></div></details>

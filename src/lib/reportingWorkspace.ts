@@ -1,13 +1,13 @@
 import type { PaymentMethod, SalesReportRow } from './reporting';
 
-export type WorkspaceView = 'overview' | 'sales' | 'locations' | 'labor' | 'refunds' | 'partners';
+export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'labor' | 'refunds' | 'partners';
 export type ComparisonMode = 'previous_period' | 'previous_month' | 'none';
 export type WorkspaceState = {
   view: WorkspaceView; dateFrom: string; dateTo: string;
   locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
   comparison: ComparisonMode;
 };
-export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'locations', 'labor', 'refunds', 'partners'];
+export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'finance', 'locations', 'labor', 'refunds', 'partners'];
 const day = 86400000;
 const dateValue = (value: string) => new Date(`${value}T00:00:00Z`);
 export const dateString = (value: Date) => value.toISOString().slice(0, 10);
