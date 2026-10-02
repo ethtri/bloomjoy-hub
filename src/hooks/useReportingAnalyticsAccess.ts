@@ -6,7 +6,7 @@ import { fetchRefundAnalyticsAccess } from '@/lib/refundAnalytics';
 /** Independent domain permissions; sales access never implies time, pay or refunds. */
 export function useReportingAnalyticsAccess(enabled = true, domain?: 'labor' | 'refunds') {
   const { user } = useAuth();
-  const options = { enabled: enabled && Boolean(user?.id), staleTime: 60000, retry: false };
+  const options = { enabled: enabled && Boolean(user?.id), staleTime: 60000, retry: false, retryOnMount: false };
   const labor = useQuery({ ...options, enabled: options.enabled && domain !== 'refunds', queryKey: ['reporting-labor-access', user?.id], queryFn: fetchLaborAnalyticsAccess });
   const refunds = useQuery({ ...options, enabled: options.enabled && domain !== 'labor', queryKey: ['reporting-refund-access', user?.id], queryFn: fetchRefundAnalyticsAccess });
   return {
