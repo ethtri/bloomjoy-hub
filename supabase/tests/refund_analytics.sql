@@ -123,6 +123,65 @@ select is((public.get_refund_analytics('2026-02-01','2026-02-28',null,array['fa7
 set local role authenticated;
 select is((public.get_refund_analytics('2026-02-01','2026-02-28')#>>'{cohort,requestCount}')::int,4,'Authenticated role can execute only the guarded manager projection');
 reset role;
+
+-- Current exception receipts preserve original purchase separately from the
+-- affected purchase portion. Courtesy change is all goodwill and has no
+-- recognition events by design; this never zeroes missing ordinary history.
+set local session_replication_role=replica;
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status)
+ values('fa740000-0000-4000-8000-000000000003','fa720000-0000-4000-8000-000000000001','fa730000-0000-4000-8000-000000000001','Exception analytics fixture','active');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status)
+ values('fa740000-0000-4000-8000-000000000003','fa710000-0000-4000-8000-000000000001','refund-manager@example.invalid','active');
+insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
+ values('fa740000-0000-4000-8000-000000000003',0,'2020-01-01','active');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+ status,customer_request_received_at,customer_request_received_source,issue_category,resolution_method,
+ affected_amount_cents,cash_inserted_amount_cents,expected_change_amount_cents,
+ gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state) values
+ ('fa750000-0000-4000-8000-000000000008','RF-ANALYTICS-8','fa740000-0000-4000-8000-000000000003','fa730000-0000-4000-8000-000000000001',
+ 'partial@example.invalid','Partial gift fixture','2026-02-15T12:00Z','card',3000,1000,'completed','2026-02-15T12:00Z','hosted_refund_intake','partial_items','gift_card',1000,null,null,
+ gen_random_uuid(),1000,'2027-01-01','issued'),
+ ('fa750000-0000-4000-8000-000000000009','RF-ANALYTICS-9','fa740000-0000-4000-8000-000000000003','fa730000-0000-4000-8000-000000000001',
+ 'courtesy@example.invalid','Issued expected-change courtesy','2026-02-15T12:00Z','cash',1000,0,'completed','2026-02-15T12:00Z','hosted_refund_intake','expected_cash_change','gift_card',9000,10000,9000,
+ gen_random_uuid(),9000,'2027-01-01','issued'),
+ ('fa750000-0000-4000-8000-000000000010','RF-ANALYTICS-10','fa740000-0000-4000-8000-000000000003','fa730000-0000-4000-8000-000000000001',
+ 'pending-courtesy@example.invalid','Pending expected-change courtesy','2026-02-15T12:00Z','cash',1000,0,'needs_review','2026-02-15T12:00Z','hosted_refund_intake','expected_cash_change','gift_card',9000,10000,9000,
+ gen_random_uuid(),9000,'2027-01-01','manager_review');
+insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
+ booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
+ request_target_before_cents,request_target_after_cents,recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance) values
+ ('analytics:partial-opening','fa750000-0000-4000-8000-000000000008','request_received','2026-02-15T12:00Z','2026-02-15T12:00Z',
+ '2026-02-15','fa740000-0000-4000-8000-000000000003','fa730000-0000-4000-8000-000000000001','card','hosted_refund_intake','2026-02-15',0,3000,0,3000,'tax_inclusive','synthetic'),
+ ('analytics:partial-reviewed','fa750000-0000-4000-8000-000000000008','amount_changed','2026-03-04T12:00Z','2026-03-04T12:00Z',
+ '2026-03-04','fa740000-0000-4000-8000-000000000003','fa730000-0000-4000-8000-000000000001','card','hosted_refund_intake','2026-02-15',3000,1000,3000,1000,'tax_inclusive','synthetic');
+insert into public.refund_gift_card_issuances(refund_case_id,code_id,pool_id,normalized_email,
+ purchase_amount_cents,affected_purchase_amount_cents,face_value_cents,goodwill_amount_cents,currency,eligible_locations,expires_at,
+ redemption_instructions,message_id,message_identity_digest,issued_at) values
+ ('fa750000-0000-4000-8000-000000000008',gen_random_uuid(),gen_random_uuid(),'partial@example.invalid',3000,1000,1000,0,'USD',array['Fixture'],
+ '2027-01-01','Private instructions',gen_random_uuid(),repeat('d',64),'2026-03-05T12:00Z'),
+ ('fa750000-0000-4000-8000-000000000009',gen_random_uuid(),gen_random_uuid(),'courtesy@example.invalid',1000,0,9000,9000,'USD',array['Fixture'],
+ '2027-01-01','Private instructions',gen_random_uuid(),repeat('c',64),'2026-03-05T12:00Z');
+set local session_replication_role=origin;
+create temporary table exception_analytics_reports as select
+ public.get_refund_analytics('2026-02-01','2026-02-28',array['fa740000-0000-4000-8000-000000000003']::uuid[]) as feb,
+ public.get_refund_analytics('2026-03-01','2026-03-31',array['fa740000-0000-4000-8000-000000000003']::uuid[]) as march,
+ public.get_refund_analytics('2026-02-01','2026-03-31',array['fa740000-0000-4000-8000-000000000003']::uuid[]) as combined;
+select is((select (march#>>'{period,giftPurchaseCents}')::int from exception_analytics_reports),1000,'Period gift recovery uses affected purchase and excludes courtesy purchase value');
+select is((select (combined#>>'{cohort,resolvedGiftPurchaseCents}')::int from exception_analytics_reports),1000,'Cohort gift recovery matches canonical affected-purchase helper');
+select is((select (march#>>'{period,giftFaceCents}')::int from exception_analytics_reports),10000,'Partial and courtesy gift face values remain separate from purchase recovery');
+select is((select (march#>>'{period,goodwillCents}')::int from exception_analytics_reports),9000,'Cash-change courtesy is entirely Bloomjoy goodwill');
+select is((select (march#>>'{period,cashPaidCents}')::int from exception_analytics_reports),0,'Neither exception gift is recorded cash paid');
+select is((select (feb#>>'{asOf,outstandingCents}')::int from exception_analytics_reports),3000,'Historical purchase balance excludes pending courtesy and future gift issuance');
+select is((select (march#>>'{asOf,outstandingCents}')::int from exception_analytics_reports),0,'Affected partial gift fully resolves purchase balance');
+select is((select (combined#>>'{cohort,requestCount}')::int from exception_analytics_reports),3,'Courtesy remains visible as a received request');
+select is((select (combined#>>'{cohort,requestedCents}')::int from exception_analytics_reports),3000,'Original cohort purchase request is preserved; courtesy adds zero purchase impact');
+select is((select (combined#>>'{asOf,unknownBalanceCount}')::int from exception_analytics_reports),0,'Missing courtesy recognition is explicit zero, not an unknown ordinary purchase balance');
+select is((select (combined#>>'{cohort,unknownAmountCount}')::int from exception_analytics_reports),0,'Courtesy zero purchase amount is known despite intentionally absent recognition');
+select is((select jsonb_array_length(march->'aging') from exception_analytics_reports),0,'Neither issued nor pending courtesy creates purchase-balance aging');
+select is((select (feb#>>'{period,requestDeductionExTaxCents}')::int from exception_analytics_reports),3000,'Courtesy creates no request-period deduction');
+select is((select (march#>>'{period,reversalExTaxCents}')::int from exception_analytics_reports),2000,'Partial approval reverses only the unaffected purchase portion in the change period');
+select is((select (march#>>'{period,requestDeductionExTaxCents}')::int from exception_analytics_reports),0,'Gift issuance and courtesy do not add another deduction');
 select set_config('request.jwt.claim.sub','fa710000-0000-4000-8000-000000000002',true);
 select is((public.get_refund_analytics_access()->>'hasAccess')::boolean,false,'Sales viewer without manager assignment denied');
 select throws_ok($$select public.get_refund_analytics('2026-02-01','2026-02-28')$$,'42501',null,'Direct endpoint rechecks manager authority');

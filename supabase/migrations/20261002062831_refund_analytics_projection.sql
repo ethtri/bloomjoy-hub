@@ -76,7 +76,8 @@ begin
       and exists(select 1 from scope s where s.id=l.reporting_machine_id)
       and exists(select 1 from scope s where s.id=a.reporting_machine_id)
   ), gifts as materialized (
-    select l.root_id,i.purchase_amount_cents,i.face_value_cents,i.goodwill_amount_cents,
+    select l.root_id,coalesce(i.affected_purchase_amount_cents,i.purchase_amount_cents) as purchase_amount_cents,
+      i.face_value_cents,i.goodwill_amount_cents,
       (i.issued_at at time zone cl.timezone)::date as issue_date
     from lineage l join roots r on r.id=l.root_id
     join public.refund_gift_card_issuances i on i.refund_case_id=l.id
@@ -85,9 +86,14 @@ begin
     where exists(select 1 from scope s where s.id=l.reporting_machine_id)
   ), cases as materialized (
     select r.*,
-      opening.request_target_after_cents as requested_cents,
-      latest.request_target_after_cents as target_cents,
-      latest.id is not null as has_history,
+      -- Expected-change gifts are courtesy goodwill, with explicitly zero
+      -- purchase impact under the canonical exception contract. Recognition
+      -- intentionally omits them; absent ordinary history still stays unknown.
+      case when r.issue_category='expected_cash_change' then 0
+        else opening.request_target_after_cents end as requested_cents,
+      case when r.issue_category='expected_cash_change' then 0
+        else latest.request_target_after_cents end as target_cents,
+      latest.id is not null or r.issue_category='expected_cash_change' as has_history,
       coalesce(paid.as_of_cents,0)::bigint as paid_cents,
       case when exists(select 1 from lineage l where l.root_id=r.id
         and not exists(select 1 from scope s where s.id=l.reporting_machine_id))
