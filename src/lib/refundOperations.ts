@@ -68,6 +68,8 @@ export type RefundIssueCategory =
   | 'product_problem'
   | 'charged_more_than_once'
   | 'wrong_amount'
+  | 'partial_items'
+  | 'expected_cash_change'
   | 'other';
 export type RefundCaseStatus =
   | 'draft'
@@ -125,6 +127,7 @@ export type RefundQrClaim = {
 };
 
 export type RefundWalletCorrectionContext = {
+  customerLocale?: 'en' | 'es';
   state: 'ready';
   expiresAt: string;
   version: number;
@@ -149,6 +152,7 @@ type InspectRefundWalletCorrectionResponse = {
 };
 
 export type SubmitRefundWalletCorrectionInput = {
+  customerLocale?: 'en' | 'es';
   token: string;
   walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
   cardNetwork: RefundCardNetwork | '';
@@ -195,6 +199,9 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
+  customerLocale?: 'en' | 'es';
+  cashInsertedAmount?: string;
+  expectedChangeAmount?: string;
   resolutionMethod?: RefundResolutionMethod;
   giftCardOffer?: { poolId: string; value: number; expiresAt: string };
   submissionId?: string;
@@ -243,6 +250,7 @@ export type RefundSubmissionReceipt = NonNullable<SubmitRefundRequestResponse['r
 };
 
 type RefundCustomerStatusResponse = {
+  customerLocale?: 'en' | 'es';
   gift_card?: unknown;
   error?: string;
   errorCode?: string;
@@ -1572,6 +1580,7 @@ export type ExecuteNayaxCardRefundInput = {
 };
 
 export type ApproveReviewedNayaxCandidateInput = {
+  refundAmountCents?: number;
   caseId: string;
   expectedOfficialActionVersion: number;
   preparationProofId: string;
@@ -1590,6 +1599,7 @@ export type ApproveReviewedNayaxCandidateResponse = {
 };
 
 export type ApproveSelectedNayaxCandidateInput = {
+  refundAmountCents?: number;
   caseId: string;
   expectedOfficialActionVersion: number;
 };
@@ -1838,7 +1848,7 @@ export const submitRefundRequest = async (
 
 export const fetchRefundCustomerStatus = async (
   token: string,
-): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null }> => {
+): Promise<{ lifecycle: RefundCustomerLifecycle; expiresAt: string | null; giftCard: RefundGiftCardStatus | null; customerLocale: 'en' | 'es' }> => {
   const data = await invokeEdgeFunction<RefundCustomerStatusResponse>('refund-case-intake', {
     action: 'readStatus',
     token,
@@ -1849,6 +1859,7 @@ export const fetchRefundCustomerStatus = async (
   return {
     lifecycle: requireRefundCustomerLifecycle(data.lifecycle),
     giftCard: requireRefundGiftCardStatus(data.gift_card),
+    customerLocale: data.customerLocale === 'es' ? 'es' : 'en',
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : null,
   };
 };
@@ -4047,6 +4058,7 @@ export const executeNayaxCardRefund = async ({
   );
 
 export const approveReviewedNayaxCandidate = async ({
+  refundAmountCents,
   caseId,
   expectedOfficialActionVersion,
   preparationProofId,
@@ -4055,7 +4067,7 @@ export const approveReviewedNayaxCandidate = async ({
   const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
     'nayax-card-refund',
     { operation: 'approve_reviewed', caseId, expectedOfficialActionVersion,
-      preparationProofId, candidateToken },
+      preparationProofId, candidateToken, refundAmountCents },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to decide this reviewed card refund.',
@@ -4071,12 +4083,13 @@ export const approveReviewedNayaxCandidate = async ({
 };
 
 export const approveSelectedNayaxCandidate = async ({
+  refundAmountCents,
   caseId,
   expectedOfficialActionVersion,
 }: ApproveSelectedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
   const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
     'nayax-card-refund',
-    { operation: 'approve_selected', caseId, expectedOfficialActionVersion },
+    { operation: 'approve_selected', caseId, expectedOfficialActionVersion, refundAmountCents },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to approve this selected card refund.',

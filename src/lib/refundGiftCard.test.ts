@@ -32,3 +32,15 @@ Deno.test('transport acceptance, inbox delivery, and delivery recovery stay dist
     assertEquals(giftCardStatusCopy({ ...status, state }).detail.includes('saved'), true);
   }
 });
+
+Deno.test('partial SQL projection crosses existing public parser and status copy using approved gift value', () => {
+  // Same fields asserted against actual SQL projection in refund_exception_amounts.sql.
+  const projection = { ...card, state: 'issued', purchase_amount: 3000, affected_amount: 1000,
+    value: 1000, goodwill_amount: 0, currency: 'USD', eligible_locations: ['Exceptions venue'] };
+  const parsed = requireRefundGiftCardStatus(projection)!;
+  assertEquals(parsed.value, 1000);
+  assertEquals(parsed.eligible_locations, ['Exceptions venue']);
+  assertEquals(giftCardStatusCopy(parsed).detail, 'Your $10.00 Bloomjoy gift card is ready.');
+  assertEquals('purchase_amount' in parsed, false);
+  assertEquals(giftCardStatusCopy(parsed).detail.includes('$30'), false);
+});

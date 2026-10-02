@@ -812,6 +812,7 @@ serve(async (req) => {
       const { data, error } = await actorClient.rpc("admin_decide_refund_gift_card", {
         p_case_id: body.caseId, p_approve: body.action === "approveGiftCard",
         p_notes: sanitizeText(body.notes, 1000) || null,
+        p_affected_amount_cents: body.affectedAmountCents ?? null,
       });
       if (error) return jsonResponse({ error: "The gift-card decision could not be saved.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
       if (body.action === "denyGiftCard") {

@@ -4675,7 +4675,7 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
         approveToken,
         evidence: {
           caseId: claim.caseId,
-          amountCents: claim.wire.originalAmountCents,
+          amountCents: claim.wire.refundAmountCents,
           currencyCode: "USD",
           transactionId: claim.wire.transactionId,
           siteId: claim.wire.siteId,
@@ -4703,7 +4703,7 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
         return await provider.execute({
           caseId: claim.caseId,
           idempotencyKey: claim.wire.idempotencyKey,
-          amountCents: claim.wire.originalAmountCents,
+          amountCents: claim.wire.refundAmountCents,
           currencyCode: "USD",
         });
       } catch {
@@ -4720,7 +4720,7 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
           p_authorization_id: claim.sourceApprovalId,
           p_case_id: claim.caseId,
           p_idempotency_key: claim.wire.idempotencyKey,
-          p_amount_cents: claim.wire.originalAmountCents,
+          p_amount_cents: claim.wire.refundAmountCents,
           p_currency_code: "USD",
           p_provider_claim_token: claim.providerClaimToken,
           p_provider_outcome: outcome.kind,

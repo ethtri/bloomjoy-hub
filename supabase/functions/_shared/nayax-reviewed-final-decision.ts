@@ -8,6 +8,7 @@ export type ReviewedFinalDecisionRequest = {
   expectedOfficialActionVersion: number;
   preparationProofId: string;
   candidateToken: string;
+  refundAmountCents?: number;
 };
 
 export const parseReviewedFinalDecisionRequest = (
@@ -18,6 +19,8 @@ export const parseReviewedFinalDecisionRequest = (
   const version = input.expectedOfficialActionVersion;
   const proof = input.preparationProofId;
   const token = input.candidateToken;
+  const amount = input.refundAmountCents;
+  if (amount != null && (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0)) return null;
   if (typeof version !== "number" || !Number.isSafeInteger(version) ||
     version <= 0 || typeof proof !== "string" ||
     !uuidPattern.test(proof) || typeof token !== "string" ||
@@ -26,6 +29,7 @@ export const parseReviewedFinalDecisionRequest = (
     expectedOfficialActionVersion: version,
     preparationProofId: proof,
     candidateToken: token,
+    ...(amount == null ? {} : { refundAmountCents: amount as number }),
   };
 };
 

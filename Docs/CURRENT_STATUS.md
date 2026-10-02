@@ -18,6 +18,21 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- The October 2 09:01 workflow health check timed out while a submitted-form
+  response repeatedly built the purchase-value selection catalog. The stack
+  helpers and health callers were unchanged by the exception backend release.
+  A separate one-evaluation repair is in verification; full-result parity,
+  authoritative database execution and actual health recovery remain pending.
+  No health replay, communications or financial action is part of that repair.
+
+- A bounded #1429/#628 repair is validating positive-only Sunze cash proof
+  parity. A current grounded candidate in RF-FF2A88FA had a research source key
+  that the preparation lookup could not reproduce. The existing research,
+  selection, current read and recommendation paths now share that identity,
+  retaining explicit review and unknown source-time semantics. Synthetic stale
+  source and mapping regressions pass; deployment and actual-case acceptance
+  remain pending. No live selection, communication or financial action occurred.
+
 - PR #1685 deployed the bounded System gift-notice outbox repair on October 2.
   The existing immutable gift-message proof now permits its authorized automatic
   NULL-author envelope; manual notices still require their author. The sole

@@ -744,7 +744,7 @@ export const createUnknownProviderOutcomeChecks = ({
             await page.getByRole('status', { name: 'Checking refund availability', exact: true }).isVisible() &&
             (await page.getByText('Card refunds unavailable', { exact: true }).count()) === 0 &&
             (await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).count()) === 0 &&
-            (await page.getByTestId('refund-manager-state').innerText()).startsWith('Refund $') &&
+            (await page.getByTestId('refund-manager-state').innerText()).startsWith('Selected purchase: $') &&
             await page.getByText(/Payment: Not issued\./).first().isVisible()
           )),
         JSON.stringify({ functionCalls, availabilityBodies })

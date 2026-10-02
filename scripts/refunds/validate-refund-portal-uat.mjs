@@ -4565,7 +4565,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       ? 'Current proof-backed projection restores the one Manager decision'
       : 'Old v2 RPC retains case with temporary unavailable action',
     withNextWork
-      ? stateText.includes('Refund') &&
+      ? stateText === 'Selected purchase: $7.00 USD' &&
         (await page.getByTestId('refund-run-nayax-refund').count()) === 1
       : stateText.includes('Finding the purchase') &&
         (await page.getByTestId('refund-action-status').count()) === 0 &&

@@ -441,8 +441,9 @@ serve(async (req) => {
       // prior effects under its approval lock. Machine availability belongs to
       // the System claimant; this request only queues the protected attempt.
       const { data, error } = await userClient.rpc(
-        "admin_approve_selected_nayax_refund_for_system_v1",
-        { p_case_id: refundCase.id, p_expected_case_version: expectedVersion },
+        "admin_approve_selected_nayax_refund_for_system_v2",
+        { p_case_id: refundCase.id, p_expected_case_version: expectedVersion,
+          p_refund_amount_cents: body.refundAmountCents ?? null },
       );
       const result = !error && data && typeof data === "object"
         ? data as Record<string, unknown>
@@ -496,12 +497,13 @@ serve(async (req) => {
       // under one lock. It queues the already-supported protected attempt but
       // never contacts Nayax or sends a customer message in this request.
       const { data, error } = await userClient.rpc(
-        "admin_approve_reviewed_nayax_candidate_v1",
+        "admin_approve_reviewed_nayax_candidate_v2",
         {
           p_case_id: refundCase.id,
           p_expected_case_version: decision.expectedOfficialActionVersion,
           p_preparation_proof_id: decision.preparationProofId,
           p_candidate_token: decision.candidateToken,
+          p_refund_amount_cents: decision.refundAmountCents ?? null,
         },
       );
       const result = !error

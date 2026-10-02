@@ -417,7 +417,7 @@ export const createOrdinarySuccessChecks = ({
       'Machine transaction comparison is visible and explicit',
       await page.getByTestId('nayax-result-card').isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-manager-state').getByText('Refund $7.00 USD', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-manager-state').getByText('Selected purchase: $7.00 USD', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
     );
@@ -538,8 +538,8 @@ export const createOrdinarySuccessChecks = ({
     );
     recorder.assert(
       'Case header keeps one current state and one next step',
-      await page.getByTestId('refund-manager-state').getByText('Refund $7.00 USD', { exact: true }).isVisible() &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Refund $7.00') &&
+      await page.getByTestId('refund-manager-state').getByText('Selected purchase: $7.00 USD', { exact: true }).isVisible() &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Approve $7.00 USD refund') &&
         await page.getByTestId('refund-manager-next-step').isVisible()
     );
     recorder.assert(
@@ -580,8 +580,8 @@ export const createOrdinarySuccessChecks = ({
           diagnostics.actionLabel === 'Approve $7.00 USD refund' &&
           diagnostics.actionVisible &&
           diagnostics.actionDisabled === false &&
-          diagnostics.managerState === 'Refund $7.00 USD' &&
-          diagnostics.primaryActionText.includes('Refund $7.00') &&
+          diagnostics.managerState === 'Selected purchase: $7.00 USD' &&
+          diagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
           diagnostics.forbiddenCopyMatches.length === 0
         ? diagnostics
         : null;
@@ -592,8 +592,8 @@ export const createOrdinarySuccessChecks = ({
         inAppExecutionDiagnostics.actionLabel === 'Approve $7.00 USD refund' &&
         inAppExecutionDiagnostics.actionVisible &&
         inAppExecutionDiagnostics.actionDisabled === false &&
-        inAppExecutionDiagnostics.managerState === 'Refund $7.00 USD' &&
-        inAppExecutionDiagnostics.primaryActionText.includes('Refund $7.00') &&
+        inAppExecutionDiagnostics.managerState === 'Selected purchase: $7.00 USD' &&
+        inAppExecutionDiagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
         inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
       JSON.stringify(inAppExecutionDiagnostics)
     );
@@ -1787,7 +1787,7 @@ export const createOrdinarySuccessChecks = ({
         (await demoRefundAction.count()) === 1 &&
           await demoRefundAction.isDisabled() &&
           (await demoRefundAction.innerText()).includes('Approve $7.00 USD refund') &&
-          (await page.getByTestId('refund-manager-state').innerText()) === 'Refund $7.00 USD' &&
+          (await page.getByTestId('refund-manager-state').innerText()) === 'Selected purchase: $7.00 USD' &&
           demoPrimaryActionText.includes('Transaction time') &&
           demoPrimaryActionText.includes('Nayax card') &&
           await page.getByTestId('refund-deny-instead').isVisible(),

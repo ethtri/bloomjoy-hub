@@ -1054,7 +1054,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       expectedHeading: '1 transaction found',
       expectedStatus: '1 result',
-      expectedAction: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
+      expectedAction: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund defaults to the selected purchase amount; the Manager can refund the affected portion.",
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
     },
