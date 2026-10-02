@@ -65,14 +65,14 @@ try {
 
     await tab(page, 'Partners').click(); await page.getByRole('heading', { name: 'Partner performance summary', exact: true }).waitFor();
     await page.screenshot({ path: path.join(output, 'partners-desktop.png'), fullPage: true });
-    for (const width of [360, 390, 768, 1024]) {
+    for (const width of [320, 360, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 844 });
-      for (const view of ['overview', 'labor', 'refunds', 'locations']) {
+      for (const view of ['overview', 'sales', 'labor', 'refunds', 'locations', 'partners']) {
         await page.goto(url(view), { waitUntil: 'networkidle' }); await ready(page); await fit(page);
         if (width === 390) await page.screenshot({ path: path.join(output, `${view}-mobile.png`), fullPage: true });
       }
     }
-    checks.push('Overview, Locations, Labor and Refunds fit 360/390/768/1024px; Partners renders');
+    checks.push('All six views fit 320/360/390/768/1024/1440px');
   } finally { await context.close(); }
 
   }

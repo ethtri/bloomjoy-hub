@@ -29,10 +29,15 @@
   Custom dates apply together, preserve scope and survive refresh/Back. Invalid
   dates do not fetch data. Labor/refunds show no sales tender or comparison control.
   Partners retain agreement-specific period controls. Verify saved view,
-  briefing and CSV downloads, empty/error states and 360/390/768/1024px layouts.
+  briefing and CSV downloads, empty/error states and 320/360/390/768/1024/1440px layouts.
+- [ ] When the optional labor/refund permission services are unavailable, existing
+  operator and partner reports still open without a loading/retry loop. A granted
+  labor or refund view remains usable when the other service fails. Unverified
+  domains never fetch report data; accounts without verified access can retry.
 - [ ] Run `npm run reporting:test-analytics`,
   `npm run reporting:validate-workspace-uat -- --app-url http://127.0.0.1:8081`,
-  and `npm run reporting:validate-portal-uat -- --app-url http://127.0.0.1:8081`
+  `npm run reporting:validate-portal-uat -- --app-url http://127.0.0.1:8081`,
+  and `node scripts/validate-reporting-access-uat.mjs --app-url http://127.0.0.1:8081`
   against a local server with synthetic fixtures. Run disposable database replay
   for the real authorization and canonical financial-calculation assertions.
 
