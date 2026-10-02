@@ -129,9 +129,11 @@ insert into public.sales_adjustment_facts(reporting_machine_id,reporting_locatio
  ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',99999,'manual',repeat('3',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01'),
  ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',88888,'manual',repeat('4',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
- issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,case_population)
+ issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,case_population,
+ automation_state,internal_test_reason,internal_test_classified_at,internal_test_classified_by)
  values('fb750000-0000-4000-8000-000000000005','RF-FINANCE-5','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001',
- 'test@example.invalid','Private internal test','2026-02-01T12:00Z','card',77777,77777,'completed','internal_test');
+ 'test@example.invalid','Private internal test','2026-02-01T12:00Z','card',77777,77777,'closed','internal_test',
+ 'closed_incomplete','provider_test','2026-03-01T12:00Z','fb710000-0000-4000-8000-000000000001');
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
  adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at)
  values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',77777,'manual',repeat('5',64),
