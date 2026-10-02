@@ -1,0 +1,138 @@
+{
+  "actor": "system",
+  "stage": "matching",
+  "lookup": {
+    "status": "not_started",
+    "failureClass": null,
+    "lastUpdatedAt": null,
+    "safeRetryEligible": false
+  },
+  "version": 6,
+  "nextWork": {
+    "actor": "system",
+    "dueAt": null,
+    "isOpen": true,
+    "blocker": null,
+    "actionCode": "none",
+    "actionLabel": "The System is delivering the assigned gift card.",
+    "schemaVersion": "refund_next_work_v1",
+    "lastProgressAt": "2026-10-02T02:07:13.50513+00:00",
+    "payloadRedacted": true
+  },
+  "terminal": false,
+  "gift_card": {
+    "state": "issued",
+    "value": 1000,
+    "currency": "USD",
+    "issued_at": "2026-10-02T02:07:13.50513+00:00",
+    "expires_at": "2026-12-30T16:28:46+00:00",
+    "delivery_state": "claimed",
+    "goodwill_amount": 0,
+    "payloadRedacted": true,
+    "purchase_amount": 1000,
+    "eligible_locations": [
+      "Bloomjoy Test Mall"
+    ],
+    "redemption_instructions": "On the machine’s touchscreen, choose ‘Enter coupon/code’ and enter your code."
+  },
+  "stageRank": 70,
+  "operations": {
+    "dueAt": "2026-10-02T03:07:13.50513+00:00",
+    "owner": "Refund Operations",
+    "queue": "Refund Operations",
+    "nextStep": "Review customer delivery evidence. Do not resend the message blindly. Follow the current refund step separately.",
+    "required": true,
+    "safeStage": "not_started",
+    "ageMinutes": 65,
+    "slaMinutes": 60,
+    "slaBreached": true,
+    "failureClass": "customer_delivery_exception"
+  },
+  "reasonCode": "customer_notification_pending",
+  "managerQueue": {
+    "label": "Gift-card resolution",
+    "bucket": "system_processing",
+    "nextAction": "none",
+    "schemaVersion": "refund_manager_queue_v2",
+    "payloadRedacted": true,
+    "safeRetryEligible": false,
+    "customerActionFields": []
+  },
+  "messageState": {
+    "state": "pending",
+    "messageType": "completed",
+    "lastUpdatedAt": "2026-10-02T02:07:13.50513+00:00",
+    "payloadRedacted": true
+  },
+  "paymentState": "not_requested",
+  "evidenceState": "authoritative_machine_scope",
+  "lastUpdatedAt": "2026-10-02T03:07:02.02911+00:00",
+  "managerAction": {
+    "owner": "Refund Operations",
+    "action": "review_delivery_no_resend",
+    "payloadRedacted": true,
+    "safeRetryEligible": false
+  },
+  "publicCopyKey": "refund_request_received",
+  "schemaVersion": "refund_lifecycle_v2",
+  "classification": "customer",
+  "customerAction": {
+    "required": false,
+    "payloadRedacted": true,
+    "requestedFields": []
+  },
+  "payloadRedacted": true,
+  "customerOutreach": {
+    "owner": "None",
+    "state": "none",
+    "cycleId": null,
+    "nextAction": "none",
+    "reasonCode": null,
+    "cycleNumber": null,
+    "failureCode": null,
+    "deliveryState": null,
+    "requestSentAt": null,
+    "schemaVersion": "refund_customer_outreach_v1",
+    "caseFactVersion": 1,
+    "payloadRedacted": true,
+    "replyReceivedAt": null,
+    "requestedFields": [],
+    "recheckStartedAt": null,
+    "requestCreatedAt": null,
+    "requestMessageId": null,
+    "clarificationLimit": 2,
+    "deliveryStateUpdatedAt": null,
+    "manualFallbackEligible": false,
+    "clarificationAttemptCount": 0
+  },
+  "locationEvidence": {
+    "normalized": {
+      "timezone": "America/Los_Angeles",
+      "machineId": "ac000000-0000-4000-8000-000000000001",
+      "confidence": 0,
+      "locationId": "ac000000-0000-4000-8000-000000000002",
+      "authoritative": true,
+      "mappingSource": "sunze",
+      "mappingVersion": 2,
+      "payloadRedacted": true,
+      "providerAccountKey": "SYNTHETIC"
+    },
+    "payloadRedacted": true,
+    "customerReported": {
+      "preserved": true,
+      "machineIds": [
+        "ac000000-0000-4000-8000-000000000001"
+      ],
+      "selectionKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "selectionKind": "exact_machine",
+      "payloadRedacted": true
+    }
+  },
+  "resolutionMethod": "gift_card",
+  "managerNextAction": "review_delivery_no_resend",
+  "safeRetryEligible": false,
+  "definitiveNoRefund": false,
+  "paymentWorkComplete": true,
+  "refreshAfterSeconds": 5,
+  "decisionRecommendation": null
+}
