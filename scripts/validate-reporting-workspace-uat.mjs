@@ -12,8 +12,23 @@ const checks = [];
 const browser = await chromium.launch({ headless: true });
 const url = (view = 'overview', extra = '') => `${appUrl}/portal/reports?view=${view}&from=2026-07-16&to=2026-07-22&compare=previous_period${extra}`;
 const open = async (persona, viewport = { width: 1440, height: 900 }) => createPageForPersona(browser, persona, viewport, { rpcHandler: workspaceRpcResponse });
-const ready = page => page.getByRole('navigation', { name: 'Reporting views' }).waitFor();
-const tab = (page, name) => page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name, exact: true });
+const ready = page => page.locator('[data-reporting-workspace]').waitFor();
+const tab = (page, name) => ({
+  count: () => page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name, exact: true }).count(),
+  click: async () => {
+    if (name === 'Labor' || name === 'Refunds & Recovery') {
+      const linked = new URL(page.url()); linked.pathname = '/portal/reports'; linked.searchParams.set('view', name === 'Labor' ? 'labor' : 'refunds');
+      await page.goto(linked.toString(), { waitUntil: 'networkidle' }); return;
+    }
+    if (new URL(page.url()).pathname !== '/portal/reports') {
+      const linked = new URL(page.url()); linked.pathname = '/portal/reports'; linked.searchParams.set('view', name.toLowerCase());
+      await page.goto(linked.toString(), { waitUntil: 'networkidle' }); return;
+    }
+    if (await page.locator('#reporting-view').isVisible()) {
+      await page.locator('#reporting-view').click(); await page.getByRole('option', { name, exact: true }).click();
+    } else await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name, exact: true }).click();
+  },
+});
 const fit = async page => {
   const dimensions = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
   if (dimensions.scroll > dimensions.width + 1) {
@@ -27,13 +42,13 @@ try {
   const { page, context, state } = await open(workspacePersonas.superAdmin);
   try {
     await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
-    assert.equal(await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button').count(), 6);
+    assert.equal(await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button').count(), 4);
     await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
     await page.getByRole('heading', { name: 'Recorded effort', exact: true }).waitFor();
     await page.getByText('Known outstanding balance', { exact: true }).waitFor();
     assert(state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report' && call.body.p_machine_ids === null && call.body.p_location_ids === null), 'All-scope labor must use null, not empty deny-all arrays');
     await fit(page); await page.screenshot({ path: path.join(output, 'overview-desktop.png'), fullPage: true });
-    checks.push('Six authorized views, cross-domain overview and unfiltered API scope');
+    checks.push('Four authorized central views, cross-domain overview and unfiltered API scope');
 
     await page.getByRole('button', { name: 'Save view', exact: true }).click();
     await page.getByLabel('View name', { exact: true }).fill('Weekly business review');
@@ -45,7 +60,8 @@ try {
 
     await page.getByRole('button', { name: 'Explore North Hall', exact: true }).click();
     await page.getByRole('heading', { name: 'North Hall 360', exact: true }).waitFor();
-    await page.getByRole('heading', { name: 'Recorded labor', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Recorded effort', exact: true }).waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'Recorded labor', exact: true }).count(), 0);
     await page.getByRole('heading', { name: 'Refunds & recovery', exact: true }).waitFor();
     assert(new URL(page.url()).searchParams.get('location') === 'location-north');
     assert(state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report' && call.body.p_location_ids?.[0] === 'location-north'));
@@ -68,7 +84,7 @@ try {
     for (const width of [320, 360, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 844 });
       for (const view of ['overview', 'sales', 'labor', 'refunds', 'locations', 'partners']) {
-        await page.goto(url(view), { waitUntil: 'networkidle' }); await ready(page); await fit(page);
+        await page.goto(url(view), { waitUntil: 'networkidle' }); await (['labor', 'refunds'].includes(view) ? page.getByRole('heading', { name: view === 'labor' ? 'Recorded labor' : 'Refunds & recovery', exact: true }).waitFor() : ready(page)); await fit(page);
         if (width === 390) await page.screenshot({ path: path.join(output, `${view}-mobile.png`), fullPage: true });
       }
     }
@@ -224,13 +240,13 @@ try {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(workspaceRpcResponse('get_refund_analytics_access', workspacePersonas.superAdmin)) });
     });
     await page.goto(url('labor', '&machine=unauthorized-machine'), { waitUntil: 'networkidle' });
-    await page.getByText('Selected scope is unavailable', { exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: 'outside your labor report access' }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report'));
     await page.goto(`${appUrl}/portal/reports?view=refunds&from=2024-01-01&to=2026-07-22`, { waitUntil: 'networkidle' });
-    await page.getByText('Choose a shorter reporting period', { exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: /367 days/ }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
     await page.goto(`${appUrl}/portal/reports?view=refunds&from=2026-02-30&to=2026-07-22`, { waitUntil: 'networkidle' });
-    await page.getByText('The linked dates are invalid', { exact: true }).waitFor();
+    await page.getByRole('alert').filter({ hasText: /valid date/ }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
     await page.route('**/rest/v1/rpc/get_sales_report', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable source' }) }));
     await page.goto(url('overview'), { waitUntil: 'networkidle' });

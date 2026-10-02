@@ -22,7 +22,7 @@ try {
       } else {
         await page.locator('[data-reporting-workspace]').waitFor();
         await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: role === 'corporatePartner' ? 'Partners' : 'Sales', exact: true }).waitFor();
-        if (role === 'operator') await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
+        if (role === 'operator') await page.locator('[data-portal-report-export="operator-pdf"]').waitFor();
         else await page.locator('[data-reporting-partner-machine-picker]').waitFor();
       }
       await page.waitForTimeout(1000);
@@ -45,6 +45,8 @@ try {
       const view = role === 'timeOnly' ? 'labor' : 'refunds';
       await page.goto(`${appUrl}/portal/reports?view=${view}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('heading', { name: role === 'timeOnly' ? 'Recorded labor' : 'Refunds & recovery', exact: true }).waitFor();
+      assert.equal(new URL(page.url()).pathname, role === 'timeOnly' ? '/portal/time-review' : '/refunds');
+      assert.equal(new URL(page.url()).searchParams.get('view'), 'reports');
       await page.waitForTimeout(1000);
       assert(unavailableCalls <= 2, `${role}: unrelated failed domain must not remount (${unavailableCalls} requests)`);
       assert(!state.rpcCalls.some(call => call.rpcName === (role === 'timeOnly' ? 'get_refund_analytics' : 'get_labor_analytics_report')));
