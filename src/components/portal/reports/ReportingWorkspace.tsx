@@ -44,6 +44,13 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
   useEffect(() => { try { setSaved(parseSavedViews(localStorage.getItem(storageKey))); } catch { setSaved([]); } }, [storageKey]);
   const navigate = (patch: Partial<WorkspaceState>) => {
     const next = writeWorkspaceState({ ...state, ...patch }, params);
+    // Filter or view changes must not silently repair invalid linked dates.
+    if (patch.dateFrom === undefined && patch.dateTo === undefined) {
+      for (const key of ['from', 'to']) {
+        if (params.has(key)) next.set(key, params.get(key)!);
+        else next.delete(key);
+      }
+    }
     if (patch.view) next.delete('report');
     setParams(next);
   };
@@ -116,8 +123,8 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
     <div className="mt-5 sm:hidden">
       <Label htmlFor="reporting-view">Report</Label>
       <Select value={selectedAllowed ? state.view : undefined} onValueChange={view => navigate({ view: view as WorkspaceView })}>
-        <SelectTrigger id="reporting-view" className="mt-2 min-h-11 w-full"><SelectValue placeholder="Choose a report"/></SelectTrigger>
-        <SelectContent>{visibleViews.map(view => <SelectItem key={view} value={view} className="min-h-11">{labels[view]}</SelectItem>)}</SelectContent>
+        <SelectTrigger id="reporting-view" className="mt-2 min-h-[44px] w-full"><SelectValue placeholder="Choose a report"/></SelectTrigger>
+        <SelectContent>{visibleViews.map(view => <SelectItem key={view} value={view} className="min-h-[44px]">{labels[view]}</SelectItem>)}</SelectContent>
       </Select>
     </div>
     <nav aria-label="Reporting views" className="mt-5 hidden flex-wrap border-b border-border sm:flex">{visibleViews.map(view => <button type="button" key={view} aria-current={view === state.view ? 'page' : undefined} className={`border-b-2 px-4 py-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${view === state.view ? 'border-[#c44c64] font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={() => navigate({ view })}>{labels[view]}</button>)}</nav>
