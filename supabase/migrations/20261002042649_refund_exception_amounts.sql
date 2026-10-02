@@ -15,9 +15,19 @@ alter table public.refund_gift_card_issuances
   add column affected_purchase_amount_cents integer check(affected_purchase_amount_cents>=0);
 -- Old immutable receipts keep their old fields and interpretation. New receipts
 -- record the affected sale portion separately; no-change courtesy is all goodwill.
+do $$
+declare names text[]; name text;
+begin
+  select array_agg(conname) into names from pg_constraint
+    where conrelid='public.refund_gift_card_issuances'::regclass and contype='c'
+      and (pg_get_constraintdef(oid) like '%face_value_cents >= purchase_amount_cents%'
+        or pg_get_constraintdef(oid) like '%goodwill_amount_cents = (face_value_cents - purchase_amount_cents)%');
+  if cardinality(names) is distinct from 2 then raise exception 'Expected two legacy gift amount constraints'; end if;
+  foreach name in array names loop
+    execute format('alter table public.refund_gift_card_issuances drop constraint %I',name);
+  end loop;
+end $$;
 alter table public.refund_gift_card_issuances
-  drop constraint refund_gift_card_issuances_face_value_cents_check,
-  drop constraint refund_gift_card_issuances_goodwill_amount_cents_check,
   add constraint refund_gift_card_issuance_amounts check(
     face_value_cents>=coalesce(affected_purchase_amount_cents,purchase_amount_cents)
     and goodwill_amount_cents=face_value_cents-coalesce(affected_purchase_amount_cents,purchase_amount_cents));
@@ -269,5 +279,10 @@ begin
     execute d;
   end loop;
 end $$;
+
+select pg_temp.refund_patch('public.refund_claim_nayax_form_receipt_completion_internal(uuid)',
+  'or receipt_row.refunded_amount_cents is distinct from receipt_row.original_amount_cents',
+  'or (receipt_row.refunded_amount_cents is distinct from receipt_row.original_amount_cents
+      and not public.refund_partial_api_receipt_amounts_proved(receipt_row.id))');
 
 select pg_notify('pgrst','reload schema');

@@ -47,9 +47,9 @@ assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED/);
 assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY/);
 const executeReadinessCheck = edge.lastIndexOf('const executionReadiness = await resolveCaseRefundReadiness');
 const selectedApprovalBranch = edge.indexOf('if (operation === "approve_selected")');
-const selectedApprovalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"', selectedApprovalBranch);
+const selectedApprovalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v2"', selectedApprovalBranch);
 const executeApprovalWrite = edge.lastIndexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
-const reviewedWrite = edge.indexOf('"admin_approve_reviewed_nayax_candidate_v1"');
+const reviewedWrite = edge.indexOf('"admin_approve_reviewed_nayax_candidate_v2"');
 const freshActionCheck = edge.indexOf('const { data: actorCanPerformOfficialAction');
 assert.ok(executeReadinessCheck >= 0 && executeApprovalWrite > executeReadinessCheck,
   'The execute request must recheck payment readiness before saving approval');

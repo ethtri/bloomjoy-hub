@@ -224,5 +224,118 @@ select throws_ok(format('select public.admin_approve_reviewed_nayax_candidate_v2
  'P4620',null,'Changed replay amount cannot execute') from partial_review;
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='e1450000-0000-4000-8000-000000000001'),1::bigint,'One partial attempt only');
 select is((select count(*) from public.refund_nayax_provider_stage_journal),0::bigint,'Approval performs no provider call');
+insert into public.refund_nayax_provider_callers(caller_id,assertion_digest,status)
+values('nayax-card-refund',encode(extensions.digest(convert_to('partial-executor','UTF8'),'sha256'),'hex'),'active')
+on conflict(caller_id) do update set assertion_digest=excluded.assertion_digest,status='active';
+create temp table approval_result as select jsonb_build_object('attemptId',id,'authorizationId',official_action_authorization_id) result
+from public.refund_case_nayax_refund_attempts where refund_case_id='e1450000-0000-4000-8000-000000000001';
+create temp table second_claim as select public.service_claim_due_nayax_refund_attempts_v1(
+ 'partial-executor','REVIEWED_ACCOUNT','exact_source','empty_string',1) result;
+select is((select result#>>'{claims,0,wire,refundAmountCents}' from second_claim),'1000','System claim retains approved amount');
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'partial-executor',
+  p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
+  p_provider_claim_token=>(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+  p_stage=>'request',p_event=>'started',p_http_status=>null,p_outcome=>null,
+  p_contract_matched=>null,p_failure_type=>null,p_classification_digest=>repeat('a',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>null,
+  p_media_type_class=>null,p_body_kind=>null,p_body_length_bucket=>null,
+  p_json_parsed=>null,p_json_object=>null,p_schema_matched=>null,
+  p_result_key_present=>null,p_status_key_present=>null,p_result_value_type=>null,
+  p_status_value_type=>null,p_semantic_pair_matched=>null,p_business_result=>null,
+  p_business_status=>null,p_business_pair_retained=>false,p_observed_result_scalar=>null,
+  p_observed_status_scalar=>null,p_observed_scalar_pair_retained=>false,
+  p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
+  p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
+  p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'partial-executor',
+  p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
+  p_provider_claim_token=>(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+  p_stage=>'request',p_event=>'result',p_http_status=>200,p_outcome=>'accepted',
+  p_contract_matched=>true,p_failure_type=>null,p_classification_digest=>repeat('b',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>true,
+  p_media_type_class=>'application_json',p_body_kind=>'json_object',p_body_length_bucket=>'1_256',
+  p_json_parsed=>true,p_json_object=>true,p_schema_matched=>true,
+  p_result_key_present=>true,p_status_key_present=>true,p_result_value_type=>'string',
+  p_status_value_type=>'string',p_semantic_pair_matched=>true,
+  p_business_result=>'Refund status updated successfully, but the email could not be sent',
+  p_business_status=>'Partial success',p_business_pair_retained=>true,
+  p_observed_result_scalar=>'Refund status updated successfully, but the email could not be sent',
+  p_observed_status_scalar=>'Partial success',p_observed_scalar_pair_retained=>true,
+  p_result_diagnostic_text=>'Refund status updated successfully, but the email could not be sent',
+  p_result_diagnostic_disposition=>'exact',p_result_diagnostic_length_bucket=>'1_80',
+  p_status_diagnostic_text=>'Partial success',p_status_diagnostic_disposition=>'exact',
+  p_status_diagnostic_length_bucket=>'1_80');
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'partial-executor',
+  p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
+  p_provider_claim_token=>(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+  p_stage=>'approve',p_event=>'started',p_http_status=>null,p_outcome=>null,
+  p_contract_matched=>null,p_failure_type=>null,p_classification_digest=>repeat('c',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>null,
+  p_media_type_class=>null,p_body_kind=>null,p_body_length_bucket=>null,
+  p_json_parsed=>null,p_json_object=>null,p_schema_matched=>null,
+  p_result_key_present=>null,p_status_key_present=>null,p_result_value_type=>null,
+  p_status_value_type=>null,p_semantic_pair_matched=>null,p_business_result=>null,
+  p_business_status=>null,p_business_pair_retained=>false,p_observed_result_scalar=>null,
+  p_observed_status_scalar=>null,p_observed_scalar_pair_retained=>false,
+  p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
+  p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
+  p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'partial-executor',
+  p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
+  p_provider_claim_token=>(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+  p_stage=>'approve',p_event=>'result',p_http_status=>200,p_outcome=>'succeeded',
+  p_contract_matched=>true,p_failure_type=>null,p_classification_digest=>repeat('d',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>true,
+  p_media_type_class=>'application_json',p_body_kind=>'json_object',p_body_length_bucket=>'1_256',
+  p_json_parsed=>true,p_json_object=>true,p_schema_matched=>true,
+  p_result_key_present=>true,p_status_key_present=>true,p_result_value_type=>'string',
+  p_status_value_type=>'string',p_semantic_pair_matched=>true,
+  p_business_result=>'Refund status updated successfully, but the email could not be sent',
+  p_business_status=>'Partial success',p_business_pair_retained=>true,
+  p_observed_result_scalar=>'Refund status updated successfully, but the email could not be sent',
+  p_observed_status_scalar=>'Partial success',p_observed_scalar_pair_retained=>true,
+  p_result_diagnostic_text=>'Refund status updated successfully, but the email could not be sent',
+  p_result_diagnostic_disposition=>'exact',p_result_diagnostic_length_bucket=>'1_80',
+  p_status_diagnostic_text=>'Partial success',p_status_diagnostic_disposition=>'exact',
+  p_status_diagnostic_length_bucket=>'1_80');
+
+-- Management rehearsal runs one SQL request; statement_timestamp is shared by
+-- that request. Set distinct observed synthetic response times explicitly so
+-- the same strict request-before-approval invariant is exercised there and CI.
+set local session_replication_role=replica;
+update public.refund_nayax_provider_stage_journal set created_at=statement_timestamp()-interval '2 seconds'
+ where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+ and stage='request';
+update public.refund_nayax_provider_stage_journal set created_at=statement_timestamp()-interval '1 second'
+ where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+ and stage='approve';
+set local session_replication_role=origin;
+
+select ok(public.refund_nayax_unsettled_api_success_journal_proved(
+ 'e1450000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result)),
+ 'Partial success has exact frozen amount and request/approval journal proof');
+select lives_ok($sql$select public.service_settle_nayax_refund_attempt('partial-executor',
+ (select (result->>'attemptId')::uuid from approval_result),(select (result->>'authorizationId')::uuid from approval_result),
+ 'e1450000-0000-4000-8000-000000000001',
+ (select idempotency_key from public.refund_case_nayax_refund_attempts where refund_case_id='e1450000-0000-4000-8000-000000000001'),
+ 1000,'USD',(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+ 'success','PARTIAL-SYNTHETIC-RECEIPT','approve_succeeded_contract_match',null)$sql$,
+ 'Partial System settlement commits affected financial amount');
+select results_eq($$select original_amount_cents,refunded_amount_cents from public.refund_authoritative_receipts where refund_case_id='e1450000-0000-4000-8000-000000000001'$$,
+ $$select 3000::integer,1000::integer$$,'Receipt retains original $30 and proved refund $10');
+create temp table completion_result as select public.service_claim_nayax_refund_completion('partial-executor',
+ (select (result->>'attemptId')::uuid from approval_result)) result;
+select is((select result->>'status' from completion_result),'queued','Partial form completion enters existing transactional queue');
+select is((select count(*) from public.refund_receipt_completion_intents where refund_case_id='e1450000-0000-4000-8000-000000000001'),1::bigint,
+ 'Exactly one partial completion intent is persisted without sending');
+select lives_ok($sql$select public.service_ensure_refund_receipt_automatic_completions(10)$sql$,'Partial receipt recovery scanner accepts the same proof');
 select * from finish();
 rollback;
