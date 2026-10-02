@@ -1,6 +1,5 @@
 import { useAuth } from '@/contexts/auth-context';
-import { Link, useSearchParams } from 'react-router-dom';
-import RefundReports from './RefundReports';
+import { Link } from 'react-router-dom';
 import { fetchRefundAnalyticsAccess } from '@/lib/refundAnalytics';
 import { RefundGiftCardSupplySection } from '@/components/refunds/RefundGiftCardSupplySection';
 import { resolveManagerRefundAmountDraft } from '@/lib/refundManagerAmount';
@@ -2777,11 +2776,6 @@ const getPrimaryActionIssues = (
 };
 
 export default function AdminRefundsPage() {
-  const [params] = useSearchParams();
-  return params.get('view') === 'reports' ? <RefundReports /> : <RefundQueuePage />;
-}
-
-function RefundQueuePage() {
   const { user } = useAuth();
   const reportAccess = useQuery({ queryKey: ['reporting-refund-access', user?.id], queryFn: fetchRefundAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 0, retry: false });
   const queryClient = useQueryClient();

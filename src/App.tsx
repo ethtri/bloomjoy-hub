@@ -91,6 +91,11 @@ const AdminPartnerships = lazyRoute(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazyRoute(() => import("./pages/admin/Reporting"));
 const AdminPayouts = lazyRoute(() => import("./pages/admin/Payouts"));
 const AdminRefunds = lazyRoute(() => import("./pages/admin/Refunds"));
+const RefundReports = lazyRoute(() => import("./pages/admin/RefundReports"));
+const RefundWorkspace = () => {
+  const { search } = useLocation();
+  return new URLSearchParams(search).get('view') === 'reports' ? <RefundReports /> : <AdminRefunds />;
+};
 const AdminAudit = lazyRoute(() => import("./pages/admin/Audit"));
 const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
@@ -237,7 +242,7 @@ export const AppShell = () => (
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
             <Route element={<RefundOperationsRoute />}>
-              <Route path="/refunds" element={<AdminRefunds />} />
+              <Route path="/refunds" element={<RefundWorkspace />} />
               <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />
               <Route path="/admin/refunds" element={<RedirectWithSearch to="/refunds" />} />
             </Route>

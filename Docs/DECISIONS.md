@@ -1081,3 +1081,11 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Unavailable optional reporting services cannot strand navigation on an empty hidden view. Fall back to an authorized view without broadening date/location/machine filters. Failed cached access is not continuing authorization.
 - Technical service diagnostics belong in Admin Reporting; partner setup diagnostics remain in Admin Partnerships Weekly Preview. Partner export/print guards remain enforced, with a concise unavailable export action and preliminary figures label instead of a report-wide setup alert.
 - Frontend preview readiness does not prove backend readiness. The local interactive preview is explicitly synthetic and cannot contact or modify production.
+
+## 2026-10-02 - Operational report homes and mobile navigation (#1708, #1709)
+
+- Central Reporting contains Overview, Sales, Finance, Locations and Partners. Detailed labor analytics lives at `/portal/time-review?view=reports`; detailed refund/recovery analytics lives at `/refunds?view=reports`. Existing operational work remains the default in each app.
+- Overview and Locations retain permitted operational headline metrics and links carrying dates, location and machine. Finance retains the financial refund reconciliation. Old labor/refund report links redirect to their owning app with the original linked filters; no saved link expands scope.
+- Mobile uses a labeled Report selector with vertically listed destinations and stacked report rows; desktop retains visible tabs and comparison tables. The report homes share Period, Location and More filters controls.
+- Report-only actors keep their existing analytics access independently of time-review or refund-case authority. Routing, sidebar links, data queries and workflow entry points respect that separation. Failed access checks stay closed and do not retry in a mount loop.
+- Refund report code loads separately from the case workflow. This reorganization changes no calculations, backend grants, source data, payments or production configuration.

@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/auth-context';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { LaborAnalyticsPanel } from '@/components/portal/reports/LaborAnalyticsPanel';
 import { ReportingFilters } from '@/components/portal/reports/ReportingFilters';
 import { fetchLaborAnalyticsAccess } from '@/lib/laborAnalytics';
@@ -45,7 +44,7 @@ export default function LaborReportPage() {
     next.set('view', 'reports'); setParams(next);
   };
   return <PortalLayout><section className="portal-section"><div className="container-page min-w-0 space-y-5">
-    <PortalPageIntro title="Timekeeping" description="Review recorded effort across weeks, locations and machines." />
+    <header><h1 className="text-2xl font-semibold tracking-tight">Timekeeping</h1><p className="mt-1 text-sm text-muted-foreground">Review recorded effort across weeks, locations and machines.</p></header>
     <TimekeepingReportNavigation reports />
     {access.isPending ? <p role="status" className="py-8 text-muted-foreground">Checking labor report access…</p> : access.isError ? <div role="alert"><p>Labor report access could not load.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !authorized ? <p>Labor reports require Time Report or account Pay Report access.</p> : <>
       <ReportingFilters state={state} salesView={false} locations={locations} machines={machines} onChange={change} />

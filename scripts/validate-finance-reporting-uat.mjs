@@ -122,7 +122,12 @@ try {
     await page.evaluate(() => { window.__financeRegressionSpaMarker = 'same-document'; });
     await page.locator('a[href="/admin/reporting"]').filter({ visible: true }).click();
     await page.waitForURL('**/admin/reporting');
-    await page.getByRole('button', { name: 'Recheck services', exact: true }).waitFor();
+    try { await page.getByRole('button', { name: 'Recheck services', exact: true }).waitFor(); }
+    catch (error) {
+      await page.screenshot({ path: `${output}/admin-service-regression-failure.png`, fullPage: true });
+      console.error('Admin service regression page:', await page.locator('body').innerText());
+      throw error;
+    }
     assert.equal(await page.evaluate(() => window.__financeRegressionSpaMarker), 'same-document', 'Navigate through SPA to retain query cache');
     financeUnavailable = true;
     await page.getByRole('button', { name: 'Recheck services', exact: true }).click();
