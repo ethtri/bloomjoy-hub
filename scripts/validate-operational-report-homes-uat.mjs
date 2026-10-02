@@ -58,6 +58,7 @@ try {
         assert(!await page.getByRole('navigation', { name: 'Reporting views', exact: true }).isVisible());
         await page.getByLabel('Report', { exact: true }).click();
         assert.deepEqual(await page.getByRole('option').allTextContents(), ['Overview', 'Sales', 'Finance', 'Locations', 'Partners']);
+        await page.waitForFunction(() => [...document.querySelectorAll('[role="option"]')].every(option => option.getBoundingClientRect().height >= 43.99));
         for (const option of await page.getByRole('option').all()) assert((await option.boundingBox()).height >= 44);
         await page.getByRole('option', { name: 'Locations', exact: true }).click();
       } else {
