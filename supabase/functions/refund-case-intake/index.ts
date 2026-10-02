@@ -1618,7 +1618,7 @@ serve(async (req) => {
 
     if (
       body?.issueCategory !== undefined &&
-      !["charged_no_product", "product_problem", "charged_more_than_once", "wrong_amount", "other"].includes(
+      !["charged_no_product", "product_problem", "charged_more_than_once", "wrong_amount", "partial_items", "expected_cash_change", "other"].includes(
         submittedIssueCategory,
       )
     ) {
@@ -2494,6 +2494,7 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          gift_card: pendingGiftCardResult,
           statusToken: statusCapability?.token ?? null,
           statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
@@ -2531,6 +2532,7 @@ serve(async (req) => {
             status: refundCase.status,
             correlationStatus: refundCase.correlation_status,
           },
+          gift_card: pendingGiftCardResult,
           statusToken: statusCapability?.token ?? null,
           statusExpiresAt: statusCapability?.expiresAt ?? null,
         }),
