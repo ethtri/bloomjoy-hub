@@ -89,7 +89,7 @@ create temp table linked_change_case as select public.service_create_refund_case
  'reportingLocationId','fa030000-0000-4000-8000-000000000001','issueSummary','Synthetic expected cash change',
  'incidentAt',statement_timestamp(),'incidentTimezone','UTC','incidentTimeResolution','exact',
  'paymentMethod','cash','paymentAmountCents',1000,'paymentInteraction','cash','incidentTimeConfidence','exact',
- 'issueCategory','expected_cash_change','status','needs_review','correlationStatus','needs_cash_match',
+ 'issueCategory','expected_cash_change','status','needs_review','correlationStatus','not_started',
  'resolutionMethod','gift_card','affectedAmountCents',9000,'cashInsertedAmountCents',10000,'expectedChangeAmountCents',9000,
  'giftCardPoolId','fa050000-0000-4000-8000-000000002500','giftCardValueCents',9000,
  'giftCardExpiresAt',now()+interval '30 days','giftCardState','manager_review',
