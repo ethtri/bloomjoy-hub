@@ -92,7 +92,8 @@ import {
 } from '@/components/ui/table';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { PartnerWaterfall } from '@/components/portal/reports/PartnerWaterfall';
+import { ReportingWorkspace } from '@/components/portal/reports/ReportingWorkspace';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
@@ -130,7 +131,6 @@ import {
 } from '@/lib/signedExportWindow';
 import { cn } from '@/lib/utils';
 
-type ReportingView = 'operator' | 'partner';
 type OperatorPeriodPreset =
   | 'today'
   | 'last_7_days'
@@ -703,14 +703,14 @@ const buildPartnerMachineOptions = (
       (candidate) => candidate.locationName === machine.locationName
     ).length;
     if (machine.locationName && sameLocationCount === 1) {
-      return { ...machine, displayLabel: `${machine.label} · ${machine.locationName}` };
+      return { ...machine, displayLabel: `${machine.label} Â· ${machine.locationName}` };
     }
 
     const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === machine.id) + 1;
-    const locationPrefix = machine.locationName ? `${machine.locationName} · ` : '';
+    const locationPrefix = machine.locationName ? `${machine.locationName} Â· ` : '';
     return {
       ...machine,
-      displayLabel: `${machine.label} · ${locationPrefix}Machine ${duplicateIndex}`,
+      displayLabel: `${machine.label} Â· ${locationPrefix}Machine ${duplicateIndex}`,
     };
   });
 };
@@ -833,123 +833,33 @@ const formatSalesRefundCurrency = (value: number | null, usesSharedSalesBasis: b
   usesSharedSalesBasis ? formatRefundImpact(value, true) : formatSalesRowCurrency(value);
 
 export default function ReportsPage() {
-  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
-  const { t } = useLanguage();
-  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin || isCorporatePartner;
-  const [activeView, setActiveView] = useState<ReportingView>(
-    isCorporatePartner ? 'partner' : 'operator'
-  );
-  const hasAppliedCorporatePartnerDefault = useRef(isCorporatePartner);
-  const partnerDashboardLabel = isCorporatePartner ? 'Partner Dashboard' : t('reports.partnerDashboard');
-  const introDescription = canUsePartnerDashboard
-    ? t('reports.description')
-    : t('reports.operatorDescription');
-
-  const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
-    useQuery({
-      queryKey: ['reporting-access-context'],
-      queryFn: fetchReportingAccessContext,
-      staleTime: 1000 * 60,
+  const { user, isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const { data: accessContext = emptyReportingAccessContext, isLoading: accessLoading, isError: accessError } = useQuery({
+    queryKey: ['reporting-access-context', user?.id],
+    queryFn: fetchReportingAccessContext,
+    enabled: Boolean(user?.id),
+    staleTime: 60000,
   });
-
-  useEffect(() => {
-    if (!canUsePartnerDashboard && activeView === 'partner') {
-      setActiveView('operator');
-    }
-  }, [activeView, canUsePartnerDashboard]);
-
-  useEffect(() => {
-    if (!isCorporatePartner || !canUsePartnerDashboard || hasAppliedCorporatePartnerDefault.current) {
-      return;
-    }
-
-    hasAppliedCorporatePartnerDefault.current = true;
-    setActiveView('partner');
-  }, [canUsePartnerDashboard, isCorporatePartner]);
-
-  return (
-    <PortalLayout>
-      <section className="portal-section">
-        <div className="container-page">
-          <PortalPageIntro
-            title={t('reports.title')}
-            description={introDescription}
-            badges={[
-              {
-                label: t('reports.machinesAvailable', {
-                  count: accessContext.accessibleMachineCount,
-                }),
-                tone: 'muted',
-              },
-              {
-                label: t('reports.latestSale', {
-                  date: formatDate(accessContext.latestSaleDate),
-                }),
-                tone: 'muted',
-              },
-              {
-                label: t('reports.lastImport', {
-                  date: formatDateTime(accessContext.latestImportCompletedAt),
-                }),
-                tone: 'muted',
-              },
-              {
-                label: accessFetching
-                  ? t('reports.refreshing')
-                  : isSuperAdmin
-                    ? t('reports.superAdminReporting')
-                    : isCorporatePartner
-                      ? 'Corporate Partner reporting'
-                    : t('reports.operatorReporting'),
-                tone: isSuperAdmin || isCorporatePartner ? 'accent' : 'default',
-              },
-            ]}
-            actions={
-              canUsePartnerDashboard ? (
-                <ToggleGroup
-                  aria-label={t('reports.viewToggleLabel')}
-                  type="single"
-                  value={activeView}
-                  onValueChange={(value) => {
-                    if (value === 'operator' || value === 'partner') setActiveView(value);
-                  }}
-                  className="grid w-full grid-cols-2 rounded-lg border border-border bg-background p-1 sm:w-[340px]"
-                >
-                  <ToggleGroupItem value="operator" className="h-9 rounded-md text-sm">
-                    {t('reports.operatorView')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="partner" className="h-9 rounded-md text-sm">
-                    {partnerDashboardLabel}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              ) : undefined
-            }
-          />
-
-          <div className="mt-6">
-            {activeView === 'partner' && canUsePartnerDashboard ? (
-              <PartnerDashboardView />
-            ) : (
-              <OperatorReportingView
-                accessContext={accessContext}
-                accessContextFetching={accessFetching}
-              />
-            )}
-          </div>
-        </div>
-      </section>
-    </PortalLayout>
-  );
+  return <PortalLayout><section className="portal-section"><div className="container-page">
+    <ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
+      canUsePartners={isSuperAdmin || isScopedAdmin || isCorporatePartner}
+      partnerView={<PartnerDashboardView />}
+      detailedSales={(filters) => <OperatorReportingView key={JSON.stringify(filters)} accessContext={accessContext} accessContextFetching={accessLoading} workspaceFilters={filters} />}
+    />
+  </div></section></PortalLayout>;
 }
 
 function OperatorReportingView({
   accessContext,
   accessContextFetching,
+  workspaceFilters,
 }: {
   accessContext: ReportingAccessContext;
   accessContextFetching: boolean;
+  workspaceFilters?: SalesReportFilters;
 }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const operatorChartConfig = useMemo(
     () =>
       ({
@@ -958,12 +868,12 @@ function OperatorReportingView({
     [t]
   );
   const defaultRange = useMemo(() => getOperatorPresetRange('last_7_days'), []);
-  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_7_days');
-  const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
-  const [dateTo, setDateTo] = useState(defaultRange.dateTo);
+  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters ? 'custom' : 'last_7_days');
+  const [dateFrom, setDateFrom] = useState(workspaceFilters?.dateFrom ?? defaultRange.dateFrom);
+  const [dateTo, setDateTo] = useState(workspaceFilters?.dateTo ?? defaultRange.dateTo);
   const [grain, setGrain] = useState<ReportGrain>('day');
-  const [machineId, setMachineId] = useState('all');
-  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>([]);
+  const [machineId, setMachineId] = useState(workspaceFilters?.machineIds?.[0] ?? 'all');
+  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(workspaceFilters?.paymentMethods ?? []);
   const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
   const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -973,7 +883,7 @@ function OperatorReportingView({
     isLoading: dimensionsLoading,
     error: dimensionsError,
   } = useQuery({
-    queryKey: ['reporting-dimensions'],
+    queryKey: ['reporting-dimensions', user?.id],
     queryFn: fetchReportingDimensions,
     staleTime: 1000 * 60,
   });
@@ -993,8 +903,9 @@ function OperatorReportingView({
       grain,
       machineIds: machineId === 'all' ? [] : [machineId],
       paymentMethods: selectedPayments,
+      locationIds: workspaceFilters?.locationIds,
     }),
-    [dateFrom, dateTo, grain, machineId, selectedPayments]
+    [dateFrom, dateTo, grain, machineId, selectedPayments, workspaceFilters?.locationIds]
   );
 
   const {
@@ -1003,7 +914,7 @@ function OperatorReportingView({
     isFetching,
     error,
   } = useQuery({
-    queryKey: ['sales-report', filters],
+    queryKey: ['sales-report', user?.id, filters],
     queryFn: () => fetchSalesReport(filters),
     enabled: !dimensionsLoading,
     staleTime: 1000 * 30,
@@ -1246,11 +1157,11 @@ function OperatorReportingView({
                 <span className="text-muted-foreground">
                   {formatDateRange(dateFrom, dateTo)}
                 </span>
-                <span aria-hidden="true" className="text-border">•</span>
+                <span aria-hidden="true" className="text-border">â€¢</span>
                 <span className="text-muted-foreground">{t(reportGrainLabelKeys[grain])}</span>
-                <span aria-hidden="true" className="text-border">•</span>
+                <span aria-hidden="true" className="text-border">â€¢</span>
                 <span className="text-muted-foreground">{selectedMachineLabel}</span>
-                <span aria-hidden="true" className="text-border">•</span>
+                <span aria-hidden="true" className="text-border">â€¢</span>
                 <span className="text-muted-foreground">{selectedPaymentLabel}</span>
               </div>
               {hasNonDefaultFilters && (
@@ -1758,7 +1669,7 @@ function PartnerDashboardUnavailableState({
 }
 
 function PartnerDashboardView() {
-  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const { user, isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const canSeeInternalPartnerWarnings = isSuperAdmin || isScopedAdmin;
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
@@ -1775,7 +1686,7 @@ function PartnerDashboardView() {
     isLoading: partnershipsLoading,
     error: partnershipsError,
   } = useQuery({
-    queryKey: ['partner-dashboard-partnerships'],
+    queryKey: ['partner-dashboard-partnerships', user?.id],
     queryFn: fetchPartnerDashboardPartnerships,
     staleTime: 1000 * 60,
   });
@@ -1823,6 +1734,7 @@ function PartnerDashboardView() {
   } = useQuery({
     queryKey: [
       'partner-dashboard-period-preview',
+      user?.id,
       'selected',
       selectedPartnershipId,
       selectedPeriod?.periodGrain,
@@ -1852,6 +1764,7 @@ function PartnerDashboardView() {
   } = useQuery({
     queryKey: [
       'partner-dashboard-period-preview',
+      user?.id,
       'trend',
       selectedPartnershipId,
       trendRange?.periodGrain,
@@ -3255,6 +3168,7 @@ function PartnerCalculationCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <PartnerWaterfall summary={summary} usesSharedSalesBasis={usesSharedSalesBasis} />
         <CalculationLine label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'} value={formatCurrency(summary.grossSalesCents, true)} />
         <CalculationLine label="Refund impact" value={formatRefundImpact(summary.refundAmountCents, true)} />
         <CalculationLine label={usesSharedSalesBasis ? 'Sales tax (separated)' : 'Tax impact'} value={`${usesSharedSalesBasis ? '' : '-'}${formatCurrency(summary.taxCents, true)}`} />
