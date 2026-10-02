@@ -307,6 +307,7 @@
     "20261001170500_refund_lifecycle_operations_boolean.sql",
     "20261002031102_refund_gift_card_next_work_parity.sql",
     "20261002031754_refund_system_completion_delivery_authority.sql",
+    "20261002042132_refund_positive_cash_snapshot_parity.sql",
     "20261002044630_refund_portal_outreach_reuse.sql"
   ],
   "migrationFilesSha256": "ae336f2a4fa6065caed309aadf14f444efb01714ccdf3860b210e25f83a80f27",
