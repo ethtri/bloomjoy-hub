@@ -238,7 +238,7 @@ Deno.test("unknown requested amounts never turn into zero or silently complete a
     "known requested dollars stay explicitly partial while both requests count",
   );
 });
-Deno.test("technician digest counts remain visible without sales or requested money outside access", () => {
+Deno.test("stored digest access flags stay compatible without inventing restricted money", () => {
   const p = fixtureProjection();
   p.managerOpenCases = null;
   p.managerCaseMachines = [];
@@ -278,6 +278,106 @@ Deno.test("technician digest counts remain visible without sales or requested mo
   );
   p.machines[0].digest!.requestedAmountCents = 1000;
   rejects(p);
+});
+Deno.test("assigned technician digest shows original request totals while sales remains independent", () => {
+  for (const category of ["daily", "weekly"] as const) {
+    const p = fixtureProjection();
+    p.category = category;
+    p.managerOpenCases = null;
+    p.managerCaseMachines = [];
+    p.machines = [fixtureMachine(101, {
+      reportingAllowed: false,
+      salesComplete: false,
+      coverageStatus: "unavailable",
+      grossSalesCents: null,
+      netSalesCents: null,
+      refundAmountCents: null,
+      transactionCount: null,
+      previousGrossSalesCents: null,
+      refundCases: [fixtureCase(1, {
+        canOpenCase: true,
+        needsDecision: false,
+        amountCents: null,
+        currencyCode: null,
+      })],
+      digest: fixtureDigest(),
+    })];
+    p.summary = summarizeMachineEmail(p.machines);
+    const email = buildMachineEmail({ projection: p, links });
+    assert(
+      email.text.includes("Refunds requested: $10.00 · 1 new request") &&
+        email.text.includes("Sales: Not shared · Sales access not included") &&
+        email.text.includes("TGPaci") &&
+        !email.text.includes("/portal/reports") &&
+        !email.text.includes("Prepared") &&
+        !email.text.includes("RF-SYNTHETIC"),
+      "technician gets compact requested totals without workflow or sales access",
+    );
+    p.machines[0].grossSalesCents = 42000;
+    rejects(p);
+  }
+});
+Deno.test("immediate request uses original requested USD and the authorized request destination", () => {
+  const p = fixtureVariants()["new-refund"];
+  Object.assign(p.machines[0], {
+    reportingAllowed: false,
+    salesComplete: false,
+    coverageStatus: "unavailable",
+    grossSalesCents: null,
+    netSalesCents: null,
+    refundAmountCents: null,
+    transactionCount: null,
+    previousGrossSalesCents: null,
+  });
+  p.summary = summarizeMachineEmail(p.machines);
+  const c = p.machines[0].refundCases[0];
+  c.commentExcerpt =
+    "The cup stopped halfway and the screen showed error code E-09 after payment.";
+  const email = buildMachineEmail({ projection: p, links });
+  assert(
+    email.text.includes("Requested: $10.00") &&
+      email.text.includes("Refund status:") &&
+      email.text.includes("Customer selected: Charged/paid but no product") &&
+      email.text.includes("screen showed error code E-09") &&
+      email.text.includes(`View request: ${links.caseUrl(c.caseId)}`) &&
+      !email.text.includes("/portal/reports") &&
+      !email.text.includes("Prepared amount"),
+    "read-only request context and useful diagnostic wording are retained",
+  );
+  c.amountCents = 999900;
+  c.currencyCode = "GBP";
+  const managerCompatible = buildMachineEmail({ projection: p, links });
+  assert(
+    managerCompatible.text.includes("Requested: $10.00") &&
+      !managerCompatible.text.includes("9,999") &&
+      !managerCompatible.text.includes("GBP"),
+    "prepared manager values never become requested amount",
+  );
+  c.requestedAmountCents = null;
+  assert(
+    buildMachineEmail({ projection: p, links }).text.includes(
+      "Requested: Unavailable",
+    ),
+    "unknown original amount stays unavailable",
+  );
+  delete c.requestedAmountCents;
+  assert(
+    buildMachineEmail({ projection: p, links }).text.includes(
+      "Requested: Unavailable",
+    ),
+    "old stored jobs do not fabricate the new amount from prepared values",
+  );
+  for (const invalid of [-1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1, "1000"]) {
+    Object.assign(c, { requestedAmountCents: invalid });
+    rejects(p);
+  }
+  c.requestedAmountCents = 1000;
+  c.needsDecision = true;
+  p.summary = summarizeMachineEmail(p.machines);
+  rejects(p);
+  const daily = fixtureProjection();
+  daily.machines[0].refundCases[0].requestedAmountCents = 1000;
+  rejects(daily);
 });
 Deno.test("weekly comparisons use the same known machines and avoid percentages from zero or missing baselines", () => {
   const p = fixtureVariants()["weekly-companies"];
@@ -398,7 +498,7 @@ Deno.test("mixed machine-local daily and weekly periods stay visible beside the 
     );
   }
 });
-Deno.test("technician privacy and escaped narratives cannot turn into hidden financial data or HTML", () => {
+Deno.test("technician request narratives preserve symptoms without exposing contact, credentials or HTML", () => {
   const p = fixtureProjection();
   p.managerOpenCases = null;
   p.managerCaseMachines = [];
@@ -413,12 +513,13 @@ Deno.test("technician privacy and escaped narratives cannot turn into hidden fin
     transactionCount: null,
     previousGrossSalesCents: null,
     refundCases: [fixtureCase(1, {
-      canOpenCase: false,
+      canOpenCase: true,
       amountCents: null,
       currencyCode: null,
-      commentKind: "operational-summary",
+      requestedAmountCents: 1000,
+      commentKind: "sanitized-narrative",
       commentExcerpt:
-        "<img src=x onerror=alert(1)> contact example@example.test or +1 415 555 0101",
+        "The cup jammed. <img src=x onerror=alert(1)> contact example@example.test or +1 415 555 0101. Gift code SECRET123. PIN 4567. 123 Private Street. Error code E-09 remained.",
     })],
   })];
   p.summary = summarizeMachineEmail(p.machines);
@@ -429,14 +530,31 @@ Deno.test("technician privacy and escaped narratives cannot turn into hidden fin
   );
   assert(
     !email.text.includes("example@example.test") &&
-      !email.text.includes("415 555"),
+      !email.text.includes("415 555") && !email.text.includes("SECRET123") &&
+      !email.text.includes("4567") &&
+      !email.text.includes("123 Private Street") &&
+      email.text.includes("The cup jammed") &&
+      email.text.includes("Error code E-09"),
     "presentation redaction",
   );
   assert(
-    !email.text.includes("/refunds?case=") &&
+    email.text.includes(`View request: ${links.caseUrl(fixtureId(1))}`) &&
       !email.text.includes("/portal/reports"),
-    "no unauthorized destination",
+    "request access does not grant sales-report access",
   );
+  for (
+    const field of [
+      "customerEmail",
+      "customerPhone",
+      "cardLast4",
+      "giftCardCode",
+      "rawProviderPayload",
+    ]
+  ) {
+    const unsafe = structuredClone(p);
+    Object.assign(unsafe.machines[0].refundCases[0], { [field]: "private" });
+    rejects(unsafe);
+  }
   p.machines[0].grossSalesCents = 100;
   rejects(p);
 });
@@ -489,6 +607,15 @@ Deno.test("excerpt redaction and truncation preserve complete Unicode characters
     redacted?.startsWith("🍭") && !redacted.includes("private@example.test") &&
       !redacted.includes("https://") && !redacted.includes("1234"),
     "Unicode handling does not bypass redaction",
+  );
+  const operational = sanitizeOperationalExcerpt(
+    "Machine displayed error code E05; spinner stopped. Fault code E-09 followed. Access code ABC123; voucher code XYZ789; security code 123; password example-secret.",
+  );
+  assert(
+    operational?.includes("error code E05; spinner stopped") &&
+      operational.includes("Fault code E-09") &&
+      !/ABC123|XYZ789|code 123|example-secret/.test(operational),
+    "diagnostic codes survive while explicitly sensitive credentials are removed",
   );
 });
 Deno.test("quiet/offline evidence guards reject stale and inferred states", () => {

@@ -28,6 +28,8 @@ export type MachineEmailCase = {
   nextAction: string;
   amountCents: number | null;
   currencyCode: string | null;
+  /** Original customer-requested USD amount, only in new-refund projections. */
+  requestedAmountCents?: number | null;
   canOpenCase: boolean;
 };
 export type MachineEmailDigest = {
@@ -202,6 +204,14 @@ export const sanitizeOperationalExcerpt = (
     .replace(
       /(?:last\s*(?:four|4)|ending\s*(?:in)?|card\s*(?:number|digits)?)\s*[:#-]?\s*\d{4}/gi,
       "[card details removed]",
+    )
+    .replace(
+      /\b(?:(?:gift\s*(?:card)?|voucher|coupon|security|access)\s*code|token|password|secret|pin|cvv|cvc)\s*(?:is\s+|[:=#-]\s*)?[A-Z0-9][A-Z0-9_-]{2,}/gi,
+      "[credential removed]",
+    )
+    .replace(
+      /\b\d{1,6}\s+(?:[A-Z][A-Z.'-]*\s+){1,6}(?:street|st|avenue|ave|road|rd|lane|ln|drive|dr|boulevard|blvd|court|ct|way)\b(?:\s*,?\s*(?:apt|unit|suite|#)\s*[A-Z0-9-]+)?/gi,
+      "[address removed]",
     );
   return Array.from(sanitized).slice(0, 280).join("");
 };
@@ -225,6 +235,7 @@ function parseCase(value: unknown): MachineEmailCase {
     "currencyCode",
     "canOpenCase",
     ...(row.commentKind === undefined ? [] : ["commentKind"]),
+    ...(row.requestedAmountCents === undefined ? [] : ["requestedAmountCents"]),
   ]);
   if (
     row.commentRedacted !== true ||
@@ -255,10 +266,18 @@ function parseCase(value: unknown): MachineEmailCase {
     nextAction: text(row.nextAction, 400),
     amountCents: money(row.amountCents),
     currencyCode: row.currencyCode === null ? null : text(row.currencyCode, 3),
+    ...(row.requestedAmountCents === undefined ? {} : {
+      requestedAmountCents: row.requestedAmountCents === null
+        ? null
+        : integer(row.requestedAmountCents),
+    }),
     canOpenCase: boolean(row.canOpenCase),
   };
   if (result.currencyCode !== null && !/^[A-Z]{3}$/.test(result.currencyCode)) {
     throw new Error("email_alert_currency_invalid");
+  }
+  if (result.requestedAmountCents === 0) {
+    throw new Error("email_alert_requested_amount_invalid");
   }
   if (result.needsDecision && (!result.isOpen || !result.canOpenCase)) {
     throw new Error("email_alert_decision_scope_invalid");
@@ -488,6 +507,10 @@ export function parseMachineEmailProjection(
     throw new Error("email_alert_unexpected_digest");
   }
   const cases = machines.flatMap((m) => m.refundCases);
+  if (
+    row.category !== "new-refund" &&
+    cases.some((c) => c.requestedAmountCents !== undefined)
+  ) throw new Error("email_alert_unexpected_requested_amount");
   if (
     new Set(machines.map((m) => m.machineId)).size !== machines.length ||
     new Set(cases.map((c) => c.caseId)).size !== cases.length
@@ -769,7 +792,11 @@ export function buildMachineEmail(
     );
   };
   const renderCase = (c: MachineEmailCase, m: MachineEmailMachine) => {
-    heading(`${c.publicReference} · ${c.statusLabel}`, 3);
+    heading(c.publicReference);
+    measures([
+      ["Requested", dollars(c.requestedAmountCents ?? null)],
+      ["Refund status", c.statusLabel],
+    ]);
     paragraph(
       `${
         c.receivedAt
@@ -795,21 +822,9 @@ export function buildMachineEmail(
         }: ${c.commentExcerpt}`
         : "No shareable customer comment available.",
     );
-    paragraph(c.nextAction);
-    if (c.needsDecision && c.amountCents !== null) {
-      paragraph(
-        `Prepared amount: ${
-          c.currencyCode === "USD"
-            ? dollars(c.amountCents)
-            : `${c.currencyCode ?? "Currency not recorded"} ${
-              (c.amountCents / 100).toFixed(2)
-            }`
-        }.`,
-      );
-    }
     anchor(
       c.canOpenCase
-        ? `${c.needsDecision ? "Review" : "Open"} ${c.publicReference}`
+        ? "View request"
         : m.reportingAllowed
         ? "View machine report"
         : "Manage this alert",
@@ -822,7 +837,7 @@ export function buildMachineEmail(
   };
   if (p.category === "new-refund") {
     paragraph(
-      "This is an operational heads-up for a machine you follow. The customer’s description is a reported symptom, not a confirmed diagnosis. No refund decision is requested from you in this email.",
+      "A customer submitted a refund request for a machine you follow.",
     );
     renderCase(machine.refundCases[0], machine);
   } else if (p.category === "sales-quiet") {
