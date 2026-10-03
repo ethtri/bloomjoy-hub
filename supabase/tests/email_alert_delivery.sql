@@ -39,7 +39,7 @@ select is((select p#>>'{machines,0,refundCases,0,canOpenCase}' from email_projec
 select is((select p#>>'{machines,0,grossSalesCents}' from email_projection),null,'No source rows stay unknown rather than zero');
 select is((select p#>>'{machines,0,coverageStatus}' from email_projection),'unavailable','Unknown source has explicit coverage state');
 select ok(not has_function_privilege('authenticated','public.service_claim_next_email_alert(timestamptz)','execute'),'Clients cannot claim mail');
-select ok(not has_function_privilege('anon','public.service_preview_email_alerts(timestamptz)','execute'),'Preview is service-only');
+select ok(not has_function_privilege('anon','public.service_preview_email_alerts(timestamptz,integer,jsonb)','execute'),'Preview is service-only');
 select ok(not has_function_privilege('authenticated','public.service_mark_email_alert_provider_started(uuid,uuid,text,text)','execute'),'Clients cannot cross provider boundary');
 select is((public.service_claim_next_email_alert('2026-10-03T15:00Z')->>'reason'),'delivery_disabled','Migration starts delivery off');
 select is((select count(*)::int from private.email_alert_jobs),0,'Disabled claim writes no jobs');

@@ -61,7 +61,41 @@ select is((select m->>'previousGrossSalesCents' from metric_projections,jsonb_ar
 select is((select m->>'previousGrossSalesCents' from metric_projections,jsonb_array_elements(p->'machines') m where label='one-daily' and m->>'machineId'='ed740000-0000-4000-8000-000000000003'),null,'Missing comparison remains explicitly unknown');
 select is((select p#>>'{summary,grossSalesCents}' from metric_projections where label='two-daily'),'9999','Second actor receives only their current reporting scope');
 select is((select p from metric_projections where label='one-again'),(select p from metric_projections where label='one-daily'),'Repeated same-snapshot projection remains identical');
-select lives_ok($$select public.service_preview_email_alerts('2026-10-03T15:00Z')$$,'Production no-send preview handles both recipients in one cached session');
+select lives_ok($$select public.service_preview_email_alerts('2026-10-03T15:00Z')$$,'Production no-send preview handles a complete recipient');
+
+-- The same intended delivery time falls on different dates for two machine
+-- timezones. Keep exact per-machine current/comparison ranges when batching.
+set local session_replication_role=replica;
+insert into public.reporting_locations(id,account_id,name,timezone)
+ values('ed730000-0000-4000-8000-000000000002','ed720000-0000-4000-8000-000000000001','Far east fixture','Pacific/Kiritimati');
+update public.reporting_machines set location_id='ed730000-0000-4000-8000-000000000002'
+ where id='ed740000-0000-4000-8000-000000000004';
+insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,
+ transaction_count,source,source_row_hash,source_order_hash,raw_payload) values
+ ('ed740000-0000-4000-8000-000000000004','ed730000-0000-4000-8000-000000000002','2026-10-03','cash',700,7,'sunze_browser',repeat('6',64),repeat('6',32),'{}'),
+ ('ed740000-0000-4000-8000-000000000004','ed730000-0000-4000-8000-000000000002','2026-09-26','cash',300,3,'sunze_browser',repeat('7',64),repeat('7',32),'{}');
+set local session_replication_role=origin;
+insert into metric_projections values('two-zones',private.email_alert_projection(
+ 'ed710000-0000-4000-8000-000000000001','daily','2026-10-03T15:00Z','2026-10-02','2026-10-02'));
+select is((select p#>>'{summary,grossSalesCents}' from metric_projections where label='two-zones'),'1700','Different local dates retain separate current-day aggregates');
+select is((select m->>'dateTo' from metric_projections,jsonb_array_elements(p->'machines') m where label='two-zones' and m->>'machineId'='ed740000-0000-4000-8000-000000000004'),'2026-10-03','Far-east machine keeps its original local reporting day');
+select is((select m->>'previousGrossSalesCents' from metric_projections,jsonb_array_elements(p->'machines') m where label='two-zones' and m->>'machineId'='ed740000-0000-4000-8000-000000000004'),'300','Far-east comparison uses its own previous same weekday');
+select ok(not exists(
+ select 1 from metric_projections p cross join lateral jsonb_array_elements(p.p->'machines') m
+ cross join lateral (
+  select count(*)>0 and coalesce(sum(r.unresolved_sales_count),0)=0 and coalesce(sum(r.unresolved_refund_count),0)=0 complete,
+   sum(r.gross_sales_cents)::bigint gross,sum(r.refund_amount_cents)::bigint refunds,
+   sum(r.net_sales_cents)::bigint net,sum(r.transaction_count)::bigint transactions
+  from private.sales_report_rows_for_actor('ed710000-0000-4000-8000-000000000001',
+   (m->>'dateFrom')::date,(m->>'dateTo')::date,'day',array[(m->>'machineId')::uuid]) r
+ ) direct
+ where p.label='two-zones' and (m->>'reportingAllowed')::boolean and
+  ((m->>'salesComplete')::boolean is distinct from direct.complete
+   or (m->>'grossSalesCents')::bigint is distinct from case when direct.complete then direct.gross end
+   or (m->>'refundAmountCents')::bigint is distinct from case when direct.complete then direct.refunds end
+   or (m->>'netSalesCents')::bigint is distinct from case when direct.complete then direct.net end
+   or (m->>'transactionCount')::bigint is distinct from case when direct.complete then direct.transactions end)
+),'Batched metrics equal direct canonical reporting for every authorized machine-local period');
 select is((select count(*)::integer from private.email_alert_jobs),0,'Read-only regression creates no email jobs');
 select * from finish();
 rollback;
