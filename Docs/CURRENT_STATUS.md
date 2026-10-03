@@ -8,6 +8,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Personal machine email subscriptions are implemented in #1717: daily briefs
+  default on for assigned managers and technicians at 08:00 Pacific; the other
+  five alerts default off. #1721 bounds optional ready preparation to subscribed
+  work after the initial scheduler timeout. Production activation and scheduled
+  tick evidence are tracked there; use `EMAIL_ALERTS_RUNBOOK.md` for delivery
+  status and recovery. The legacy-sender ownership fence survives a pause.
+
 - Reporting PR #1709 and its four database migrations are live in production
   (#1696). Central Reporting includes Finance, seven completed days by default,
   prior-year comparison and one detailed Sales view; Labor lives in Timekeeping
