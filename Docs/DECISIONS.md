@@ -14,6 +14,12 @@
   agreements, explicit machine assignments and sales/refund records.
 - Reporting groups historical activity under the machine's current company;
   this correction does not rewrite transaction dates or financial amounts.
+- Existing Merlin payroll profiles retain their original policies, rates,
+  periods and entries. The ownership correction preserves the two existing
+  payroll machine assignments through a narrowly recorded compatibility scope;
+  it does not grant access to other Bloomjoy Enterprises machines or move pay
+  history to a different account. Existing technician access keeps the same
+  explicitly assigned machines.
 
 ## 2026-10-03 - Compact company and machine performance digests
 

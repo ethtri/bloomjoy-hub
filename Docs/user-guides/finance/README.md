@@ -1,15 +1,15 @@
 # Finance team user guides
 
-Use the eight-page guide in the preferred language:
+Use the nine-page guide in the preferred language:
 
 - [English PDF](../../../output/pdf/bloomjoy-finance-guide.en.pdf) - [editable English source](finance-guide.en.md)
 - [简体中文 PDF](../../../output/pdf/bloomjoy-finance-guide.zh-CN.pdf) - [可编辑中文原文](finance-guide.zh-CN.md)
 
-The guides cover Finance, the detailed Sales view, Overview/Locations filters and comparisons, Refund reports, Timekeeping reports, exports, company grouping and consistent machine-company assignment. The Chinese edition retains English screen labels so readers can find the matching control. Live links require sign-in and the account's existing report access.
+The guides cover Finance, the detailed Sales view, Overview/Locations filters and comparisons, Refund reports, Timekeeping reports, exports, company grouping, consistent machine-company assignment, and company rename/archive/restore. The Chinese edition retains English screen labels so readers can find the matching control. Live links require sign-in and the account's existing report access.
 
 ## Screenshot provenance
 
-The original six workflow screenshots were captured October 2, 2026 from the actual React application at main commit `853c397270e2d84f44244418f14aaba24a7cd1b6`. The two company workflow screenshots were captured October 3 from the company grouping implementation in PR #1725, using the isolated company reporting preview and machine setup fixtures. The earlier images illustrate the unchanged calculations; the new Company controls are shown on pages 7–8. The existing user preview on port 8097 was untouched.
+The original six workflow screenshots were captured October 2, 2026 from the actual React application at main commit `853c397270e2d84f44244418f14aaba24a7cd1b6`. The two company workflow screenshots were captured October 3 from the company grouping implementation in PR #1725, using the isolated company reporting preview and machine setup fixtures. Page 9 adds the company-management sheet from PR #1731, also using synthetic fixtures. The earlier images illustrate the unchanged calculations; Company controls are shown on pages 7–9. The existing user preview on port 8097 was untouched.
 
 The preview uses the repository's synthetic reporting fixtures, a fixed sample date of July 22, 2026, a synthetic account and a loopback backend. It disables real credentials and external requests. These are illustrative examples, not company results or a dataset for reconciling totals across screens. No production data, customer/payment identifiers or private exports appear in the assets.
 
@@ -23,6 +23,7 @@ The preview uses the repository's synthetic reporting fixtures, a fixed sample d
 | `labor.png` | `/portal/time-review?view=reports`; Export CSV, labor metrics and rounding explanation |
 | `company-reports.png` | `/portal/reports?view=finance`; Company filter and company comparison with synthetic company fixtures |
 | `company-machines.png` | `/admin/machines`; saved company and read-only ordinary location, direct rendered form capture |
+| `company-management.png` | `/admin/machines`; Manage companies with synthetic active and archived examples |
 
 Captures are cropped to readable regions of actual rendered screens; the UI was not repainted or changed. Every PDF screenshot has a sample-data caption because crops can omit the preview banner.
 
