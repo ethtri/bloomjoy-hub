@@ -201,7 +201,7 @@ try {
   await check('Unavailable enabled subscriptions remain visible and can be disabled', async () => {
     const data = structuredClone(fixture); Object.assign(data.alerts.find(item => item.id === 'device-offline'), { enabled: true, isDefault: false, machineIds: ['operator-machine-north'] });
     const item = await session({ data }); await item.page.goto(`${origin}/portal/notifications`); await waitPage(item.page);
-    const control = item.page.getByRole('checkbox', { name: 'Receive Device reports offline' });
+    const control = item.page.getByRole('checkbox', { name: 'Receive Nayax connection disconnected' });
     assert(await control.isEnabled()); assert(await control.isChecked()); await control.uncheck(); await save(item.page, item.saves);
     assert.equal(item.saved().alerts.find(alert => alert.id === 'device-offline').enabled, false);
   });

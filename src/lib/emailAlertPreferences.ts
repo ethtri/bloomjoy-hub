@@ -34,7 +34,7 @@ export const alertDefinitions: Record<EmailAlertId, { name: string; short: strin
   'new-refund': { name: 'New refund request', short: 'New refund requests', description: 'The reported problem and customer comment when a request arrives.' },
   'decision-ready': { name: 'Refund decision ready', short: 'Refund decisions', description: 'An optional email when a case for a machine you manage is ready for your decision. Ready decisions also appear in your daily brief.' },
   'sales-quiet': { name: 'Cash sales unexpectedly quiet', short: 'Quiet cash-sales alerts', description: 'When verified cash activity for a complete reporting day is much lower than usual. Card activity is not included.' },
-  'device-offline': { name: 'Device reports offline', short: 'Device-offline alerts', description: 'When the payment device reports a sustained offline status.' },
+  'device-offline': { name: 'Nayax connection disconnected', short: 'Nayax connection alerts', description: 'When a previously connected machine’s Nayax MQTT connection stays disconnected for at least 15 minutes. Connection status alone does not establish machine condition.' },
 };
 export function preferencesFrom(context: EmailAlertContext): EmailAlertPreferences {
   return { settings: { ...context.settings }, alerts: context.alerts.map(alert => ({ ...alert, machineIds: [...alert.machineIds] })) };
@@ -79,7 +79,7 @@ export function formatAlertTime(value: string) {
 export function alertSchedule(id: EmailAlertId, settings: EmailAlertSettings) {
   if (id === 'new-refund') return settings.newRefundDelivery === 'daily' ? `Daily at ${formatAlertTime(settings.dailyTime)}` : 'When a request arrives';
   if (id === 'sales-quiet') return 'After a complete reporting day';
-  if (id === 'device-offline') return 'When sustained offline is confirmed';
+  if (id === 'device-offline') return 'When a sustained disconnection is confirmed';
   if (id === 'decision-ready') return 'When your decision is ready';
   const time = id === 'daily' ? settings.dailyTime : settings.weeklyTime;
   const base = id === 'daily' ? `Every day · ${formatAlertTime(time)}` : `${weekdays[settings.weeklyDay - 1]} · ${formatAlertTime(time)}`;

@@ -14,6 +14,6 @@
     { "id": "new-refund", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
     { "id": "decision-ready", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
     { "id": "sales-quiet", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": false, "unavailableReason": "Complete cash comparison source is not verified", "isDefault": true, "authorized": true, "sourceAvailable": false },
-    { "id": "device-offline", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": false, "unavailableReason": "Payment device status source is not verified", "isDefault": true, "authorized": true, "sourceAvailable": false }
+    { "id": "device-offline", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": false, "unavailableReason": "Nayax MQTT connection status is not verified", "isDefault": true, "authorized": true, "sourceAvailable": false }
   ]
 }
