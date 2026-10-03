@@ -90,7 +90,6 @@ export function RefundTransactionCandidateReview({
     !reviewedFinalDecision && selectedCandidate && selectedCandidate.isRecommended !== true,
   );
 
-  const availableCandidates = candidates.filter((candidate) => candidate.selectionAllowed !== false);
   const searchCoverage = getRefundSearchCoveragePresentation(lookupSummary);
   return (
     <div className="space-y-3 pt-2">
@@ -105,16 +104,22 @@ export function RefundTransactionCandidateReview({
           ) : (
             <p>Saved purchase details are unavailable in this response.</p>
           )}
-          <p className="text-muted-foreground">Opening this comparison keeps the saved purchase selected. Choosing a result below prepares a change; saving it or approving the reviewed choice records that exact purchase.</p>
+          <p className="text-muted-foreground">The saved purchase stays selected until you save or approve a different choice.</p>
         </div>
       )}
       <div data-testid="refund-candidate-search-coverage" className="space-y-1 text-sm leading-6 text-muted-foreground">
-        <p className="font-medium text-foreground">Nayax search</p>
-        <p>{searchCoverage.resultCountLabel}. {searchCoverage.providerRecordCountLabel}.</p>
-        <p>{searchCoverage.windowLabel}{searchCoverage.incidentAt ? `: ${formatRefundDateTime(searchCoverage.incidentAt, timezone)}` : ''}.</p>
-        <p>{searchCoverage.freshnessAt
-          ? `Last checked: ${formatRefundDateTime(searchCoverage.freshnessAt, timezone)}`
-          : 'Last checked time unavailable'}.</p>
+        <details>
+          <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Nayax search: {searchCoverage.resultCountLabel}
+          </summary>
+          <div className="space-y-1 pb-2">
+            <p>{searchCoverage.providerRecordCountLabel}.</p>
+            <p>{searchCoverage.windowLabel}{searchCoverage.incidentAt ? `: ${formatRefundDateTime(searchCoverage.incidentAt, timezone)}` : ''}.</p>
+            <p>{searchCoverage.freshnessAt
+              ? `Last checked: ${formatRefundDateTime(searchCoverage.freshnessAt, timezone)}`
+              : 'Last checked time unavailable'}.</p>
+          </div>
+        </details>
         <p>{searchCoverage.coverageLabel}</p>
       </div>
       {isDemoData && (
@@ -124,14 +129,8 @@ export function RefundTransactionCandidateReview({
         </p>
       )}
       <div data-testid="nayax-candidate-availability" className="mb-3">
-        <p className="text-sm font-semibold text-foreground">
-          {hasSavedSelection && candidates.length === 0
-            ? 'Current candidate rows unavailable'
-            : availableCandidates.length === candidates.length
-            ? `${candidates.length} available transaction result${candidates.length === 1 ? '' : 's'}`
-            : `${candidates.length} current transaction result${candidates.length === 1 ? '' : 's'}`}
-        </p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        {hasSavedSelection && candidates.length === 0 && <p className="text-sm font-semibold text-foreground">Current candidate rows unavailable</p>}
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
           {selectionHoldReason
             ? selectionHoldReason
             : selectableCandidateCount === 0
@@ -185,18 +184,23 @@ export function RefundTransactionCandidateReview({
           const label = `Transaction ${index + 1}`;
 
           return (
-            <label
+            <div
               key={candidate.candidateToken}
-              data-testid="nayax-candidate-option"
-              aria-disabled={selectionDisabled}
               className={cn(
-                'grid min-h-11 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md border bg-background p-3 text-left text-xs text-foreground transition-colors sm:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)]',
-                selectionDisabled
-                  ? 'cursor-not-allowed'
-                  : 'cursor-pointer hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
+                'min-w-0 rounded-md border bg-background text-sm text-foreground',
                 selectedCandidateToken === candidate.candidateToken
                   ? 'border-primary ring-2 ring-primary/20'
                   : 'border-border',
+              )}
+            >
+            <label
+              data-testid="nayax-candidate-option"
+              aria-disabled={selectionDisabled}
+              className={cn(
+                'grid min-h-11 w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md p-3 text-left transition-colors sm:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)]',
+                selectionDisabled
+                  ? 'cursor-not-allowed'
+                  : 'cursor-pointer hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
               )}
             >
               <input
@@ -237,36 +241,16 @@ export function RefundTransactionCandidateReview({
                 <span className="mt-1 block leading-5 text-foreground">
                   {formatCandidateSummary(candidate)}
                 </span>
-                <span className="mt-1 block leading-5 text-muted-foreground">
-                  Source: Nayax. Provider reference is available after selection.
-                </span>
                 <span className="mt-1 block leading-5">
                   Product: {candidate.productLabel || candidate.productCode || 'unavailable'}
                   {' · '}Payment status: {candidate.paymentStatus || 'unavailable'}
                 </span>
-                <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                <span className="mt-1 block font-normal leading-6 text-muted-foreground">
                   {refundProviderTimeLabel(candidate.timeEvidence)}:{' '}
                   {formatRefundDateTime(
                     candidate.providerTimestampAt ?? candidate.authorizedAt,
                     timezone,
                   )}
-                  {' · '}shown in venue time · {timezone || 'timezone unavailable'}
-                </span>
-                <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                  {refundCandidateTimeSourceDetail(candidate.timeEvidence)}
-                </span>
-                {candidate.timeEvidence?.machineClockTimezone &&
-                  candidate.timeEvidence.machineClockTimezone !== timezone && (
-                    <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                      Provider machine clock:{' '}
-                      {formatRefundDateTime(
-                        candidate.machineAuthorizationTime,
-                        candidate.timeEvidence.machineClockTimezone,
-                      )}{' · '}{candidate.timeEvidence.machineClockTimezone}
-                    </span>
-                  )}
-                <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                  {refundCandidateTimeMeaning(candidate.timeEvidence)}
                 </span>
               </span>
               <span className="col-start-2 min-w-0 sm:col-start-auto">
@@ -291,6 +275,23 @@ export function RefundTransactionCandidateReview({
                 </span>
               </span>
             </label>
+            <details className="mx-3 border-t border-border/70">
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Source details for {label.toLowerCase()}
+              </summary>
+              <div className="space-y-2 pb-3 text-sm leading-6 text-muted-foreground">
+                <p>Source: Nayax. Provider reference is available after saving this purchase.</p>
+                <p>Displayed in venue time: {timezone || 'timezone unavailable'}.</p>
+                <p>{refundCandidateTimeSourceDetail(candidate.timeEvidence)}</p>
+                {candidate.timeEvidence?.machineClockTimezone &&
+                  candidate.timeEvidence.machineClockTimezone !== timezone && <p>
+                    Provider machine clock: {formatRefundDateTime(candidate.machineAuthorizationTime, candidate.timeEvidence.machineClockTimezone)}
+                    {' · '}{candidate.timeEvidence.machineClockTimezone}
+                  </p>}
+                <p>{refundCandidateTimeMeaning(candidate.timeEvidence)}</p>
+              </div>
+            </details>
+            </div>
           );
         })}
       </div>
@@ -324,7 +325,7 @@ export function RefundTransactionCandidateReview({
           <p className="mt-1 leading-6">
             Customer requested {formatCurrency(paymentAmountCents)}. Reviewed purchase: {formatCurrency(selectedCandidate.amountCents)}.
           </p>
-          <p className="mt-1 text-xs leading-5">Approving below records this exact purchase and one final decision together. Denying the request needs no purchase choice.</p>
+          <p className="mt-1 text-sm leading-6">Approving below records this exact purchase and one final decision together. Denying the request needs no purchase choice.</p>
         </div>
       )}
       {selectedCandidate && !reviewedFinalDecision && (
@@ -340,7 +341,7 @@ export function RefundTransactionCandidateReview({
               ? ' (same amount).'
               : ` (${formatCurrency(Math.abs(selectedCandidate.amountDeltaCents))} difference).`}
           </p>
-          <p className="mt-1 text-xs leading-5">
+          <p className="mt-1 text-sm leading-6">
             Saving records the exact provider transaction and review evidence on this case. It does not approve or issue a refund, and it sends no customer message.
           </p>
           <Button
