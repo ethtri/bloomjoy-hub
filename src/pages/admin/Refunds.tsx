@@ -7735,6 +7735,7 @@ export default function AdminRefundsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <Button variant="outline" asChild className="min-h-11"><Link to="/refunds?view=requests">Requests</Link></Button>
               {reportAccess.isSuccess && !reportAccess.isFetching && reportAccess.data.hasAccess && <Button variant="outline" asChild className="min-h-11"><Link to={`/refunds?${new URLSearchParams([...companyParams].filter(([key]) => key !== 'case').concat([['view', 'reports']]))}`}>Reports</Link></Button>}
               {gmailNeedsAttention && (
                 <span

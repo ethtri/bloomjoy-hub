@@ -67,6 +67,8 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gmail_case_context',
   'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
+  'get_refund_request_access',
+  'get_refund_request',
   'get_refund_manager_work_projection',
   'get_refund_portal_queue_projection',
 ]);
@@ -3483,6 +3485,9 @@ const installMockSupabaseRoutes = async (
     if (NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
       fixtureOwnedPortalRpcLabels.set(request, rpcName);
     }
+
+    if (rpcName === 'get_refund_request_access') return route.fulfill(jsonResponse({ hasAccess: false, machines: [] }));
+    if (rpcName === 'get_refund_request') return route.fulfill(jsonResponse(null));
 
     if (rpcName === 'get_my_email_alert_preferences') {
       return route.fulfill(jsonResponse(ineligibleEmailAlertPreferences(mockUser.email)));

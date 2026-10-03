@@ -108,53 +108,11 @@ export function AdminRoute() {
 }
 
 export function RefundOperationsRoute() {
-  const { adminAccess, capabilities, loading, isSuperAdmin } = useAuth();
+  const { loading } = useAuth();
   const location = useLocation();
-  const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
-  const canAccessRefunds =
-    isSuperAdmin ||
-    allowedSurfaces.has('*') ||
-    allowedSurfaces.has('refunds') ||
-    capabilities.includes('refunds.manage');
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
-
-  if (new URLSearchParams(location.search).get('view') === 'reports') {
-    return <OperationalReportAccess domain="refunds" />;
-  }
-
-  if (canAccessRefunds) {
-    return <Outlet />;
-  }
-
-  return (
-    <PortalLayout>
-      <section className="section-padding">
-        <div className="container-page">
-          <div className="mx-auto max-w-2xl card-elevated p-8 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-              <ShieldAlert className="h-7 w-7 text-primary" />
-            </div>
-            <h1 className="mt-6 font-display text-3xl font-bold text-foreground">
-              Refund Workflow Access Required
-            </h1>
-            <p className="mt-3 text-muted-foreground">
-              This workflow is available to assigned machine managers and scoped operations admins.
-            </p>
-            <div className="mt-8 flex items-center justify-center gap-3">
-              <Button asChild variant="outline" className="min-h-11">
-                <Link to="/portal">Back to Portal</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </PortalLayout>
-  );
+  if (loading) return <div role="status" className="p-8 text-sm text-muted-foreground">Loading...</div>;
+  if (new URLSearchParams(location.search).get('view') === 'reports') return <OperationalReportAccess domain="refunds" />;
+  // The destination separately selects the read projection or manager workspace.
+  // Every request is authorized server-side using current per-machine assignments.
+  return <Outlet />;
 }
