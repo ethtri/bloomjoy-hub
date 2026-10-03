@@ -26,6 +26,14 @@ revoke all on private.email_alert_delivery_settings,private.email_alert_jobs fro
 grant select,insert,update on private.email_alert_delivery_settings,private.email_alert_jobs to service_role;
 create index email_alert_jobs_pending on private.email_alert_jobs(state,updated_at) where state in ('reserved','known_not_sent');
 
+create function public.service_email_alert_delivery_status()
+returns jsonb language sql stable security definer set search_path='' as $$
+ select jsonb_build_object('deliveryEnabled',delivery_enabled,'ownershipActivated',activated_at is not null,'payloadRedacted',true)
+ from private.email_alert_delivery_settings where singleton;
+$$;
+revoke all on function public.service_email_alert_delivery_status() from public,anon,authenticated;
+grant execute on function public.service_email_alert_delivery_status() to service_role;
+
 create function private.email_alert_hash(p_value text) returns text
 language sql immutable strict set search_path='' as $$
  select encode(extensions.digest(convert_to(p_value,'UTF8'),'sha256'),'hex');
@@ -37,7 +45,7 @@ returns table(machine_id uuid,machine_label text,location_name text,timezone tex
 language sql stable security definer set search_path='' as $$
  select s.* from private.email_alert_machine_scope(p_user_id) s
  left join public.email_alert_preferences p on p.user_id=p_user_id and p.alert_id=p_category
- where coalesce(p.enabled,p_category='daily') and (p_category<>'decision-ready' or s.is_manager)
+ where coalesce(p.enabled,p_category='daily') and (p_category<>'decision-ready' or s.is_manager) and (p_category<>'sales-quiet' or s.can_view_sales)
  and (coalesce(p.scope_mode,'all_assigned')='all_assigned' or s.machine_id=any(p.machine_ids));
 $$;
 revoke all on function private.email_alert_selected_scope(uuid,text) from public,anon,authenticated;
@@ -67,6 +75,35 @@ begin
  value:=regexp_replace(value,'(code|token|password|secret|pin)[[:space:]:=#-]+[[:alnum:]_-]+','[credential redacted]','gi');
  return nullif(left(regexp_replace(value,'[[:cntrl:]]',' ','g'),280),'');
 end $$;
+
+create function private.email_alert_daily_health(p_observed_at timestamptz)
+returns jsonb language plpgsql volatile security definer set search_path='' as $$
+declare u record;s record;j private.email_alert_jobs;recipient text;open_users integer:=0;invalid_users integer:=0;missed integer:=0;
+ sent_count integer;unknown_count integer;local_day date;zone text;projection jsonb;
+begin
+ for u in select distinct m.manager_user_id id from public.reporting_machine_refund_managers m
+   where m.status='active' and m.revoked_at is null loop
+  if not exists(select 1 from private.email_alert_selected_scope(u.id,'daily')) then continue;end if;
+  select lower(btrim(email)) into recipient from auth.users where id=u.id and deleted_at is null and (banned_until is null or banned_until<=p_observed_at);
+  if recipient is null then continue;end if;
+  projection:=public.refund_manager_daily_digest_projection_for(u.id,p_observed_at);
+  if coalesce((projection->>'openCount')::int,0)=0 then continue;end if;
+  open_users:=open_users+1;
+  if not public.refund_email_address_is_valid(recipient) then invalid_users:=invalid_users+1;continue;end if;
+  if not(select delivery_enabled from private.email_alert_delivery_settings) then continue;end if;
+  zone:=private.email_alert_context(u.id)#>>'{settings,timezone}';local_day:=(p_observed_at at time zone zone)::date;
+  for s in select * from private.email_alert_digest_schedule(u.id,'daily',p_observed_at) d
+    where (d.due_at at time zone zone)::date=local_day and p_observed_at>=d.due_at+interval '90 minutes' loop
+   select * into j from private.email_alert_jobs where user_id=u.id and category='daily' and slot_key='daily:'||s.date_to::text;
+   if j.id is null or j.state='known_not_sent' or (j.state='reserved' and j.updated_at<p_observed_at-interval '30 minutes') then missed:=missed+1;end if;
+  end loop;
+ end loop;
+ select count(*) filter(where state='sent'),count(*) filter(where state='delivery_unknown') into sent_count,unknown_count
+  from private.email_alert_jobs where category='daily' and observed_at>=date_trunc('day',p_observed_at);
+ return jsonb_build_object('openRecipientCount',open_users,'invalidRouteRecipientCount',invalid_users,
+  'missedDueRecipientCount',missed,'sentBatchCountToday',sent_count,'deliveryUnknownBatchCountToday',unknown_count,'payloadRedacted',true);
+end $$;
+revoke all on function private.email_alert_daily_health(timestamptz) from public,anon,authenticated;
 revoke all on function private.email_alert_comment(public.refund_cases,boolean) from public,anon,authenticated;
 
 create function private.email_alert_projection(p_user_id uuid,p_category text,p_observed_at timestamptz,
@@ -74,13 +111,19 @@ create function private.email_alert_projection(p_user_id uuid,p_category text,p_
 returns jsonb language plpgsql volatile security definer set search_path='' as $$
 declare settings jsonb; manager_projection jsonb; machine_row record; case_row public.refund_cases;
  cases jsonb; machines jsonb:='[]'; life jsonb; work jsonb; item jsonb; metrics record; previous record;
- manager_map jsonb:='[]'; signal jsonb; machine_ids uuid[]; summary jsonb; new_case boolean; open_case boolean; selected_scope boolean; machine_from date; machine_to date;
+ manager_map jsonb:='[]'; signal jsonb; machine_ids uuid[]; summary jsonb; new_case boolean; open_case boolean; selected_scope boolean; machine_from date; machine_to date;logical_anchor timestamptz;manager_items jsonb;
 begin
  settings:=private.email_alert_context(p_user_id)->'settings';
  if p_category not in ('daily','weekly','new-refund','sales-quiet','device-offline') then raise exception 'Invalid category' using errcode='22023'; end if;
  if p_date_from is null or p_date_to is null or p_date_to<p_date_from or p_date_to-p_date_from>7 then raise exception 'Invalid email period' using errcode='22023'; end if;
  if p_category in ('daily','weekly') and exists(select 1 from private.email_alert_machine_scope(p_user_id) where is_manager) then
    manager_projection:=public.refund_manager_daily_digest_projection_for(p_user_id,p_observed_at);
+   if p_category='weekly' then
+    select coalesce(jsonb_agg(x),'[]') into manager_items from jsonb_array_elements(manager_projection->'items') x
+     join public.refund_cases c on c.id=(x->>'caseId')::uuid where exists(select 1 from private.email_alert_selected_scope(p_user_id,'weekly') s where s.machine_id=c.reporting_machine_id);
+    manager_projection:=manager_projection||jsonb_build_object('items',manager_items,'openCount',jsonb_array_length(manager_items),
+      'actionCount',(select count(*) from jsonb_array_elements(manager_items) x where x->>'actor'='manager'));
+   end if;
    select coalesce(jsonb_agg(jsonb_build_object('caseId',c.id,'machineId',c.reporting_machine_id) order by c.id),'[]')
    into manager_map from public.refund_cases c join jsonb_array_elements(manager_projection->'items') x on c.id=(x->>'caseId')::uuid;
  end if;
@@ -95,8 +138,10 @@ begin
  ) scoped;
  for machine_row in select * from private.email_alert_machine_scope(p_user_id) where machine_id=any(machine_ids) order by location_name,machine_label,machine_id loop
   cases:='[]';selected_scope:=exists(select 1 from private.email_alert_selected_scope(p_user_id,p_category) s where s.machine_id=machine_row.machine_id);
-  machine_to:=case when p_category='weekly' then date_trunc('week',p_observed_at at time zone machine_row.timezone)::date-1
-    when p_category='daily' then (p_observed_at at time zone machine_row.timezone)::date-1 else (p_observed_at at time zone machine_row.timezone)::date end;
+  logical_anchor:=case when p_category='daily' then (p_date_to+1+(settings->>'dailyTime')::time) at time zone (settings->>'timezone')
+    when p_category='weekly' then (p_date_to+(settings->>'weeklyDay')::int+(settings->>'weeklyTime')::time) at time zone (settings->>'timezone') else p_observed_at end;
+  machine_to:=case when p_category='weekly' then date_trunc('week',logical_anchor at time zone machine_row.timezone)::date-1
+    when p_category='daily' then (logical_anchor at time zone machine_row.timezone)::date-1 else (logical_anchor at time zone machine_row.timezone)::date end;
   machine_from:=case when p_category='weekly' then machine_to-6 else machine_to end;
   for case_row in select c.* from public.refund_cases c where c.reporting_machine_id=machine_row.machine_id
     and ((coalesce(c.case_population,'customer')='customer' and c.duplicate_of_refund_case_id is null)
@@ -326,6 +371,9 @@ begin
  if j.id is null or j.claim_token is distinct from p_claim_token or j.state<>'reserved' or j.provider_started_at is not null then return false;end if;
  perform pg_advisory_xact_lock(hashtextextended('email_alert_user:'||j.user_id::text,0));
  perform 1 from public.email_alert_profiles where user_id=j.user_id for update;
+ perform 1 from public.technician_grants g where g.technician_user_id=j.user_id or lower(g.technician_email)=(select lower(email) from auth.users where id=j.user_id) for share;
+ perform 1 from public.technician_machine_assignments a join public.technician_grants g on g.id=a.technician_grant_id
+  where g.technician_user_id=j.user_id or lower(g.technician_email)=(select lower(email) from auth.users where id=j.user_id) for share of a;
  for m in select machine_id from private.email_alert_machine_scope(j.user_id) order by machine_id loop
   perform pg_advisory_xact_lock(hashtext('machine_manager:'||m.machine_id::text));
   perform 1 from public.reporting_machines where id=m.machine_id for update;
@@ -379,7 +427,7 @@ revoke all on function public.service_begin_refund_digest_pre_personal_alerts(ti
 create function public.service_begin_next_refund_manager_digest(p_observed_at timestamptz default statement_timestamp())
 returns jsonb language plpgsql volatile security definer set search_path='' as $$
 begin
- if (select delivery_enabled from private.email_alert_delivery_settings) then
+ if (select activated_at is not null from private.email_alert_delivery_settings) then
   return jsonb_build_object('claimed',false,'reason','personal_alert_sender_owns_daily','payloadRedacted',true);
  end if;
  return public.service_begin_refund_digest_pre_personal_alerts(p_observed_at);
@@ -389,8 +437,8 @@ grant execute on function public.service_begin_next_refund_manager_digest(timest
 
 create function private.email_alert_ready_allowed(p_user_id uuid,p_machine_id uuid,p_observed_at timestamptz)
 returns boolean language sql stable security definer set search_path='' as $$
- select not(select delivery_enabled from private.email_alert_delivery_settings) or
- (exists(select 1 from private.email_alert_selected_scope(p_user_id,'decision-ready') s where s.machine_id=p_machine_id)
+ select (select activated_at is null from private.email_alert_delivery_settings) or
+ ((select delivery_enabled from private.email_alert_delivery_settings) and exists(select 1 from private.email_alert_selected_scope(p_user_id,'decision-ready') s where s.machine_id=p_machine_id)
  and exists(select 1 from auth.users where id=p_user_id and deleted_at is null and (banned_until is null or banned_until<=p_observed_at))
  and not exists(select 1 from public.email_alert_profiles p where p.user_id=p_user_id and p.quiet_enabled and
    case when p.quiet_start<p.quiet_end then (p_observed_at at time zone p.timezone)::time>=p.quiet_start and (p_observed_at at time zone p.timezone)::time<p.quiet_end
@@ -407,10 +455,45 @@ do $$ declare definition text; begin
     if not private.email_alert_ready_allowed(action_row.ready_manager_user_id,case_row.reporting_machine_id,p_observed_at) then continue; end if;');
  execute definition;
  definition:=pg_get_functiondef('public.service_mark_refund_manager_ready_notice_provider_started(uuid,uuid,text,text)'::regprocedure);
- if strpos(definition,'snapshot_value')>0 then null;end if;
  -- The snapshot is the first point after both action and case have been loaded.
  if strpos(definition,'current_snapshot:=')=0 then raise exception 'Ready provider boundary changed';end if;
  definition:=replace(definition,'current_snapshot:=','if not private.email_alert_ready_allowed(action_row.ready_manager_user_id,case_row.reporting_machine_id,statement_timestamp()) then return false; end if;
   current_snapshot:=');
+ execute definition;
+end $$;
+
+-- Health follows the activated sender's actual preference/schedule obligations.
+-- An opt-out or a later chosen time is not a missed 08:00 legacy delivery.
+do $$ declare definition text;start_at integer;end_at integer;old_block text;new_block text;begin
+ definition:=pg_get_functiondef('public.service_get_refund_workflow_health_pre_status_contact_20260925(boolean,boolean,boolean,boolean,boolean,text[],timestamptz)'::regprocedure);
+ start_at:=strpos(definition,'  if digest_available then');
+ end_at:=strpos(definition,'  ready_available :=');
+ if start_at=0 or end_at<=start_at then raise exception 'Digest health boundary changed';end if;
+ old_block:=substr(definition,start_at,end_at-start_at);
+ new_block:=$body$  if (select activated_at is not null from private.email_alert_delivery_settings) then
+    declare personal_health jsonb;begin
+      personal_health:=private.email_alert_daily_health(v_observed_at);
+      select * into digest_setting from public.refund_manager_digest_settings where singleton;
+      digest_setting.delivery_enabled:=(select delivery_enabled from private.email_alert_delivery_settings);
+      p_manager_digest_enabled:=digest_setting.delivery_enabled;
+      p_manager_ready_enabled:=digest_setting.delivery_enabled;
+      digest_queue_count:=(personal_health->>'openRecipientCount')::integer;
+      digest_route_blocked_count:=(personal_health->>'invalidRouteRecipientCount')::integer;
+      digest_missed_due_count:=(personal_health->>'missedDueRecipientCount')::integer;
+      digest_sent_count:=(personal_health->>'sentBatchCountToday')::integer;
+      digest_unknown_count:=(personal_health->>'deliveryUnknownBatchCountToday')::integer;
+      if digest_route_blocked_count>0 then blocked_reasons:=array_append(blocked_reasons,'manager_digest_invalid_current_route');end if;
+      if digest_missed_due_count>0 then blocked_reasons:=array_append(blocked_reasons,'manager_digest_due_missing');end if;
+      if digest_unknown_count>0 then blocked_reasons:=array_append(blocked_reasons,'manager_digest_delivery_unknown');end if;
+    end;
+  else
+$body$||old_block||E'  end if;\n';
+ execute replace(definition,old_block,new_block);
+ -- Only opted-in ready work is an email delivery obligation. Persisted old
+ -- queued actions remain intact so later opt-in can use their proof/ledger.
+ definition:=pg_get_functiondef('public.service_get_refund_manager_ready_notice_health()'::regprocedure);
+ definition:=replace(definition,'where notice_reason=''decision_ready'' and delivery_state in (''ready_queued'',''known_not_sent'')',
+   'where notice_reason=''decision_ready'' and private.email_alert_ready_allowed(ready_manager_user_id,
+     (select reporting_machine_id from public.refund_cases where id=refund_case_id),statement_timestamp()) and delivery_state in (''ready_queued'',''known_not_sent'')');
  execute definition;
 end $$;

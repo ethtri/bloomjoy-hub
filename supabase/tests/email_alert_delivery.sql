@@ -28,6 +28,7 @@ set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','eb710000-0000-4000-8000-000000000002',true);
 select is((select a->>'enabled' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='daily'),'true','Technician daily defaults on');
 select is((select a->>'authorized' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='decision-ready'),'false','Technician assignment does not authorize decisions');
+select is((select a->>'authorized' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='sales-quiet'),'false','Technician without reporting cannot authorize financial comparison alerts');
 create temporary table email_projection as select private.email_alert_projection('eb710000-0000-4000-8000-000000000002','daily','2026-10-03T15:00Z','2026-10-02','2026-10-02') p;
 select is((select p#>>'{machines,0,refundCases,0,commentExcerpt}' from email_projection),'Customer reported that the machine did not dispense.','Technician gets fixed symptom only');
 select ok((select p::text not like '%Jane%' and p::text not like '%Private Street%' and p::text not like '%4111%' and p::text not like '%SECRET123%' and p::text not like '%example.invalid%' from email_projection),'Adversarial personal/payment/code details never enter technician projection');
@@ -46,6 +47,8 @@ insert into public.email_alert_profiles(user_id,daily_time,quiet_start,quiet_end
  ('eb710000-0000-4000-8000-000000000002','21:00','20:00','07:00');
 select is((select count(*)::int from private.email_alert_due_candidates('2026-10-03T04:00Z') where user_id='eb710000-0000-4000-8000-000000000002'),0,'Quiet evening digest is deferred');
 select is((select count(*)::int from private.email_alert_due_candidates('2026-10-03T14:00Z') where user_id='eb710000-0000-4000-8000-000000000002'),1,'Deferred digest becomes due next morning');
+select is(private.email_alert_projection('eb710000-0000-4000-8000-000000000002','daily','2026-10-03T14:00Z','2026-10-01','2026-10-01')#>>'{machines,0,dateTo}',
+ '2026-10-01','Friday evening deferred to Saturday morning preserves Thursday reporting period');
 update public.email_alert_profiles set daily_time='02:30',quiet_enabled=false where user_id='eb710000-0000-4000-8000-000000000002';
 select is((select due_at from private.email_alert_digest_schedule('eb710000-0000-4000-8000-000000000002','daily','2026-03-08T11:00Z') where schedule_date='2026-03-08'),'2026-03-08T10:30Z'::timestamptz,'Nonexistent DST time follows native IANA conversion');
 update public.email_alert_profiles set daily_time='01:30' where user_id='eb710000-0000-4000-8000-000000000002';
@@ -76,5 +79,9 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','eb710000-0000-4000-8000-000000000001',true);
 select is((select a->>'enabled' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='daily'),'false','New assignment cannot override explicit daily opt-out');
+select is((private.email_alert_daily_health('2026-10-03T20:00Z')->>'missedDueRecipientCount')::int,0,'Opt-out creates no false legacy due obligation');
+update private.email_alert_delivery_settings set delivery_enabled=false;
+select is((public.service_begin_next_refund_manager_digest('2026-10-03T15:00Z')->>'reason'),'personal_alert_sender_owns_daily','Pausing after activation does not restore old sender');
+select is(private.email_alert_ready_allowed('eb710000-0000-4000-8000-000000000001','eb740000-0000-4000-8000-000000000001','2026-10-03T15:00Z'),false,'Paused cutover cannot send default-off ready notice');
 select * from finish();
 rollback;

@@ -12,7 +12,7 @@ create table public.email_alert_profiles (
   quiet_start time not null default '20:00',
   quiet_end time not null default '07:00',
   offline_bypass boolean not null default false,
-  new_refund_delivery text not null default 'immediate' check(new_refund_delivery in ('immediate','daily')),
+  new_refund_delivery text not null default 'immediate' check(new_refund_delivery='immediate'),
   created_at timestamptz not null default statement_timestamp(),
   updated_at timestamptz not null default statement_timestamp()
 );
@@ -88,7 +88,7 @@ begin
   categories(id) as (values('daily'),('weekly'),('new-refund'),('decision-ready'),('sales-quiet'),('device-offline')),
   category_rows as (
     select c.id,p.enabled,p.scope_mode,p.machine_ids,p.user_id,
-      exists(select 1 from scope s where c.id<>'decision-ready' or s.is_manager) authorized,
+      exists(select 1 from scope s where (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)) authorized,
       c.id not in ('sales-quiet','device-offline') or exists(
         select 1 from scope s join private.email_alert_signal_capabilities cap on cap.machine_id=s.machine_id
         where cap.alert_id=c.id and cap.verified_until>statement_timestamp()) source_available
@@ -105,17 +105,17 @@ begin
     'machines',coalesce((select jsonb_agg(jsonb_build_object('machineId',s.machine_id,'machineLabel',s.machine_label,
       'locationName',s.location_name,'timezone',s.timezone,'isManager',s.is_manager,'isTechnician',s.is_technician,
       'canViewSales',s.can_view_sales,
-      'authorizedAlertIds',(select jsonb_agg(c.id) from categories c where c.id<>'decision-ready' or s.is_manager),
-      'availableAlertIds',(select jsonb_agg(c.id) from categories c where (c.id<>'decision-ready' or s.is_manager)
+      'authorizedAlertIds',(select jsonb_agg(c.id) from categories c where (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)),
+      'availableAlertIds',(select jsonb_agg(c.id) from categories c where (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)
         and (c.id not in ('sales-quiet','device-offline') or exists(select 1 from private.email_alert_signal_capabilities cap
           where cap.machine_id=s.machine_id and cap.alert_id=c.id and cap.verified_until>statement_timestamp()))))
       order by s.location_name,s.machine_label,s.machine_id) from scope s),'[]'::jsonb),
     'alerts',(select jsonb_agg(jsonb_build_object('id',c.id,
-      'enabled',coalesce(c.enabled,c.id='daily' and c.authorized),'scopeMode',coalesce(c.scope_mode,'all_assigned'),
-      'machineIds',case when coalesce(c.scope_mode,'all_assigned')='all_assigned' then
-        coalesce((select jsonb_agg(s.machine_id order by s.machine_id) from scope s where c.id<>'decision-ready' or s.is_manager),'[]'::jsonb)
+      'enabled',coalesce(c.enabled,c.id='daily' and c.authorized),'scopeMode',coalesce(c.scope_mode,case when c.id='daily' then 'all_assigned' else 'selected' end),
+      'machineIds',case when coalesce(c.scope_mode,case when c.id='daily' then 'all_assigned' else 'selected' end)='all_assigned' then
+        coalesce((select jsonb_agg(s.machine_id order by s.machine_id) from scope s where (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)),'[]'::jsonb)
         else coalesce((select jsonb_agg(s.machine_id order by s.machine_id) from scope s
-          where s.machine_id=any(c.machine_ids) and (c.id<>'decision-ready' or s.is_manager)),'[]'::jsonb) end,
+          where s.machine_id=any(c.machine_ids) and (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)),'[]'::jsonb) end,
       'authorized',c.authorized,'sourceAvailable',c.source_available,'available',c.authorized and c.source_available,
       'unavailableReason',case when not c.authorized then 'No eligible assigned machines'
         when not c.source_available and c.id='device-offline' then 'Device status source is not verified'
@@ -151,11 +151,12 @@ begin
     or coalesce(settings->>'weeklyDay','')!~'^[1-7]$'
     or jsonb_typeof(settings->'quietEnabled') is distinct from 'boolean'
     or jsonb_typeof(settings->'offlineBypass') is distinct from 'boolean'
-    or coalesce(settings->>'newRefundDelivery','') not in ('immediate','daily') then
+    or coalesce(settings->>'newRefundDelivery','')<>'immediate' then
     raise exception 'Invalid delivery schedule' using errcode='22023'; end if;
   if jsonb_array_length(p_preferences->'alerts')<>6 or
     (select count(distinct x->>'id') from jsonb_array_elements(p_preferences->'alerts') x)<>6 then
     raise exception 'Save every alert category exactly once' using errcode='22023'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('email_alert_user:'||actor::text,0));
   insert into public.email_alert_profiles(user_id) values(actor) on conflict do nothing;
   select * into profile from public.email_alert_profiles where user_id=actor for update;
   if profile.revision<>p_expected_revision then raise exception 'Email alert preferences changed; refresh and try again' using errcode='40001'; end if;
@@ -168,10 +169,10 @@ begin
     select coalesce(array_agg(distinct value::uuid order by value::uuid),'{}') into ids from jsonb_array_elements_text(alert->'machineIds');
     enabled_value:=(alert->>'enabled')::boolean;
     if exists(select 1 from unnest(ids) i where not exists(select 1 from private.email_alert_machine_scope(actor) s
-      where s.machine_id=i and (alert->>'id'<>'decision-ready' or s.is_manager))) then
+      where s.machine_id=i and (alert->>'id'<>'decision-ready' or s.is_manager) and (alert->>'id'<>'sales-quiet' or s.can_view_sales))) then
       raise exception 'A selected machine is outside your current access' using errcode='42501'; end if;
     if enabled_value and (not exists(select 1 from private.email_alert_machine_scope(actor) s
-        where alert->>'id'<>'decision-ready' or s.is_manager)
+        where (alert->>'id'<>'decision-ready' or s.is_manager) and (alert->>'id'<>'sales-quiet' or s.can_view_sales))
       or (alert->>'scopeMode'='selected' and cardinality(ids)=0)) then
       raise exception 'Choose at least one eligible machine' using errcode='22023'; end if;
     if enabled_value and alert->>'id' in ('sales-quiet','device-offline') and not exists(
