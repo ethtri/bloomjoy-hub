@@ -56,17 +56,18 @@ Post-activation verification found and closed an important production deployment
 - Two no-payment live Checkout previews created after activation (Sugar and branded sticks) were both open and unpaid, but their server responses had Automatic Tax disabled. The previews therefore showed no tax and are not valid tax-calculation evidence.
 - The reviewed `stripe-sugar-checkout`, `stripe-sticks-checkout`, and `stripe-plus-checkout` source in PR `#716` enables Automatic Tax. All three checkout creators were deployed on 2026-08-08 with a marker-enforcement time of 17:18:21 UTC; the deployed active versions were Sugar `34`, sticks `34`, and Plus `33`.
 - Fresh no-payment production previews after that marker confirmed `automatic_tax.enabled=true` and a complete calculation for California Sugar and branded sticks. Sugar collected no tax under the configured food code, California branded sticks calculated positive tax, and branded sticks sent to a no-registration destination collected no tax.
-- The authenticated Plus preview is still blocked by the existing cross-host login handoff: the public Plus page sends the signed-in user to the app portal, while the portal's membership link returns to the public host where the session is unavailable. PR `#716` now adds an authenticated portal-side **Start Plus Membership** action with a portal return URL. Deploy and verify that frontend slice before treating Plus tax UAT as complete.
-- Every diagnostic session remains open and unpaid. The available operator credential could read but not expire them, so require a fresh zero-open-session audit after their scheduled expiration. No payment, order, notification, or subscription was created during this verification.
+- The authenticated portal-side Plus entry shipped through PR `#716`. A live no-payment preview used the configured `$100/month` recurring Price, returned to `/portal/account`, reported `automatic_tax.enabled=true`, and completed a positive California calculation under the conservative taxable working code. Concurrent requests reused one Checkout Session.
+- The early-expiry recovery hotfix in PR `#738` passed a second authenticated no-payment preview without changing the Plus Price, tax code, Automatic Tax configuration, or webhook fulfillment gate.
+- Every diagnostic Checkout Session was confirmed unpaid and expired. The 2026-08-10 closeout audit found zero open Checkout Sessions, zero subscriptions, zero PaymentIntents, zero orders, and zero commerce notification dispatches in the release-day monitoring window.
+- The reviewed status/webhook cutover is deployed. No payment, order, entitlement, customer confirmation, internal notification, or WeCom alert was created by the no-payment release tests.
 
-Complete the remaining gate before deploying the stricter status/webhook functions:
+The technical California rollout is complete. The following policy decisions remain open and do not authorize a silent production configuration change:
 
-1. Deploy the reviewed portal-side Plus checkout entry and create a no-payment authenticated Plus preview.
-2. Confirm the Plus preview reports `automatic_tax.enabled=true` and applies the configured California destination tax treatment.
-3. Confirm all 2026-08-08 unpaid diagnostic sessions are expired and require zero unresolved unmarked sessions.
-4. Audit active/trialing Plus subscriptions at the approved Plus Price and reconcile their source, order type, and user metadata as specified in `Docs/PRODUCTION_RUNBOOK.md`.
-5. Never submit a payment merely to prove calculation.
-6. Preserve sanitized evidence in `#718`; keep session IDs, addresses, payment data, receipts, and full exports private.
+1. **Bloomjoy Plus product code.** Keep `txcd_99999999` as the fail-closed taxable working code unless Stripe Support or a qualified tax advisor confirms a more precise code. CDTFA's membership guidance treats fees tied to lower prices on taxable merchandise as generally taxable. The executive decision is who will obtain the external confirmation and by what date; changing to a nontaxable or service code without that confirmation is not recommended.
+2. **Shipping tax treatment.** Keep Stripe's default `Shipping` treatment (`txcd_92010001`) while the commercial shipping policy is unresolved. California's delivery-charge treatment can depend on separately stated third-party carrier charges and whether the customer charge exceeds Bloomjoy's actual carrier cost. The executive must choose whether Bloomjoy will pass through documented actual carrier cost, charge a fixed amount, or include/free shipping. Do not represent a fixed or marked-up charge as exempt without advisor confirmation.
+3. **Micro and Mini shipping policy.** Record the approved customer charge, service area, delivery estimate, exclusions, address-type rules, quantity rules, and carrier method in `#717`. Micro remains client- and server-gated off, and Mini remains unavailable, until that policy and test/live Stripe configuration pass separate review and UAT.
+
+Recommended interim position: keep Plus taxable under the current code, keep Stripe's default Shipping treatment, and keep Micro/Mini checkout disabled until the business has either a defensible fixed delivered price or an actual-carrier-cost process. Preserve sanitized evidence in `#718`; keep session IDs, addresses, payment data, receipts, and full exports private.
 
 ## Annual filing procedure
 
