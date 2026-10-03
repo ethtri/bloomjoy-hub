@@ -134,6 +134,12 @@ select is((select p#>>'{machines,0,refundCases,0,needsDecision}' from new_reques
 select is((select p#>>'{machines,0,refundCases,0,amountCents}' from new_request_email),null,'Prepared manager amount remains private');
 select ok((select p#>>'{machines,0,refundCases,0,commentExcerpt}' like '%motor pauses after 12 seconds%' from new_request_email),'Immediate email preserves useful diagnostic comment');
 select ok((select p::text not like '%Jane%' and p::text not like '%Private Street%' and p::text not like '%SECRET123%' from new_request_email),'Immediate email uses sanitized narrative');
+update public.technician_grants set status='suspended' where id='e9750000-0000-4000-8000-000000000001';
+select is(jsonb_array_length(private.email_alert_projection('e9710000-0000-4000-8000-000000000002','new-refund','2026-10-02T12:00Z','2026-10-02','2026-10-02','e9760000-0000-4000-8000-000000000001')->'machines'),0,
+ 'Reusing authorized email scope still drops a queued request after technician revocation');
+select throws_ok($$select private.email_alert_digest_metadata('e9710000-0000-4000-8000-000000000002','e9740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')$$,'42501',null,
+ 'Reusing the scoped row never preserves an amount grant after revocation');
+update public.technician_grants set status='active' where id='e9750000-0000-4000-8000-000000000001';
 select is(private.email_alert_digest_metadata('e9710000-0000-4000-8000-000000000002','e9740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')->>'requestedAmountCents','600','Technician digest amounts follow same original-request scope without sales');
 -- Bound Unicode narrative at the client-facing boundary without inventing text.
 set local session_replication_role=replica;
