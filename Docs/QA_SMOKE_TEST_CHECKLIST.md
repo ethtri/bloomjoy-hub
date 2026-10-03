@@ -11,6 +11,29 @@
 - [ ] Check purchase-selected, submitted, confirmed-payment and completed fixtures. Progress language does not describe purchase selection as a completed refund. Existing cash research remains machine-source evidence, and gift-card requests keep their existing decision path.
 - [ ] Verify desktop, 390 px and 320 px widths, keyboard disclosure/selection controls and long labels. Important facts, controls and focus indicators remain readable without horizontal page overflow. Use synthetic data only; never issue a live payment or contact a customer for this check.
 
+## Technician refund visibility (`#1729`)
+
+- Open `/refunds` as a technician with active machine assignments and no refund
+  manager/admin access. Requests show received date, machine, selected problem,
+  original requested amount and refund status. Open a request to read useful
+  sanitized customer comments; a resolved refund does not claim a repaired machine.
+- Follow `/refunds?case=<synthetic-case-id>` after sign-in, including a request
+  outside the initial seven-day list. Assigned requests open; missing/unassigned
+  requests disclose no case details. Existing manager queue links still work.
+- A user who manages one machine and services another sees the correct per-machine
+  view. Technician-only requests never mount the manager workflow or its controls.
+- Exercise list/detail pagination, machine/date filters, unknown amounts, long
+  comments, empty/no-assignment states, load errors/retry and assignment revocation.
+  A failed permission recheck hides cached request data. Verify mobile and keyboard.
+- In disposable SQL tests, check revoked, expired, future and unrelated machine
+  assignments, direct IDs, same-company machines and every retained write boundary.
+  Customer contact/payment credentials and raw events/attachments are absent from
+  the operational read payload; sales access does not grant refund read access.
+- Technician daily/weekly totals include original requested dollars; new-request
+  email preserves useful sanitized symptoms and links directly to the read view.
+  Technicians without sales access still see refunds, without sales data. Daily-only
+  defaults and existing saved choices remain unchanged. Use synthetic mail only.
+
 ## Company assignment (`#1719`)
 
 - As Super Admin, verify saved Company/location IDs in the full-page and sheet
@@ -51,7 +74,7 @@
   at 320/390 px and desktop with images blocked and dark-mode preference.
 - Optional immediate request emails retain authorized comments and case links;
   technician excerpts omit customer contact/payment credentials, private tokens
-  and unauthorized financial amounts. No case narrative is repeated in digests.
+  and include original requested amounts. No case narrative is repeated in digests.
 - Verify condition alerts say cash sales or payment device where those are the
   proven sources. Stale status, incomplete coverage and a missing observation
   cannot become a quiet-sales or offline incident.

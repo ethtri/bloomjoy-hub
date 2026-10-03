@@ -43,6 +43,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
+import { useRefundRequestAccess } from '@/hooks/useRefundRequests';
 import { useEmailAlerts } from '@/hooks/useEmailAlerts';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { markPortalShellHidden, markPortalShellVisible } from '@/lib/portalPerformance';
@@ -96,6 +97,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
   const analyticsAccess = useReportingAnalyticsAccess(isAuthenticated);
   const emailAlerts = useEmailAlerts(isAuthenticated);
+  const refundRequests = useRefundRequestAccess(isAuthenticated);
   const navSections = isAuthenticated
     ? buildAuthenticatedNavSections({
         adminAccess,
@@ -108,6 +110,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         canUsePortalTimekeeping,
         canUseLaborReports: analyticsAccess.canUseLabor,
         canUseRefundReports: analyticsAccess.canUseRefunds,
+        canReadRefundRequests: refundRequests.isSuccess && refundRequests.data.hasAccess,
         canUseEmailAlerts: emailAlerts.data?.eligible === true,
         currentPathname: location.pathname,
         showAccountLink,

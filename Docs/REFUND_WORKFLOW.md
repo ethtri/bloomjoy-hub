@@ -13,6 +13,18 @@ gift card or change an existing payment commitment.
 
 ## What we are doing
 
+### Technician visibility (#1729)
+
+Technicians can read customer refund requests for currently assigned machines to
+understand reported machine problems. One Refunds destination shows received date,
+machine, selected issue, original requested amount and refund status; request
+details preserve useful sanitized customer comments. Refund status describes the
+customer resolution, not whether the machine is fixed. Alerts link to that same
+request. Viewing does not grant approval, denial, financial edits, payment,
+customer contact fields, provider credentials or raw case-event access. Current
+assignment checks apply to lists, direct links and delivery, independently of
+sales reporting access.
+
 Bloomjoy makes a customer whole with the least work consistent with identifying
 the purchase and preserving one replay-safe attempt per case. Nayax owns the
 authoritative limit that refund totals cannot exceed the original purchase.

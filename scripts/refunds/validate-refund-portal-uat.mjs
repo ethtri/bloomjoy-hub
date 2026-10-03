@@ -67,6 +67,8 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gmail_case_context',
   'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
+  'get_refund_request_access',
+  'get_refund_request',
   'get_refund_manager_work_projection',
   'get_refund_portal_queue_projection',
 ]);
@@ -3484,6 +3486,9 @@ const installMockSupabaseRoutes = async (
       fixtureOwnedPortalRpcLabels.set(request, rpcName);
     }
 
+    if (rpcName === 'get_refund_request_access') return route.fulfill(jsonResponse({ hasAccess: false, machines: [] }));
+    if (rpcName === 'get_refund_request') return route.fulfill(jsonResponse(null));
+
     if (rpcName === 'get_my_email_alert_preferences') {
       return route.fulfill(jsonResponse(ineligibleEmailAlertPreferences(mockUser.email)));
     }
@@ -4778,6 +4783,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   await signInRefundUser(cashPage, appUrl);
   await cashPage.getByRole('button', { name: /^All active \d+$/ }).click();
   await queueCase(cashPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
+  await cashPage.getByRole('button', { name: /^Confirm refund sent via Zelle$/ }).waitFor({ timeout: 10000 });
   const cashAction = await cashPage.locator('body').innerText();
   recorder.assert('Old v2 saved cash approval keeps only payout confirmation',
     !cashAction.includes('Refund action temporarily unavailable') &&
