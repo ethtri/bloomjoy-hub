@@ -215,5 +215,54 @@ select ok(public.get_refund_analytics('2026-03-01','2026-03-31')::text not like 
 select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
  where d->>'locationId'='fb730000-0000-4000-8000-000000000004'),'Restricted-only payment location does not broaden selectable dimensions');
 select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,array['fb730000-0000-4000-8000-000000000004']::uuid[])->'rows'),0,'Restricted-only location cannot expose a component row');
+-- Instrument only the disposable fixture transaction. Preserve the real refund
+-- calculation in a temporary clone so both complete JSON parity and the number
+-- of actual evaluations are checked without a timing-dependent assertion.
+create temporary table finance_projection_definitions as select
+  pg_get_functiondef('public.get_refund_analytics(date,date,uuid[],uuid[])'::regprocedure) as refund_definition;
+create temporary table finance_projection_baseline as select
+  public.get_finance_reporting('2026-03-01','2026-03-31')-'generatedAt' as payload;
+do $instrument$
+begin
+  execute replace((select refund_definition from finance_projection_definitions),
+    'FUNCTION public.get_refund_analytics(', 'FUNCTION pg_temp.finance_counted_refund_original(');
+end;
+$instrument$;
+create temporary sequence finance_refund_projection_calls;
+create or replace function public.get_refund_analytics(
+  p_date_from date,p_date_to date,p_machine_ids uuid[] default null,p_location_ids uuid[] default null
+) returns jsonb language plpgsql stable security definer set search_path='' as $counted$
+begin
+  perform nextval('pg_temp.finance_refund_projection_calls'::regclass);
+  return pg_temp.finance_counted_refund_original(p_date_from,p_date_to,p_machine_ids,p_location_ids);
+end;
+$counted$;
+create temporary table finance_projection_counted as select
+  public.get_finance_reporting('2026-03-01','2026-03-31')-'generatedAt' as payload;
+select is((select payload from finance_projection_counted),
+  (select payload from finance_projection_baseline),'Instrumented projection preserves the complete Finance JSON including unavailable coverage');
+select ok((select jsonb_array_length(payload->'rows')>=2 from finance_projection_counted),
+  'The call-count fixture exercises multiple historical/current dimensions');
+select is((select last_value from finance_refund_projection_calls),
+  (select jsonb_array_length(payload->'rows')::bigint from finance_projection_counted),
+  'Finance evaluates the refund projection exactly once per historical/current dimension');
+select setval('pg_temp.finance_refund_projection_calls',1,false);
+create temporary table finance_projection_filtered as select public.get_finance_reporting('2026-03-01','2026-03-31',null,
+  array['fb730000-0000-4000-8000-000000000002']::uuid[]) as payload;
+select is((select last_value from finance_refund_projection_calls),1::bigint,
+  'A selected historical location evaluates one refund projection');
+select is(jsonb_array_length((select payload from finance_projection_filtered)->'rows'),1,
+  'A selected historical location returns exactly its existing dimension');
+select setval('pg_temp.finance_refund_projection_calls',1,false);
+select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31','{}'::uuid[],null)->'rows'),0,
+  'An empty machine selection is deny-all after materialization');
+select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,'{}'::uuid[])->'rows'),0,
+  'An empty location selection is deny-all after materialization');
+select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',array['fb740000-0000-4000-8000-000000000002']::uuid[],null)->'rows'),0,
+  'An unauthorized machine selection never creates a materialized dimension');
+select ok(not (select is_called from finance_refund_projection_calls),
+  'Empty selections never evaluate any refund projection');
+-- Restore the original body for later tests sharing this disposable session.
+do $restore$ begin execute (select refund_definition from finance_projection_definitions); end; $restore$;
 select * from finish();
 rollback;
