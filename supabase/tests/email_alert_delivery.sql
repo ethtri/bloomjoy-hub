@@ -29,6 +29,9 @@ select set_config('request.jwt.claim.sub','eb710000-0000-4000-8000-000000000002'
 select is((select a->>'enabled' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='daily'),'true','Technician daily defaults on');
 select is((select a->>'authorized' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='decision-ready'),'false','Technician assignment does not authorize decisions');
 select is((select a->>'authorized' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='sales-quiet'),'false','Technician without reporting cannot authorize financial comparison alerts');
+select throws_ok($$select public.save_my_email_alert_preferences(jsonb_set(public.get_my_email_alert_preferences(),'{alerts}',
+ (select jsonb_agg(case when a->>'id'='sales-quiet' then a||'{"enabled":true,"scopeMode":"selected","machineIds":["eb740000-0000-4000-8000-000000000001"]}'::jsonb else a end)
+ from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a)),0)$$,'42501',null,'Technician cannot save forged sales-count subscription');
 create temporary table email_projection as select private.email_alert_projection('eb710000-0000-4000-8000-000000000002','daily','2026-10-03T15:00Z','2026-10-02','2026-10-02') p;
 select is((select p#>>'{machines,0,refundCases,0,commentExcerpt}' from email_projection),'Customer reported that the machine did not dispense.','Technician gets fixed symptom only');
 select ok((select p::text not like '%Jane%' and p::text not like '%Private Street%' and p::text not like '%4111%' and p::text not like '%SECRET123%' and p::text not like '%example.invalid%' from email_projection),'Adversarial personal/payment/code details never enter technician projection');
@@ -54,13 +57,18 @@ select is((select due_at from private.email_alert_digest_schedule('eb710000-0000
 update public.email_alert_profiles set daily_time='01:30' where user_id='eb710000-0000-4000-8000-000000000002';
 select is((select due_at from private.email_alert_digest_schedule('eb710000-0000-4000-8000-000000000002','daily','2026-11-01T10:00Z') where schedule_date='2026-11-01'),'2026-11-01T09:30Z'::timestamptz,'Repeated DST local time has one scheduled instant');
 update public.email_alert_profiles set daily_time='08:00' where user_id='eb710000-0000-4000-8000-000000000002';
+update public.refund_manager_digest_settings set delivery_enabled=true;
+create temporary table old_email_claim as select public.service_begin_next_refund_manager_digest('2026-10-03T15:00Z') c;
+select is((select c->>'claimed' from old_email_claim),'true','Legacy batch can reserve before cutover');
 update private.email_alert_delivery_settings set delivery_enabled=true,activated_at=statement_timestamp();
+select is((select public.service_mark_refund_manager_digest_provider_started((c->>'batchId')::uuid,(c->>'claimToken')::uuid,c->>'mappingFingerprint',c->>'recipient') from old_email_claim),false,'Pre-cutover legacy reservation cannot start after ownership changes');
 select is((public.service_begin_next_refund_manager_digest('2026-10-03T15:00Z')->>'reason'),'personal_alert_sender_owns_daily','Activated owner prevents legacy schedule racing');
 select is(private.email_alert_ready_allowed('eb710000-0000-4000-8000-000000000001','eb740000-0000-4000-8000-000000000001','2026-10-03T15:00Z'),false,'Decision-ready defaults off after activation');
 create temporary table email_claim as select public.service_claim_next_email_alert('2026-10-03T15:00Z') c;
 select is((select c->>'claimed' from email_claim),'true','Due manager daily claims');
 select ok((select c->>'idempotencyKey'~'^[A-Za-z0-9_-]{1,200}$' from email_claim),'Transport-compatible stable idempotency key');
-select is((select count(*)::int from public.refund_manager_digest_batches),1,'Unified manager email reserves canonical daily slot');
+select is((select count(*)::int from public.refund_manager_digest_batches),1,'Unified sender adopts unstarted legacy day slot without duplicating reservation');
+select is((select (j.legacy_batch_id::text=(c->>'batchId')) from private.email_alert_jobs j cross join old_email_claim where j.user_id='eb710000-0000-4000-8000-000000000001'),true,'Adopted old slot remains attached to new durable job');
 update public.email_alert_preferences set enabled=false where user_id='eb710000-0000-4000-8000-000000000001' and alert_id='daily';
 insert into public.email_alert_preferences(user_id,alert_id,enabled) values('eb710000-0000-4000-8000-000000000001','daily',false) on conflict do nothing;
 select is((select public.service_mark_email_alert_provider_started((c->>'jobId')::uuid,(c->>'claimToken')::uuid,c->>'recipient',c->>'routeFingerprint') from email_claim),false,'Opt-out after claim blocks provider start');
@@ -76,12 +84,33 @@ select is((select public.service_complete_email_alert((c->>'jobId')::uuid,(c->>'
 set local session_replication_role=replica;
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
  ('eb740000-0000-4000-8000-000000000002','eb710000-0000-4000-8000-000000000001','manager@example.invalid','active');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,
+ payment_method,payment_amount_cents,refund_amount_cents,status) values
+ ('eb760000-0000-4000-8000-000000000002','RF-EMAIL-LEGACY','eb740000-0000-4000-8000-000000000002','eb730000-0000-4000-8000-000000000001',
+ 'legacy-private@example.invalid','Old request, customer date unavailable','2026-09-01T12:00Z','card',500,500,'needs_review');
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','eb710000-0000-4000-8000-000000000001',true);
 select is((select a->>'enabled' from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where a->>'id'='daily'),'false','New assignment cannot override explicit daily opt-out');
 select is((private.email_alert_daily_health('2026-10-03T20:00Z')->>'missedDueRecipientCount')::int,0,'Opt-out creates no false legacy due obligation');
+insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,machine_ids,enabled_since) values
+ ('eb710000-0000-4000-8000-000000000001','weekly',true,'selected',array['eb740000-0000-4000-8000-000000000001']::uuid[],statement_timestamp());
+insert into public.email_alert_profiles(user_id,weekly_day,weekly_time,quiet_enabled,quiet_start,quiet_end) values
+ ('eb710000-0000-4000-8000-000000000001',7,'21:00',true,'20:00','07:00');
+create temporary table weekly_email as select private.email_alert_projection('eb710000-0000-4000-8000-000000000001','weekly','2026-10-05T14:00Z','2026-09-21','2026-09-27') p;
+select is((select jsonb_array_length(p->'machines') from weekly_email),1,'Weekly email excludes mandatory daily work outside weekly selection');
+select ok((select p::text not like '%RF-EMAIL-LEGACY%' from weekly_email),'Weekly cannot import additional assigned machine cases');
+select is((select p#>>'{machines,0,dateFrom}' from weekly_email),'2026-09-21','Sunday weekly deferred to Monday retains original completed week start');
+select is((select p#>>'{machines,0,dateTo}' from weekly_email),'2026-09-27','Sunday weekly deferred to Monday retains original completed week end');
+update public.email_alert_preferences set enabled=true,scope_mode='selected',machine_ids=array['eb740000-0000-4000-8000-000000000001']::uuid[] where user_id='eb710000-0000-4000-8000-000000000001' and alert_id='daily';
+update public.email_alert_profiles set daily_time='10:00' where user_id='eb710000-0000-4000-8000-000000000001';
+select is((private.email_alert_daily_health('2026-10-03T15:00Z')->>'missedDueRecipientCount')::int,0,'Later daily time has no false old 08:00 missed obligation');
+create temporary table daily_extra as select private.email_alert_projection('eb710000-0000-4000-8000-000000000001','daily','2026-10-03T17:00Z','2026-10-02','2026-10-02') p;
+select is((select jsonb_array_length(p->'machines') from daily_extra),2,'Daily preserves all canonical manager cases beyond followed performance');
+select is((select p#>>'{summary,machineCount}' from daily_extra),'1','Additional assigned case work does not expand performance totals');
+select is((select c->>'receivedAt' from daily_extra,jsonb_array_elements(p->'machines') m,jsonb_array_elements(m->'refundCases') c where c->>'publicReference'='RF-EMAIL-LEGACY'),null,'Legacy unknown request date is retained as null');
 update private.email_alert_delivery_settings set delivery_enabled=false;
 select is((public.service_begin_next_refund_manager_digest('2026-10-03T15:00Z')->>'reason'),'personal_alert_sender_owns_daily','Pausing after activation does not restore old sender');
 select is(private.email_alert_ready_allowed('eb710000-0000-4000-8000-000000000001','eb740000-0000-4000-8000-000000000001','2026-10-03T15:00Z'),false,'Paused cutover cannot send default-off ready notice');
+select is((select public.service_mark_refund_manager_digest_provider_started((c->>'batchId')::uuid,(c->>'claimToken')::uuid,c->>'mappingFingerprint',c->>'recipient') from old_email_claim),false,'Pre-cutover legacy reservation remains blocked while paused');
 select * from finish();
 rollback;

@@ -340,7 +340,19 @@ begin
     values(c.user_id,legacy_date,legacy_settings.digest_timezone,'reserved',token,route,private.email_alert_hash(recipient),
       private.email_alert_hash(manager_items::text),p_observed_at,jsonb_array_length(manager_items))
     on conflict(manager_user_id,digest_local_date,digest_timezone) do nothing returning * into legacy;
-    if legacy.id is null then continue;end if;
+    if legacy.id is null then
+     select * into legacy from public.refund_manager_digest_batches where manager_user_id=c.user_id
+       and digest_local_date=legacy_date and digest_timezone=legacy_settings.digest_timezone for update;
+     if legacy.id is null or legacy.status not in ('reserved','known_not_sent') or legacy.provider_attempt_started_at is not null
+       or legacy.attempt_count>=3 or exists(select 1 from private.email_alert_jobs owner where owner.legacy_batch_id=legacy.id) then continue;end if;
+     -- After ownership cutover, the old provider-start RPC is fenced. Adopt
+     -- its unstarted slot so a reservation made just before cutover loses no day.
+     delete from public.refund_manager_digest_items where batch_id=legacy.id;
+     update public.refund_manager_digest_batches set status='reserved',claim_token=token,attempt_count=attempt_count+1,
+       mapping_fingerprint=route,recipient_fingerprint=private.email_alert_hash(recipient),projection_fingerprint=private.email_alert_hash(manager_items::text),
+       projection_observed_at=p_observed_at,item_count=jsonb_array_length(manager_items),settled_at=null,updated_at=p_observed_at
+       where id=legacy.id returning * into legacy;
+    end if;
    end if;
    insert into public.refund_manager_digest_items(batch_id,manager_user_id,notification_action_id,refund_case_id,attention_version)
     select legacy.id,c.user_id,null,(x->>'caseId')::uuid,1 from jsonb_array_elements(manager_items) x;

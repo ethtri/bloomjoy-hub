@@ -134,3 +134,36 @@ begin
 end $$;
 revoke all on function public.service_record_email_alert_signal(jsonb) from public,anon,authenticated;
 grant execute on function public.service_record_email_alert_signal(jsonb) to service_role;
+
+create function private.email_alert_signal_is_current(p_signal_id uuid,p_observed_at timestamptz)
+returns boolean language plpgsql stable security definer set search_path='' as $$
+declare s private.email_alert_signals;o private.email_alert_device_observations;mapping text;candidate jsonb;
+begin
+ select * into s from private.email_alert_signals where id=p_signal_id and observed_at<=p_observed_at and valid_until>p_observed_at;
+ if s.id is null then return false;end if;
+ if s.alert_id='sales-quiet' then
+  candidate:=private.email_alert_quiet_candidate(s.machine_id,p_observed_at);
+  return candidate is not null and candidate->'payload'=s.payload;
+ end if;
+ select * into o from private.email_alert_device_observations where machine_id=s.machine_id;
+ select private.email_alert_hash(nayax_account_key||'|'||nayax_machine_id) into mapping from public.reporting_machines where id=s.machine_id and status='active';
+ return coalesce(not o.is_online and o.last_observed_at>=p_observed_at-interval '6 minutes' and o.source_mapping_fingerprint=mapping
+  and o.first_observed_at=(s.payload->>'firstObservedAt')::timestamptz and o.observation_count>=4,false);
+end $$;
+revoke all on function private.email_alert_signal_is_current(uuid,timestamptz) from public,anon,authenticated;
+
+-- Revalidate at selection and at the final provider boundary; a changed device
+-- mapping, online observation or corrected sales import invalidates old proof.
+do $$ declare definition text;begin
+ definition:=pg_get_functiondef('private.email_alert_projection(uuid,text,timestamptz,date,date,uuid)'::regprocedure);
+ definition:=replace(definition,'s.valid_until>p_observed_at','s.valid_until>p_observed_at and private.email_alert_signal_is_current(s.id,p_observed_at)');
+ definition:=replace(definition,'z.valid_until>p_observed_at','z.valid_until>p_observed_at and private.email_alert_signal_is_current(z.id,p_observed_at)');
+ execute definition;
+ definition:=pg_get_functiondef('private.email_alert_due_candidates(timestamptz)'::regprocedure);
+ definition:=replace(definition,'z.valid_until>p_observed_at','z.valid_until>p_observed_at and private.email_alert_signal_is_current(z.id,p_observed_at)');
+ execute definition;
+ definition:=pg_get_functiondef('public.service_mark_email_alert_provider_started(uuid,uuid,text,text)'::regprocedure);
+ definition:=replace(definition,'where id=j.event_id and valid_until>statement_timestamp()',
+  'where id=j.event_id and valid_until>statement_timestamp() and private.email_alert_signal_is_current(id,statement_timestamp())');
+ execute definition;
+end $$;
