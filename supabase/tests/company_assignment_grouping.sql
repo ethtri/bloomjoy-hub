@@ -63,6 +63,7 @@ create temporary table source_setup as select public.admin_map_source_machine_to
  'cc171902-0000-4000-8000-000000000002',null,null,null) result;
 select is((select result->>'accountId' from source_setup),'cc171901-0000-4000-8000-000000000002','Sunze uses explicit company independently of settlement participant');
 select is((select (result->>'promotedRowCount')::int from source_setup),1,'Explicit source setup preserves pending promotion count');
+select is((select (result->>'promotedRevenueCents')::int from source_setup),1200,'Source result counts revenue from exactly promoted pending rows');
 select is((select count(*)::int from public.customer_accounts),(select count from source_company_count),'Source setup never creates participant-derived company');
 select is((select count(*)::int from public.machine_sales_facts where source_order_hash=repeat('c',32)),1,'Pending source sale promoted once');
 select is((select status from public.sunze_unmapped_sales where source_order_hash=repeat('c',32)),'mapped','Pending discovery marked mapped');
@@ -85,6 +86,10 @@ select lives_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0
 select is((select status from public.reporting_machines where id='cc171903-0000-4000-8000-000000000003'),'inactive','Identity edit does not reactivate inventory');
 select is((select status from public.customer_accounts where id='cc171901-0000-4000-8000-000000000004'),'inactive','Company status unchanged');
 select is((select status from public.reporting_locations where id='cc171902-0000-4000-8000-000000000003'),'inactive','Location status unchanged');
+select lives_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0000-4000-8000-000000000004','cc171901-0000-4000-8000-000000000004','cc171902-0000-4000-8000-000000000003','Explicit inactive company target','commercial',null,'live','Fixture explicit reassignment','cc171901-0000-4000-8000-000000000001','cc171902-0000-4000-8000-000000000001')$$,'Existing identity authority can choose inactive target without a new business ban');
+select is((select status from public.customer_accounts where id='cc171901-0000-4000-8000-000000000004'),'inactive','Reassignment never reactivates target company');
+select is((select status from public.reporting_locations where id='cc171902-0000-4000-8000-000000000003'),'inactive','Reassignment never reactivates target location');
+select is((select status from public.reporting_machines where id='cc171903-0000-4000-8000-000000000004'),'active','Reassignment preserves original inventory status');
 
 select set_config('request.jwt.claim.sub','cc171900-0000-4000-8000-000000000002',true);
 select throws_ok($$select public.admin_get_reporting_company_choices()$$,'42501','Admin access required','Manager cannot read global company directory');
@@ -111,7 +116,17 @@ select throws_ok($$select public.get_company_refund_analytics('cc171901-0000-400
 select throws_ok($$select public.get_company_finance_reporting('cc171901-0000-4000-8000-000000000002','2026-09-01','2026-09-30')$$,'42501',null,'Company ID cannot grant Finance authority to Sales viewer');
 select throws_ok($$select public.get_refund_portal_queue_projection()$$,'42501',null,'Company metadata does not expose queue to Sales viewer');
 select ok(not has_function_privilege('authenticated','private.refund_add_current_company(jsonb,text)','execute'),'Metadata enrichment helper remains inaccessible');
-select ok(not has_function_privilege('authenticated','private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text)','execute'),'Private identity writer remains inaccessible');
+select ok(not has_function_privilege('authenticated','private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text,boolean)','execute'),'Private identity writer remains inaccessible');
 select ok(not has_function_privilege('anon','public.admin_create_reporting_company(text)','execute'),'Anonymous cannot create companies');
+select ok(not has_function_privilege('service_role','public.admin_create_reporting_company(text)','execute'),'Service jobs cannot create actor-owned companies');
+select ok(not has_function_privilege('service_role','public.admin_get_reporting_company_choices()','execute'),'Global company directory requires current portal actor');
+select ok(not has_function_privilege('service_role','public.admin_upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text)','execute'),'ID save requires current portal actor');
+select ok(not has_function_privilege('service_role','public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid)','execute'),'Source setup requires current portal actor');
+select ok(not has_function_privilege('service_role','public.admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text)','execute'),'Timezone mapping requires current portal actor');
+select ok(not has_function_privilege('service_role','public.get_refund_analytics_access()','execute'),'Refund dimensions remain actor-scoped');
+select ok(not has_function_privilege('service_role','public.get_finance_reporting_access()','execute'),'Finance dimensions remain actor-scoped');
+select ok(not has_function_privilege('service_role','public.get_refund_portal_queue_projection(timestamptz)','execute'),'Service jobs cannot substitute for queue actor');
+select ok(not has_function_privilege('service_role','private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text,boolean)','execute'),'Service jobs cannot call private identity writer');
+select ok(not has_function_privilege('authenticated','private.upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,boolean)','execute'),'Public callers cannot bypass guarded save wrapper');
 select * from finish();
 rollback;

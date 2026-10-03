@@ -71,7 +71,7 @@ end;
 $$;
 
 revoke all on function public.get_refund_analytics_access(),public.get_finance_reporting_access(),
-  public.admin_get_refund_operations_overview(),public.get_refund_portal_queue_projection(timestamptz) from public,anon;
+  public.admin_get_refund_operations_overview(),public.get_refund_portal_queue_projection(timestamptz) from public,anon,authenticated,service_role;
 grant execute on function public.get_refund_analytics_access(),public.get_finance_reporting_access(),
   public.get_refund_portal_queue_projection(timestamptz) to authenticated;
 grant execute on function public.admin_get_refund_operations_overview() to authenticated,service_role;
@@ -143,7 +143,7 @@ end;
 $$;
 revoke all on function public.get_company_sales_report(uuid,date,date,text,uuid[],uuid[],text[]),
   public.get_company_refund_analytics(uuid,date,date,uuid[],uuid[]),
-  public.get_company_finance_reporting(uuid,date,date,uuid[],uuid[]) from public,anon;
+  public.get_company_finance_reporting(uuid,date,date,uuid[],uuid[]) from public,anon,authenticated,service_role;
 grant execute on function public.get_company_sales_report(uuid,date,date,text,uuid[],uuid[],text[]),
   public.get_company_refund_analytics(uuid,date,date,uuid[],uuid[]),
   public.get_company_finance_reporting(uuid,date,date,uuid[],uuid[]) to authenticated;

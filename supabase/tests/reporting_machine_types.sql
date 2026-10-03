@@ -68,7 +68,7 @@ select ok(
   position(
     'not in (''commercial'', ''mini'', ''micro'', ''snapcase'', ''unknown'')'
     in pg_get_functiondef(
-      'private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text)'::regprocedure
+      'private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text,boolean)'::regprocedure
     )
   ) > 0,
   'The machine create/edit RPC accepts canonical Snapcase values'

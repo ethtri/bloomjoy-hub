@@ -16,25 +16,41 @@ begin
   definition:=substr(definition,1,first_pos-1)||$replacement$
   select * into before_machine from public.reporting_machines
     where lower(sunze_machine_id)=lower(normalized_external_machine_id) for update;
-  select count(*)::integer,coalesce(sum(net_sales_cents),0)::bigint
-    into promoted_row_count,promoted_revenue_cents from public.sunze_unmapped_sales
-    where lower(sunze_machine_id)=lower(normalized_external_machine_id) and status in ('pending','ignored');
-  after_machine:=public.admin_upsert_reporting_machine_by_id(
+  after_machine:=private.upsert_reporting_machine_by_id(
     before_machine.id,p_account_id,p_location_id,normalized_machine_label,normalized_machine_type,
     normalized_external_machine_id,coalesce(before_machine.operational_phase,'live'),normalized_reason,
     p_expected_account_id,p_expected_location_id,
     case when p_location_id is null then normalized_location_name end,
-    case when p_location_id is null then p_location_timezone end);
+    case when p_location_id is null then p_location_timezone end,false);
   select * into account_row from public.customer_accounts where id=after_machine.account_id;
   select * into location_row from public.reporting_locations where id=after_machine.location_id;
 
 $replacement$||substr(definition,last_pos);
-  -- Identity save already promotes the pending facts. Preserve the count and
-  -- revenue observed before that atomic save in the source setup result/audit.
+  -- This source path owns its existing single promotion statement. Count the
+  -- exact locked pending rows actually promoted, rather than a preceding scan.
   first_pos:=strpos(definition,E'  select\n    count(*)::integer,');
   last_pos:=strpos(definition,'  with promotable as (');
   if first_pos=0 or last_pos<=first_pos then raise exception 'Unexpected source promotion definition'; end if;
   definition:=substr(definition,1,first_pos-1)||substr(definition,last_pos);
+  definition:=replace(definition,'  with promotable as (','  with promotable as materialized (');
+  definition:=replace(definition,$old$      and pending.status in ('pending', 'ignored')
+  ),$old$,$new$      and pending.status in ('pending', 'ignored')
+    for update
+  ),$new$);
+  definition:=replace(definition,$old$    returning target.source_order_hash
+  )
+  update public.sunze_unmapped_sales pending$old$,$new$    returning target.source_order_hash
+  ), mapped as (
+  update public.sunze_unmapped_sales pending$new$);
+  definition:=replace(definition,$old$  where pending.source_order_hash in (select source_order_hash from upserted);$old$,
+    $new$  where pending.source_order_hash in (select source_order_hash from upserted)
+  returning pending.net_sales_cents
+  )
+  select count(*)::integer,coalesce(sum(net_sales_cents),0)::bigint
+  into promoted_row_count,promoted_revenue_cents from mapped;$new$);
+  if strpos(definition,'from mapped;')=0 or strpos(definition,'for update')=0 then
+    raise exception 'Unexpected source promotion counting';
+  end if;
   definition:=replace(definition,$old$    'accountName', account_row.name,$old$,
     $new$    'accountId', account_row.id,
     'locationId', location_row.id,
@@ -42,7 +58,7 @@ $replacement$||substr(definition,last_pos);
   execute definition;
 end;
 $migration$;
-revoke all on function public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid) from public,anon;
+revoke all on function public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid) from public,anon,authenticated,service_role;
 grant execute on function public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid) to authenticated;
 
 -- The name-free legacy signature cannot express a deliberate company choice.
@@ -86,7 +102,7 @@ begin
   execute definition;
 end;
 $migration$;
-revoke all on function public.admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text) from public,anon;
+revoke all on function public.admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text) from public,anon,authenticated,service_role;
 grant execute on function public.admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text) to authenticated;
 
 create or replace function public.admin_map_snapcase_machine(

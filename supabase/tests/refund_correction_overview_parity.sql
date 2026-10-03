@@ -192,7 +192,7 @@ immutable
 set search_path = ''
 as $$
 declare
-  normalized jsonb := p_case - 'incidentTimezone' - 'incidentLocalDateTime';
+  normalized jsonb := p_case - 'incidentTimezone' - 'incidentLocalDateTime' - 'accountId' - 'accountName';
   normalized_candidates jsonb;
 begin
   if pg_catalog.jsonb_typeof(p_case -> 'nayaxLookupCandidates') = 'array' then
@@ -227,10 +227,12 @@ end;
 $$;
 
 select ok(
-  position('admin_refund_overview_pre_reconcile_v1' in pg_get_functiondef(
+  position('admin_get_refund_operations_overview_pre_company_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('admin_refund_overview_pre_reconcile_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_company_v1()'::regprocedure))>0
   and position('refund_case_has_unresolved_reconciliation' in pg_get_functiondef(
-    'public.admin_get_refund_operations_overview()'::regprocedure))>0
+    'public.admin_get_refund_operations_overview_pre_company_v1()'::regprocedure))>0
   and position('refund_project_current_next_work_cases' in pg_get_functiondef(
     'public.admin_refund_overview_pre_reconcile_v1()'::regprocedure))>0
   and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(

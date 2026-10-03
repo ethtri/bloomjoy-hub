@@ -54,6 +54,7 @@ begin
   definition:=replace(definition,'public.admin_upsert_reporting_machine(', 'private.upsert_reporting_machine_identity(');
   definition:=replace(definition,'p_account_name text','p_account_id uuid');
   definition:=replace(definition,'p_location_name text','p_location_id uuid');
+  definition:=replace(definition,'p_reason text)','p_reason text, p_promote_pending boolean DEFAULT true)');
   definition:=replace(definition,$old$normalized_account_name := trim(coalesce(p_account_name, ''));$old$,
     $new$select * into account_row from public.customer_accounts where id=p_account_id;
   normalized_account_name := account_row.name;$new$);
@@ -68,19 +69,22 @@ begin
   definition:=substr(definition,1,first_pos-1)||substr(definition,last_pos);
   definition:=replace(definition,E'      sunze_machine_id = normalized_sunze_machine_id,\n      status = ''active''',
     '      sunze_machine_id = normalized_sunze_machine_id');
+  definition:=replace(definition,'  if normalized_sunze_machine_id is not null then',
+    '  if p_promote_pending and normalized_sunze_machine_id is not null then');
   -- The public wrapper locks and validates an explicit edit identity. Source ID
   -- discovery remains supported for source mapping with its own expected guard.
   execute definition;
 end;
 $migration$;
-revoke all on function private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated;
+revoke all on function private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text,boolean) from public,anon,authenticated,service_role;
 
-create function public.admin_upsert_reporting_machine_by_id(
+create function private.upsert_reporting_machine_by_id(
   p_machine_id uuid, p_account_id uuid, p_location_id uuid,
   p_machine_label text, p_machine_type text, p_sunze_machine_id text,
   p_operational_phase text, p_reason text,
   p_expected_account_id uuid, p_expected_location_id uuid,
-  p_new_location_name text default null, p_new_location_timezone text default null
+  p_new_location_name text default null, p_new_location_timezone text default null,
+  p_promote_pending boolean default true
 )
 returns public.reporting_machines language plpgsql security definer set search_path='' as $$
 declare before_row public.reporting_machines; result public.reporting_machines;
@@ -108,16 +112,10 @@ begin
   end if;
   select * into a from public.customer_accounts where id=p_account_id for share;
   if a.id is null then raise exception 'Company not found' using errcode='22023'; end if;
-  if a.status<>'active' and a.id is distinct from before_row.account_id then
-    raise exception 'Choose an active company' using errcode='22023';
-  end if;
   if p_location_id is not null then
     if location_name<>'' or zone<>'' then raise exception 'Choose a location or explicitly add one' using errcode='22023'; end if;
     select * into l from public.reporting_locations where id=p_location_id and account_id=a.id for share;
     if l.id is null then raise exception 'Location does not belong to the selected company' using errcode='22023'; end if;
-    if l.status<>'active' and l.id is distinct from before_row.location_id then
-      raise exception 'Choose an active location' using errcode='22023';
-    end if;
   else
     if location_name='' then raise exception 'Choose a location or explicitly add one' using errcode='22023'; end if;
     if zone='' or (zone<>'UTC' and strpos(zone,'/')=0)
@@ -131,10 +129,22 @@ begin
         jsonb_build_object('reason',btrim(p_reason),'machineId',before_row.id));
   end if;
   result:=private.upsert_reporting_machine_identity(before_row.id,a.id,l.id,
-    p_machine_label,p_machine_type,p_sunze_machine_id,p_reason);
+    p_machine_label,p_machine_type,p_sunze_machine_id,p_reason,p_promote_pending);
   result:=public.admin_set_reporting_machine_operational_phase(result.id,p_operational_phase,p_reason);
   return result;
 end;
+$$;
+revoke all on function private.upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,boolean)
+  from public,anon,authenticated,service_role;
+
+create function public.admin_upsert_reporting_machine_by_id(
+  p_machine_id uuid,p_account_id uuid,p_location_id uuid,p_machine_label text,p_machine_type text,
+  p_sunze_machine_id text,p_operational_phase text,p_reason text,p_expected_account_id uuid,p_expected_location_id uuid,
+  p_new_location_name text default null,p_new_location_timezone text default null
+) returns public.reporting_machines language sql security definer set search_path='' as $$
+  select private.upsert_reporting_machine_by_id(p_machine_id,p_account_id,p_location_id,p_machine_label,p_machine_type,
+    p_sunze_machine_id,p_operational_phase,p_reason,p_expected_account_id,p_expected_location_id,
+    p_new_location_name,p_new_location_timezone,true);
 $$;
 
 -- Existing callers may resolve exact names, but never create companies/locations.
@@ -181,7 +191,7 @@ end;
 $migration$;
 
 revoke all on function public.admin_get_reporting_company_choices(),public.admin_create_reporting_company(text),
-  public.admin_upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text) from public,anon;
+  public.admin_upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text) from public,anon,authenticated,service_role;
 grant execute on function public.admin_get_reporting_company_choices(),public.admin_create_reporting_company(text),
   public.admin_upsert_reporting_machine_by_id(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text) to authenticated;
 select pg_notify('pgrst','reload schema');
