@@ -310,10 +310,14 @@
     "20261002042132_refund_positive_cash_snapshot_parity.sql",
     "20261002042649_refund_exception_amounts.sql",
     "20261002044630_refund_portal_outreach_reuse.sql",
+    "20261002062831_refund_analytics_projection.sql",
     "20261002092533_refund_form_outreach_value_reuse.sql",
     "20261002170300_refund_legacy_payout_reminder_authority.sql",
     "20261002220122_refund_cash_research_projection.sql",
-    "20261002232736_refund_assisted_structured_correction.sql"
+    "20261002232736_refund_assisted_structured_correction.sql",
+    "20261003024848_finance_reporting_materialized_refund_projection.sql",
+    "20261003062009_bound_subscribed_refund_ready_work.sql",
+    "20261003171036_refund_daily_health_open_presence.sql"
   ],
   "migrationFilesSha256": "3a607971fa41155b0bb687eb0e7286d804a49a4a5064ce3980d69a831455e345",
   "migrationVersionSetSha256": "e6a39a1667fe06f1f81903890ea56b4e1e3d4116575bd0edc4f3b1b825049588",
