@@ -11,15 +11,24 @@ import {
 import type {
   NayaxDisagreementReason,
   NayaxLookupCandidate,
+  RefundNayaxLookupSummary,
+  RefundSelectedNayaxTransaction,
 } from '@/lib/refundOperations';
 import { cn } from '@/lib/utils';
-
-type NayaxMatchFactor = NonNullable<NayaxLookupCandidate['matchFactors']>[number];
+import {
+  getRefundReviewEvidence,
+  getRefundSearchCoveragePresentation,
+  type RefundReviewCustomerEvidence,
+} from '@/lib/refundReviewPresentation';
 
 type RefundTransactionCandidateReviewProps = {
   candidates: NayaxLookupCandidate[];
   selectedCandidate: NayaxLookupCandidate | null;
   selectedCandidateToken: string;
+  hasSavedSelection?: boolean;
+  savedSelection?: RefundSelectedNayaxTransaction | null;
+  lookupSummary?: RefundNayaxLookupSummary | null;
+  customerEvidence?: RefundReviewCustomerEvidence;
   selectableCandidateCount: number;
   paymentAmountCents: number | null;
   timezone: string | null;
@@ -33,26 +42,22 @@ type RefundTransactionCandidateReviewProps = {
   disagreementReason: NayaxDisagreementReason | '';
   canUseCloserTimeReason: boolean;
   describeUnavailableCandidate: (candidate: NayaxLookupCandidate) => string;
-  describeMatchFactor: (
-    factor: NayaxMatchFactor,
-    candidate: NayaxLookupCandidate,
-  ) => string;
   onSelectCandidate: (candidate: NayaxLookupCandidate) => void;
   onDisagreementReasonChange: (reason: NayaxDisagreementReason | '') => void;
   onSaveForReview: () => void;
 };
 
-const formatCurrency = (cents: number | null) => {
+const formatCurrency = (cents: number | null, currencyCode = 'USD') => {
   if (typeof cents !== 'number') return 'n/a';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: currencyCode,
   }).format(cents / 100);
 };
 
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
   [
-    formatCurrency(candidate.amountCents),
+    formatCurrency(candidate.amountCents, candidate.currencyCode),
     `${candidate.cardBrand || 'Card'} ending ${candidate.cardLast4 || 'n/a'}`,
   ].join(' • ');
 
@@ -60,6 +65,10 @@ export function RefundTransactionCandidateReview({
   candidates,
   selectedCandidate,
   selectedCandidateToken,
+  hasSavedSelection = false,
+  savedSelection,
+  lookupSummary,
+  customerEvidence,
   selectableCandidateCount,
   paymentAmountCents,
   timezone,
@@ -73,7 +82,6 @@ export function RefundTransactionCandidateReview({
   disagreementReason,
   canUseCloserTimeReason,
   describeUnavailableCandidate,
-  describeMatchFactor,
   onSelectCandidate,
   onDisagreementReasonChange,
   onSaveForReview,
@@ -83,8 +91,32 @@ export function RefundTransactionCandidateReview({
   );
 
   const availableCandidates = candidates.filter((candidate) => candidate.selectionAllowed !== false);
+  const searchCoverage = getRefundSearchCoveragePresentation(lookupSummary);
   return (
-    <div className="border-t border-border pt-3">
+    <div className="space-y-3 pt-2">
+      {hasSavedSelection && (
+        <div data-testid="refund-comparison-saved-selection" className="text-sm leading-6">
+          <p className="font-semibold">Currently selected for review</p>
+          {savedSelection ? (
+            <p>
+              {formatCurrency(savedSelection.saleAmountCents, savedSelection.currencyCode)} · Nayax reference{' '}
+              <span className="break-all font-medium">{savedSelection.transactionId}</span>
+            </p>
+          ) : (
+            <p>Saved purchase details are unavailable in this response.</p>
+          )}
+          <p className="text-muted-foreground">Opening this comparison keeps the saved purchase selected. Choosing a result below prepares a change; saving it or approving the reviewed choice records that exact purchase.</p>
+        </div>
+      )}
+      <div data-testid="refund-candidate-search-coverage" className="space-y-1 text-sm leading-6 text-muted-foreground">
+        <p className="font-medium text-foreground">Nayax search</p>
+        <p>{searchCoverage.resultCountLabel}. {searchCoverage.providerRecordCountLabel}.</p>
+        <p>{searchCoverage.windowLabel}{searchCoverage.incidentAt ? `: ${formatRefundDateTime(searchCoverage.incidentAt, timezone)}` : ''}.</p>
+        <p>{searchCoverage.freshnessAt
+          ? `Last checked: ${formatRefundDateTime(searchCoverage.freshnessAt, timezone)}`
+          : 'Last checked time unavailable'}.</p>
+        <p>{searchCoverage.coverageLabel}</p>
+      </div>
       {isDemoData && (
         <p className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -93,13 +125,19 @@ export function RefundTransactionCandidateReview({
       )}
       <div data-testid="nayax-candidate-availability" className="mb-3">
         <p className="text-sm font-semibold text-foreground">
-          {availableCandidates.length} available transaction result{availableCandidates.length === 1 ? '' : 's'}
+          {hasSavedSelection && candidates.length === 0
+            ? 'Current candidate rows unavailable'
+            : availableCandidates.length === candidates.length
+            ? `${candidates.length} available transaction result${candidates.length === 1 ? '' : 's'}`
+            : `${candidates.length} current transaction result${candidates.length === 1 ? '' : 's'}`}
         </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           {selectionHoldReason
             ? selectionHoldReason
             : selectableCandidateCount === 0
-              ? 'Bloomjoy is still identifying this purchase.'
+              ? hasSavedSelection
+                ? 'The saved selection is retained. None of these results can currently be selected.'
+                : 'None of these results can currently be selected. Bloomjoy is still identifying this purchase.'
               : waitingOnCustomer
                 ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
                 : reviewedFinalDecision
@@ -107,18 +145,28 @@ export function RefundTransactionCandidateReview({
                   : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
         </p>
       </div>
+      {candidates.length === 0 && (
+        <p data-testid="refund-candidate-inventory-unavailable" className="text-sm leading-6 text-muted-foreground">
+          {hasSavedSelection
+            ? 'The saved purchase is retained, but no current candidate rows are available in this response. This does not establish that there were no alternatives.'
+            : 'No current candidate rows are available in this response.'}
+          {' '}Use the case refresh to reload the available evidence. Expired or missing search history needs a supported read-only transaction check.
+        </p>
+      )}
       <div
         data-testid="nayax-transaction-comparison"
         role="radiogroup"
-        aria-label={`${availableCandidates.length} available transaction result${availableCandidates.length === 1 ? '' : 's'}`}
+        aria-label={`${candidates.length} transaction result${candidates.length === 1 ? '' : 's'} for comparison`}
         className="space-y-2"
       >
-        {availableCandidates.map((candidate, index) => {
+        {candidates.map((candidate, index) => {
           const selectionDisabled =
-            isDemoData || !canSelectCandidates || candidate.selectionAllowed === false;
-          const visibleFactors = ['amount', 'provider_total', 'card', 'incident_time', 'request_time']
-            .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
-            .filter((factor): factor is NayaxMatchFactor => Boolean(factor));
+            isSaving || isDemoData || !canSelectCandidates || candidate.selectionAllowed === false;
+          const evidence = getRefundReviewEvidence({ candidate, customer: customerEvidence ?? { paymentAmountCents } });
+          const evidenceGroups = [
+            { title: 'Supports this purchase', factors: evidence.supporting },
+            { title: 'Uncertain or different', factors: [...evidence.conflicts, ...evidence.uncertainties] },
+          ];
           const selectionMessage = candidate.selectionAllowed === false
             ? `Not selectable: ${describeUnavailableCandidate(candidate)}`
             : selectionHoldReason
@@ -165,6 +213,9 @@ export function RefundTransactionCandidateReview({
               <span id={descriptionId} className="min-w-0">
                 <span className="flex flex-wrap items-center gap-2 font-semibold">
                   <span>{label}</span>
+                  {selectedCandidateToken === candidate.candidateToken && (
+                    <span className="font-medium text-primary">Chosen for review</span>
+                  )}
                   {candidate.isRecommended && (
                     <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-950">
                       {candidate.identifierReviewState === 'reviewable_uncertainty'
@@ -185,6 +236,13 @@ export function RefundTransactionCandidateReview({
                 )}
                 <span className="mt-1 block leading-5 text-foreground">
                   {formatCandidateSummary(candidate)}
+                </span>
+                <span className="mt-1 block leading-5 text-muted-foreground">
+                  Source: Nayax. Provider reference is available after selection.
+                </span>
+                <span className="mt-1 block leading-5">
+                  Product: {candidate.productLabel || candidate.productCode || 'unavailable'}
+                  {' · '}Payment status: {candidate.paymentStatus || 'unavailable'}
                 </span>
                 <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
                   {refundProviderTimeLabel(candidate.timeEvidence)}:{' '}
@@ -212,24 +270,16 @@ export function RefundTransactionCandidateReview({
                 </span>
               </span>
               <span className="col-start-2 min-w-0 sm:col-start-auto">
-                {visibleFactors.length > 0 && (
-                  <span className="grid gap-1 leading-5 text-muted-foreground">
-                    {visibleFactors.map((factor) => (
-                      <span key={`${factor.key}-${factor.label}`} className="flex gap-1.5">
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            'font-semibold',
-                            factor.outcome === 'match' ? 'text-emerald-700' : 'text-orange-800',
-                          )}
-                        >
-                          {factor.outcome === 'match' ? '✓' : '!'}
-                        </span>
-                        <span>{describeMatchFactor(factor, candidate)}</span>
+                {evidenceGroups.map((group) => group.factors.length > 0 && (
+                  <span key={group.title} className="mb-2 grid gap-1 leading-5 text-muted-foreground">
+                    <span className="font-semibold text-foreground">{group.title}</span>
+                    {group.factors.map((factor) => (
+                      <span key={`${factor.key}-${factor.label}`} className="block">
+                        {factor.label}
                       </span>
                     ))}
                   </span>
-                )}
+                ))}
                 <span
                   id={statusId}
                   className={cn(
@@ -250,6 +300,7 @@ export function RefundTransactionCandidateReview({
           <select
             id="nayax-disagreement-reason"
             value={disagreementReason}
+            disabled={isSaving || isDemoData || !canSelectCandidates}
             onChange={(event) =>
               onDisagreementReasonChange(event.target.value as NayaxDisagreementReason | '')
             }

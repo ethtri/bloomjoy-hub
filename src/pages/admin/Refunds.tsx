@@ -4498,7 +4498,7 @@ export default function AdminRefundsPage() {
       if (reconciliation.freshCase) {
         setOfficialActionVersion(reconciliation.freshCase.officialActionVersion ?? 0);
         setEditor(toEditorState(reconciliation.freshCase));
-        setNayaxCandidates([]);
+        setNayaxCandidates(reconciliation.freshCase.nayaxLookupCandidates ?? []);
       }
     } catch {
       if (selectedIdRef.current !== targetCaseId) return;
@@ -6340,12 +6340,22 @@ export default function AdminRefundsPage() {
           />
         )}
         {managerCandidateInventoryVisible &&
-          (!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) &&
-          (transactionView.showCandidates || reviewedFinalDecisionReady) && (
+          (hasPersistedSelectedMatch || transactionView.showCandidates || reviewedFinalDecisionReady) && (
+          <details key={selectedCase.id} className="group border-t border-border pt-3" open={!hasPersistedSelectedMatch || undefined}>
+            <summary
+              data-testid="refund-compare-other-transactions"
+              className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {hasPersistedSelectedMatch ? 'Compare other transactions' : 'Compare transaction results'}
+            </summary>
           <RefundTransactionCandidateReview
             candidates={effectiveCandidates}
             selectedCandidate={selectedCandidate}
             selectedCandidateToken={editor.matchedNayaxCandidateToken}
+            hasSavedSelection={hasPersistedSelectedMatch}
+            savedSelection={hasPersistedSelectedMatch ? selectedCase.selectedNayaxTransaction : null}
+            lookupSummary={selectedCase.nayaxLookupSummary}
+            customerEvidence={selectedCase}
             selectableCandidateCount={selectableCandidateCount}
             paymentAmountCents={selectedCase.paymentAmountCents}
             timezone={refundCaseTimezone(selectedCase)}
@@ -6365,9 +6375,6 @@ export default function AdminRefundsPage() {
                 ? 'This result is outside the current safe reviewed set.'
                 : candidateUnavailableReason(candidate, selectedCase)
             }
-            describeMatchFactor={(factor, candidate) =>
-              matchFactorDisplayLabel(factor, candidate, selectedCase)
-            }
             onSelectCandidate={selectCandidate}
             onDisagreementReasonChange={(reason) =>
               setEditor((current) =>
@@ -6376,6 +6383,7 @@ export default function AdminRefundsPage() {
             }
             onSaveForReview={() => void handlePrepareNayaxSelection()}
           />
+          </details>
         )}
 
         {systemSelectedClearMatch && (
@@ -6383,9 +6391,9 @@ export default function AdminRefundsPage() {
             data-testid="refund-system-selected-transaction"
             className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950"
           >
-            <p className="font-semibold">System found one clear transaction</p>
+            <p className="font-semibold">Purchase selected for review</p>
             <p className="mt-1 leading-6">
-              The assigned Manager or Super-admin can approve it once. If it is wrong, review the other transactions before making a decision.
+              Compare the saved purchase with the other results above before making a decision.
             </p>
             {canReviewSystemSelection && (
               <Button
@@ -6397,7 +6405,7 @@ export default function AdminRefundsPage() {
                 onClick={() => void handleDisputeNayaxPreselection()}
                 disabled={isSaving}
               >
-                This transaction is wrong — review others
+                Discard this selection and reopen review
               </Button>
             )}
           </section>
