@@ -10,7 +10,7 @@ import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } f
 const controlClass = 'min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
-export function CompanyAssignmentFields({ id, value, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false }: {
+export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false }: {
   id: string;
   value: CompanyAssignmentDraft;
   onChange: (value: CompanyAssignmentDraft) => void;
@@ -19,6 +19,8 @@ export function CompanyAssignmentFields({ id, value, onChange, saved, disabled =
   enabled?: boolean;
   activeTargetsOnly?: boolean;
 }) {
+  // Emit only assignment fields; the containing form owns its other draft and stale-write fields.
+  const value = useMemo<CompanyAssignmentDraft>(() => ({ accountId: draft.accountId, locationId: draft.locationId, locationName: draft.locationName, locationTimezone: draft.locationTimezone, addLocation: draft.addLocation }), [draft.accountId, draft.locationId, draft.locationName, draft.locationTimezone, draft.addLocation]);
   const { user, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const choices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: enabled && isSuperAdmin, staleTime: 30000 });
@@ -52,7 +54,7 @@ export function CompanyAssignmentFields({ id, value, onChange, saved, disabled =
 
   const chooseCompany = (accountId: string) => onChange(changeCompanyAssignment(value, accountId, saved));
   const selectExisting = () => {
-    if (!duplicate || (activeTargetsOnly && duplicate.status !== 'active')) return;
+    if (!duplicate || duplicate.archivedAt || (activeTargetsOnly && duplicate.status !== 'active')) return;
     chooseCompany(duplicate.accountId);
     setMessage(`Existing company selected: ${duplicate.accountName}. Save the machine to assign it.`);
     setAdding(false); setName('');
@@ -68,10 +70,10 @@ export function CompanyAssignmentFields({ id, value, onChange, saved, disabled =
         canCreateCompany: current?.canCreateCompany ?? false,
         companies: [...(current?.companies ?? []).filter((item) => item.accountId !== result.accountId), { ...result, locations: current?.companies.find((item) => item.accountId === result.accountId)?.locations ?? [] }],
       }));
-      if (!activeTargetsOnly || result.status === 'active') chooseCompany(result.accountId);
+      if (!result.archivedAt && (!activeTargetsOnly || result.status === 'active')) chooseCompany(result.accountId);
       setMessage(result.created
         ? `Company created: ${result.accountName}. Save the machine to assign it.`
-        : `Company already exists: ${result.accountName}.${!activeTargetsOnly || result.status === 'active' ? ' Selected for this draft.' : ' It is inactive and cannot be a new SnapCase assignment.'}`);
+        : `Company already exists: ${result.accountName}.${result.archivedAt ? ' It is archived. Restore it from Manage companies on Machines before a new assignment.' : !activeTargetsOnly || result.status === 'active' ? ' Selected for this draft.' : ' It is inactive and cannot be a new SnapCase assignment.'}`);
       setAdding(false); setName('');
       companyRef.current?.focus();
       void queryClient.invalidateQueries({ queryKey: companyChoicesQueryKey });
@@ -86,21 +88,21 @@ export function CompanyAssignmentFields({ id, value, onChange, saved, disabled =
       <select ref={companyRef} id={`${id}-company`} aria-describedby={`${id}-company-help`} value={value.accountId} onChange={(event) => chooseCompany(event.target.value)} disabled={disabled || choices.isPending || choices.isError} className={controlClass}>
         <option value="">{choices.isPending && enabled ? 'Loading companies…' : 'Choose company'}</option>
         {value.accountId && !company && <option value={value.accountId}>{saved?.accountName || 'Saved company'} (unavailable)</option>}
-        {companies.map((item) => <option key={item.accountId} value={item.accountId} disabled={activeTargetsOnly && item.status !== 'active' && item.accountId !== saved?.accountId}>{item.accountName}{item.status !== 'active' ? ' (inactive)' : ''}</option>)}
+        {companies.filter((item) => !item.archivedAt || item.accountId === saved?.accountId || item.accountId === value.accountId).map((item) => <option key={item.accountId} value={item.accountId} disabled={Boolean(item.archivedAt && item.accountId !== saved?.accountId) || (activeTargetsOnly && item.status !== 'active' && item.accountId !== saved?.accountId)}>{item.accountName}{item.archivedAt ? ' (archived)' : item.status !== 'active' ? ' (inactive)' : ''}</option>)}
       </select>
       <p id={`${id}-company-help`} className="text-xs text-muted-foreground">Used to group this machine in reports and refunds.</p>
-      {value.accountId && <p className="break-words text-sm text-foreground">{company?.accountName || saved?.accountName || 'Saved company'}{company?.status !== 'active' && company ? ' (inactive)' : !company ? ' (unavailable)' : ''}</p>}
+      {value.accountId && <p className="break-words text-sm text-foreground">{company?.accountName || saved?.accountName || 'Saved company'}{company?.archivedAt ? saved?.accountId === value.accountId ? ' (archived, current assignment kept)' : ' (archived, choose another company)' : company?.status !== 'active' && company ? ' (inactive)' : !company ? ' (unavailable)' : ''}</p>}
       {choices.isError && <div role="alert" className="text-sm text-destructive">Unable to load companies. Your draft is preserved. <Button type="button" variant="link" className="min-h-11 px-1" onClick={() => void choices.refetch()}>Retry</Button></div>}
-      {choices.isSuccess && !companies.some((item) => !activeTargetsOnly || item.status === 'active') && <p className="text-sm text-muted-foreground">No available companies. {choices.data?.canCreateCompany ? 'Add a company to continue.' : 'Ask a Super Admin to set up a company.'}</p>}
+      {choices.isSuccess && !companies.some((item) => !item.archivedAt && (!activeTargetsOnly || item.status === 'active')) && <p className="text-sm text-muted-foreground">No available companies. {choices.data?.canCreateCompany ? 'Add a company, or restore one from Manage companies on Machines.' : 'Ask a Super Admin to set up a company.'}</p>}
       {!disabled && isSuperAdmin && choices.data?.canCreateCompany && !adding && <Button ref={addRef} type="button" variant="link" className="min-h-11 px-0" onClick={() => { setAdding(true); setCreationError(''); }}>Add company</Button>}
       {adding && <div className="space-y-2 rounded-md border border-border p-3">
         <Label htmlFor={`${id}-new-company`}>Company name</Label>
         <Input ref={inputRef} id={`${id}-new-company`} value={name} onChange={(event) => setName(event.target.value)} disabled={creating} className="min-h-11" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (duplicate) selectExisting(); else void create(); } if (event.key === 'Escape' && !creating) { event.preventDefault(); event.stopPropagation(); returnToAddRef.current = true; setAdding(false); } }} />
         <p className="text-xs text-muted-foreground">Create company saves it immediately. Save the machine separately to assign it.</p>
-        {duplicate && <p className="break-words text-sm">{duplicate.accountName} already exists{duplicate.status !== 'active' ? ' and is inactive.' : '.'}</p>}
+        {duplicate && <p className="break-words text-sm">{duplicate.accountName} already exists{duplicate.archivedAt ? ' and is archived. Restore it from Manage companies on Machines before a new assignment.' : duplicate.status !== 'active' ? ' and is inactive.' : '.'}</p>}
         {creationError && <p role="alert" className="text-sm text-destructive">{creationError}</p>}
         <div className="flex flex-wrap gap-2">
-          {duplicate ? <Button type="button" variant="outline" onClick={selectExisting} disabled={creating || (activeTargetsOnly && duplicate.status !== 'active')}>Use existing company</Button> : <Button type="button" onClick={() => void create()} disabled={creating || !name.trim()}>{creating ? 'Creating…' : 'Create company'}</Button>}
+          {duplicate ? <Button type="button" variant="outline" onClick={selectExisting} disabled={creating || Boolean(duplicate.archivedAt) || (activeTargetsOnly && duplicate.status !== 'active')}>Use existing company</Button> : <Button type="button" onClick={() => void create()} disabled={creating || !name.trim()}>{creating ? 'Creating…' : 'Create company'}</Button>}
           <Button type="button" variant="ghost" disabled={creating} onClick={() => { returnToAddRef.current = true; setAdding(false); setName(''); }}>Cancel</Button>
         </div>
       </div>}

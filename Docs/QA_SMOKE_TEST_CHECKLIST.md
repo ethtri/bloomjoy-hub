@@ -11,6 +11,22 @@
 - [ ] Check purchase-selected, submitted, confirmed-payment and completed fixtures. Progress language does not describe purchase selection as a completed refund. Existing cash research remains machine-source evidence, and gift-card requests keep their existing decision path.
 - [ ] Verify desktop, 390 px and 320 px widths, keyboard disclosure/selection controls and long labels. Important facts, controls and focus indicators remain readable without horizontal page overflow. Use synthetic data only; never issue a live payment or contact a customer for this check.
 
+## Company management (`#1730`)
+
+- From Machines, open Manage companies. Rename a company, verify the updated
+  name in machine choices and reports, and reject duplicate names or stale edits
+  without losing the draft. Readers without machine administration cannot edit.
+- Archive a company: new machine and imported-machine assignments cannot select
+  it, including saves from an older tab. Existing assignments and reports remain
+  available. Edit an existing machine without changing its company, then restore
+  the company and verify it becomes selectable again.
+- Verify the management dialog at 320px, 390px and desktop, including keyboard
+  navigation, focus return, loading/errors and long names, without sideways scroll.
+- After the Merlin correction, verify all formerly Merlin-owned machines and
+  their locations align with Bloomjoy Enterprises; machine/location IDs, venue
+  names, provider mappings, partnership agreements, financial rows and explicit
+  manager assignments remain unchanged. Verify the recorded correction audit.
+
 ## Technician refund visibility (`#1729`)
 
 - Open `/refunds` as a technician with active machine assignments and no refund

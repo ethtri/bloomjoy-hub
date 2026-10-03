@@ -112,7 +112,21 @@ Before using an export: confirm the period, authorized scope, units and coverage
 ![Machine company selection - illustrative sample data](assets/company-machines.png)
 
 - In a machine's edit form, choose an existing **Company** from the dropdown and save normally. The selection uses a stable company ID, so typing a spelling variation cannot create another company. The existing assignment is retained when you open an edit.
-- If a company is genuinely new, use **Add company**, enter its name and select **Create company**. Creation is a separate action: it creates no invitation. An exact name match ignores capitalization and surrounding spaces and reuses the existing company.
+- If a company is genuinely new, use **Add company**, enter its name and select **Create company**. Creation is a separate action: it creates no invitation. Matching ignores capitalization and surrounding spaces and reuses an existing available company. Restore an archived company through **Manage companies** before using it again.
 - When changing company, choose a location belonging to that company or explicitly add a location with its timezone. The old location and historical records remain intact. Company-level report access follows the selected company; machine manager assignments stay the same.
 - **Cancel** leaves the machine draft intact. If the company was created but saving the machine fails, retry the machine save; the company already exists. If another admin changed the assignment, review the latest assignment before saving again.
 - Company setup requires the existing machine administration permission. Finance users who only read reports can ask their machine administrator to correct an assignment. Imported-machine setup uses the same explicit company selection.
+
+---
+
+## 9. Rename or remove a company from choices
+
+[Open Machines — authorized admins](https://app.bloomjoyusa.com/admin/machines)
+
+![Manage companies - illustrative sample data](assets/company-management.png)
+
+- On **Machines**, select **Manage companies**. Use **Rename** to correct a name, then **Save**. The company keeps its identity and machine assignments. A name already used by another company cannot be reused.
+- Select **Archive** to remove a company from choices for new machine assignments. Existing machines, reports and access remain available. Archiving does not move machines to another company or delete their records.
+- Turn on **Show archived**, then select **Restore** to make a company available for new assignments again. If you are consolidating duplicate companies, reassign their machines to the correct company before archiving the duplicate.
+- Merlin is a venue/partner grouping. Its machines belong under **Bloomjoy Enterprises**. Merlin venue names and partner agreements remain; company reporting groups those machines, including their historical activity, under Bloomjoy Enterprises.
+- Company management requires **Super Admin** access. If another administrator changes a company while you are editing it, review the latest details and try again.
