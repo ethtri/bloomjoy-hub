@@ -100,7 +100,7 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
         <p className="mt-1 text-sm text-muted-foreground">Requests received in this period; customer-reported categories.</p>
         <div className="mt-5 space-y-4">{report.categories.map(row => <div key={row.category}>
           <div className="flex flex-wrap justify-between gap-2 text-sm"><span>{categoryLabel(row.category)}</span><span className="tabular-nums">{row.requestCount} requests · {money(row.requestedCents)}</span></div>
-          <div className="mt-2 h-1.5 rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-primary" style={{ width: `${report.cohort.requestCount ? row.requestCount / report.cohort.requestCount * 100 : 0}%` }} /></div>
+          <div className="mt-2 h-1.5 rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, report.cohort.requestCount ? row.requestCount / report.cohort.requestCount * 100 : 0))}%` }} /></div>
           {row.unknownAmountCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{row.unknownAmountCount} unknown amounts</p>}
         </div>)}{report.categories.length === 0 && <p className="text-sm text-muted-foreground">No requests received in the selected period.</p>}</div>
       </div>

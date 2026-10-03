@@ -29,10 +29,17 @@ try {
  assert.equal(new URL(page.url()).searchParams.get('tender'),'credit'); assert.equal(new URL(page.url()).searchParams.get('compare'),'previous_year');
  await page.goForward({waitUntil:'networkidle'}); await page.waitForTimeout(1500);
  assert.equal(new URL(page.url()).searchParams.get('company'),b); assert.equal(await page.locator('#detailed-sales-company').innerText(),'Sample South Company with a long reporting name');
+ // A defensive layout check: category totals may exceed the cohort denominator.
+ await page.route('**/rpc/get_company_refund_analytics', async route => {
+  const response = await route.fetch(); const report = await response.json();
+  report.cohort.requestCount = 1; report.categories[0].requestCount = 100;
+  await route.fulfill({response,json:report});
+ });
  await page.goto(`${origin}/refunds?view=reports&from=2026-07-15&to=2026-07-21`,{waitUntil:'networkidle'});
  await page.getByRole('heading',{name:'By company',exact:true}).waitFor();await fit();
  await page.getByRole('button',{name:'Sample North Company',exact:true}).click();await page.waitForURL(`**company=${a}**`);await page.waitForLoadState('networkidle');await fit();
  await page.screenshot({path:'output/company-refund-reports-390.png',fullPage:true});
+ await page.unroute('**/rpc/get_company_refund_analytics');
  await page.getByRole('link',{name:'Refund queue',exact:true}).click();await page.waitForLoadState('networkidle');
  await page.locator('[data-testid="refund-case-queue-item"]').filter({visible:true}).first().waitFor();assert.equal(await page.locator('[data-testid="refund-case-queue-item"]').filter({visible:true}).count(),1);await fit();
  await page.goto(`${origin}/refunds?demo=on&company=${a}&case=demo-cash-waiting`,{waitUntil:'networkidle'});
