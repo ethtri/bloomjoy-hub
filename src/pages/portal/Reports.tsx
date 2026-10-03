@@ -8,7 +8,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
+import { CompanySummary } from '@/components/portal/reports/CompanySummary';
+import { companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
+import { knownMoney, money } from '@/lib/reportingWorkspace';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -875,10 +879,12 @@ function OperatorReportingView({
   const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters && (workspaceFilters.dateFrom !== defaultRange.dateFrom || workspaceFilters.dateTo !== defaultRange.dateTo) ? 'custom' : 'last_7_days');
   const [dateFrom, setDateFrom] = useState(workspaceFilters?.dateFrom ?? defaultRange.dateFrom);
   const [dateTo, setDateTo] = useState(workspaceFilters?.dateTo ?? defaultRange.dateTo);
-  const [grain, setGrain] = useState<ReportGrain>('day');
-  const [machineId, setMachineId] = useState(workspaceFilters?.machineIds?.[0] ?? 'all');
+  const [params, setParams] = useSearchParams();
+  const [grain, setGrain] = useState<ReportGrain>(['day','week','month'].includes(params.get('grain') ?? '') ? params.get('grain') as ReportGrain : 'day');
+  const [companyId, setCompanyId] = useState(workspaceFilters?.companyId ?? 'all');
+  const [machineId, setMachineId] = useState(workspaceFilters?.selectedMachineId ?? (workspaceFilters?.machineIds?.length === 1 ? workspaceFilters.machineIds[0] : 'all'));
   const [locationIds, setLocationIds] = useState<string[]>(workspaceFilters?.locationIds ?? []);
-  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(workspaceFilters?.paymentMethods ?? []);
+  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(params.has('payments') ? (params.get('payments') ?? '').split(',').filter(value => ['cash','credit','other','unknown'].includes(value)) as PaymentMethod[] : workspaceFilters?.paymentMethods ?? []);
   const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
   const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -893,19 +899,27 @@ function OperatorReportingView({
     staleTime: 1000 * 60,
   });
 
-  const machineOptions = useMemo(() => dimensions.filter(machine => !locationIds.length || locationIds.includes(machine.locationId)), [dimensions, locationIds]);
-  const machineUnavailable = !dimensionsLoading && !dimensionsError && machineId !== 'all' && !machineOptions.some(machine => machine.machineId === machineId);
+  const companyScope = useMemo(() => resolveCompanyScope(dimensions, companyId, locationIds[0] ?? 'all', machineId), [dimensions, companyId, locationIds, machineId]);
+  const companyName = companyScope.companies.find(row => row.id === companyId)?.name ?? 'All companies';
+  const machineOptions = [...new Map(companyScope.machineRows.map(row => [row.machineId, row])).values()];
+  const changeCompany = (id: string) => { const next = companyChange(dimensions, id, locationIds[0] ?? 'all', machineId); setCompanyId(id); setLocationIds(next.locationId === 'all' ? [] : [next.locationId]); setMachineId(next.machineId); if (next.locationId !== (locationIds[0] ?? 'all') || next.machineId !== machineId) toast.info('Filters outside this company were cleared.'); };
+  useEffect(() => {
+    const next = new URLSearchParams(params); next.set('from', dateFrom); next.set('to', dateTo);
+    for (const [key, value] of Object.entries({ company: companyId, machine: machineId, location: locationIds[0] ?? 'all', grain, payments: selectedPayments.join(',') || 'all', tender: selectedPayments.length === 1 ? selectedPayments[0] : 'all' })) { if (value === 'all') next.delete(key); else next.set(key, value); }
+    if (next.toString() !== params.toString()) setParams(next);
+  }, [dateFrom, dateTo, companyId, machineId, locationIds, grain, selectedPayments, params, setParams]);
+  const machineUnavailable = !dimensionsLoading && !dimensionsError && (companyScope.invalid || companyScope.empty);
 
   const filters: SalesReportFilters = useMemo(
     () => ({
       dateFrom,
       dateTo,
       grain,
-      machineIds: machineId === 'all' ? [] : [machineId],
+      companyId, companyName, machineIds: companyId === 'all' && machineId === 'all' ? [] : companyScope.machineIds,
       paymentMethods: selectedPayments,
       locationIds,
     }),
-    [dateFrom, dateTo, grain, machineId, selectedPayments, locationIds]
+    [dateFrom, dateTo, grain, machineId, companyId, companyName, companyScope.machineIds, selectedPayments, locationIds]
   );
 
   const {
@@ -995,7 +1009,7 @@ function OperatorReportingView({
     try {
       const exportResult = await exportSalesReportPdf({
         ...filters,
-        title: 'Bloomjoy Operator Sales Report',
+        title: `${companyName}: Operator Sales Report`,
       });
       toast.success('Polished operator report PDF is ready.');
       openSignedExportUrl(exportResult.signedUrl, exportWindow);
@@ -1008,7 +1022,7 @@ function OperatorReportingView({
   };
 
   const hasLoadError = Boolean(error || dimensionsError);
-  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected machine is unavailable" description="Choose a machine available in this report."/><Button variant="outline" onClick={() => setMachineId('all')}>Choose all available machines</Button></div>;
+  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected scope is unavailable" description="Choose a company and machine available in this report."/><Button variant="outline" onClick={() => { setCompanyId('all'); setLocationIds([]); setMachineId('all'); }}>Choose all companies</Button></div>;
 
 
   return (
@@ -1052,6 +1066,8 @@ function OperatorReportingView({
         </CardHeader>
         <Collapsible open={areMoreFiltersOpen} onOpenChange={setAreMoreFiltersOpen}>
           <CardContent className="flex flex-col gap-4">
+            <CompanyFilter value={companyId} options={companyScope.companies} onChange={changeCompany} id="detailed-sales-company"/>
+            <p className="text-xs text-muted-foreground">{companyBasis}</p>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]">
               <LabeledControl label={t('reports.dateRange')}>
                 <Select
@@ -1271,6 +1287,8 @@ function OperatorReportingView({
         </Collapsible>
       </Card>
 
+      {companyId === 'all' && !hasLoadError && !isLoading && <CompanySummary onCompany={changeCompany} rows={groupCompanyRows(reportRows, dimensions).map(group => { const total = knownMoney(group.rows, 'netSalesCents'); return { id: group.id, name: group.name, detail: `${new Set(dimensions.filter(row => row.accountId === group.id).map(row => row.machineId)).size} accessible machines`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : 'Recorded sales; coverage unknown' }; })}/>}
+
       <div
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
         data-reporting-operator-metrics
@@ -1315,7 +1333,7 @@ function OperatorReportingView({
             <MetricCard
               label={t('reports.transactions')}
               value={numberFormatter.format(summary.transactionCount)}
-              context={t('reports.assignedMachines', { count: dimensions.length })}
+              context={t('reports.assignedMachines', { count: companyScope.machineIds.length })}
             />
           </>
         )}

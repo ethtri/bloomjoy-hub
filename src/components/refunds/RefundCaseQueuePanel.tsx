@@ -8,7 +8,7 @@ export type RefundCaseQueueListItem = {
   id: string;
   publicReference: string;
   machineLabel: string;
-  locationName: string;
+  locationName: string; accountName?: string;
   amountCents: number | null;
   createdAt: string | null;
   taskLabel: string;
@@ -80,6 +80,7 @@ function RefundCaseQueueItem({
           <p className="order-3 text-xs text-muted-foreground lg:mt-1 lg:truncate">
             {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
           </p>
+          {refundCase.accountName && <p className="order-4 break-words text-xs text-muted-foreground">{refundCase.accountName}</p>}
         </div>
         <Badge
           className={cn(

@@ -1,3 +1,6 @@
+import { toast } from 'sonner';
+import { assertCompanyExportScope, companyBasis, groupCompanyRows, type CompanyDimension } from '@/lib/companyReporting';
+import { CompanySummary } from './CompanySummary';
 import { useQuery } from '@tanstack/react-query';
 import { Download, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -5,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuth } from '@/contexts/auth-context';
-import { fetchFinanceReporting, financeReportingCsv, type FinanceReportingRow, type FinanceReportingScope } from '@/lib/financeReporting';
+import { fetchFinanceReportingAccess, fetchFinanceReporting, financeReportingCsv, type FinanceReportingRow, type FinanceReportingScope } from '@/lib/financeReporting';
 import { money } from '@/lib/reportingWorkspace';
 
-type Props = { scope: FinanceReportingScope; onMachine: (machineId: string, locationId: string) => void };
+type Props = { dimensions?: CompanyDimension[]; onCompany?: (id: string) => void; scope: FinanceReportingScope; onMachine: (machineId: string, locationId: string) => void };
 type MoneyField = { [K in keyof FinanceReportingRow]: FinanceReportingRow[K] extends number | null ? K : never }[keyof FinanceReportingRow];
 
 const total = (rows: FinanceReportingRow[], field: MoneyField) => rows.length && rows.every(row => row[field] != null)
@@ -22,7 +25,7 @@ function Amount({ value, known }: { value: number | null; known?: number | null 
   return <><span className="tabular-nums">{money(value)}</span>{value == null && known != null && <span className="mt-1 block text-xs font-normal text-muted-foreground">Known subtotal {money(known)}</span>}</>;
 }
 
-export function ReportingFinance({ scope, onMachine }: Props) {
+export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany }: Props) {
   const { user } = useAuth();
   const report = useQuery({ queryKey: ['reporting-finance', user?.id, scope], queryFn: () => fetchFinanceReporting(scope), staleTime: 30000 });
   if (report.isPending) return <div aria-label="Loading finance report" className="mt-6 space-y-5"><Skeleton className="h-32"/><Skeleton className="h-64"/></div>;
@@ -32,11 +35,15 @@ export function ReportingFinance({ scope, onMachine }: Props) {
   const uncertainAccounting = count('unresolvedSalesCount') + count('unresolvedRefundCount');
   const uncertainPayments = count('unknownPaymentDateCount');
   const uncertainBalance = count('unknownBalanceCount');
-  const download = () => {
-    const blob = new Blob([financeReportingCsv(report.data, scope)], { type: 'text/csv;charset=utf-8' });
+  const download = async () => {
+    try {
+    const access = await fetchFinanceReportingAccess(); if (!access.hasAccess) throw new Error('Finance report access is unavailable.');
+    const current = assertCompanyExportScope(access.dimensions, scope.companyId ?? 'all', rows, scope.locationIds?.[0] ?? 'all', scope.machineIds?.length === 1 ? scope.machineIds[0] : 'all');
+    const blob = new Blob([financeReportingCsv(report.data, { ...scope, companyName: current.companies.find(row => row.id === scope.companyId)?.name ?? 'All companies' }, access.dimensions)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
     anchor.href = url; anchor.download = `bloomjoy-finance-${scope.dateFrom}-${scope.dateTo}.csv`; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to export this report.'); }
   };
   const breakdown: { label: string; value: number | null; known?: number | null; note?: string }[] = [
     { label: 'Recorded card sales', value: total(rows, 'cardRecordedSalesCents') },
@@ -53,6 +60,8 @@ export function ReportingFinance({ scope, onMachine }: Props) {
     { label: `Outstanding at ${scope.dateTo}`, value: uncertainBalance ? null : total(rows, 'asOfOutstandingCents'), known: uncertainBalance ? total(rows, 'asOfOutstandingCents') : undefined },
   ];
   return <div className="mt-6 space-y-6" data-reporting-finance>
+    {scope.companyId === 'all' && onCompany && <CompanySummary onCompany={onCompany} rows={groupCompanyRows(rows, dimensions).map(group => ({ id: group.id, name: group.name, detail: `${group.machineIds.size} machines with recorded activity`, value: `Net sales ${money(total(group.rows, 'netSalesExTaxCents'))}`, note: group.rows.some(row => row.coverage.unknownBalanceCount || row.coverage.unknownAmountCount) ? 'Some refund amounts or balances unknown' : 'Recorded sales and refunds; coverage unknown' }))}/>}
+    {scope.companyId !== 'all' && <p className="text-xs text-muted-foreground">{companyBasis}</p>}
     <section aria-labelledby="finance-heading">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="finance-heading" className="text-xl font-semibold">Sales to net sales</h2><Button variant="outline" className="min-h-11" onClick={download} disabled={!rows.length || report.isFetching}><Download className="mr-2 h-4 w-4"/>Export CSV</Button></div>
       {!rows.length ? <p className="mt-4 rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">No finance records loaded for this period and scope. Try another period or machine. Missing records do not prove zero sales or refunds.</p> : <>

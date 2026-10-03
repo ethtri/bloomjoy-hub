@@ -1,3 +1,5 @@
+import { CompanyFilter } from './CompanyFilter';
+import type { CompanyOption } from '@/lib/companyReporting';
 import { useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +11,7 @@ import { reportingPeriods, validDate, type WorkspaceState } from '@/lib/reportin
 
 type Props = {
   state: WorkspaceState;
-  salesView: boolean;
+  salesView: boolean; companies?: CompanyOption[];
   locations: [string, string][];
   machines: { machineId: string; machineLabel: string }[];
   onChange: (patch: Partial<WorkspaceState>) => void;
@@ -23,7 +25,7 @@ const displayRange = (from: string, to: string) => {
   return `${start} – ${end}`;
 };
 
-export function ReportingFilters({ state, salesView, locations, machines, onChange }: Props) {
+export function ReportingFilters({ state, salesView, companies, locations, machines, onChange }: Props) {
   const [more, setMore] = useState(false);
   const [editing, setEditing] = useState(false);
   const [from, setFrom] = useState(state.dateFrom);
@@ -41,6 +43,7 @@ export function ReportingFilters({ state, salesView, locations, machines, onChan
   const removeFilter = (patch: Partial<WorkspaceState>) => { onChange(patch); requestAnimationFrame(() => document.getElementById('reporting-more-filter-button')?.focus()); };
   const focusPeriod = () => requestAnimationFrame(() => document.getElementById('reporting-period')?.focus());
   return <section className="mt-4" aria-label="Reporting filters">
+    {companies && <div className="mb-3"><CompanyFilter value={state.companyId} options={companies} onChange={companyId => onChange({ companyId })}/></div>}
     <div className="grid grid-cols-2 items-end gap-3 xl:grid-cols-[minmax(240px,1.25fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <div className="col-span-2 min-w-0 xl:col-span-1">
         <Label htmlFor="reporting-period" className="text-xs">Period</Label>
@@ -53,7 +56,7 @@ export function ReportingFilters({ state, salesView, locations, machines, onChan
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="min-w-0"><Label className="text-xs" htmlFor="reporting-location">Location</Label><Select value={state.locationId} onValueChange={locationId => onChange({ locationId, machineId: 'all' })}><SelectTrigger className="h-11" id="reporting-location"><SelectValue placeholder="Select location"/></SelectTrigger><SelectContent><SelectItem value="all" className="min-h-11">All locations</SelectItem>{locations.map(([id, name]) => <SelectItem value={id} key={id} className="min-h-11">{name}</SelectItem>)}</SelectContent></Select></div>
+      <div className="min-w-0"><Label className="text-xs" htmlFor="reporting-location">Location</Label><Select value={state.locationId} onValueChange={locationId => onChange({ locationId })}><SelectTrigger className="h-11" id="reporting-location"><SelectValue placeholder="Select location"/></SelectTrigger><SelectContent><SelectItem value="all" className="min-h-11">All locations</SelectItem>{locations.map(([id, name]) => <SelectItem value={id} key={id} className="min-h-11">{name}</SelectItem>)}</SelectContent></Select></div>
       {salesView && <div className="min-w-0"><Label className="text-xs" htmlFor="reporting-comparison">Compare</Label><Select value={state.comparison} onValueChange={comparison => onChange({ comparison: comparison as WorkspaceState['comparison'] })}><SelectTrigger className="h-11" id="reporting-comparison"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="previous_period" className="min-h-11">Previous period</SelectItem><SelectItem value="previous_month" className="min-h-11">Same days, prior month</SelectItem><SelectItem value="previous_year" className="min-h-11">Same dates, prior year</SelectItem><SelectItem value="none" className="min-h-11">No comparison</SelectItem></SelectContent></Select></div>}
       <Button ref={moreButton} id="reporting-more-filter-button" variant="outline" className="h-11 gap-2" onClick={() => setMore(value => !value)} aria-expanded={more} aria-controls="reporting-more-filters"><SlidersHorizontal className="h-4 w-4"/>More filters{activeScopeCount > 0 && <span className="rounded bg-secondary px-1.5 text-xs">{activeScopeCount}</span>}</Button>
     </div>

@@ -34,6 +34,7 @@ export type ReportingDimension = {
 };
 
 export type SalesReportFilters = {
+  companyId?: string; companyName?: string; selectedMachineId?: string;
   dateFrom: string;
   dateTo: string;
   grain: ReportGrain;
@@ -410,6 +411,7 @@ type ExportSalesReportResponse = {
 const supportedSalesReportPdfGeneratorVersions = new Set([
   'sales-report-pdf/polished-v1',
   'sales-report-pdf/shared-basis-v2',
+  'sales-report-pdf/company-v3',
 ]);
 const reportExportBucket = 'sales-report-exports';
 
@@ -862,7 +864,9 @@ export const fetchReportingDimensions = async (): Promise<ReportingDimension[]> 
 };
 
 export const fetchSalesReport = async (filters: SalesReportFilters): Promise<SalesReportRow[]> => {
-  const { data, error } = await supabaseClient.rpc('get_sales_report', {
+  if (filters.companyId && filters.companyId !== 'all' && filters.machineIds?.length === 0) throw new Error('No accessible machines in this company scope.');
+  const { data, error } = await supabaseClient.rpc(filters.companyId && filters.companyId !== 'all' ? 'get_company_sales_report' : 'get_sales_report', {
+    ...(filters.companyId && filters.companyId !== 'all' ? { p_company_id: filters.companyId } : {}),
     p_date_from: filters.dateFrom,
     p_date_to: filters.dateTo,
     p_grain: filters.grain,
@@ -901,7 +905,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if (!supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
+  if ((filters.companyId && filters.companyId !== 'all' && response.pdfGeneratorVersion !== 'sales-report-pdf/company-v3') || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );

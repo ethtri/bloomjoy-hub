@@ -1,5 +1,7 @@
 import { useAuth } from '@/contexts/auth-context';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
+import { companyOptions } from '@/lib/companyReporting';
 import { fetchRefundAnalyticsAccess } from '@/lib/refundAnalytics';
 import { RefundGiftCardSupplySection } from '@/components/refunds/RefundGiftCardSupplySection';
 import { resolveManagerRefundAmountDraft } from '@/lib/refundManagerAmount';
@@ -30,7 +32,7 @@ import {
   refundCustomerTimeMeaning,
   refundProviderTimeLabel,
 } from '@/lib/refundTimePresentation';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
   AlertTriangle,
@@ -2776,6 +2778,9 @@ const getPrimaryActionIssues = (
 };
 
 export default function AdminRefundsPage() {
+  const [companyParams, setCompanyParams] = useSearchParams();
+  const companyId = companyParams.get('company') || 'all';
+  const [companyNotice, setCompanyNotice] = useState('');
   const { user } = useAuth();
   const reportAccess = useQuery({ queryKey: ['reporting-refund-access', user?.id], queryFn: fetchRefundAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 0, retry: false });
   const queryClient = useQueryClient();
@@ -3100,9 +3105,23 @@ export default function AdminRefundsPage() {
     [overview.internalTestCases, refundOperationsAccess]
   );
 
+  const companyMatches = useCallback((row: { accountId?: string | null }) => companyId === 'all' || row.accountId === companyId, [companyId]);
+  const companyCases = useMemo(() => overview.cases.filter(companyMatches), [overview.cases, companyMatches]);
+  const companyInternalCases = useMemo(() => internalTestCases.filter(companyMatches), [internalTestCases, companyMatches]);
+  const companyQueueItems = useMemo(() => (liveQueueProjection?.items ?? []).filter(companyMatches), [liveQueueProjection, companyMatches]);
+  const companies = companyOptions(queueProjectionActive ? liveQueueProjection?.items ?? [] : [...overview.cases, ...internalTestCases]);
+  const companyUnavailable = companyId !== 'all' && !companies.some(row => row.id === companyId);
+  const changeQueueCompany = (id: string) => {
+    if (caseSelectionSafetyRef.current.actionInFlight || caseSelectionSafetyRef.current.hasUnsavedCaseText) { toast.info('Finish the current action or save/discard case text before changing company.'); return; }
+    const next = new URLSearchParams(companyParams); if (id === 'all') next.delete('company'); else next.set('company', id);
+    next.delete('case'); handledCaseQueryRef.current = null;
+    setSelectedId(null); setEditor(null); setIsMobileQueueExpanded(true); setIsRefundConfirmationOpen(false);
+    setMessageSubject(''); setMessageBody(''); setIsCustomerDraftDirty(false); setIsInternalNoteDirty(false);
+    setCompanyNotice('Company changed. The queue and counts now use this company.'); setCompanyParams(next);
+  };
   const filteredCases = useMemo(() => {
     return searchRefundCases({
-      customerCases: overview.cases, internalCases: internalTestCases,
+      customerCases: companyCases, internalCases: companyInternalCases,
       canViewInternal: refundOperationsAccess, internalView: statusFilter === 'internal_test',
       query: search, matchesCurrentView: (refundCase) => {
         const readyToRefund = isReadyToPayCase(refundCase);
@@ -3140,8 +3159,7 @@ export default function AdminRefundsPage() {
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
   }, [
-    overview.cases,
-    internalTestCases,
+    companyCases, companyInternalCases,
     refundOperationsAccess,
     search,
     statusFilter,
@@ -3149,33 +3167,33 @@ export default function AdminRefundsPage() {
 
   const filteredPortalQueueItems = useMemo(() => {
     if (!queueProjectionActive || !liveQueueProjection) return [];
-    return filterRefundPortalQueue(liveQueueProjection.items, statusFilter, search);
-  }, [liveQueueProjection, queueProjectionActive, search, statusFilter]);
+    return filterRefundPortalQueue(companyQueueItems, statusFilter, search);
+  }, [liveQueueProjection, companyQueueItems, queueProjectionActive, search, statusFilter]);
 
   const primaryQueueCounts = useMemo(() => queueProjectionActive && liveQueueProjection ? ({
-    all_open: liveQueueProjection.counts.allOpen,
-    decisions: liveQueueProjection.counts.decisions,
+    all_open: companyQueueItems.filter(item => item.isOpen && item.view !== 'internal_test').length,
+    decisions: companyQueueItems.filter(item => item.view === 'decisions').length,
     needs_action: 0,
-    ready_to_pay: liveQueueProjection.counts.decisions,
+    ready_to_pay: companyQueueItems.filter(item => item.view === 'decisions').length,
     in_progress: 0,
-    waiting_on_customer: liveQueueProjection.counts.waitingOnCustomer,
+    waiting_on_customer: companyQueueItems.filter(item => item.view === 'waiting_on_customer').length,
     provider_hold: 0,
-    completed: liveQueueProjection.counts.completed,
-    internal_test: refundOperationsAccess ? liveQueueProjection.counts.internalTest : 0,
+    completed: companyQueueItems.filter(item => item.view === 'completed').length,
+    internal_test: refundOperationsAccess ? companyQueueItems.filter(item => item.view === 'internal_test').length : 0,
   }) : ({
-    all_open: overview.cases.filter(isRefundCaseOpen).length,
-    decisions: overview.cases.filter(refundNeedsDecision).length,
-    needs_action: overview.cases.filter(isNeedsActionCase).length,
-    ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
-    in_progress: overview.cases.filter(isRefundInProgressCase).length,
-    waiting_on_customer: overview.cases.filter(refundIsWaitingOnCustomer).length,
-    provider_hold: overview.cases.filter(isManagerReviewCase).length,
-    completed: overview.cases.filter((refundCase) => !isRefundCaseOpen(refundCase)).length,
-    internal_test: refundOperationsAccess ? internalTestCases.length : 0,
+    all_open: companyCases.filter(isRefundCaseOpen).length,
+    decisions: companyCases.filter(refundNeedsDecision).length,
+    needs_action: companyCases.filter(isNeedsActionCase).length,
+    ready_to_pay: companyCases.filter(isReadyToPayCase).length,
+    in_progress: companyCases.filter(isRefundInProgressCase).length,
+    waiting_on_customer: companyCases.filter(refundIsWaitingOnCustomer).length,
+    provider_hold: companyCases.filter(isManagerReviewCase).length,
+    completed: companyCases.filter((refundCase) => !isRefundCaseOpen(refundCase)).length,
+    internal_test: refundOperationsAccess ? companyInternalCases.length : 0,
   }), [
-    internalTestCases,
+    companyInternalCases,
     liveQueueProjection,
-    overview.cases,
+    companyCases, companyQueueItems,
     queueProjectionActive,
     refundOperationsAccess,
   ]);
@@ -3186,8 +3204,8 @@ export default function AdminRefundsPage() {
   const refundQueueTruthUnavailable = !isUsingDemoData &&
     overviewReadStatus === 'error' && !liveOverviewSnapshot && !liveQueueProjection;
   const isSearching = search.trim().length > 0;
-  const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
-  const emptyQueueTitle = refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
+  const searchScope = `${statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views'}${companyId === 'all' ? '' : ' in the selected company'}`;
+  const emptyQueueTitle = companyUnavailable ? 'Selected company is unavailable.' : refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
     : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = refundQueueTruthUnavailable
     ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
@@ -4052,7 +4070,7 @@ export default function AdminRefundsPage() {
         id: item.caseId,
         publicReference: item.publicReference,
         machineLabel: item.machineLabel,
-        locationName: item.locationName,
+        locationName: item.locationName, accountName: item.accountName ?? 'Unassigned company',
         amountCents: item.amountCents,
         createdAt: item.createdAt,
         taskLabel: portalQueueTaskLabel(item),
@@ -4064,7 +4082,7 @@ export default function AdminRefundsPage() {
         id: refundCase.id,
         publicReference: refundCase.publicReference,
         machineLabel: refundCase.machineLabel,
-        locationName: refundCase.locationName,
+        locationName: refundCase.locationName, accountName: refundCase.accountName ?? 'Unassigned company',
         amountCents: refundCase.refundAmountCents ?? refundCase.paymentAmountCents,
         createdAt: refundCase.createdAt,
         taskLabel: refundPlainStatus(refundCase),
@@ -4189,6 +4207,8 @@ export default function AdminRefundsPage() {
   };
 
   function selectCase(refundCase: RefundCaseRecord) {
+    handledCaseQueryRef.current = refundCase.id;
+    const next = new URLSearchParams(companyParams); next.set('case', refundCase.id); if (companyId !== 'all' && refundCase.accountId !== companyId) { if (refundCase.accountId) next.set('company', refundCase.accountId); else next.delete('company'); } setCompanyParams(next, { replace: true });
     pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);
@@ -4247,6 +4267,8 @@ export default function AdminRefundsPage() {
       return;
     }
     if (caseId === selectedId) return;
+    handledCaseQueryRef.current = caseId;
+    const next = new URLSearchParams(companyParams); next.set('case', caseId); const item = liveQueueProjection?.items.find(row => row.caseId === caseId); if (companyId !== 'all' && item?.accountId !== companyId) { if (item?.accountId) next.set('company', item.accountId); else next.delete('company'); } setCompanyParams(next, { replace: true });
     setSelectedId(caseId);
     setEditor(null);
     setIsMobileQueueExpanded(false);
@@ -4276,6 +4298,8 @@ export default function AdminRefundsPage() {
     const fullCase = [...overview.cases, ...internalTestCases]
       .find((refundCase) => refundCase.id === selectedId);
     if (fullCase) selectCase(fullCase);
+    // selectCase reads current URL context; hydration is triggered only by these data changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, fullOverviewReady, internalTestCases, overview.cases, selectedId]);
 
   const handleResolveInboundLink = async () => {
@@ -5389,12 +5413,16 @@ export default function AdminRefundsPage() {
     if (overview.cases.length === 0 && internalTestCases.length === 0) return;
     if (typeof window === 'undefined') return;
 
-    const caseIdFromUrl = new URLSearchParams(window.location.search).get('case');
+    const caseIdFromUrl = companyParams.get('case');
     if (!caseIdFromUrl || handledCaseQueryRef.current === caseIdFromUrl) return;
 
     const caseFromUrl = findRefundDeepLinkedCase(caseIdFromUrl, overview.cases, internalTestCases);
     if (!caseFromUrl) return;
     handledCaseQueryRef.current = caseIdFromUrl;
+    if (companyId !== 'all' && caseFromUrl.accountId !== companyId) {
+      const next = new URLSearchParams(companyParams); if (caseFromUrl.accountId) next.set('company', caseFromUrl.accountId); else next.delete('company');
+      setCompanyParams(next, { replace: true }); setCompanyNotice('Company filter updated to show the linked case.');
+    }
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
       setStatusFilter(refundManagerView(caseFromUrl));
@@ -5403,7 +5431,21 @@ export default function AdminRefundsPage() {
     handleSelectCase(caseFromUrl);
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.cases, internalTestCases]);
+  }, [overview.cases, internalTestCases, companyParams]);
+
+  useEffect(() => {
+    const linked = companyParams.get('case');
+    if (!queueProjectionActive || !linked || handledCaseQueryRef.current === linked) return;
+    const item = liveQueueProjection?.items.find(row => row.caseId === linked); if (!item) return;
+    handledCaseQueryRef.current = linked;
+    if (companyId !== 'all' && item.accountId !== companyId) {
+      const next = new URLSearchParams(companyParams); if (item.accountId) next.set('company', item.accountId); else next.delete('company'); setCompanyParams(next, { replace: true });
+      setCompanyNotice('Company filter updated to show the linked case.');
+    }
+    handleSelectCaseById(linked);
+    // Selection uses the existing safety and detail hydration paths.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyParams, liveQueueProjection, queueProjectionActive]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -7693,7 +7735,7 @@ export default function AdminRefundsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              {reportAccess.isSuccess && !reportAccess.isFetching && reportAccess.data.hasAccess && <Button variant="outline" asChild className="min-h-11"><Link to="/refunds?view=reports">Reports</Link></Button>}
+              {reportAccess.isSuccess && !reportAccess.isFetching && reportAccess.data.hasAccess && <Button variant="outline" asChild className="min-h-11"><Link to={`/refunds?${new URLSearchParams([...companyParams].filter(([key]) => key !== 'case').concat([['view', 'reports']]))}`}>Reports</Link></Button>}
               {gmailNeedsAttention && (
                 <span
                   data-testid="refund-gmail-health"
@@ -7800,6 +7842,9 @@ export default function AdminRefundsPage() {
           )}
 
           <div className="mt-3 border-b border-border pb-3">
+            <div className="mb-3"><CompanyFilter id="refund-queue-company" value={companyId} options={companies} onChange={changeQueueCompany}/></div>
+            {companyNotice && <p role="status" className="mb-3 text-sm text-muted-foreground">{companyNotice}</p>}
+            {companyUnavailable && <div role="alert" className="mb-3"><p>This company is unavailable in your current refund queue.</p><Button variant="link" className="min-h-11 px-0" onClick={() => changeQueueCompany('all')}>Choose all companies</Button></div>}
             <div className="flex flex-col gap-3">
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap" aria-label="Refund case views">
             {([

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import { companyRpcResponse } from './company-reporting-fixtures.mjs';
 import { financeRpcResponse } from './finance-reporting-fixtures.mjs';
 import { fixedNowIso, makeSession, makeUser, personas } from './validate-reporting-uat.mjs';
 
@@ -16,6 +17,7 @@ const origin = `http://127.0.0.1:${port}`;
 const backendPath = '/reporting-preview-backend';
 const previewRoutes = ['/portal/reports', '/portal/time-review', '/refunds', '/admin/reporting'];
 const persona = personas.superAdmin;
+const response = process.argv.includes('--company-samples') ? companyRpcResponse : financeRpcResponse;
 const session = makeSession(persona);
 // Vite does not read .env files, the repo config, or inherited client env values.
 for (const key of Object.keys(process.env)) if (key.startsWith('VITE_')) delete process.env[key];
@@ -25,6 +27,7 @@ const allowedRpcs = new Set([
   'resolve_my_technician_entitlements', 'resolve_my_scoped_admin_invites',
   'get_my_plus_access', 'get_my_admin_access_context', 'get_my_portal_access_context',
   'get_my_reporting_access_context', 'get_my_time_report_access', 'get_reporting_dimensions',
+  'get_company_sales_report', 'get_company_finance_reporting', 'get_company_refund_analytics', 'get_refund_portal_queue_projection',
   'get_sales_report', 'get_finance_reporting_access', 'get_finance_reporting',
   'get_labor_analytics_access', 'get_labor_analytics_report',
   'get_refund_analytics_access', 'get_refund_analytics',
@@ -100,13 +103,13 @@ const server = await createServer({
           }
           const rpc = route.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/)?.[1];
           if (req.method !== 'POST' || !allowedRpcs.has(rpc)) return deny(res);
-          try { return json(res, 200, financeRpcResponse(rpc, persona, await readBody(req))); }
+          try { return json(res, 200, response(rpc, persona, await readBody(req))); }
           catch { return deny(res); }
         }
         if (!['GET', 'HEAD'].includes(req.method)) return deny(res);
         if (url.pathname === '/') { res.writeHead(302, { Location: '/portal/reports?view=finance' }); return res.end(); }
         const appRoute = previewRoutes.includes(url.pathname);
-        const moduleRoute = /^\/(?:src\/|node_modules\/|@vite\/|@id\/|@react-refresh$)/.test(url.pathname);
+        const moduleRoute = /^\/(?:src\/|supabase\/functions\/_shared\/(?:refund-correction-copy|refund-correction)\.ts$|node_modules\/|@vite\/|@id\/|@react-refresh$)/.test(url.pathname);
         const publicPath = path.resolve(root, 'public', `.${url.pathname}`);
         const publicAsset = publicPath.startsWith(`${path.join(root, 'public')}${path.sep}`) && existsSync(publicPath);
         if ((!appRoute && !moduleRoute && !publicAsset) || /(?:^|\/)\.|\.env|\.pem|\.key/i.test(url.pathname.replace(/^\/node_modules\/\.vite(?:-reporting-preview)?\//, '/node_modules/vite/'))) return deny(res);
