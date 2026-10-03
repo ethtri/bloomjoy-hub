@@ -91,6 +91,22 @@ After a scheduled tick, check aggregate cron request status, delivery readiness
 and job states. Never confuse a dry-run or queued cron request with an email
 provider receipt. The next due tick is verified separately from release setup.
 
+The dispatcher admits due digest work before optional ready notices and source
+checks. Unfinished work stays eligible for a later tick. Admission deadlines leave
+headroom for in-flight calls; they are not hard network timeouts and never justify
+cancelling or retrying a provider send whose outcome is unknown.
+
+After sender adoption, ready preparation exits before historical case snapshots
+when delivery is paused or no current authorized subscriptions are eligible. A
+global scan evaluates at most five subscribed cases and rotates its cursor after
+success; targeted case preparation does not advance that cursor. Inspect
+`ready.scannedCount`, `ready.scanLimited` and `ready.reason` for continuation.
+`ready.stage` and the allowlisted `ready.errorCode` distinguish preparation, claim
+and delivery failures without exposing SQL or customer details. A successful HTTP
+response alone is insufficient: inspect the response's completion/attention and
+deferred-work fields. The initial rollout timeout and recovery evidence live in
+#1721.
+
 ## Pause and recovery
 
 Call `service_set_email_alert_delivery_enabled` with `p_enabled: false`. This

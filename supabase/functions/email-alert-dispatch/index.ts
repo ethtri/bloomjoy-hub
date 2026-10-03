@@ -28,10 +28,11 @@ const dispatcher = client
       Deno.env.get("EMAIL_ALERT_PORTAL_ORIGIN") ||
         "https://app.bloomjoyusa.com",
     ),
-    collectSignals: (observedAt) =>
+    collectSignals: (observedAt, options) =>
       collectMachineEmailSignals({
         client,
         observedAt,
+        shouldContinue: options?.shouldContinue,
         tokenForAccount,
         baseUrl: Deno.env.get("NAYAX_LYNX_BASE_URL") ||
           "https://lynx.nayax.com/operational/v1",

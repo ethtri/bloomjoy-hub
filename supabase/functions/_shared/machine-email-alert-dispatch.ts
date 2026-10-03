@@ -17,8 +17,12 @@ type DispatchDependencies = {
   transportConfigured: boolean;
   sendEmail: AlertSendEmail;
   links: MachineEmailLinks;
-  collectSignals: (observedAt: string) => Promise<unknown>;
+  collectSignals: (
+    observedAt: string,
+    options?: { shouldContinue: () => boolean },
+  ) => Promise<unknown>;
   now?: () => Date;
+  monotonicNow?: () => number;
 };
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -53,6 +57,43 @@ const isPreviewCursor = (value: unknown): value is PreviewCursor =>
   /^[A-Za-z0-9_:-]{1,200}$/.test(value.slotKey);
 const cursorOrder = (cursor: PreviewCursor) =>
   `${cursor.userId}|${cursor.category}|${cursor.slotKey}`;
+// Only bounded, known codes cross the endpoint boundary. RPC messages/details can
+// contain customer data or SQL context and must never be returned or logged here.
+const rpcErrorCode = (error: unknown): string => {
+  const code = isRecord(error) ? error.code : undefined;
+  switch (code) {
+    case "57014":
+      return "statement_timeout";
+    case "55P03":
+      return "lock_unavailable";
+    case "40P01":
+      return "deadlock";
+    case "40001":
+      return "serialization_failure";
+    case "42501":
+      return "permission_denied";
+    case "PGRST202":
+      return "rpc_unavailable";
+    default:
+      return "rpc_failed";
+  }
+};
+type ReadyDispatchResult = {
+  sent: number;
+  stale: number;
+  held: number;
+  status: "completed" | "deferred" | "unavailable";
+  stage?: "enqueue" | "claim" | "delivery";
+  errorCode?: string;
+  scannedCount?: number;
+  scanLimited?: boolean;
+  reason?:
+    | "no_current_subscriptions"
+    | "delivery_disabled"
+    | "scan_in_progress"
+    | "completed"
+    | "execution_budget";
+};
 function sameSecret(left: string, right: string): boolean {
   const a = new TextEncoder().encode(left), b = new TextEncoder().encode(right);
   let difference = a.length ^ b.length;
@@ -211,6 +252,12 @@ export function createMachineEmailDispatcher(
         providerCalls: 0,
       }, invalid ? 422 : 200);
     }
+    const clock = deps.monotonicNow ?? (() => performance.now());
+    const startedAt = clock();
+    // Stop admitting new work with headroom for in-flight calls to settle. This
+    // is not a hard request timeout: a started provider send is never cancelled
+    // or blindly retried to fit this budget.
+    const deadline = startedAt + 40_000;
     if (body.observeOnly !== true) {
       const activation = await deps.client.rpc(
         "service_email_alert_delivery_status",
@@ -241,13 +288,23 @@ export function createMachineEmailDispatcher(
       }
     }
     let signals: unknown = null;
-    let signalStatus = "collected";
-    try {
-      signals = await deps.collectSignals(observedAt);
-    } catch {
-      signalStatus = "unavailable";
-    }
+    let signalStatus = "deferred";
+    const collectSignals = async () => {
+      if (clock() >= deadline) return;
+      const signalDeadline = Math.min(deadline, clock() + 10_000);
+      try {
+        signals = await deps.collectSignals(observedAt, {
+          shouldContinue: () => clock() < signalDeadline,
+        });
+        signalStatus = isRecord(signals) && signals.budgetExhausted === true
+          ? "deferred"
+          : "collected";
+      } catch {
+        signalStatus = "unavailable";
+      }
+    };
     if (body.observeOnly === true) {
+      await collectSignals();
       return json({
         status: signalStatus === "collected" ? "observed" : "attention",
         observeOnly: true,
@@ -258,57 +315,52 @@ export function createMachineEmailDispatcher(
       });
     }
     const counts = { sent: 0, stale: 0, held: 0 };
-    const ready = { sent: 0, stale: 0, held: 0, status: "completed" };
-    const deadline = Date.now() + 35_000;
-    // The existing ledger is shared with the refund sweep, so either scheduler can
-    // deliver an opted-in decision exactly once. SQL enforces activation and current preferences.
-    const enqueued = await deps.client.rpc(
-      "service_enqueue_refund_manager_ready_notices",
-      { p_refund_case_id: null, p_observed_at: observedAt },
-    );
-    if (enqueued.error) ready.status = "unavailable";
-    else {for (let i = 0; i < 25 && Date.now() < deadline; i++) {
-        const claim = await deps.client.rpc(
-          "service_claim_next_refund_manager_ready_notice",
-          {
-            p_refund_case_id: null,
-            p_observed_at: (deps.now?.() ?? new Date()).toISOString(),
-          },
-        );
-        if (claim.error || !isRecord(claim.data)) {
-          ready.status = "unavailable";
-          break;
-        }
-        if (claim.data.claimed !== true) break;
-        try {
-          ready[
-            await deliverMachineReadyClaim({
-              client: deps.client,
-              claim: claim.data,
-              sendEmail: deps.sendEmail,
-              links: deps.links,
-            })
-          ]++;
-        } catch {
-          ready.held++;
-        }
-      }}
-    // This is an execution budget, not a recipient/content cap. Remaining work stays durable for the next tick.
-    for (let i = 0; i < 100 && Date.now() < deadline; i++) {
-      const claim = await deps.client.rpc("service_claim_next_email_alert", {
+    const ready: ReadyDispatchResult = {
+      sent: 0,
+      stale: 0,
+      held: 0,
+      status: "completed",
+    };
+    const genericDeadline = startedAt + 20_000;
+    const rpc: AlertRpcClient["rpc"] = async (name, args) => {
+      try {
+        return await deps.client.rpc(name, args);
+      } catch (error) {
+        return { data: null, error };
+      }
+    };
+    // Daily work gets the first independent execution window. Optional ready
+    // preparation must not consume it; remaining durable jobs wait for the next tick.
+    let genericBudgetDeferred = true;
+    for (let i = 0; i < 100 && clock() < genericDeadline; i++) {
+      const claim = await rpc("service_claim_next_email_alert", {
         p_observed_at: (deps.now?.() ?? new Date()).toISOString(),
       });
-      if (claim.error || !isRecord(claim.data)) {
+      if (
+        claim.error || !isRecord(claim.data) ||
+        typeof claim.data.claimed !== "boolean"
+      ) {
         return json({
           status: "attention",
           error: "claim_unavailable",
+          stage: "generic_claim",
+          errorCode: claim.error
+            ? rpcErrorCode(claim.error)
+            : "invalid_response",
           ...counts,
-          ready,
+          ready: {
+            ...ready,
+            status: "deferred",
+            reason: "generic_claim_unavailable",
+          },
           signalStatus,
           signals,
         }, 503);
       }
-      if (claim.data.claimed !== true) break;
+      if (claim.data.claimed !== true) {
+        genericBudgetDeferred = false;
+        break;
+      }
       try {
         counts[
           await deliverMachineEmailClaim({
@@ -322,11 +374,111 @@ export function createMachineEmailDispatcher(
         counts.held++;
       }
     }
+    // The existing ledger remains shared with the refund sweep. The database
+    // scopes enqueue/claim before expensive snapshots and returns an explicit
+    // zero-subscription fastpath; zero newly queued actions alone is not enough
+    // to skip claims, because previously queued actions may still need delivery.
+    const readyDeadline = Math.min(startedAt + 30_000, clock() + 10_000);
+    if (clock() >= readyDeadline) {
+      ready.status = "deferred";
+      ready.reason = "execution_budget";
+    } else {
+      const enqueued = await rpc(
+        "service_enqueue_refund_manager_ready_notices",
+        { p_refund_case_id: null, p_observed_at: observedAt },
+      );
+      if (enqueued.error) {
+        ready.status = "unavailable";
+        ready.stage = "enqueue";
+        ready.errorCode = rpcErrorCode(enqueued.error);
+      } else if (
+        !isRecord(enqueued.data) ||
+        ["queuedCount", "legacyReviewCount", "routeBlockedCount"].some((key) =>
+          !Number.isSafeInteger(
+            enqueued.data &&
+              (enqueued.data as Record<string, unknown>)[key],
+          ) ||
+          ((enqueued.data as Record<string, unknown>)[key] as number) < 0
+        )
+      ) {
+        ready.status = "unavailable";
+        ready.stage = "enqueue";
+        ready.errorCode = "invalid_response";
+      } else {
+        const result = enqueued.data;
+        if (
+          Number.isSafeInteger(result.scannedCount) &&
+          (result.scannedCount as number) >= 0
+        ) ready.scannedCount = result.scannedCount as number;
+        if (typeof result.scanLimited === "boolean") {
+          ready.scanLimited = result.scanLimited;
+        }
+        if (
+          result.reason === "no_current_subscriptions" ||
+          result.reason === "delivery_disabled" ||
+          result.reason === "scan_in_progress" || result.reason === "completed"
+        ) ready.reason = result.reason;
+        const skipClaim = (ready.reason === "no_current_subscriptions" ||
+          ready.reason === "delivery_disabled") &&
+          result.queuedCount === 0 &&
+          result.legacyReviewCount === 0 && result.routeBlockedCount === 0 &&
+          result.scannedCount === 0;
+        if (!skipClaim) {
+          let readyBudgetDeferred = true;
+          for (let i = 0; i < 5 && clock() < readyDeadline; i++) {
+            const claim = await rpc(
+              "service_claim_next_refund_manager_ready_notice",
+              {
+                p_refund_case_id: null,
+                p_observed_at: (deps.now?.() ?? new Date()).toISOString(),
+              },
+            );
+            if (
+              claim.error || !isRecord(claim.data) ||
+              typeof claim.data.claimed !== "boolean"
+            ) {
+              ready.status = "unavailable";
+              ready.stage = "claim";
+              ready.errorCode = claim.error
+                ? rpcErrorCode(claim.error)
+                : "invalid_response";
+              readyBudgetDeferred = false;
+              break;
+            }
+            if (claim.data.claimed !== true) {
+              readyBudgetDeferred = false;
+              break;
+            }
+            try {
+              ready[
+                await deliverMachineReadyClaim({
+                  client: deps.client,
+                  claim: claim.data,
+                  sendEmail: deps.sendEmail,
+                  links: deps.links,
+                })
+              ]++;
+            } catch (error) {
+              ready.held++;
+              ready.stage = "delivery";
+              ready.errorCode = rpcErrorCode(error);
+            }
+          }
+          if (readyBudgetDeferred) {
+            ready.status = "deferred";
+            ready.reason = "execution_budget";
+          }
+        }
+      }
+    }
+    await collectSignals();
     return json({
-      status: counts.held || ready.held || ready.status !== "completed"
+      status: counts.held || ready.held || ready.status !== "completed" ||
+          genericBudgetDeferred || signalStatus !== "collected"
         ? "attention"
         : "completed",
       ...counts,
+      genericBudgetDeferred,
       ready,
       signalStatus,
       signals,
