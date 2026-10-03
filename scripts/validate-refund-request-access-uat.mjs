@@ -63,7 +63,27 @@ try {
   for (const options of [{ noAccess: true }, { empty: true }]) { const { page, context } = await session(options); try { await page.goto(`${origin}/refunds`); await page.getByRole('heading', { name: options.noAccess ? 'No assigned machines' : 'No requests in this period' }).waitFor(); } finally { await context.close(); } }
  });
  await run('Invalid case and offset do not send malformed RPC input', async () => {
-  const { page, context, state } = await session(); try { await page.goto(`${origin}/refunds?case=invalid&offset=Infinity`); await page.getByText('This request is no longer available or isn’t part of your current machine assignments.').waitFor(); assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_request')); assert(state.rpcCalls.filter(call => call.rpcName === 'get_refund_requests').every(call => call.body.p_offset === 0)); } finally { await context.close(); }
+  const { page, context, state } = await session(); try { await page.goto(`${origin}/refunds?case=invalid&offset=Infinity`); await page.getByText('This request is no longer available or isn’t part of your current machine assignments.').waitFor(); const refreshed = page.waitForResponse(response => response.url().endsWith('/rpc/get_refund_requests')); await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await refreshed; assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_request')); assert(state.rpcCalls.filter(call => call.rpcName === 'get_refund_requests').every(call => call.body.p_offset === 0)); } finally { await context.close(); }
+ });
+ await run('Refresh keeps invalid dates and unavailable machines out of request RPCs', async () => {
+  const scenarios = [
+    { query: 'from=2026-02-30&to=2026-07-22', message: 'Choose a valid date range of up to one year.' },
+    { query: 'machine=99999999-9999-4999-8999-999999999999', message: 'This machine is no longer available. Choose an assigned machine.' },
+  ];
+  for (const scenario of scenarios) {
+    const { page, context, state } = await session();
+    try {
+      await page.goto(`${origin}/refunds?${scenario.query}`);
+      await page.getByText(scenario.message, { exact: true }).waitFor();
+      const checked = page.waitForResponse(response => response.url().endsWith('/rpc/get_refund_request_access'));
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await checked;
+      await page.getByRole('button', { name: 'Refresh', exact: true, disabled: false }).waitFor();
+      assert(await page.getByText(scenario.message, { exact: true }).isVisible());
+      assert(!state.rpcCalls.some(call => ['get_refund_requests', 'get_refund_request'].includes(call.rpcName)));
+      assert.equal(await page.getByRole('heading', { name: /Requests couldn.t be loaded/ }).count(), 0);
+    } finally { await context.close(); }
+  }
  });
  await run('Machine URL scope and deliberate filters clear selected details', async () => {
   const { page, context, state } = await session(); try { await page.goto(`${origin}/refunds?view=requests&machine=${machineId}&case=${oldId}`); await page.getByRole('heading', { name: 'Request BJ-OLD' }).waitFor(); assert(state.rpcCalls.some(call => call.rpcName === 'get_refund_requests' && call.body.p_machine_id === machineId)); await page.getByLabel('Received from', { exact: true }).fill('2026-07-01'); await page.getByTestId('refund-request-detail').waitFor({ state: 'hidden' }); assert.equal(new URL(page.url()).searchParams.get('case'), null); } finally { await context.close(); }

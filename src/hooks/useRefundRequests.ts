@@ -25,7 +25,18 @@ export function useRefundRequests(period: RefundRequestPeriod, caseId: string | 
   }, [access.isError, access.isSuccess, access.data?.hasAccess, list.isError, detail.isError, client, user?.id]);
   const protectedError = access.isError || list.isError || detail.isError;
   const scopedDetail = detail.data && access.data?.machines.some(m => m.machineId === detail.data?.machineId) ? detail.data : null;
-  return { access, list, detail, machineAllowed, verified,
+  const refresh = async () => {
+    const current = await access.refetch();
+    if (current.isError || !current.data?.hasAccess) return;
+    // Invalidation refetches only currently enabled observers. Disabled invalid
+    // filters and stale scope keys are never manually forced to fetch.
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ['refund-requests', user?.id], refetchType: 'active' }),
+      client.invalidateQueries({ queryKey: ['refund-request', user?.id], refetchType: 'active' }),
+      client.invalidateQueries({ queryKey: ['refund-workspace-request', user?.id], refetchType: 'active' }),
+    ]);
+  };
+  return { access, list, detail, machineAllowed, verified, refresh,
     requests: verified && !protectedError ? list.data?.requests ?? [] : [],
     request: verified && !protectedError ? scopedDetail : null,
     protectedError,
