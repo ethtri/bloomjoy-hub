@@ -8,12 +8,14 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- Reporting PR #1709 includes the October 2 review fixes: seven completed days
-  by default, prior-year comparison, a single detailed Sales view, and admin-only
-  service diagnostics. The hosted preview still lacks the Finance/Labor/Refund
-  access services; frontend deployment alone cannot enable those views. The
-  isolated `npm run reporting:preview` serves the actual Finance UI with labeled
-  synthetic data. Production and shared UAT were not changed for preview access.
+- Reporting PR #1709 and its four database migrations are live in production
+  (#1696). Central Reporting includes Finance, seven completed days by default,
+  prior-year comparison and one detailed Sales view; Labor lives in Timekeeping
+  Reports, and Refunds & Recovery lives in Refunds Reports. Existing sales
+  calculations, tax settings and issued statements are unchanged. Dated card/cash
+  tax treatment is available in the existing machine Reporting editor; no
+  treatment overrides were added during release. Shared UAT is separate, and
+  `npm run reporting:preview` remains an isolated preview with labeled sample data.
 
 - PR #1706 deployed a service-only assisted path for an already-supplied payout
   limitation on an existing legacy form. The reviewed same-case writer, source
