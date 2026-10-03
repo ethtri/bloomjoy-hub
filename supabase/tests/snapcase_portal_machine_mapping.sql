@@ -245,7 +245,7 @@ select lives_ok(
   $$select public.admin_map_snapcase_machine(
     '14765000-0000-4000-8000-000000000001','future-machine-key',null,
     '14761000-0000-4000-8000-000000000001',null,'Future Mall','Future SnapCase',
-    '14764000-0000-4000-8000-000000000001','2025-01-01',null,'future fixture mapping'
+    '14764000-0000-4000-8000-000000000001','2025-01-01',null,'future fixture mapping','America/New_York'
   )$$,
   'a future discovered source can create a canonical SnapCase machine through mapping'
 );

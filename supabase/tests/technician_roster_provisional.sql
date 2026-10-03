@@ -125,9 +125,10 @@ select throws_ok(
   'The provisional lifecycle cannot silently replace existing pause or archive semantics'
 );
 select lives_ok(
-  $$select public.admin_upsert_reporting_machine_with_phase(
-    null, 'Roster fixture A', 'Roster Eastern provisional', 'Roster Eastern provisional',
-    'snapcase', null, 'setup', 'Eastern provisional roster test', 'America/New_York'
+  $$select public.admin_upsert_reporting_machine_by_id(
+    null, 'a1200000-0000-4000-8000-000000000001', null, 'Roster Eastern provisional',
+    'snapcase', null, 'setup', 'Eastern provisional roster test', null, null,
+    'Roster Eastern provisional', 'America/New_York'
   )$$,
   'A Super Admin can create a provisional machine with its real location timezone'
 );
