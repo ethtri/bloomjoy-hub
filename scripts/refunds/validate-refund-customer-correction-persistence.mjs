@@ -14,6 +14,7 @@ const [
   intake,
   operations,
   managerUi,
+  purchaseReview,
   databaseTest,
   runbook,
   qaChecklist,
@@ -28,6 +29,7 @@ const [
   read('supabase/functions/refund-case-intake/index.ts'),
   read('src/lib/refundOperations.ts'),
   read('src/pages/admin/Refunds.tsx'),
+  read('src/components/refunds/RefundPurchaseReview.tsx'),
   read('supabase/tests/refund_customer_correction_persistence.sql'),
   read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
   read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
@@ -142,10 +144,20 @@ assert(
 );
 assert(
   managerUi.includes('refund-customer-fact-evidence') &&
-    managerUi.includes('verified customer email reply') &&
-    managerUi.includes('no version-matched customer reply') &&
-    managerUi.includes('wallet/device-token digits'),
-  'Managers must see structured customer-fact source, time, version, and digit provenance',
+    managerUi.includes("case 'verified_customer_email':") &&
+    managerUi.includes("return 'customer email reply'") &&
+    managerUi.includes("case 'current_case_record':") &&
+    managerUi.includes("return 'saved case details'") &&
+    managerUi.includes('customerFactEvidence.appliedAt') &&
+    managerUi.includes('customerFactEvidence.changedFields') &&
+    managerUi.includes('formatRefundDateTime') &&
+    managerUi.includes("cardLast4Provenance === 'physical_card'") &&
+    managerUi.includes("cardLast4Provenance === 'wallet_device_token'") &&
+    managerUi.includes('customerDigitsSource={cardLast4SourceLabel(selectedCase)}') &&
+    purchaseReview.includes('customerDigitsSource') &&
+    purchaseReview.includes('customerPayment') &&
+    operations.includes('factVersion: number'),
+  'Managers must see accurate customer-fact source, applied time, changed details and digit provenance; internal fact versions remain in the contract',
 );
 assert(
   !migration.slice(
