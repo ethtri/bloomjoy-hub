@@ -42,12 +42,37 @@ configured. ACH is enabled in the default payment-method configuration.
 Successful-payment and refund receipts and the owner's successful-payment
 emails are enabled. This verifies configuration, not actual settlement.
 
-The Services live sugar product has the standard USD 10/kg and member USD 8/kg
-one-off prices. Remaining catalog tax codes/metadata, sticks and Plus prices,
-test-mode catalog, portal, webhook, tax setup, and test rehearsal are pending.
-Browser control became unavailable during an unsaved sticks entry; no sticks
-product was saved. The connector still has only old-account access; Services
-connector access has been requested from the owner. Production remains unchanged.
+The Services live and separate sandbox catalogs now contain the standard/member
+sugar USD 10/8 per kg, standard/member sticks USD 130/104 per box, and optional
+Plus Basic USD 100/month prices. Supply quantities, metadata and exclusive tax
+behavior are configured. Sugar uses the existing food code; sticks and Plus
+retain the documented general taxable working code. Plus classification still
+requires the separate tax review described in `Docs/SALES_TAX_OPERATIONS.md`.
+
+The owner confirmed the Services California permit remains active and authorized
+recording it in the new account. Live and sandbox Tax Settings are active with
+the confirmed business origin, and both California registrations are active.
+One live and one sandbox calculation returned `product_exempt` for sugar and
+`standard_rated` for sticks/Plus, with no `not_collecting` result. These results
+verify the configured codes, not a new tax classification decision. California
+collection starts now in Stripe; the government permit's original effective date
+remains unchanged. No filing service or additional jurisdiction was enabled.
+
+Both accounts have explicit Customer Portal configurations matching the existing
+end-of-period cancellation policy, invoice history, billing details and payment
+method controls. Services live/sandbox connector access is authorized. A limited
+live server key was approved, created, privately stored and checked against the
+Services account. Its temporary tax-calculation write permission was removed
+after the successful check. The live website webhook is created with the five
+required events and API version 2024-04-10; it remains disabled, with its signing
+secret saved privately, until the coordinated production change.
+
+The complete nine-setting Services bundle is prepared privately. A recoverable
+old-account bundle was validated against all nine production setting digests,
+and the six served commerce functions and shared dependencies were downloaded
+privately for rollback. The first local old signing-secret copy was stale;
+the active endpoint's secret was used and verified instead. No production
+credential, price, portal, webhook-secret or served-function switch has occurred.
 
 Use a separate Bloomjoy Services LLC account under the existing login. Keep
 TGPaci's legal entity, bank, transactions, and access intact. No Connect or
@@ -97,6 +122,23 @@ Use an isolated test backend/database with the new account's test credentials,
 test prices, portal configuration, and test webhook signing secret. Production
 must never temporarily receive test credentials. Notifications must use
 synthetic recipients/transport so a rehearsal does not contact customers.
+
+On October 2, a disposable cloud branch was created under the owner's approved
+USD 1 budget because the local Docker runtime is absent. Its fresh schema lacked
+the production table grants. Only the commerce server grants and authenticated
+subscription-read grant needed for rehearsal were restored; RLS stayed enabled.
+A task-private Deno harness loaded the six unchanged handlers and passed nine
+validation/authentication/signature/fulfillment guards, including signed unpaid
+Checkout and standalone equipment-deposit exclusion. Orders and captured
+notifications remained zero. This is preparation evidence, not a paid Checkout,
+membership, portal or asynchronous-payment end-to-end pass.
+
+The full rehearsal awaits the owner's sandbox credential rotation handoff.
+The disposable cloud branch was removed while that handoff is pending to stop
+usage billing. Recreate an isolated branch and replace its private credentials
+when resuming within the approved cumulative budget; never reuse the deleted
+branch credentials or substitute production. Production cutover remains blocked
+until the required rehearsal succeeds.
 
 Verify public/member sugar, public/member sticks, applicable mixed-cart flows,
 and optional Plus Checkout. Complete only Stripe test payments. Confirm paid

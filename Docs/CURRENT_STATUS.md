@@ -16,8 +16,18 @@ orientation snapshot; it is not a backlog or release ledger.
   details are saved. October 2 Dashboard readback shows Payments, Payouts and ACH
   Active after owner verification and bank confirmation. Customer receipts and
   owner payment emails are enabled; the authorized standalone deposit link is
-  privately verified. Catalog preparation is partial; Services connector access,
-  tax setup, portal/webhook configuration, and test rehearsal remain pending.
+  privately verified. Live/sandbox catalogs, connector access, California tax
+  settings/registrations and Customer Portal configurations are ready. The owner
+  reconfirmed the active permit; live/sandbox calculations return exempt food
+  sugar and taxable sticks/Plus under the current working codes. The approved
+  limited live server credential is privately saved and account-verified.
+  The temporary tax-calculation write permission has been removed. The Services
+  webhook and nine-setting bundle are prepared privately; the webhook stays
+  disabled. A complete verified old bundle and served sources are saved for
+  rollback. Nine isolated handler guards passed with no orders/notifications;
+  paid Checkout, membership, portal and delayed-payment rehearsal remains pending
+  the owner's sandbox credential rotation. The disposable cloud test branch was
+  removed to stop billing. Production cutover has not occurred.
   See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
   settings, and rollback procedure. Preserve TGPaci's historical records.
 
