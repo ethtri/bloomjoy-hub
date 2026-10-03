@@ -1,7 +1,8 @@
 # Bloomjoy Services Stripe merchant cutover
 
 Tracking: [P0 #1693](https://github.com/ethtri/bloomjoy-hub/issues/1693).
-This is a prepared procedure, not evidence that production has switched.
+Production cutover completed on October 2, 2026 (Pacific time). The records below
+distinguish test payment evidence from live configuration/no-charge verification.
 
 ## Verified baseline — October 1, 2026 (Pacific time)
 
@@ -27,7 +28,7 @@ The existing Stripe webhook is enabled at
 secret-presence checks, including the explicit Customer Portal configuration.
 Presence does not prove correct merchant ownership or functional behavior.
 
-## Account preparation — activated; website configuration pending
+## Account preparation — activated; website configured
 
 The owner opened Bloomjoy Services LLC account `acct_1UMDXoAw1uae6O3W` under
 the existing login on October 2, 2026. Its nonbinding onboarding has saved the
@@ -63,16 +64,19 @@ end-of-period cancellation policy, invoice history, billing details and payment
 method controls. Services live/sandbox connector access is authorized. A limited
 live server key was approved, created, privately stored and checked against the
 Services account. Its temporary tax-calculation write permission was removed
-after the successful check. The live website webhook is created with the five
-required events and API version 2024-04-10; it remains disabled, with its signing
-secret saved privately, until the coordinated production change.
+after the successful check. The live website webhook has the five required
+events and API version 2024-04-10. Its privately stored signing secret now matches
+production and the Services endpoint is enabled.
 
-The complete nine-setting Services bundle is prepared privately. A recoverable
+The complete nine-setting Services bundle was applied together. A recoverable
 old-account bundle was validated against all nine production setting digests,
 and the six served commerce functions and shared dependencies were downloaded
 privately for rollback. The first local old signing-secret copy was stale;
-the active endpoint's secret was used and verified instead. No production
-credential, price, portal, webhook-secret or served-function switch has occurred.
+the active endpoint's secret was used and verified instead. The old account and
+historical records remain intact; its webhook configuration is retained but
+disabled after the zero-obligation recheck, preventing obsolete signatures from
+reaching the new merchant handler. Re-enable it only after a matching rollback
+or account-specific support path, not against the Services signing secret.
 
 Use a separate Bloomjoy Services LLC account under the existing login. Keep
 TGPaci's legal entity, bank, transactions, and access intact. No Connect or
@@ -157,7 +161,7 @@ before authentication/provider work when `STOREFRONT_CHECKOUT_PAUSED=true`.
 Requests receive CORS-readable HTTP 503 with a 120-second Retry-After. OPTIONS,
 checkout-status and webhook processing remain available. Missing/false keeps
 normal operation. All four handler pause responses and two focused helper tests
-passed. Production cutover is still pending the coordinated procedure below.
+passed. The coordinated production change below has completed.
 
 Verify public/member sugar, public/member sticks, applicable mixed-cart flows,
 and optional Plus Checkout. Complete only Stripe test payments. Confirm paid
@@ -180,7 +184,34 @@ standalone machine deposit must not be misclassified as a supply order or Plus
 purchase. Inspect the deployed function source as well as the branch source;
 do not introduce an unrelated Stripe SDK/API upgrade during this cutover.
 
-## Coordinated production change — not performed
+## Coordinated production change — completed October 2
+
+All four entry points first returned the expected maintenance HTTP 503. A fresh
+audit found zero old subscriptions, open Checkout Sessions, unpaid/draft invoices,
+active Payment Links and pending PaymentIntents. The nine old setting fingerprints
+and all sixteen served source files still matched the private rollback snapshot.
+Five historical application orders, zero subscription rows and no historical
+order customer references remained unchanged.
+
+The Services bundle was applied and all six commerce functions refreshed. All
+nine production fingerprints match Services, and all seventeen served source
+files match reviewed branch commit `f5a8b349`. Unrelated setting fingerprints
+were preserved. Services webhook is enabled and the old endpoint is retained
+disabled. The live handler accepts the new signature and rejects an invalid
+signature using an inert event that creates no billing or notification.
+
+Checkout/Billing were reopened (`STOREFRONT_CHECKOUT_PAUSED=false`). Live sugar,
+sticks and authenticated Plus previews use the correct Services prices; the
+explicit Services portal configuration and return URL also work. The actual
+www.bloomjoyusa.com sticks button reaches Services hosted Checkout with USD 130
+per box and USD 35 business shipping before address-dependent tax. All four
+unpaid verification Checkouts were expired. The synthetic login/customer and
+temporary probe credentials were removed. Production still has five historical
+orders and zero subscription rows. No live payment or notification was sent.
+
+Payment/payout activation is complete; settlement, actual bank payments and
+delivered live notifications remain untested until an authorized ordinary sale.
+The procedure below remains the repeatable change/rollback reference.
 
 1. Recheck old-account pending billing and application references. If new
    obligations exist, resolve the specific compatibility requirement before
@@ -217,9 +248,13 @@ do not introduce an unrelated Stripe SDK/API upgrade during this cutover.
 
 ## Rollback
 
-Before any new-account obligation exists, pause Checkout, restore the complete
-old credential/price/portal/webhook bundle and served versions, verify signatures
-and old-account no-charge Checkout, then reopen. Never restore only the API key.
+Before any new-account obligation exists, pause the guarded Checkout/Billing
+entry points, restore the complete old credential/price/portal/webhook bundle,
+and refresh webhook/status before any unguarded legacy Checkout source. Restore
+the remaining privately saved served versions, verify the old signature, then
+disable Services/re-enable the old endpoint and verify old no-charge Checkout
+before reopening. Never restore only the API key. Do not enable the retained old
+endpoint while the live handler still expects the Services signing secret.
 
 If new-account payments, delayed ACH payments, or subscriptions exist, a single
 old webhook secret cannot safely process both accounts. Keep Checkout paused
