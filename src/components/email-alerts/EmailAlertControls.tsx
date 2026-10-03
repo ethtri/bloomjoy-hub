@@ -37,6 +37,7 @@ export function AlertMachineChoices({ alert, context, onChange }: { alert: Email
     {alert.scopeMode === 'all_assigned' && <p className="text-xs leading-relaxed text-muted-foreground">The default daily brief follows your eligible assignments, including new ones. Changing this selection will include only the machines you choose.</p>}
     <div className="grid gap-2 sm:grid-cols-2">{choices.map(machine => <label key={machine.machineId} className="flex min-h-11 cursor-pointer items-center gap-3"><Checkbox disabled={!machine.availableAlertIds.includes(alert.id) && !selected.includes(machine)} checked={selected.includes(machine)} onCheckedChange={checked => onChange(changeAlertMachine(alert, context.machines, machine.machineId, checked === true))}/><span className="min-w-0 text-sm">{machine.machineLabel}<span className="block text-xs text-muted-foreground">{machine.locationName || machine.machineId}{!machine.availableAlertIds.includes(alert.id) && ' · Waiting for verified data'}</span></span></label>)}</div>
     {alert.scopeMode === 'selected' && <p className="text-xs text-muted-foreground">Newly assigned machines aren’t added automatically.</p>}
+    {alert.id === 'daily' && context.machines.some(machine => machine.isManager) && <p className="text-xs leading-relaxed text-muted-foreground">This selection controls performance and new-request totals. The daily brief also includes open refund work for every machine you manage, in a separate section.</p>}
     {!choices.length && <p className="text-sm text-muted-foreground">No machines currently support this update.</p>}
   </div>;
 }
@@ -53,5 +54,5 @@ export function InboxSummary({ preferences, context, detailed = false }: { prefe
 
 export function ManagerAlertNotice({ context }: { context: EmailAlertContext }) {
   if (!context.machines.some(machine => machine.isManager)) return null;
-  return <section className="mt-6 flex gap-3 border-t pt-5"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"/><div><h2 className="text-sm font-semibold">Refund decisions</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Ready decisions appear in your daily brief. Turn on Refund decision ready for a separate email. Your manager assignments determine which cases you can decide.</p></div></section>;
+  return <section className="mt-6 flex gap-3 border-t pt-5"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"/><div><h2 className="text-sm font-semibold">Refund decisions</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">When your daily brief is on, it also includes open refund work for every machine you manage, including machines outside its performance selection. Turn on Refund decision ready for a separate email. Your manager assignments determine which cases you can decide.</p></div></section>;
 }
