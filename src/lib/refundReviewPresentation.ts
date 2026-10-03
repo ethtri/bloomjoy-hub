@@ -174,8 +174,8 @@ export const getRefundMachineContextPresentation = (candidate: RefundReviewCandi
   return {
     status,
     alerts,
-    statusNote: 'Nayax status was observed at lookup time; status at purchase remains unverified.',
-    alertsNote: 'Nayax alerts near the transaction time do not prove this purchase failed.',
+    statusNote: status ? 'Nayax status was observed at lookup time; status at purchase remains unverified.' : null,
+    alertsNote: alerts.length ? 'Nayax alerts near the transaction time do not prove this purchase failed.' : null,
   };
 };
 

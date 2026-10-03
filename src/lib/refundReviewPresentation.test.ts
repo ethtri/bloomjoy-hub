@@ -159,9 +159,11 @@ Deno.test('unknown machine status without alerts is hidden; present status and a
   })!;
   equal(model.status!.checkedAt, '2026-10-03T12:00:00Z');
   equal(model.alerts[0].occurredAt, '2026-09-26T12:00:00Z');
-  includes(model.statusNote, 'lookup time');
-  includes(model.alertsNote, 'do not prove this purchase failed');
+  includes(model.statusNote!, 'lookup time');
+  includes(model.alertsNote!, 'do not prove this purchase failed');
   equal(getRefundMachineContextPresentation({ nearbyMachineAlerts: model.alerts })!.status, null);
+  equal(getRefundMachineContextPresentation({ nearbyMachineAlerts: model.alerts })!.statusNote, null);
+  equal(getRefundMachineContextPresentation({ machineStatus: model.status! })!.alertsNote, null);
 });
 
 Deno.test('coverage labels distinguish returned candidates, window records, and unknown history', () => {
