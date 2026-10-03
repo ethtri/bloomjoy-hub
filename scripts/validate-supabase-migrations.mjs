@@ -15,6 +15,7 @@ import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-
 import { writeRealRefundPreparationSeed } from './refunds/refund-real-preparation-seed.mjs';
 import { stageInactiveGiftMigrations, verifyInactiveBaselineCatalog, writeInactiveGiftCompatibilityTest } from './refunds/refund-inactive-compatibility-upgrade.mjs';
 import { verifyCompanyAssignmentConcurrency } from './company-assignment-concurrency.mjs';
+import { verifyCompanyPayrollCorrection } from './company-payroll-correction.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -649,6 +650,8 @@ async function main() {
       log('Supabase database persona tests passed.');
       await verifyCompanyAssignmentConcurrency({ dbPort });
       log('Company duplicate-create, rename/create, archive/assignment and stale-save concurrent transactions passed without access provisioning.');
+      await verifyCompanyPayrollCorrection({ dbPort });
+      log('Merlin company correction replay, dependency drift guards and preserved payroll/access fixtures passed.');
       if (options.portalSeedDir) {
         await writeRealRefundPreparationSeed({
           dbPort, outputDir: options.portalSeedDir,
