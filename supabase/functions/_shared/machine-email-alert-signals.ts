@@ -7,36 +7,30 @@ const record = (value: unknown): Record<string, unknown> | null =>
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Inventory activity, textual attention states and failed reads are never connectivity evidence. */
+/**
+ * Nayax documents MachineMQTTStatus as the current MQTT connection state:
+ * https://devzone.nayax.com/reference/lynx/machines/get-specific-machine-statistics
+ * It is not proof of whole-terminal availability or successful payments.
+ * Inventory activity, timestamps, textual attention and undocumented IsOnline
+ * fields are never substituted. The returned machine must match the queried mapping.
+ */
 export function explicitNayaxConnectivity(
   payload: unknown,
-): { providerField: "IsOnline" | "isOnline"; isOnline: boolean } | null {
+  expectedMachineId: string,
+): { providerField: "MachineMQTTStatus"; connected: boolean } | null {
   const root = record(payload);
-  if (!root) return null;
-  const candidates = [root, record(root.data), record(root.Data)].filter((
-    v,
-  ): v is Record<string, unknown> => v !== null);
-  const observed: Array<
-    { providerField: "IsOnline" | "isOnline"; isOnline: boolean }
-  > = [];
-  for (const candidate of candidates) {
-    for (const name of ["IsOnline", "isOnline"] as const) {
-      if (candidate[name] !== undefined) {
-        if (typeof candidate[name] !== "boolean") {
-          return null;
-        }
-        observed.push({
-          providerField: name,
-          isOnline: candidate[name] as boolean,
-        });
-      }
-    }
-  }
   if (
-    !observed.length ||
-    observed.some((v) => v.isOnline !== observed[0].isOnline)
+    !root || !/^[1-9][0-9]*$/.test(expectedMachineId) ||
+    typeof root.MachineMQTTStatus !== "boolean" ||
+    !(typeof root.MachineID === "string" ||
+      (typeof root.MachineID === "number" &&
+        Number.isSafeInteger(root.MachineID))) ||
+    String(root.MachineID) !== expectedMachineId
   ) return null;
-  return observed[0];
+  return {
+    providerField: "MachineMQTTStatus",
+    connected: root.MachineMQTTStatus,
+  };
 }
 
 export type SignalCollectionResult = {
@@ -130,7 +124,10 @@ export async function collectMachineEmailSignals(
           result.unavailableDevices++;
           continue;
         }
-        const observation = explicitNayaxConnectivity(JSON.parse(body));
+        const observation = explicitNayaxConnectivity(
+          JSON.parse(body),
+          device.nayaxMachineId,
+        );
         if (!observation) {
           result.unavailableDevices++;
           continue;
@@ -141,7 +138,7 @@ export async function collectMachineEmailSignals(
             p_machine_id: device.machineId,
             p_observed_at: new Date().toISOString(),
             p_provider_field: observation.providerField,
-            p_is_online: observation.isOnline,
+            p_is_online: observation.connected,
           },
         );
         if (stored.error) {

@@ -167,6 +167,16 @@ Deno.test("quiet/offline evidence guards reject stale and inferred states", () =
   (offline.signal as unknown as Record<string, unknown>).providerField =
     "MachineStatusBit";
   rejects(offline);
+  for (const field of ["IsOnline", "isOnline"]) {
+    const undocumented = structuredClone(variants["device-offline"]);
+    (undocumented.signal as unknown as Record<string, unknown>).providerField =
+      field;
+    rejects(undocumented);
+  }
+  const wholeDevice = structuredClone(variants["device-offline"]);
+  (wholeDevice.signal as unknown as Record<string, unknown>).component =
+    "Nayax payment device";
+  rejects(wholeDevice);
   const stale = structuredClone(variants["device-offline"]);
   stale.observedAt = "2026-10-02T15:07:00Z";
   rejects(stale);
@@ -177,8 +187,19 @@ Deno.test("quiet/offline evidence guards reject stale and inferred states", () =
   );
   assert(
     buildMachineEmail({ projection: variants["device-offline"], links }).subject
-      .includes("payment device"),
-    "component-specific subject",
+      .includes("Nayax connection disconnected"),
+    "documented connection-specific subject",
+  );
+  const connection = buildMachineEmail({
+    projection: variants["device-offline"],
+    links,
+  });
+  assert(
+    connection.text.includes("Nayax MQTT connection") &&
+      connection.text.includes(
+        "Payment processing and dispensing status are not established",
+      ),
+    "precise component and practical limits",
   );
 });
 Deno.test("weekly uses reported snapshot wording and 40-case email remains complete below common clipping size", () => {

@@ -11,7 +11,7 @@ const token = /^[A-Z0-9_]{1,80}$/.test(account)
   : undefined;
 let result: Record<string, unknown> = {
   endpoint: "machine_status",
-  component: "Nayax payment device",
+  component: "Nayax MQTT connection",
   configured: Boolean(token && /^[A-Za-z0-9_-]{1,160}$/.test(machine)),
   recognizedBoolean: false,
 };
@@ -41,13 +41,13 @@ if (result.configured) {
     if (response.ok) {
       const raw = await response.text();
       if (raw.length <= 65_536) {
-        const observation = explicitNayaxConnectivity(JSON.parse(raw));
+        const observation = explicitNayaxConnectivity(JSON.parse(raw), machine);
         result = {
           ...result,
           recognizedBoolean: observation !== null,
           field: observation?.providerField ?? null,
           fieldType: observation ? "boolean" : "unrecognized",
-          isOnline: observation?.isOnline ?? null,
+          mqttConnected: observation?.connected ?? null,
         };
       }
     }

@@ -192,12 +192,12 @@ export function fixtureVariants(): Record<string, MachineEmailProjection> {
   const offline = structuredClone(quiet);
   offline.category = "device-offline";
   offline.signal = {
-    component: "Nayax payment device",
+    component: "Nayax MQTT connection",
     firstObservedAt: "2026-10-02T14:40:00Z",
     lastObservedAt: "2026-10-02T15:00:00Z",
     observationCount: 5,
     state: "offline",
-    providerField: "IsOnline",
+    providerField: "MachineMQTTStatus",
     providerFieldValue: false,
   };
   const long = structuredClone(daily);

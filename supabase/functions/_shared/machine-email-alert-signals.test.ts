@@ -6,14 +6,20 @@ import { fixtureId, fixtureVariants } from "./machine-email-alert-fixtures.ts";
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
-Deno.test("only explicit unambiguous IsOnline booleans prove component state", () => {
+Deno.test("only documented MQTT booleans for the exact queried machine prove connection state", () => {
   assert(
-    explicitNayaxConnectivity({ data: { IsOnline: false } })?.isOnline ===
+    explicitNayaxConnectivity(
+      { MachineID: 123, MachineMQTTStatus: false },
+      "123",
+    )?.connected ===
       false,
     "explicit false",
   );
   assert(
-    explicitNayaxConnectivity({ isOnline: true })?.isOnline === true,
+    explicitNayaxConnectivity(
+      { MachineID: "123", MachineMQTTStatus: true },
+      "123",
+    )?.connected === true,
     "explicit true",
   );
   for (
@@ -24,12 +30,22 @@ Deno.test("only explicit unambiguous IsOnline booleans prove component state", (
       { IsOnline: "false" },
       { IsOnline: false, isOnline: true },
       { IsOnline: false, data: { IsOnline: true } },
+      { MachineID: 123, MachineMQTTStatus: "false" },
+      { MachineID: 123, MachineMQTTStatus: null },
+      { MachineID: 456, MachineMQTTStatus: false },
+      { MachineMQTTStatus: false },
+      { data: { MachineID: 123, MachineMQTTStatus: false } },
+      {
+        MachineID: 123,
+        LastKeepAliveDateTime: "2025-01-01T00:00:00Z",
+        LastPowerDownDateTime: "2026-10-03T00:00:00Z",
+      },
       null,
     ]
   ) {
     assert(
-      explicitNayaxConnectivity(payload) === null,
-      "unknown is not offline",
+      explicitNayaxConnectivity(payload, "123") === null,
+      "undocumented, malformed, mismatched and absent evidence stays unknown",
     );
   }
 });
@@ -48,13 +64,18 @@ Deno.test("all subscribed devices retain cadence, bootstrap is bounded, reads ar
   const result = await collectMachineEmailSignals({
     observedAt: "2026-10-02T15:00:00Z",
     client: {
-      rpc: (name) => {
+      rpc: (name, args) => {
         if (name === "service_get_email_alert_signal_inputs") {
           return Promise.resolve({
             data: { devices, quietPeriods: [] },
             error: null,
           });
         }
+        assert(
+          args.p_provider_field === "MachineMQTTStatus" &&
+            args.p_is_online === false,
+          "only documented explicit observation sent to persistence",
+        );
         records++;
         return Promise.resolve({ data: true, error: null });
       },
@@ -70,7 +91,14 @@ Deno.test("all subscribed devices retain cadence, bootstrap is bounded, reads ar
           (init as { method?: string })?.method === "GET",
         "established exact endpoint, read only",
       );
-      return new Response(JSON.stringify({ IsOnline: false }));
+      return new Response(
+        JSON.stringify({
+          MachineID: Number(
+            String(url).match(/\/machines\/(\d+)\/status$/)![1],
+          ),
+          MachineMQTTStatus: false,
+        }),
+      );
     },
   });
   assert(
@@ -82,9 +110,17 @@ Deno.test("all subscribed devices retain cadence, bootstrap is bounded, reads ar
     "correct account only",
   );
 });
-Deno.test("failed/unrecognized provider reads never record offline", async () => {
+Deno.test("failed, missing and mismatched provider reads never record disconnected", async () => {
   let observations = 0;
-  for (const payload of [{ Status: "offline" }, { IsOnline: "false" }]) {
+  for (
+    const payload of [
+      { Status: "offline" },
+      { IsOnline: false },
+      { MachineID: 456, MachineMQTTStatus: false },
+      { MachineID: 123, MachineMQTTStatus: null },
+      null,
+    ]
+  ) {
     const result = await collectMachineEmailSignals({
       observedAt: "2026-10-02T15:00:00Z",
       client: {
@@ -108,14 +144,17 @@ Deno.test("failed/unrecognized provider reads never record offline", async () =>
         },
       },
       tokenForAccount: () => "fake",
-      fetcher: async () => new Response(JSON.stringify(payload)),
+      fetcher: async () =>
+        new Response(JSON.stringify(payload), {
+          status: payload === null ? 503 : 200,
+        }),
     });
     assert(
       result.unavailableDevices === 1,
       "unknown recorded as unavailable only",
     );
   }
-  assert(observations === 0, "no false offline observations");
+  assert(observations === 0, "no false disconnection observations");
 });
 Deno.test("cash quiet signal requires known complete periods and a meaningful decline", async () => {
   const payload = fixtureVariants()["sales-quiet"].signal;

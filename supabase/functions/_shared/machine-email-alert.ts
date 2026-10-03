@@ -75,7 +75,7 @@ export type OfflineDeviceSignal = {
   lastObservedAt: string;
   observationCount: number;
   state: "offline";
-  providerField: "IsOnline" | "isOnline";
+  providerField: "MachineMQTTStatus";
   providerFieldValue: false;
 };
 export type MachineEmailProjection = {
@@ -512,7 +512,8 @@ export function parseMachineEmailProjection(
     const parsed = projection.signal as OfflineDeviceSignal;
     if (
       signal.state !== "offline" || signal.providerFieldValue !== false ||
-      !["IsOnline", "isOnline"].includes(parsed.providerField) ||
+      parsed.providerField !== "MachineMQTTStatus" ||
+      parsed.component !== "Nayax MQTT connection" ||
       parsed.observationCount < 4 ||
       Date.parse(parsed.lastObservedAt) - Date.parse(parsed.firstObservedAt) <
         15 * 60_000 ||
@@ -607,7 +608,7 @@ export function buildMachineEmail(
         ? "Card sales"
         : "Sales"
     } are quieter than usual`
-    : "The payment device reports offline";
+    : "Nayax connection disconnected";
   const subject = digest
     ? `Bloomjoy ${daily ? "daily brief" : "weekly review"} · ${period}`
     : `${title} · ${machine.machineLabel}`;
@@ -869,14 +870,14 @@ export function buildMachineEmail(
       `${machine.machineLabel} · ${machine.locationName}. Observation times: ${machine.timezone}.`,
     );
     measures([["Component", signal.component], [
-      "First offline observation",
+      "First observed disconnected",
       when(signal.firstObservedAt, machine.timezone),
     ], [
-      "Latest offline observation",
+      "Latest observed disconnected",
       when(signal.lastObservedAt, machine.timezone),
-    ], ["Offline observations", String(signal.observationCount)]]);
+    ], ["Disconnected observations", String(signal.observationCount)]]);
     paragraph(
-      "The provider explicitly reported this component offline. This does not establish the condition of the entire vending machine. Check its power and connection using the service guide.",
+      "Nayax reports this machine’s MQTT connection disconnected. Check the device’s power and network connection. Payment processing and dispensing status are not established by this signal.",
     );
     anchor(
       machine.reportingAllowed ? "Open machine activity" : "Manage this alert",
