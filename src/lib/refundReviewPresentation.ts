@@ -75,9 +75,10 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
     let label = factor.label;
     if (factor.key === 'customer_time_confidence') group = 'uncertainties';
     if (['provider_time', 'machine_time'].includes(factor.key)) group = 'uncertainties';
-    if (factor.key === 'request_time' && factor.outcome !== 'match') {
+    if (factor.key === 'request_time') {
       group = 'uncertainties';
-      label = 'Nayax time may reflect processing, delayed synchronization, or posting.';
+      // A request boundary is context, not evidence identifying this customer's purchase.
+      // Preserve the supplied reason: an unknown receipt time differs from provider clock uncertainty.
     }
     if (['time', 'incident_time'].includes(factor.key) && (!comparableTime || approximateTime)) {
       // Preserve explicit conflicts, but never promote a processing-time delta into occurrence proof.
@@ -118,7 +119,7 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
         label = group === 'conflicts'
           ? 'Card digits differ and weigh against this sale.'
           : customer.cardLast4Provenance === 'wallet_device_token' || customer.cardLast4Source === 'wallet_device'
-            ? 'Card digits differ; wallet numbers may differ from the card.'
+            ? 'Reported wallet/device digits differ from Nayax; equivalence is unverified.'
             : 'Card digits differ; their sources may not be comparable.';
       } else if (factor.outcome === 'match') {
         label = 'Card digits match.';

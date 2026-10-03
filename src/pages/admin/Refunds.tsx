@@ -6675,12 +6675,12 @@ export default function AdminRefundsPage() {
     const plainManagerState = {
       label: editor.decision === 'denied' ? 'Deny request'
         : recommendation?.kind === 'refund'
-          ? 'Selected for review'
+          ? 'Refund decision'
           : recommendation?.kind === 'reject' ? 'Review rejection' : refundPlainStatus(selectedCase),
       explanation: editor.decision === 'denied'
         ? 'Choose a clear customer-facing reason, then save the Manager’s final decision.'
         : recommendation?.kind === 'refund'
-          ? selectionPresentation.sourceLabel
+          ? comparisonCandidate || selectedTransactionEvidence ? '' : selectionPresentation.sourceLabel
           : recommendation?.summary ?? (waitingOnCustomer ? 'We have asked the customer for the details needed to find this purchase.'
         : selectedCase.decision === 'approved' ? 'The refund is approved. Bloomjoy is completing the remaining work.'
         : selectedCase.decision === 'denied' ? 'The decision is saved. Bloomjoy is notifying the customer.'

@@ -64,6 +64,25 @@ Deno.test('explicit conflicts stay visible and amount differences do not create 
   equal(Object.keys(model), ['supporting', 'conflicts', 'uncertainties']);
 });
 
+Deno.test('request timing stays context and preserves missing receipt evidence', () => {
+  const input = candidate();
+  const missing = 'Original customer request receipt time is unavailable';
+  input.matchFactors = [{ key: 'request_time', outcome: 'manual', label: missing }];
+  const unknown = getRefundReviewEvidence({ candidate: input });
+  equal(unknown.uncertainties.find((factor) => factor.key === 'request_time')?.label, missing);
+  input.matchFactors = [{ key: 'request_time', outcome: 'match', label: 'Record predates the request' }];
+  const before = getRefundReviewEvidence({ candidate: input });
+  equal(before.supporting.some((factor) => factor.key === 'request_time'), false);
+  equal(before.uncertainties.some((factor) => factor.key === 'request_time'), true);
+});
+
+Deno.test('reported wallet digits are not explained away as physical card digits', () => {
+  const model = getRefundReviewEvidence({ candidate: candidate(), customer: {
+    cardLast4: '2222', cardLast4Source: 'wallet_device', cardLast4Provenance: 'wallet_device_token',
+  } });
+  includes(model.uncertainties.find((factor) => factor.key === 'card')!.label, 'equivalence is unverified');
+});
+
 Deno.test('known network mismatch is a visible difference; omitted and Other/unsure are distinct', () => {
   equal(getRefundCardNetworkLabel(null), 'Not provided');
   equal(getRefundCardNetworkLabel('other_unknown'), 'Other / customer unsure');
