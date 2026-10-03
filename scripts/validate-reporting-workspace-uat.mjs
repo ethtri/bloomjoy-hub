@@ -67,12 +67,12 @@ try {
     assert(state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report' && call.body.p_location_ids?.[0] === 'location-north'));
     checks.push('Location 360 retains authorized location in both domain requests');
 
-    await tab(page, 'Labor').click(); await page.getByRole('heading', { name: 'Recorded labor', exact: true }).waitFor();
+    await tab(page, 'Labor').click(); await page.getByRole('region', { name: 'Labor report', exact: true }).waitFor();
     const laborDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
     const laborCsv = fs.readFileSync(await (await laborDownload).path(), 'utf8');
     assert(laborCsv.includes('North Hall')); assert(!laborCsv.includes('Garden Hall')); assert(laborCsv.includes('Recorded minutes'));
     await page.screenshot({ path: path.join(output, 'labor-desktop.png'), fullPage: true });
-    await tab(page, 'Refunds & Recovery').click(); await page.getByRole('heading', { name: 'Refunds & recovery', exact: true }).waitFor();
+    await tab(page, 'Refunds & Recovery').click(); await page.getByRole('region', { name: 'Refunds and recovery analytics', exact: true }).waitFor();
     const refundDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
     const refundCsv = fs.readFileSync(await (await refundDownload).path(), 'utf8');
     assert(refundCsv.includes('Request cohort')); assert(refundCsv.includes('As of period end')); assert(!refundCsv.includes('Garden Hall'));
@@ -84,7 +84,7 @@ try {
     for (const width of [320, 360, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 844 });
       for (const view of ['overview', 'sales', 'labor', 'refunds', 'locations', 'partners']) {
-        await page.goto(url(view), { waitUntil: 'networkidle' }); await (['labor', 'refunds'].includes(view) ? page.getByRole('heading', { name: view === 'labor' ? 'Recorded labor' : 'Refunds & recovery', exact: true }).waitFor() : ready(page)); await fit(page);
+        await page.goto(url(view), { waitUntil: 'networkidle' }); await (['labor', 'refunds'].includes(view) ? page.getByRole('region', { name: view === 'labor' ? 'Labor report' : 'Refunds and recovery analytics', exact: true }).waitFor() : ready(page)); await fit(page);
         if (width === 390) await page.screenshot({ path: path.join(output, `${view}-mobile.png`), fullPage: true });
       }
     }
@@ -126,7 +126,7 @@ try {
       assert.equal(new URL(page.url()).searchParams.get('compare'), 'none');
       checks.push('Mobile date presets, invalid drafts, atomic cross-year custom range, refresh and Back');
 
-      await tab(page, 'Labor').click(); await page.getByRole('heading', { name: 'Recorded labor', exact: true }).waitFor();
+      await tab(page, 'Labor').click(); await page.getByRole('region', { name: 'Labor report', exact: true }).waitFor();
       assert.equal(await page.locator('#reporting-comparison').count(), 0);
       await page.getByRole('button', { name: 'More filters', exact: true }).click();
       assert.equal(await page.locator('#reporting-tender').count(), 0);
@@ -190,12 +190,13 @@ try {
 
   for (const [personaName, expectedView, heading, forbidden] of [
     ['operator', 'overview', 'Sales over time', ['Labor', 'Refunds & Recovery', 'Partners']],
-    ['timeOnly', 'labor', 'Recorded labor', ['Overview', 'Sales', 'Locations', 'Refunds & Recovery', 'Partners']],
-    ['refundOnly', 'refunds', 'Refunds & recovery', ['Overview', 'Sales', 'Locations', 'Labor', 'Partners']],
+    ['timeOnly', 'labor', 'Timekeeping reports', ['Overview', 'Sales', 'Locations', 'Refunds & Recovery', 'Partners']],
+    ['refundOnly', 'refunds', 'Refund reports', ['Overview', 'Sales', 'Locations', 'Labor', 'Partners']],
   ]) {
     const { page, context, state } = await open(workspacePersonas[personaName]);
     try {
       await page.goto(url(expectedView), { waitUntil: 'networkidle' }); await page.getByRole('heading', { name: heading, exact: true }).waitFor();
+      if (personaName !== 'operator') await page.getByRole('region', { name: personaName === 'timeOnly' ? 'Labor report' : 'Refunds and recovery analytics', exact: true }).waitFor();
       for (const name of forbidden) assert.equal(await tab(page, name).count(), 0, `${personaName} must not see ${name}`);
       if (personaName === 'timeOnly') {
         assert.equal(await page.getByRole('heading', { name: 'Authorized account earnings' }).count(), 0);
@@ -240,7 +241,7 @@ try {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(workspaceRpcResponse('get_refund_analytics_access', workspacePersonas.superAdmin)) });
     });
     await page.goto(url('labor', '&machine=unauthorized-machine'), { waitUntil: 'networkidle' });
-    await page.getByRole('alert').filter({ hasText: 'outside your labor report access' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: 'This location or machine is not available in your reports.' }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_labor_analytics_report'));
     await page.goto(`${appUrl}/portal/reports?view=refunds&from=2024-01-01&to=2026-07-22`, { waitUntil: 'networkidle' });
     await page.getByRole('alert').filter({ hasText: /367 days/ }).waitFor();

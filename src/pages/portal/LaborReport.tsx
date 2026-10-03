@@ -16,6 +16,7 @@ export function TimekeepingReportNavigation({ reports = false }: { reports?: boo
   const [params] = useSearchParams();
   const reportParams = new URLSearchParams(params); reportParams.set('view', 'reports');
   const workParams = new URLSearchParams(params); workParams.delete('view');
+  if (reports && !canReview) return null;
   return <nav aria-label="Timekeeping views" className="flex flex-wrap gap-2">
     {canReview && <Button variant={reports ? 'outline' : 'secondary'} className="min-h-11" asChild><Link to={`/portal/time-review?${workParams}`} aria-current={!reports ? 'page' : undefined}>Time review</Link></Button>}
     {access.isSuccess && (access.data.hasAccess || access.data.canViewPay) && <Button variant={reports ? 'secondary' : 'outline'} className="min-h-11" asChild><Link to={`/portal/time-review?${reportParams}`} aria-current={reports ? 'page' : undefined}>Reports</Link></Button>}
@@ -44,11 +45,11 @@ export default function LaborReportPage() {
     next.set('view', 'reports'); setParams(next);
   };
   return <PortalLayout><section className="portal-section"><div className="container-page min-w-0 space-y-5">
-    <header><h1 className="text-2xl font-semibold tracking-tight">Timekeeping</h1><p className="mt-1 text-sm text-muted-foreground">Review recorded effort across weeks, locations and machines.</p></header>
+    <header><h1 className="text-2xl font-semibold tracking-tight">Timekeeping reports</h1><p className="mt-1 text-sm text-muted-foreground">Recorded hours and paid shifts by location and machine.</p></header>
     <TimekeepingReportNavigation reports />
-    {access.isPending ? <p role="status" className="py-8 text-muted-foreground">Checking labor report access…</p> : access.isError ? <div role="alert"><p>Labor report access could not load.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !authorized ? <p>Labor reports require Time Report or account Pay Report access.</p> : <>
+    {access.isPending ? <p role="status" className="py-8 text-muted-foreground">Loading timekeeping reports…</p> : access.isError ? <div role="alert"><p>Timekeeping reports could not load. Try again to refresh.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !authorized ? <p>Timekeeping reports are not available for your account.</p> : <>
       <ReportingFilters state={state} salesView={false} locations={locations} machines={machines} onChange={change} />
-      {selectionError === 'dates' ? <p role="alert">Choose a valid date range of up to 367 days to load labor reports.</p> : selectionError === 'scope' ? <p role="alert">This linked location or machine is outside your labor report access. Choose an accessible scope above.</p> : <LaborAnalyticsPanel key={user?.id} scope={{ dateFrom: state.dateFrom, dateTo: state.dateTo, ...(state.locationId !== 'all' ? { locationIds: [state.locationId] } : {}), ...(state.machineId !== 'all' ? { machineIds: [state.machineId] } : {}) }} />}
+      {selectionError === 'dates' ? <p role="alert">Choose a valid date range of up to 367 days to load timekeeping reports.</p> : selectionError === 'scope' ? <p role="alert">This location or machine is not available in your reports. Choose another location or machine above.</p> : <LaborAnalyticsPanel key={user?.id} showHeading={false} scope={{ dateFrom: state.dateFrom, dateTo: state.dateTo, ...(state.locationId !== 'all' ? { locationIds: [state.locationId] } : {}), ...(state.machineId !== 'all' ? { machineIds: [state.machineId] } : {}) }} />}
     </>}
   </div></section></PortalLayout>;
 }

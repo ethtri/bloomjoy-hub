@@ -44,7 +44,7 @@ try {
       });
       const view = role === 'timeOnly' ? 'labor' : 'refunds';
       await page.goto(`${appUrl}/portal/reports?view=${view}`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('heading', { name: role === 'timeOnly' ? 'Recorded labor' : 'Refunds & recovery', exact: true }).waitFor();
+      await page.getByRole('region', { name: role === 'timeOnly' ? 'Labor report' : 'Refunds and recovery analytics', exact: true }).waitFor();
       assert.equal(new URL(page.url()).pathname, role === 'timeOnly' ? '/portal/time-review' : '/refunds');
       assert.equal(new URL(page.url()).searchParams.get('view'), 'reports');
       await page.waitForTimeout(1000);

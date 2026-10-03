@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ArrowRight, TrendingDown, TrendingUp } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -23,10 +23,10 @@ export function SalesMetricBand({ rows, previous, compareAvailable }: Pick<Props
     { label: 'Sales per recorded transaction', value: money(perTransaction), now: perTransaction, prior: priorPerTransaction, monetary: true },
     { label: 'Refund accounting impact', value: money(knownMoney(rows, 'refundAmountCents').value), now: null, prior: null, monetary: true }];
   return <dl className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-x-6 gap-y-5 border-b border-border py-4 lg:grid-cols-4">
-    {metrics.map((metric, index) => <div key={metric.label} className={index ? 'lg:border-l lg:border-border lg:pl-6' : ''}>
-      <dt className="text-sm text-muted-foreground">{metric.label}</dt><dd className="mt-1 text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl">{metric.value}</dd>
-      <dd className="mt-2 text-xs leading-relaxed text-muted-foreground">{index === 3 ? 'Request deductions and reversals' : compareAvailable ? changeLabel(periodChange(metric.now, metric.prior), metric.monetary) : 'Comparison unavailable'}</dd>
-      {index === 0 && current.omittedRows > 0 && <dd className="mt-1 text-xs text-amber-800">Known subtotal {money(current.knownValue)} · {current.omittedRows} unresolved rows</dd>}
+    {metrics.map((metric, index) => <div key={metric.label} className={`grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 min-[400px]:block ${index ? 'lg:border-l lg:border-border lg:pl-6' : ''}`}>
+      <dt className="text-sm text-muted-foreground">{metric.label}</dt><dd className="text-xl font-semibold tabular-nums tracking-tight min-[400px]:mt-1 min-[400px]:text-2xl sm:text-3xl">{metric.value}</dd>
+      <dd className="col-span-2 mt-1 text-xs leading-relaxed text-muted-foreground min-[400px]:mt-2">{index === 3 ? 'Request deductions and reversals' : compareAvailable ? changeLabel(periodChange(metric.now, metric.prior), metric.monetary) : 'Comparison unavailable'}</dd>
+      {index === 0 && current.omittedRows > 0 && <dd className="col-span-2 mt-1 text-xs text-amber-800">Known subtotal {money(current.knownValue)} · {current.omittedRows} unresolved rows</dd>}
     </div>)}
   </dl>;
 }
@@ -90,14 +90,17 @@ function ReportingSalesBreakdown(props: Props) {
 
 export function ReportingLocations(props: Props & { children?: React.ReactNode }) {
   const [search, setSearch] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
   const location = props.dimensions.find(item => item.locationId === props.state.locationId);
   const machine = props.dimensions.find(item => item.machineId === props.state.machineId);
   const isDetail = props.state.locationId !== 'all' || props.state.machineId !== 'all';
   const groups = salesGroups(props.rows, props.previous, isDetail ? 'machine' : 'location');
+  const matchingGroups = groups.filter(group => group.label.toLowerCase().includes(search.trim().toLowerCase()));
+  const noSearchMatches = groups.length > 0 && search.trim().length > 0 && matchingGroups.length === 0;
   const summary = props.rows.length ? { gross: knownMoney(props.rows, 'grossSalesCents').value, refund: knownMoney(props.rows, 'refundAmountCents').value, tax: knownMoney(props.rows, 'taxCents').value, net: knownMoney(props.rows, 'netSalesCents').value } : null;
   return <div className="space-y-7">{isDetail && <div className="mt-6"><Button variant="link" className="px-0" onClick={() => props.onNavigate({ locationId: 'all', machineId: 'all' })}>All locations</Button><h2 className="mt-2 text-2xl font-semibold">{machine?.machineLabel ?? location?.locationName ?? 'Selected scope'} 360</h2><p className={noteClass}>Sales movement and recorded activity for the selected scope. Associations do not establish cause.</p></div>}<SalesMetricBand {...props}/>
     {isDetail && <><SalesTrend {...props}/><section><h2 className={titleClass}>Sales to net sales</h2><dl className="mt-3 grid gap-4 border-y border-border py-5 sm:grid-cols-4">{[{ label: 'Sales before refunds', value: summary?.gross ?? null }, { label: 'Refund accounting impact', value: summary?.refund ?? null }, { label: 'Net sales', value: summary?.net ?? null }, { label: 'Tax, shown separately', value: summary?.tax ?? null }].map(item => <div key={item.label}><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="mt-2 text-lg font-semibold tabular-nums">{money(item.value)}</dd></div>)}</dl><p className={`${noteClass} mt-3`}>Canonical source calculations are preserved. Tax is separate under the shared sales basis; refund payments are context, not another deduction. No unallocated compensation or overlapping partner costs are subtracted.</p></section></>}
-    <section><div className="flex flex-wrap items-center justify-between gap-4"><h2 className={titleClass}>{isDetail ? 'Machine contributors' : 'Location comparison'}</h2><Input aria-label="Search locations and machines" className="w-full sm:w-64" placeholder="Search by name" value={search} onChange={event => setSearch(event.target.value)}/></div><div className="mt-3"><GroupTable groups={groups.filter(group => group.label.toLowerCase().includes(search.toLowerCase()))} kind={isDetail ? 'machine' : 'location'} onNavigate={props.onNavigate}/></div></section>
+    <section><div className="flex flex-wrap items-center justify-between gap-4"><h2 className={titleClass}>{isDetail ? 'Machine contributors' : 'Location comparison'}</h2><Input ref={searchInput} aria-label="Search locations and machines" className="w-full sm:w-64" placeholder="Search by name" value={search} onChange={event => setSearch(event.target.value)}/></div><div className="mt-3">{noSearchMatches ? <div className="py-4"><p role="status" className="text-sm text-muted-foreground">No {isDetail ? 'machines' : 'locations'} match “{search.trim()}”.</p><Button variant="link" className="min-h-11 px-0" onClick={() => { setSearch(''); searchInput.current?.focus(); }}>Clear search</Button></div> : <GroupTable groups={matchingGroups} kind={isDetail ? 'machine' : 'location'} onNavigate={props.onNavigate}/>}</div></section>
     {isDetail && props.children}
   </div>;
 }

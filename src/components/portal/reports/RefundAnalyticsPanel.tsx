@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Download, ArrowUpRight, RotateCcw } from 'lucide-react';
+import { Download, ArrowUpRight, RotateCcw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchRefundAnalytics, refundAnalyticsCsv, type RefundAnalyticsScope } from '@/lib/refundAnalytics';
@@ -16,7 +16,9 @@ function Metric({ label, value, detail }: { label: string; value: string | numbe
   </div>;
 }
 
-export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: RefundAnalyticsScope; showQueueLink?: boolean }) {
+export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading = true }: { scope: RefundAnalyticsScope; showQueueLink?: boolean; showHeading?: boolean }) {
+  const SectionHeading = showHeading ? 'h3' : 'h2';
+  const MachineHeading = showHeading ? 'h4' : 'h3';
   const { user } = useAuth();
   const query = useQuery({
     queryKey: ['refund-analytics', user?.id, scope.dateFrom, scope.dateTo,
@@ -25,11 +27,18 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: R
   });
   if (query.isPending) return <div className="rounded-xl border p-6" role="status">Loading refund analytics…</div>;
   if (query.isError) return <div className="rounded-xl border p-6" role="alert">
-    <p className="font-medium">Refund analytics are unavailable</p>
-    <p className="mt-2 text-sm text-muted-foreground">{query.error instanceof Error ? query.error.message : 'The report could not be loaded. Your refund manager access may have changed.'}</p>
-    <Button variant="outline" className="mt-4" onClick={() => query.refetch()}><RotateCcw className="mr-2 h-4 w-4" />Retry</Button>
+    <p className="font-medium">Refund report could not load</p>
+    <p className="mt-2 text-sm text-muted-foreground">Try again to refresh this report.</p>
+    <Button variant="outline" className="mt-4 min-h-11" onClick={() => query.refetch()}><RotateCcw className="mr-2 h-4 w-4" />Try again</Button>
   </div>;
   const report = query.data;
+  const coverage = [
+    report.cohort.unknownAmountCount > 0 && `${report.cohort.unknownAmountCount} request amounts in this period unknown`,
+    report.asOf.unknownBalanceCount > 0 && `${report.asOf.unknownBalanceCount} balances across all requests unknown`,
+    report.coverage.unknownRequestDateCount > 0 && `${report.coverage.unknownRequestDateCount} received dates unknown`,
+    report.coverage.unknownPaymentDateCount > 0 && `${report.coverage.unknownPaymentDateCount} recorded payment dates unknown`,
+    report.period.unresolvedAccountingCount > 0 && `${report.period.unresolvedAccountingCount} accounting components unresolved`,
+  ].filter(Boolean);
   const exportCsv = () => {
     const blob = new Blob([refundAnalyticsCsv(report, scope)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -39,49 +48,43 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: R
   };
   return <section className="space-y-6" aria-label="Refunds and recovery analytics">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="text-xl font-semibold tracking-tight">Refunds & recovery</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{scope.dateFrom} through {scope.dateTo} · {report.machineCount} authorized machines</p>
-      </div>
-      <Button variant="outline" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
+      {showHeading && <h2 className="text-xl font-semibold tracking-tight">Refunds & recovery</h2>}
+      <Button variant="outline" className="min-h-11" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
     </div>
-    <div className="rounded-xl bg-muted/40 p-4 text-sm leading-relaxed text-muted-foreground">
-      Requests use machine-local received dates. Payments and accounting use their own recorded dates.
-      Balances are as of {scope.dateTo}. Cash paid and gifts explain recovery; they are not another sales deduction.
-      Missing history or amounts are omitted from known totals.
-      {(report.coverage.unknownRequestDateCount + report.coverage.unknownPaymentDateCount + report.asOf.unknownBalanceCount + report.cohort.unknownAmountCount + report.period.unresolvedAccountingCount > 0) &&
-        <p className="mt-2 font-medium text-foreground">Coverage: {report.cohort.unknownAmountCount} cohort amounts unknown · {report.asOf.unknownBalanceCount} balances unknown · {report.coverage.unknownRequestDateCount} received dates unknown · {report.coverage.unknownPaymentDateCount} payment settlement dates unknown · {report.period.unresolvedAccountingCount} accounting components unresolved.</p>}
-    </div>
+    {coverage.length > 0 && <p className="text-sm text-muted-foreground">Known amounts shown; some records are incomplete. See report details below.</p>}
     <div>
-      <h3 className="mb-3 text-sm font-semibold">Requests received in this period</h3>
+      <SectionHeading className="mb-3 text-sm font-semibold">Requests received in this period</SectionHeading>
+      {report.coverage.unknownRequestDateCount > 0 && <p className="mb-3 text-xs text-muted-foreground">{report.coverage.unknownRequestDateCount} received dates unknown; these requests cannot be assigned to a period.</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Unique requests" value={report.cohort.requestCount} detail="Confirmed duplicate lineage counted once. A request is not a confirmed failed vend." />
-        <Metric label="Requested purchase value" value={money(report.cohort.requestedCents)} detail={`Original received-event amounts; ${report.cohort.unknownAmountCount} unknown amounts omitted.`} />
+        <Metric label="Unique requests" value={report.cohort.requestCount} detail="Duplicates counted once. Requests do not confirm a failed purchase." />
+        <Metric label="Requested purchase value" value={money(report.cohort.requestedCents)} detail={`Purchase amounts when requests were received.${report.cohort.unknownAmountCount > 0 ? ` ${report.cohort.unknownAmountCount} unknown amounts excluded.` : ''}`} />
         <Metric label="Resolved by period end" value={money(report.cohort.resolvedCashCents + report.cohort.resolvedGiftPurchaseCents)} detail={`${money(report.cohort.resolvedCashCents)} recorded money refunds; ${money(report.cohort.resolvedGiftPurchaseCents)} purchase value resolved by gifts.`} />
-        <Metric label="Cohort outstanding" value={money(report.cohort.outstandingCents)} detail="Known remaining purchase value for this request cohort at period end." />
+        <Metric label="Outstanding from these requests" value={money(report.cohort.outstandingCents)} detail="Known remaining purchase value at period end, for requests received in this period." />
       </div>
     </div>
     <div>
-      <h3 className="mb-3 text-sm font-semibold">Activity booked in this period</h3>
+      <SectionHeading className="mb-3 text-sm font-semibold">Activity recorded in this period</SectionHeading>
+      {report.period.unresolvedAccountingCount > 0 && <p className="mb-3 text-xs text-muted-foreground">{report.period.unresolvedAccountingCount} accounting components unresolved; known accounting totals shown.</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Recorded money refunds" value={money(report.period.cashPaidCents)} detail="Case-linked cash/card payments on recorded adjustment dates. Bank settlement is not established." />
+        <Metric label="Recorded money refunds" value={money(report.period.cashPaidCents)} detail={`Cash/card payments by recorded date, not confirmed bank settlement.${report.coverage.unknownPaymentDateCount > 0 ? ` ${report.coverage.unknownPaymentDateCount} recorded payment dates unknown.` : ''}`} />
         <Metric label="Purchase resolved by gifts" value={money(report.period.giftPurchaseCents)} detail={`${money(report.period.giftFaceCents)} gift face value; ${money(report.period.goodwillCents)} Bloomjoy goodwill. Issuance is not cash paid or redemption.`} />
-        <Metric label="Request deductions" value={money(report.period.requestDeductionExTaxCents)} detail="Canonical tax-exclusive request/change-period deduction. Later payments do not deduct again." />
-        <Metric label="Reversals" value={money(report.period.reversalExTaxCents)} detail={`${money(report.period.legacyPaidDeductionExTaxCents)} legacy paid deductions shown separately in CSV; historical accounting rules preserved.`} />
+        <Metric label="Request deductions" value={money(report.period.requestDeductionExTaxCents)} detail="Sales deductions excluding tax, recorded when requests or amounts change. Later payments do not deduct again." />
+        <Metric label="Reversals" value={money(report.period.reversalExTaxCents)} detail="Sales deductions reversed in this period, excluding tax." />
       </div>
     </div>
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="rounded-xl border p-4 sm:p-5">
-        <h3 className="font-semibold">Outstanding at period end</h3>
+        <SectionHeading className="font-semibold">Outstanding across all requests</SectionHeading>
         <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{money(report.asOf.outstandingCents)}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{report.asOf.openRequestCount} known balances · {report.asOf.unknownBalanceCount} unknown balances across all received cohorts</p>
+        <p className="mt-1 text-sm text-muted-foreground">At period end: {report.asOf.openRequestCount} known balances{report.asOf.unknownBalanceCount > 0 && ` · ${report.asOf.unknownBalanceCount} unknown balances excluded`}</p>
         <div className="mt-5 space-y-3">{report.aging.map(row => <div key={row.band} className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>{row.band} <span className="text-muted-foreground">({row.requestCount})</span></span>
           <span className="tabular-nums">{money(row.outstandingCents)}{row.unknownBalanceCount > 0 && ` · ${row.unknownBalanceCount} unknown`}</span>
         </div>)}{report.aging.length === 0 && <p className="text-sm text-muted-foreground">No outstanding requests in the available history.</p>}</div>
-        <p className="mt-4 text-xs text-muted-foreground">Aging uses received business dates, not an exact hourly clock or a new service deadline.</p>
+        <p className="mt-4 text-xs text-muted-foreground">Age is measured from the received business date.</p>
       </div>
       <div className="rounded-xl border p-4 sm:p-5">
-        <h3 className="font-semibold">Reported issue categories</h3>
+        <SectionHeading className="font-semibold">Reported issue categories</SectionHeading>
         <p className="mt-1 text-sm text-muted-foreground">Requests received in this period; customer-reported categories.</p>
         <div className="mt-5 space-y-4">{report.categories.map(row => <div key={row.category}>
           <div className="flex flex-wrap justify-between gap-2 text-sm"><span>{categoryLabel(row.category)}</span><span className="tabular-nums">{row.requestCount} requests · {money(row.requestedCents)}</span></div>
@@ -91,9 +94,9 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: R
       </div>
     </div>
     <div className="rounded-xl border p-4 sm:p-5">
-      <div className="flex flex-wrap justify-between gap-2"><h3 className="font-semibold">Machine patterns</h3>{showQueueLink && <Link className="inline-flex min-h-11 items-center gap-1 text-sm text-primary underline-offset-4 hover:underline" to="/refunds">Open authorized refund queue <ArrowUpRight className="h-4 w-4" /></Link>}</div>
+      <div className="flex flex-wrap justify-between gap-2"><SectionHeading className="font-semibold">Machine patterns</SectionHeading>{showQueueLink && <Link className="inline-flex min-h-11 items-center gap-1 text-sm text-primary underline-offset-4 hover:underline" to="/refunds">Open authorized refund queue <ArrowUpRight className="h-4 w-4" /></Link>}</div>
       <div className="mt-4 divide-y sm:hidden">{report.machines.map(row => <article key={`${row.machineId}:${row.locationId}`} className="min-w-0 space-y-3 py-4">
-        <div><h4 className="break-words text-sm font-medium">{row.machineLabel}</h4><p className="break-words text-xs text-muted-foreground">{row.locationName}</p></div>
+        <div><MachineHeading className="break-words text-sm font-medium">{row.machineLabel}</MachineHeading><p className="break-words text-xs text-muted-foreground">{row.locationName}</p></div>
         <dl className="space-y-2 text-sm"><div className="flex flex-wrap justify-between gap-2"><dt>Requests</dt><dd className="tabular-nums">{row.requestCount}</dd></div>
           <div className="flex flex-wrap justify-between gap-2"><dt>Requested</dt><dd className="tabular-nums">{money(row.requestedCents)}{row.unknownAmountCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownAmountCount} unknown</span>}</dd></div>
           <div className="flex flex-wrap justify-between gap-2"><dt>Outstanding</dt><dd className="tabular-nums">{money(row.outstandingCents)}{row.unknownBalanceCount > 0 && <span className="block text-xs text-muted-foreground">{row.unknownBalanceCount} unknown</span>}</dd></div>
@@ -109,6 +112,17 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true }: { scope: R
         </tr>)}</tbody>
       </table></div>{report.machines.length === 0 && <p className="py-4 text-sm text-muted-foreground">No received refund cases for the selected authorized scope.</p>}
     </div>
-    <p className="text-xs text-muted-foreground">{report.calculationVersion} · Generated {new Date(report.generatedAt).toLocaleString()} · Existing refund pages recheck access. API confirmation does not establish bank settlement or gift redemption.</p>
+    <details className="group rounded-lg border px-4 text-sm">
+      <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Report details<ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 group-open:rotate-180" /></summary>
+      <div className="space-y-3 pb-4 text-muted-foreground">
+        <p>Requests use machine-local received dates, including both period endpoints. Payments and accounting use their own recorded dates. Balances are measured at the end of the selected period.</p>
+        <p>Payments and gifts explain how purchases were resolved; they are not another sales deduction. API confirmation does not establish bank settlement or gift redemption.</p>
+        <p>Missing amounts and history are excluded from known totals, never treated as zero. Age bands do not set a service deadline.</p>
+        {coverage.length > 0 && <p>Incomplete records: {coverage.join(' · ')}.</p>}
+        <p>{money(report.period.legacyPaidDeductionExTaxCents)} in historical payment-based deductions is shown separately in CSV. Historical accounting rules are preserved.</p>
+        <p>{report.machineCount} {report.machineCount === 1 ? 'machine' : 'machines'} in this report. Periods support up to 367 days.</p>
+        <p>Generated {new Date(report.generatedAt).toLocaleString()}</p>
+      </div>
+    </details>
   </section>;
 }

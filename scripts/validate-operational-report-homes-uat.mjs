@@ -14,8 +14,8 @@ const failures = [];
 const browser = await chromium.launch({ headless: true });
 const scope = 'from=2026-07-16&to=2026-07-22&location=location-north&machine=operator-machine-north';
 const domains = {
-  labor: { persona: { ...workspacePersonas.timeOnly, capabilities: [] }, path: '/portal/time-review', heading: 'Recorded labor', rpc: 'get_labor_analytics_report', access: 'get_labor_analytics_access' },
-  refunds: { persona: { ...workspacePersonas.refundOnly, capabilities: [] }, path: '/refunds', heading: 'Refunds & recovery', rpc: 'get_refund_analytics', access: 'get_refund_analytics_access' },
+  labor: { persona: { ...workspacePersonas.timeOnly, capabilities: [] }, path: '/portal/time-review', heading: 'Timekeeping reports', region: 'Labor report', rpc: 'get_labor_analytics_report', access: 'get_labor_analytics_access' },
+  refunds: { persona: { ...workspacePersonas.refundOnly, capabilities: [] }, path: '/refunds', heading: 'Refund reports', region: 'Refunds and recovery analytics', rpc: 'get_refund_analytics', access: 'get_refund_analytics_access' },
 };
 const open = (persona, width = 1440) => createPageForPersona(browser, persona, { width, height: 900 }, {
   rpcHandler: (name, actor, body, freshness) => name === 'get_my_time_report_access' && !actor.isSuperAdmin && !actor.capabilities.length ? false : financeRpcResponse(name, actor, body, freshness),
@@ -75,6 +75,7 @@ try {
         await goto(page, `/portal/reports?view=overview&${scope}`);
         await page.getByRole('button', { name, exact: true }).click();
         await page.getByRole('heading', { name: domains[domain].heading, exact: true }).waitFor();
+        await page.getByRole('region', { name: domains[domain].region, exact: true }).waitFor();
         assert.equal(new URL(page.url()).pathname, domains[domain].path);
         scopeRetained(page); await fit(page);
       }
@@ -88,6 +89,7 @@ try {
         for (const relative of [`${config.path}?view=reports&${scope}`, `/portal/reports?${scope}`, `/portal/reports?view=${domain}&${scope}`]) {
           await goto(page, relative);
           await page.getByRole('heading', { name: config.heading, exact: true }).waitFor();
+          await page.getByRole('region', { name: config.region, exact: true }).waitFor();
           assert.equal(new URL(page.url()).pathname, config.path); scopeRetained(page);
           assert(state.rpcCalls.some(call => call.rpcName === config.rpc && call.body.p_machine_ids?.[0] === 'operator-machine-north' && call.body.p_location_ids?.[0] === 'location-north'));
           noWorkflow(state); await fit(page);
@@ -99,6 +101,7 @@ try {
         assert.equal(await shellLink.count(), 1, 'Sidebar should lead report-only persona directly to authorized report');
         await shellLink.click();
         await page.getByRole('heading', { name: config.heading, exact: true }).waitFor();
+        await page.getByRole('region', { name: config.region, exact: true }).waitFor();
         assert.equal(new URL(page.url()).searchParams.get('view'), 'reports');
         noWorkflow(state);
         await goto(page, config.path);
@@ -138,6 +141,7 @@ try {
       try {
         await goto(page, `${config.path}?view=reports&${scope}`);
         await page.getByRole('heading', { name: config.heading, exact: true }).waitFor();
+        await page.getByRole('region', { name: config.region, exact: true }).waitFor();
         await page.evaluate(relative => { history.pushState({}, '', relative); window.dispatchEvent(new PopStateEvent('popstate')); }, config.path);
         await page.getByText(domain === 'refunds' ? 'Refund Workflow Access Required' : 'Time review access required', { exact: true }).first().waitFor();
         noWorkflow(state);

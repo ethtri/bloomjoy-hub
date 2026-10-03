@@ -43,12 +43,11 @@ export default function RefundReports() {
       <div><h1 className="text-2xl font-semibold tracking-tight">Refund reports</h1><p className="mt-1 text-sm text-muted-foreground">Requests, resolutions and outstanding recovery.</p></div>
       <div className="flex flex-wrap gap-2">{canUseQueue && <Button variant="outline" asChild className="min-h-11"><Link to="/refunds">Refund queue</Link></Button>}{canUseCentralReporting && <Button variant="outline" asChild className="min-h-11"><Link to={`/portal/reports?${reportingLink}`}>Business overview</Link></Button>}</div>
     </header>
-    {access.isPending ? <p role="status">Checking refund reporting access…</p> : access.isError ? <div role="alert" className="space-y-3 rounded-xl border p-4"><p>Refund reporting access could not be verified.</p><Button variant="outline" onClick={() => void access.refetch()}>Retry access</Button></div> : !allowed ? <p role="alert">Refund reports are not available to your account. A saved link does not grant access.</p> : <>
+    {access.isPending ? <p role="status">Loading refund reports…</p> : access.isError ? <div role="alert" className="space-y-3 rounded-xl border p-4"><p>Refund reports could not load. Try again to refresh.</p><Button variant="outline" className="min-h-11" onClick={() => void access.refetch()}>Try again</Button></div> : !allowed ? <p role="alert">Refund reports are not available for your account.</p> : <>
       <ReportingFilters key={`${state.dateFrom}:${state.dateTo}`} state={state} salesView={false} locations={locations} machines={machines} onChange={update} />
-      <p className="text-xs text-muted-foreground">Business dates, inclusive. Reports support up to 367 days.</p>
       {(invalidDates || tooLong) && <p role="alert">Choose valid dates in order, spanning no more than 367 days.</p>}
-      {invalidScope && <div role="alert"><p>The linked location or machine is outside your authorized refund reporting scope.</p><Button variant="link" onClick={() => update({ locationId: 'all', machineId: 'all' })}>Choose all authorized locations</Button></div>}
-      {!invalidDates && !tooLong && !invalidScope && <RefundAnalyticsPanel showQueueLink={false} scope={{ dateFrom: state.dateFrom, dateTo: state.dateTo,
+      {invalidScope && <div role="alert"><p>This location or machine is not available in your reports. Choose another location or machine.</p><Button variant="link" className="min-h-11" onClick={() => update({ locationId: 'all', machineId: 'all' })}>Show all available locations</Button></div>}
+      {!invalidDates && !tooLong && !invalidScope && <RefundAnalyticsPanel showHeading={false} showQueueLink={false} scope={{ dateFrom: state.dateFrom, dateTo: state.dateTo,
         locationIds: state.locationId === 'all' ? undefined : [state.locationId], machineIds: state.machineId === 'all' ? undefined : [state.machineId] }}/>} 
     </>}
   </main></AppLayout>;

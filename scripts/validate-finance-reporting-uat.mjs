@@ -11,7 +11,7 @@ const output = path.resolve('output/playwright/finance-reporting');
 fs.mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const checks = [];
-const url = extra => `${appUrl}/portal/reports?view=finance&from=2026-07-16&to=2026-07-22${extra ?? ''}`;
+const url = extra => `${appUrl}/portal/reports?view=finance&from=2026-07-15&to=2026-07-21${extra ?? ''}`;
 const open = (persona = workspacePersonas.superAdmin, options = {}) => createPageForPersona(browser, persona, { width: 1440, height: 900 },
   { rpcHandler: (name, actor, body, freshness) => financeRpcResponse(name, actor, body, freshness, options) });
 const ready = page => page.getByRole('heading', { name: 'Sales to net sales', exact: true }).waitFor();
@@ -35,23 +35,39 @@ try {
       assert.equal(await page.locator('#reporting-tender').count(), 0);
       assert.equal(await page.locator('#reporting-comparison').count(), 0);
       assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Finance uses its own authorized projection');
+      const basis = main.getByText('Imported records; coverage unknown. Net sales is not profit or payment settlement.', { exact: true });
+      assert(await basis.isVisible(), 'Report basis is visible beside the summary before opening details');
+      await page.locator('#reporting-coverage summary').click();
+      const coverage = await page.locator('#reporting-coverage').innerText();
+      assert(coverage.includes('Finance uses imported sales and refund records'));
+      assert(!coverage.includes('No loaded sales'), 'Finance coverage must not describe the unused Sales query');
+      assert(!coverage.includes('Sales per recorded transaction'), 'Finance definitions match its own metrics');
+      await page.locator('#reporting-coverage summary').click();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
+      await page.screenshot({ path: path.join(output, 'finance-mobile-first-fold.png') });
+      await page.setViewportSize({ width: 1440, height: 900 });
       const summary = main.locator('summary'); await summary.focus(); await page.keyboard.press('Enter');
       await main.getByText('Reporting tax removed', { exact: true }).waitFor();
       assert((await main.innerText()).includes('$8.00'), 'Recorded money refund total is distinct');
       assert((await main.innerText()).includes('$7.00'), 'Outstanding balance stays distinct');
       const downloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
       const csv = fs.readFileSync(await (await downloadEvent).path(), 'utf8');
-      assert(csv.includes('North Atrium') && csv.includes('Garden Annex') && csv.includes('2026-07-16'));
+      assert(csv.includes('North Atrium') && csv.includes('Garden Annex') && csv.includes('2026-07-15'));
       assert(csv.includes('Reporting tax removed') && csv.includes('not proof of tax collected'));
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ path: path.join(output, 'finance-desktop.png'), fullPage: true });
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 844 }); await fit(page);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        const machineLink = page.getByRole('button', { name: 'View North Atrium finance', exact: true }).filter({ visible: true });
+        assert((await machineLink.boundingBox()).height >= 44, 'Machine drilldown has a practical touch target');
         if (width === 390) await page.screenshot({ path: path.join(output, 'finance-mobile.png'), fullPage: true });
       }
       await page.getByRole('button', { name: 'View North Atrium finance', exact: true }).filter({ visible: true }).click();
       await page.waitForURL('**machine=operator-machine-north**');
       await page.getByText('$89.00', { exact: true }).first().waitFor();
-      assert.equal(new URL(page.url()).searchParams.get('from'), '2026-07-16');
+      assert.equal(new URL(page.url()).searchParams.get('from'), '2026-07-15');
       assert(state.rpcCalls.some(call => call.rpcName === 'get_finance_reporting' && call.body.p_machine_ids?.[0] === 'operator-machine-north'));
       const scopedDownloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
       const scopedCsv = fs.readFileSync(await (await scopedDownloadEvent).path(), 'utf8');
@@ -86,6 +102,12 @@ try {
     try {
       await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
       assert((await page.locator('[data-reporting-finance]').innerText()).includes('unresolved'));
+      const summarySection = await page.locator('[data-reporting-finance] > section').first().innerText();
+      assert(summarySection.includes('Some request amounts are unknown'));
+      assert(summarySection.includes('Some payment or issuance dates are unknown'));
+      assert(summarySection.includes('Some outstanding balances are unknown'));
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: path.join(output, 'finance-partial-mobile.png'), fullPage: true });
       await page.locator('[data-reporting-finance] summary').click();
       assert((await page.locator('[data-reporting-finance]').innerText()).includes('Known subtotal'));
       const event = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
@@ -113,7 +135,7 @@ try {
       failedFinanceChecks++;
       return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable finance check' }) });
     });
-    const scope = new URLSearchParams({ view: 'finance', from: '2026-07-16', to: '2026-07-22', location: domainDimensions[0].locationId, machine: domainDimensions[0].machineId, compare: 'previous_year' });
+    const scope = new URLSearchParams({ view: 'finance', from: '2026-07-15', to: '2026-07-21', location: domainDimensions[0].locationId, machine: domainDimensions[0].machineId, compare: 'previous_year' });
     await page.goto(`${appUrl}/portal/reports?${scope}`, { waitUntil: 'networkidle' });
     await page.locator('[data-reporting-finance]').waitFor();
     assert((await page.locator('[data-reporting-finance]').innerText()).includes('$89.00'), 'Start from successful authorized Finance data');
