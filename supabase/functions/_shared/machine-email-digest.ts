@@ -25,6 +25,7 @@ type Totals = {
   machineCount: number;
   salesCount: number;
   salesCents: number | null;
+  salesRestricted: boolean;
   requestCount: number;
   requestedCents: number | null;
   unknownAmountCount: number;
@@ -124,6 +125,8 @@ function totals(machines: DigestMachine[]): Totals {
     salesCents: sales.length
       ? sales.reduce((sum, m) => sum + m.grossSalesCents!, 0)
       : null,
+    salesRestricted: machines.length > 0 &&
+      machines.every((m) => !m.reportingAllowed),
     requestCount,
     requestedCents: known.length && (requestCount === 0 || knownAmountCount > 0)
       ? known.reduce((sum, m) => sum + m.digest!.requestedAmountCents!, 0)
@@ -224,8 +227,12 @@ export function buildMachineDigestEmail(
   const title = `${daily ? "Daily" : "Weekly"} sales & refunds`;
   const period = periodLabel(p.dateFrom, p.dateTo);
   const subject = `Bloomjoy ${daily ? "daily" : "weekly"} · ${period}`;
-  const salesValue = money(total.salesCents);
-  const salesCaption = total.salesCount === total.machineCount
+  const salesValue = total.salesRestricted
+    ? "Not shared"
+    : money(total.salesCents);
+  const salesCaption = total.salesRestricted
+    ? "Sales access not included"
+    : total.salesCount === total.machineCount
     ? count(total.machineCount, "machine")
     : `${total.salesCount} of ${total.machineCount} machines reporting`;
   const partialSales = total.salesCount > 0 &&
@@ -287,7 +294,9 @@ export function buildMachineDigestEmail(
   const rows: string[] = [];
   for (const group of ordered) {
     const groupTotal = totals(group.machines);
-    const groupSales = money(groupTotal.salesCents);
+    const groupSales = groupTotal.salesRestricted
+      ? "Not shared"
+      : money(groupTotal.salesCents);
     const groupPartial = groupTotal.salesCount < groupTotal.machineCount &&
       groupTotal.salesCount > 0;
     if (group.name !== null || ordered.length > 1) {

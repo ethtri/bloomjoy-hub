@@ -1,12 +1,14 @@
 /** Local synthetic design preview only. No database, provider, or email calls. */
-import { buildMachineDigestEmail } from "../supabase/functions/_shared/machine-email-digest.ts";
 import {
   fixtureCase,
   fixtureId,
   fixtureMachine,
   fixtureProjection,
 } from "../supabase/functions/_shared/machine-email-alert-fixtures.ts";
-import { summarizeMachineEmail } from "../supabase/functions/_shared/machine-email-alert.ts";
+import {
+  buildMachineEmail,
+  summarizeMachineEmail,
+} from "../supabase/functions/_shared/machine-email-alert.ts";
 import { machineEmailLinks } from "../supabase/functions/_shared/machine-email-alert-delivery.ts";
 
 const directory = "output/playwright/email-digest-redesign";
@@ -67,6 +69,7 @@ const variants = {
   weekly: structuredClone(projection),
   partial: structuredClone(projection),
   technician: structuredClone(projection),
+  "technician-request": structuredClone(projection),
   legacy: fixtureProjection(),
 };
 variants.weekly.category = "weekly";
@@ -94,21 +97,38 @@ Object.assign(partial[5], {
   coverageStatus: "unavailable",
 });
 for (const m of variants.technician.machines as typeof machines) {
-  Object.assign(m.digest, {
-    requestAmountsAllowed: false,
-    requestedAmountCents: null,
-    requestedAmountKnownCount: 0,
-    requestedAmountUnknownCount: m.digest.newRequestCount,
-    previousRequestedAmountCents: null,
-    previousRequestedAmountKnownCount: 0,
-    previousRequestedAmountUnknownCount: m.digest.previousNewRequestCount,
+  Object.assign(m, {
+    reportingAllowed: false,
+    salesComplete: false,
+    coverageStatus: "unavailable",
+    grossSalesCents: null,
+    refundAmountCents: null,
+    netSalesCents: null,
+    transactionCount: null,
+    previousGrossSalesCents: null,
   });
+  for (const c of m.refundCases) {
+    Object.assign(c, {
+      amountCents: null,
+      currencyCode: null,
+      canOpenCase: true,
+      needsDecision: false,
+    });
+  }
 }
+const request = variants["technician-request"];
+request.category = "new-refund";
+request.machines = [structuredClone(variants.technician.machines[0])];
+delete request.machines[0].digest;
+Object.assign(request.machines[0].refundCases[0], {
+  requestedAmountCents: 1000,
+  nextAction: "View the request in Bloomjoy Hub.",
+});
 const links = machineEmailLinks();
 const report: Record<string, unknown> = {};
 for (const [name, variant] of Object.entries(variants)) {
   variant.summary = summarizeMachineEmail(variant.machines);
-  const email = buildMachineDigestEmail({ projection: variant, links });
+  const email = buildMachineEmail({ projection: variant, links });
   await Deno.writeTextFile(`${directory}/${name}.html`, email.html);
   await Deno.writeTextFile(`${directory}/${name}.txt`, email.text);
   report[name] = {

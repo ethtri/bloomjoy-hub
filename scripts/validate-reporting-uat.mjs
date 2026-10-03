@@ -374,6 +374,8 @@ const reportingAccessContext = (persona, freshness) => ({
 });
 
 const rpcResponse = (rpcName, persona, body, freshness) => {
+  if (rpcName === 'get_refund_request_access') return { hasAccess: false, machines: [] };
+  if (rpcName === 'get_refund_request') return null;
   switch (rpcName) {
     case 'resolve_my_technician_entitlements':
       return {

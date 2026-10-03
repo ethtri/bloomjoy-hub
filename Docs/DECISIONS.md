@@ -21,6 +21,23 @@
   history to a different account. Existing technician access keeps the same
   explicitly assigned machines.
 
+## 2026-10-03 - Technician refund visibility follows machine assignments
+
+For #1729 the owner clarified that seeing refund requests is an essential part of
+technician troubleshooting and authorized the team to implement the reviewed
+access design. Technicians can read customer requests for their currently assigned
+machines, including the selected problem, useful sanitized customer comments,
+original requested amount, request dates and refund status. Use one Refunds
+destination and direct request links from alerts, without another role or toggle.
+
+This supersedes manager-only requested amounts and generic technician symptom
+summaries in personal email alerts. Refund viewing is separate from approval,
+editing financial decisions, payment, raw customer records and provider secrets.
+Keep those existing management boundaries, independent sales permissions, current
+machine-scope checks, daily-only defaults and saved preferences. A completed
+refund does not mean the machine has been repaired. Release evidence belongs in
+the issue and PR.
+
 ## 2026-10-03 - Compact company and machine performance digests
 
 For #1726 the owner requested a redesign of daily and weekly emails around sales

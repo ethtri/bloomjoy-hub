@@ -202,12 +202,12 @@ export function fixtureVariants(): Record<string, MachineEmailProjection> {
   intake.managerCaseMachines = [];
   intake.machines = [fixtureMachine(101, {
     refundCases: [fixtureCase(1, {
-      canOpenCase: false,
+      canOpenCase: true,
       amountCents: null,
       currencyCode: null,
-      commentKind: "operational-summary",
-      commentExcerpt: "Customer reported that the machine did not dispense.",
-      nextAction: "Review the machine condition.",
+      requestedAmountCents: 1000,
+      commentKind: "sanitized-narrative",
+      nextAction: "View the request in Bloomjoy Hub.",
     })],
   })];
   intake.summary = summarizeMachineEmail(intake.machines);

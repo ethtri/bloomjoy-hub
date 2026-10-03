@@ -307,6 +307,9 @@ const installMockSupabaseRoutes = async (context, state) => {
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     state.rpcCalls.push(rpcName);
 
+    if (rpcName === 'get_refund_request_access') return route.fulfill(jsonResponse({ hasAccess: false, machines: [] }));
+    if (rpcName === 'get_refund_request') return route.fulfill(jsonResponse(null));
+
     if (rpcName === 'get_my_email_alert_preferences') {
       return route.fulfill(jsonResponse(ineligibleEmailAlertPreferences(mockUser.email)));
     }

@@ -24,6 +24,16 @@ scheduled tick; do not force a real email to demonstrate the new template.
 
 ## Release checks
 
+For technician read access (#1729), require the operational list/detail and
+direct-case route to be deployed before resuming new-request delivery. The new
+optional intake-amount field requires the compatible email worker before the
+projection migration. Pause only the dedicated alert sender while coordinating
+that change; preserve existing credentials, preferences and delivery identities.
+Verify technician assignment revocation, mixed manager/technician access and
+retained manager mutation denials in disposable SQL and synthetic browser tests.
+Production verification is read-only and records aggregate results only; it must
+not create real requests, change assignments or send an ad-hoc customer email.
+
 Use a clean reviewed branch in its dedicated worktree. Sync current `main` before
 the final verification. Require passing build, typecheck, lint, unit tests,
 `npm run email-alerts:test`, synthetic browser UAT, independent access/delivery
