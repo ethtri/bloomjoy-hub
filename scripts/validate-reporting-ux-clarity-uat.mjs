@@ -14,7 +14,14 @@ const browser = await chromium.launch({ headless: true });
 const checks = [];
 const url = extra => `${appUrl}/portal/reports?view=locations&from=2026-07-15&to=2026-07-21&compare=previous_year${extra ?? ''}`;
 const open = empty => createPageForPersona(browser, workspacePersonas.superAdmin, { width: 390, height: 844 }, {
-  rpcHandler: (name, ...args) => empty && name === 'get_sales_report' ? [] : financeRpcResponse(name, ...args),
+  rpcHandler: (name, persona, body = {}, freshness) => {
+    if (empty && name === 'get_sales_report') return [];
+    if (name === 'get_sales_report' && body.p_date_from?.startsWith('2025')) {
+      const aligned = { ...body, p_date_from: body.p_date_from.replace('2025', '2026'), p_date_to: body.p_date_to.replace('2025', '2026') };
+      return financeRpcResponse(name, persona, aligned, freshness).map(row => ({ ...row, period_start: row.period_start.replace('2026', '2025'), net_sales_cents: Math.round(row.net_sales_cents * 0.8) }));
+    }
+    return financeRpcResponse(name, persona, body, freshness);
+  },
 });
 let failure;
 try {
@@ -58,6 +65,18 @@ try {
     await page.getByRole('button', { name: 'Clear search', exact: true }).click();
     await page.getByRole('button', { name: 'Explore North Atrium', exact: true }).waitFor();
     checks.push('Machine search uses the same clear recovery without changing scope');
+    await page.goto(`${appUrl}/portal/reports?view=overview&from=2026-07-15&to=2026-07-21&compare=previous_year&location=location-north&machine=operator-machine-north&tender=credit`, { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
+    for (const series of ['current', 'previous']) {
+      const point = page.locator(`[data-sales-point="${series}"]`);
+      await point.waitFor();
+      assert.equal(await point.count(), 1, 'One isolated loaded day renders one visible point');
+      assert.equal(await point.getAttribute('r'), '3');
+      const bounds = await point.boundingBox();
+      assert(bounds.width >= 6 && bounds.height >= 6, 'Isolated day is visible rather than a zero-length SVG path');
+    }
+    await page.screenshot({ path: path.join(output, 'overview-isolated-sales-point.png'), fullPage: true });
+    checks.push('Isolated current/prior sales days have visible markers while missing days remain gaps');
   } finally { await context.close(); }
   const { page: emptyPage, context: emptyContext } = await open(true);
   try {

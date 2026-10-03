@@ -34,6 +34,12 @@ export function SalesMetricBand({ rows, previous, compareAvailable }: Pick<Props
 export function SalesTrend({ rows, previous, state, priorFrom, compareAvailable }: Props) {
   const trend = useMemo(() => alignedTrend(rows, previous, state.dateFrom, state.dateTo, priorFrom, state.comparison), [rows, previous, state.dateFrom, state.dateTo, priorFrom, state.comparison]);
   const calendarComparison = state.comparison === 'previous_year';
+  const isolatedDot = (series: 'current' | 'previous') => ({ cx, cy, index }: { cx?: number; cy?: number; index?: number }) => {
+    const isolated = index != null && trend[index]?.[series] != null && trend[index - 1]?.[series] == null && trend[index + 1]?.[series] == null;
+    return isolated && cx != null && cy != null
+      ? <circle key={index} cx={cx} cy={cy} r={3} fill={series === 'current' ? '#c44c64' : '#7b8494'} data-sales-point={series}/>
+      : <g key={index}/>;
+  };
   return <section className="min-w-0" aria-labelledby="sales-trend-title"><h2 id="sales-trend-title" className={titleClass}>Sales over time</h2>
     <p className={`${noteClass} mt-1`}>Net sales by machine-local business date. Gaps mean no loaded rows.</p>
     <div className="mt-4 h-[240px] w-full" role="img" aria-label={`Current and prior net sales by ${calendarComparison ? 'calendar date' : 'elapsed day'}. Exact values are in the table below.`}>
@@ -41,8 +47,8 @@ export function SalesTrend({ rows, previous, state, priorFrom, compareAvailable 
         <CartesianGrid stroke="hsl(var(--border))" vertical={false}/><XAxis dataKey="date" tickFormatter={date => String(date).slice(5)} tick={{ fontSize: 12 }} minTickGap={35} tickLine={false}/>
         <YAxis tickFormatter={value => `$${number(value / 100)}`} tick={{ fontSize: 12 }} tickLine={false} width={65}/>
         <Tooltip formatter={(value: number, name: string) => [money(value), name === 'current' ? 'Current' : 'Prior']} labelFormatter={date => String(date)}/>
-        <Line name="current" dataKey="current" stroke="#c44c64" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false}/>
-        {compareAvailable && <Line name="previous" dataKey="previous" stroke="#7b8494" strokeWidth={1.5} strokeDasharray="5 5" dot={false} connectNulls={false} isAnimationActive={false}/>}
+        <Line name="current" dataKey="current" stroke="#c44c64" strokeWidth={2} dot={isolatedDot('current')} connectNulls={false} isAnimationActive={false}/>
+        {compareAvailable && <Line name="previous" dataKey="previous" stroke="#7b8494" strokeWidth={1.5} strokeDasharray="5 5" dot={isolatedDot('previous')} connectNulls={false} isAnimationActive={false}/>}
       </LineChart></ResponsiveContainer>
     </div>
     <div className="flex flex-wrap gap-5 text-xs text-muted-foreground"><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#c44c64]"/>Current period</span>{compareAvailable && <span><span className="mr-2 inline-block h-0.5 w-5 bg-[#7b8494]"/>{calendarComparison ? 'Same calendar dates, prior year' : 'Prior period, aligned by elapsed day'}</span>}</div>

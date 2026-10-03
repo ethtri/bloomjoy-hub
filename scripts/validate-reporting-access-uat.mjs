@@ -53,4 +53,22 @@ try {
       console.log(`${role}: granted domain usable despite unrelated missing permission RPC (${unavailableCalls} failed calls)`);
     } finally { await context.close(); }
   }
+  for (const invalidScope of ['from=2026-02-30&to=2026-07-22', 'from=2026-07-15&to=2026-07-21&location=outside-scope']) {
+    const { page, context, state } = await createPageForPersona(browser, workspacePersonas.superAdmin, { width: 1440, height: 900 }, { rpcHandler: workspaceRpcResponse });
+    let dimensionsUnavailable = true;
+    try {
+      await page.route('**/rest/v1/rpc/get_reporting_dimensions', route => dimensionsUnavailable
+        ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable dimensions' }) })
+        : route.fallback());
+      await page.goto(`${appUrl}/portal/reports?view=overview&${invalidScope}`, { waitUntil: 'networkidle' });
+      await page.getByText('Sales report unavailable', { exact: true }).waitFor();
+      assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'));
+      dimensionsUnavailable = false;
+      await page.getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.getByText(invalidScope.startsWith('from=2026-02-30') ? 'The linked dates are invalid' : 'Selected scope is unavailable', { exact: true }).waitFor();
+      await page.waitForTimeout(500);
+      assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Retrying dimensions cannot bypass invalid linked dates or location scope');
+      console.log(`Dimensions retry retains invalid report scope without aggregate reads: ${invalidScope}`);
+    } finally { await context.close(); }
+  }
 } finally { await browser.close(); }

@@ -175,6 +175,30 @@ try {
     checks.push('Cached successful Finance access, failed service recheck, same-document browser back, Overview fallback preserving dates/location/machine/comparison, no transient Finance panel or projection refetch');
   } finally { await context.close(); }
   }
+  for (const linkedDates of [
+    { from: '2026-02-30', to: '2026-07-21' },
+    { from: '2026-07-21', to: '2026-07-15' },
+    { from: '2026-07-15' },
+  ]) {
+    const { page, context, state } = await open();
+    try {
+      await page.route('**/rest/v1/rpc/get_finance_reporting_access', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable access' }) }));
+      const scope = new URLSearchParams({ view: 'finance', ...linkedDates, location: domainDimensions[0].locationId, machine: domainDimensions[0].machineId, compare: 'previous_year', tender: 'credit' });
+      await page.goto(`${appUrl}/portal/reports?${scope}`, { waitUntil: 'networkidle' });
+      await page.waitForURL('**view=overview**');
+      await page.getByText('The linked dates are invalid', { exact: true }).waitFor();
+      const actual = new URL(page.url()).searchParams;
+      for (const key of ['from', 'to', 'location', 'machine', 'compare', 'tender']) assert.equal(actual.get(key), scope.get(key), `Unavailable-view fallback preserves raw ${key}`);
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_finance_reporting', 'get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)), 'Invalid linked dates never load a substitute reporting period');
+      assert(await page.getByRole('button', { name: 'Save view', exact: true }).isDisabled(), 'Invalid linked dates cannot be silently replaced in a saved view');
+      await page.locator('#reporting-period').click();
+      await page.getByRole('menuitem', { name: 'Last 7 complete days', exact: true }).click();
+      await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
+      assert(state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Explicit period selection restores the report');
+      assert(await page.getByRole('button', { name: 'Save view', exact: true }).isEnabled(), 'Valid dates restore saving');
+      checks.push(`Unavailable Finance preserves invalid linked dates until explicit repair: ${JSON.stringify(linkedDates)}`);
+    } finally { await context.close(); }
+  }
   for (const rpc of ['get_finance_reporting_access', 'get_finance_reporting']) {
     const { page, context, state } = await open(); let unavailable = true;
     try {
