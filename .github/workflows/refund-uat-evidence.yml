@@ -5,7 +5,10 @@ on:
     paths:
       - 'src/App.tsx'
       - 'src/components/auth/AdminRoute.tsx'
+      - 'src/components/layout/AppLayout.tsx'
+      - 'src/components/layout/authenticatedNavigation.ts'
       - 'src/components/refunds/**'
+      - 'src/hooks/useRefundRequests.ts'
       - 'src/contexts/AuthContext.tsx'
       - 'src/lib/edgeFunctions.ts'
       - 'src/lib/refund*'
@@ -20,6 +23,7 @@ on:
       - 'supabase/migrations/**sunze_cash_correlation**'
       - 'supabase/tests/refund*'
       - 'scripts/refunds/**'
+      - 'scripts/validate-refund-request-access-uat.mjs'
       - '!scripts/refunds/refund-production-release.json'
       - '!scripts/refunds/refund-production-auth-closed.mjs'
       - '!scripts/refunds/refund-auth-control-plane.mjs'
@@ -105,6 +109,8 @@ jobs:
           done
           sed -n '1,120p' /tmp/refund-uat-server.log
           exit 1
+      - name: Verify technician refund requests and retained manager boundaries
+        run: npm run refunds:request-access:uat -- --app-url http://127.0.0.1:8081
       - name: Verify gift-card customer, manager and supply journeys
         env:
           REFUND_GIFT_CARD_UAT_URL: http://127.0.0.1:8081
