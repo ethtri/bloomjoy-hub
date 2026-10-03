@@ -35,11 +35,17 @@ export async function verifyCompanyPayrollCorrection({ dbPort }) {
     try {
       await assert.rejects(db.query(sql, args), error => message.test(error.message));
       checks++;
-    } finally { await db.query('rollback to savepoint expected_denial'); }
+    } finally {
+      await db.query('rollback to savepoint expected_denial');
+      await db.query('release savepoint expected_denial');
+    }
   }
   async function isolated(action) {
     await db.query('savepoint isolated_scenario');
-    try { await action(); } finally { await db.query('rollback to savepoint isolated_scenario'); }
+    try { await action(); } finally {
+      await db.query('rollback to savepoint isolated_scenario');
+      await db.query('release savepoint isolated_scenario');
+    }
   }
   async function reports() {
     const out = [];
