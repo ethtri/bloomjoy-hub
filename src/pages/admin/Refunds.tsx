@@ -6992,6 +6992,12 @@ export default function AdminRefundsPage() {
                 <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">Customer details and updates</summary>
                 <dl data-testid="refund-customer-payment-details" className="grid gap-3 text-sm sm:grid-cols-2">
                   <div><dt className="text-muted-foreground">How customer paid</dt><dd className="mt-1 font-medium">{paymentInteractionLabel(selectedCase)}</dd></div>
+                  {!comparisonCandidate && !selectedTransactionEvidence && <>
+                    <div><dt className="text-muted-foreground">Customer amount</dt><dd className="mt-1 font-medium">{formatCurrency(selectedCase.paymentAmountCents)}</dd></div>
+                    <div><dt className="text-muted-foreground">Customer time</dt><dd className="mt-1 font-medium">{refundCustomerTimeDisplay(selectedCase, incidentTimezone)}</dd><dd className="mt-1 text-muted-foreground">{incidentTimeConfidenceLabel(selectedCase)}</dd></div>
+                    <div><dt className="text-muted-foreground">Card digits</dt><dd className="mt-1 font-medium">{selectedCase.cardLast4 || 'Not provided'}</dd><dd className="mt-1 text-muted-foreground">{cardLast4SourceLabel(selectedCase)}</dd></div>
+                    <div><dt className="text-muted-foreground">Card type</dt><dd className="mt-1 font-medium">{cardNetworkLabel(selectedCase.cardNetwork)}</dd></div>
+                  </>}
                   {selectedCase.qrClaimOpenedAt && <div><dt className="text-muted-foreground">Refund request received</dt><dd className="mt-1 font-medium">{formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}</dd></div>}
                   {selectedCase.productDescription && <div><dt className="text-muted-foreground">Product</dt><dd className="mt-1 font-medium">{selectedCase.productDescription}</dd></div>}
                   {selectedCase.walletDeviceKind && <div><dt className="text-muted-foreground">Wallet device</dt><dd className="mt-1 font-medium">{statusLabel(selectedCase.walletDeviceKind)}</dd></div>}
