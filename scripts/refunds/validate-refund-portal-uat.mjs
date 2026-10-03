@@ -4783,6 +4783,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   await signInRefundUser(cashPage, appUrl);
   await cashPage.getByRole('button', { name: /^All active \d+$/ }).click();
   await queueCase(cashPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
+  await cashPage.getByRole('button', { name: /^Confirm refund sent via Zelle$/ }).waitFor({ timeout: 10000 });
   const cashAction = await cashPage.locator('body').innerText();
   recorder.assert('Old v2 saved cash approval keeps only payout confirmation',
     !cashAction.includes('Refund action temporarily unavailable') &&
