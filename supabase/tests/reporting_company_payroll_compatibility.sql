@@ -38,8 +38,7 @@ insert into public.customer_accounts(id,name,account_type) values
   (pg_temp.fixture_id(11),'Synthetic reporting destination company','customer'),
   (pg_temp.fixture_id(14),'Synthetic unrelated reporting target','customer');
 insert into public.customer_account_memberships(id,account_id,user_id,email,role,active) values
-  (pg_temp.fixture_id(12),pg_temp.fixture_id(10),pg_temp.fixture_id(4),'payroll-company-4@example.test','owner',true),
-  (pg_temp.fixture_id(13),pg_temp.fixture_id(11),pg_temp.fixture_id(4),'payroll-company-4@example.test','owner',true);
+  (pg_temp.fixture_id(12),pg_temp.fixture_id(10),pg_temp.fixture_id(4),'payroll-company-4@example.test','owner',true);
 insert into public.reporting_locations(id,account_id,name,timezone) values
   (pg_temp.fixture_id(20),pg_temp.fixture_id(10),'Synthetic retained venue','America/Los_Angeles'),
   (pg_temp.fixture_id(21),pg_temp.fixture_id(11),'Synthetic unrelated venue','America/Los_Angeles');
@@ -49,7 +48,11 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label) v
 insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
 values(pg_temp.fixture_id(32),pg_temp.fixture_id(30),0,'2020-01-01','active');
 insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,manager_email,grant_reason)
-values(pg_temp.fixture_id(33),pg_temp.fixture_id(30),pg_temp.fixture_id(3),'payroll-company-3@example.test','Synthetic payroll manager');
+values
+  (pg_temp.fixture_id(33),pg_temp.fixture_id(30),pg_temp.fixture_id(3),'payroll-company-3@example.test','Synthetic payroll manager'),
+  -- A user can have one active company membership. Preserve payroll authority
+  -- through that original membership and grant only the moved machine explicitly.
+  (pg_temp.fixture_id(13),pg_temp.fixture_id(30),pg_temp.fixture_id(4),'payroll-company-4@example.test','Synthetic retained machine authority');
 insert into public.payout_policies(id,account_id,name,frequency,period_anchor_type,monthly_period_type,submission_due_offset_days,lock_offset_days,target_payout_offset_days,rounding_rule,review_model)
 values(pg_temp.fixture_id(40),pg_temp.fixture_id(10),'Synthetic retained policy','monthly','calendar','calendar_month',4,4,5,'round_up_60_minutes','no_review_required');
 update public.customer_accounts set default_payout_policy_id=pg_temp.fixture_id(40) where id=pg_temp.fixture_id(10);
@@ -89,6 +92,9 @@ values(pg_temp.fixture_id(60),pg_temp.fixture_id(50),pg_temp.fixture_id(30),pg_t
 update public.reporting_locations set account_id=pg_temp.fixture_id(11) where id=pg_temp.fixture_id(20);
 update public.reporting_machines set account_id=pg_temp.fixture_id(11) where id=pg_temp.fixture_id(30);
 
+select ok(public.can_manage_operator_payout_account(pg_temp.fixture_id(4),pg_temp.fixture_id(10)),'fixture owner retains original payroll company authority');
+select ok(public.can_manage_operator_payout_machine(pg_temp.fixture_id(4),pg_temp.fixture_id(30)),'fixture owner retains explicit moved-machine authority');
+select ok(not public.can_manage_operator_payout_machine(pg_temp.fixture_id(4),pg_temp.fixture_id(31)),'fixture owner receives no authority over unrelated destination machines');
 select ok((select relrowsecurity from pg_class where oid='private.reporting_company_payroll_compatibility'::regclass),'retained mappings have RLS');
 select ok(not has_table_privilege(actor,'private.reporting_company_payroll_compatibility','select,insert,update,delete'),actor||' cannot inspect or create retained mappings') from unnest(array['anon','authenticated','service_role']) actor;
 select ok(not has_function_privilege(actor,'private.reporting_company_payroll_machine_matches(uuid,uuid,uuid)','execute'),actor||' cannot directly invoke the private compatibility helper') from unnest(array['anon','authenticated','service_role']) actor;
