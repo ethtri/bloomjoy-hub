@@ -115,7 +115,9 @@ const keys = (value: Record<string, unknown>, expected: string[]) => {
 };
 const text = (value: unknown, limit = 240): string => {
   if (
-    typeof value !== "string" || !value.trim() || value.length > limit ||
+    // PostgreSQL text limits count Unicode code points, not UTF-16 code units.
+    typeof value !== "string" || !value.trim() ||
+    Array.from(value).length > limit ||
     Array.from(value).some((character) =>
       character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
     )
@@ -177,15 +179,15 @@ export const sanitizeOperationalExcerpt = (
   value: string | null,
 ): string | null => {
   if (value === null) return null;
-  return value
+  const sanitized = value
     .replace(/https?:\/\/\S+|www\.\S+/gi, "[link removed]")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email removed]")
     .replace(/(?:\+?\d[\s().-]*){7,}/g, "[number removed]")
     .replace(
       /(?:last\s*(?:four|4)|ending\s*(?:in)?|card\s*(?:number|digits)?)\s*[:#-]?\s*\d{4}/gi,
       "[card details removed]",
-    )
-    .slice(0, 280);
+    );
+  return Array.from(sanitized).slice(0, 280).join("");
 };
 
 function parseCase(value: unknown): MachineEmailCase {

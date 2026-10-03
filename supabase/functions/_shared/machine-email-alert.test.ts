@@ -1,6 +1,7 @@
 import {
   buildMachineEmail,
   parseMachineEmailProjection,
+  sanitizeOperationalExcerpt,
   summarizeMachineEmail,
 } from "./machine-email-alert.ts";
 import { machineEmailLinks } from "./machine-email-alert-delivery.ts";
@@ -144,6 +145,45 @@ Deno.test("legacy cases keep unknown date/reason explicit without inventing requ
     email.text.includes("Request date unavailable") &&
       email.text.includes("Customer selected: not recorded"),
     "unknown explicit",
+  );
+});
+Deno.test("SQL-bounded Unicode comments and labels retain strict code-point limits", () => {
+  const p = fixtureProjection();
+  p.machines[0].refundCases[0].commentExcerpt = "🍭".repeat(280);
+  p.machines[0].machineLabel = "🍬".repeat(240);
+  const email = buildMachineEmail({ projection: p, links });
+  assert(
+    email.text.includes("🍭".repeat(280)) &&
+      email.html.includes("🍬".repeat(240)),
+    "SQL-valid non-BMP characters do not block the digest",
+  );
+  for (const comment of ["🍭".repeat(281), "a".repeat(281)]) {
+    const tooLong = structuredClone(p);
+    tooLong.machines[0].refundCases[0].commentExcerpt = comment;
+    rejects(tooLong);
+  }
+  const tooLongLabel = structuredClone(p);
+  tooLongLabel.machines[0].machineLabel = "🍬".repeat(241);
+  rejects(tooLongLabel);
+  const foreign = structuredClone(p);
+  Object.assign(foreign.machines[0].refundCases[0], {
+    rawCustomerComment: "unsupported private data",
+  });
+  rejects(foreign);
+});
+Deno.test("excerpt redaction and truncation preserve complete Unicode characters", () => {
+  const result = sanitizeOperationalExcerpt("a".repeat(279) + "🍭" + "🍬");
+  assert(
+    result === "a".repeat(279) + "🍭" && Array.from(result!).length === 280,
+    "clipping never splits a surrogate pair",
+  );
+  const redacted = sanitizeOperationalExcerpt(
+    "🍭 private@example.test https://example.test/private ending in 1234",
+  );
+  assert(
+    redacted?.startsWith("🍭") && !redacted.includes("private@example.test") &&
+      !redacted.includes("https://") && !redacted.includes("1234"),
+    "Unicode handling does not bypass redaction",
   );
 });
 Deno.test("quiet/offline evidence guards reject stale and inferred states", () => {
