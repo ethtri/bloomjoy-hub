@@ -43,7 +43,7 @@ test('saved purchase and all returned alternatives remain reviewable without sel
   assert.match(html, /Uncertain or different/);
   assert.match(html, /Synthetic product/);
   assert.match(html, /Payment status: unconfirmed/);
-  assert.match(html, /Provider reference is available after selection/);
+  assert.match(html, /Provider reference is available after saving this purchase/);
   assert.doesNotMatch(html, /refund-save-transaction-for-review/);
 });
 
@@ -119,6 +119,7 @@ const pagePanel = (overrides = {}) => {
     selectedNayaxCandidate: (editor, candidates) => candidates.find((item) => item.candidateToken === editor.matchedNayaxCandidateToken) ?? null,
     selectedTransactionView: { kind: 'selected', showCandidates: false },
     selectedNayaxSummary: null, isLookingUpNayax: false, isUsingDemoData: false, isSaving: false,
+    selectedNayaxSearchMetadata: null,
     nayaxLookupNoticeClass: () => '',
     setEditor: (update) => { writes++; editorState = update(editorState); },
     RefundTransactionCandidateReview: 'CandidateReview', refundCaseTimezone: () => 'America/New_York',

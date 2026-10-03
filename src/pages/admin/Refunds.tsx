@@ -58,6 +58,7 @@ import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuth
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundPurchaseReview } from '@/components/refunds/RefundPurchaseReview';
 import { getRefundSelectionPresentation } from '@/lib/refundReviewPresentation';
+import { getRefundPurchaseReviewIdentity } from '@/lib/refundPurchaseReviewIdentity';
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
 import { RefundCashDecisionWorkbench } from '@/components/refunds/RefundCashDecisionWorkbench';
 import { RefundTransactionCandidateReview } from '@/components/refunds/RefundTransactionCandidateReview';
@@ -3964,6 +3965,9 @@ export default function AdminRefundsPage() {
       setIsRecoveringGmailContact(false);
     }
   };
+  // Only saved provider metadata or an actual lookup response describes the
+  // search. The UI status fallback below contains inferred counts and windows.
+  const selectedNayaxSearchMetadata = nayaxLookupSummary ?? selectedCase?.nayaxLookupSummary ?? null;
   const selectedNayaxSummary = useMemo(
     () =>
       selectedCase
@@ -4449,15 +4453,7 @@ export default function AdminRefundsPage() {
             : current
           );
           setNayaxCandidates([]);
-          setNayaxLookupSummary({
-            lookupStatus: 'lookup_failed',
-            lastCheckedAt: new Date().toISOString(),
-            windowHours: selectedNayaxSummary?.windowHours ?? null,
-            providerWindowRecordCount: null,
-            candidateCount: 0,
-            summary: 'The previous transaction results expired.',
-            recommendedAction: 'Refresh the transaction results and select the transaction again.',
-          });
+          setNayaxLookupSummary(null);
           setNayaxLookupNotice({
             tone: 'warning',
             title: 'Transaction results expired',
@@ -5315,9 +5311,11 @@ export default function AdminRefundsPage() {
               : (result.candidates?.length ?? 0) === 1
                 ? 'match_found'
                 : 'no_match'),
-        lastCheckedAt: result.lastCheckedAt ?? new Date().toISOString(),
-        windowHours: result.windowHours ?? 6,
+        lastCheckedAt: result.lastCheckedAt ?? null,
+        windowHours: result.windowHours ?? null,
         providerWindowRecordCount: result.providerWindowRecordCount ?? null,
+        providerRecordCount: result.providerRecordCount ?? null,
+        providerParseableRecordCount: result.providerParseableRecordCount ?? null,
         excludedAfterRequestCount: result.excludedAfterRequestCount ?? 0,
         uncertainRequestTimeCandidateCount: result.uncertainRequestTimeCandidateCount ?? 0,
         candidateCount: result.candidateCount ?? result.candidates?.length ?? 0,
@@ -6367,7 +6365,7 @@ export default function AdminRefundsPage() {
             selectedCandidateToken={editor.matchedNayaxCandidateToken}
             hasSavedSelection={hasPersistedSelectedMatch}
             savedSelection={hasPersistedSelectedMatch ? selectedCase.selectedNayaxTransaction : null}
-            lookupSummary={selectedCase.nayaxLookupSummary}
+            lookupSummary={selectedNayaxSearchMetadata}
             customerEvidence={selectedCase}
             selectableCandidateCount={selectableCandidateCount}
             paymentAmountCents={selectedCase.paymentAmountCents}
@@ -6471,7 +6469,6 @@ export default function AdminRefundsPage() {
               eligibleReviewedTokens.has(candidate.candidateToken),
           }))
         : nayaxCandidates;
-    const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
     const selectableComparisonCandidate =
       effectiveCandidates.find(
         (candidate) => candidate.isRecommended === true && candidate.selectionAllowed !== false
@@ -6482,18 +6479,19 @@ export default function AdminRefundsPage() {
     const hasPersistedSelectedMatch = selectedCaseNeedsLegacyPaymentReview
       ? false
       : selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch;
-    const selectedTransactionEvidence = hasPersistedSelectedMatch
-      ? selectedCase.selectedNayaxTransaction ?? null
-      : null;
-    const comparisonCandidate = selectedCaseNeedsLegacyPaymentReview
-      ? null
-      : selectedCaseHasCurrentCardCapability
-        ? activeCandidate && persistedNayaxSelectionMatchesCandidate(selectedTransactionEvidence, activeCandidate)
-          ? activeCandidate
-          : null
-        : activeCandidate ??
-          selectableComparisonCandidate ??
-          null;
+    const {
+      candidate: comparisonCandidate,
+      selected: selectedTransactionEvidence,
+      locallySelected: hasLocallySelectedPurchase,
+      draftUnavailable,
+    } = getRefundPurchaseReviewIdentity({
+      candidates: effectiveCandidates,
+      selectedToken: editor.matchedNayaxCandidateToken,
+      savedSelection: selectedCase.selectedNayaxTransaction,
+      hasSavedSelection: hasPersistedSelectedMatch,
+      recommendedCandidate: selectableComparisonCandidate,
+      legacyReviewRequired: selectedCaseNeedsLegacyPaymentReview,
+    });
     const incidentTimezone = refundCaseTimezone(selectedCase);
     const selectedTimeEvidence = selectedTransactionEvidence?.timeEvidence ?? null;
     const customerTimeMeaning = refundCustomerTimeMeaning(selectedCase.incidentTimeResolution);
@@ -6669,7 +6667,7 @@ export default function AdminRefundsPage() {
     const selectionPresentation = getRefundSelectionPresentation({
       evidenceSource: selectedTransactionEvidence?.evidenceSource,
       recommendationState: comparisonCandidate?.recommendationState ?? selectedNayaxSummary?.recommendationState,
-      locallySelected: !selectedTransactionEvidence && Boolean(editor.matchedNayaxCandidateToken.trim()),
+      locallySelected: hasLocallySelectedPurchase,
       events: selectedCase.events,
     });
     const plainManagerState = {
@@ -7026,12 +7024,14 @@ export default function AdminRefundsPage() {
               customerTimeConfidence={incidentTimeConfidenceLabel(selectedCase)}
               customerPayment={paymentInteractionLabel(selectedCase)}
               customerDigitsSource={cardLast4SourceLabel(selectedCase)}
-              locallySelected={!selectedTransactionEvidence && Boolean(editor.matchedNayaxCandidateToken.trim())}
+              locallySelected={hasLocallySelectedPurchase}
             />
             {!comparisonCandidate && !selectedTransactionEvidence && (
               <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" className="bg-card px-4 py-4">
                 <h4 data-testid="nayax-decision-heading" className="text-base font-semibold">{transactionView.heading}</h4>
-                {hasPersistedSelectedMatch && <p data-testid="selected-nayax-transaction-evidence-missing" className="mt-2 text-sm leading-6 text-muted-foreground">
+                {draftUnavailable ? <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  The chosen alternative is no longer available in the current results. The saved purchase is unchanged. Refresh the case before choosing an alternative again.
+                </p> : hasPersistedSelectedMatch && <p data-testid="selected-nayax-transaction-evidence-missing" className="mt-2 text-sm leading-6 text-muted-foreground">
                   Saved purchase details are unavailable. Review the existing transaction in Nayax; the customer's earlier answers remain saved.
                 </p>}
               </article>
