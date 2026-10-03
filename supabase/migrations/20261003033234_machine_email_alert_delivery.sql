@@ -164,8 +164,9 @@ begin
     'nextAction',case when p_category='new-refund' then case when machine_row.is_manager then 'View the request in Bloomjoy Hub' else 'Review the machine condition' end
       when machine_row.is_manager then concat_ws(' ',coalesce(item->>'actionLabel',work->>'actionLabel','View request'),
       nullif(item->>'preparationSummary',''),case when item->>'paymentComplete'='true' then 'Payment is already complete; do not pay again.' end) else 'Review the machine condition' end,
-    'amountCents',case when machine_row.is_manager then coalesce((item->>'amountCents')::bigint,case_row.refund_amount_cents) else null end,
-    'currencyCode',case when machine_row.is_manager then coalesce(item->>'currencyCode',case_row.matched_nayax_currency_code,case when case_row.payment_method='cash' then 'USD' end) end,
+    'amountCents',case when machine_row.is_manager then case when item is not null then (item->>'amountCents')::bigint else case_row.refund_amount_cents end else null end,
+    'currencyCode',case when machine_row.is_manager then case when item is not null then item->>'currencyCode'
+      else coalesce(case_row.matched_nayax_currency_code,case when case_row.payment_method='cash' then 'USD' end) end end,
     'canOpenCase',machine_row.is_manager));
   end loop;
   select false complete,null::bigint gross,null::bigint refunds,null::bigint net,null::bigint transactions into metrics;
