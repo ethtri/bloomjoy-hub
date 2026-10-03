@@ -36,7 +36,8 @@ begin
  if p_date_from is null or p_date_to is null or p_date_to<p_date_from or p_date_to-p_date_from>6 then
   raise exception 'Valid digest period required' using errcode='22023';
  end if;
- select s.timezone,s.is_manager,m.account_id,left(a.name,240) account_name into scope
+ select s.timezone,s.is_manager,m.account_id,
+  left(coalesce(nullif(btrim(regexp_replace(a.name,'[[:cntrl:]]',' ','g')),''),'Company name unavailable'),240) account_name into scope
  from private.email_alert_machine_scope(p_user_id) s
  join public.reporting_machines m on m.id=s.machine_id
  join public.customer_accounts a on a.id=m.account_id where s.machine_id=p_machine_id;

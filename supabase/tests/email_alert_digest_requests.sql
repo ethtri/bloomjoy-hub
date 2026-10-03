@@ -119,6 +119,16 @@ select ok((select exists(select 1 from jsonb_array_elements(p->'machines') m,jso
 insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,machine_ids) values
  ('ed710000-0000-4000-8000-000000000001','new-refund',true,'selected',array['ed740000-0000-4000-8000-000000000001']::uuid[]);
 select ok(not(private.email_alert_projection('ed710000-0000-4000-8000-000000000001','new-refund','2026-10-02T12:00Z','2026-10-02','2026-10-02','ed760000-0000-4000-8000-000000000001')#>'{machines,0}' ? 'digest'),'Immediate event contract stays unchanged');
+update public.customer_accounts set name=E'TGPaci\nfixture'||chr(1)||chr(127)
+ where id='ed720000-0000-4000-8000-000000000001';
+select is(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')->>'accountName','TGPaci fixture','Account display names normalize newline and control characters before wire validation');
+select is(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')->>'accountId','ed720000-0000-4000-8000-000000000001','Display sanitation never changes company identity');
+update public.customer_accounts set name=E'\n\t'||chr(127)
+ where id='ed720000-0000-4000-8000-000000000001';
+select is(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')->>'accountName','Company name unavailable','An entirely non-displayable name has an explicit unavailable label');
+update public.customer_accounts set name=repeat(U&'\+01F600',241)
+ where id='ed720000-0000-4000-8000-000000000001';
+select is(char_length(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000001','2026-10-02','2026-10-02')->>'accountName'),240,'Company clipping counts Unicode codepoints just like the parser');
 -- Both repeated local 01:30 instants belong to the 25-hour fallback day; the
 -- following local midnight belongs to tomorrow, independent of receipt age.
 set local session_replication_role=replica;
