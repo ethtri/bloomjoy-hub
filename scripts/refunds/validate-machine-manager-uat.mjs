@@ -102,6 +102,9 @@ const mockSession = {
 
 const machineId = 'machine-1';
 const valleyMachineId = 'f77bc8a8-71b3-4300-8a76-c935b8b1972f';
+const companyId = '17190000-0000-4000-8000-000000000001';
+const mallLocationId = '17190000-0000-4000-8000-000000000002';
+const valleyLocationId = '17190000-0000-4000-8000-000000000003';
 const firstManagerEmail = 'manager-one@example.test';
 const secondManagerEmail = 'manager-two@example.test';
 const thirdManagerEmail = 'manager-three@example.test';
@@ -140,7 +143,10 @@ const buildMockSetup = (state) => ({
       status: 'active',
       operational_phase: 'live',
       account_name: 'Bloomjoy UAT',
+      account_id: companyId,
       location_name: 'Mall Atrium',
+      location_id: mallLocationId,
+      location_timezone: 'America/Los_Angeles',
       latest_sale_date: '2026-05-11',
     },
     {
@@ -151,7 +157,10 @@ const buildMockSetup = (state) => ({
       status: 'active',
       operational_phase: 'live',
       account_name: 'Bloomjoy UAT',
+      account_id: companyId,
       location_name: 'Valley Mall',
+      location_id: valleyLocationId,
+      location_timezone: 'America/Los_Angeles',
       latest_sale_date: '2026-09-06',
     },
   ],
@@ -389,6 +398,21 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildMockSetup(state)));
     }
 
+    if (rpcName === 'admin_get_reporting_company_choices') {
+      return route.fulfill(jsonResponse({
+        canCreateCompany: true,
+        companies: [{
+          accountId: companyId,
+          accountName: 'Bloomjoy UAT',
+          status: 'active',
+          locations: [
+            { locationId: mallLocationId, locationName: 'Mall Atrium', timezone: 'America/Los_Angeles', status: 'active' },
+            { locationId: valleyLocationId, locationName: 'Valley Mall', timezone: 'America/Los_Angeles', status: 'active' },
+          ],
+        }],
+      }));
+    }
+
     if (url.includes('/rest/v1/reporting_machines')) {
       return route.fulfill(jsonResponse([
         { id: machineId, operational_phase: 'live' },
@@ -535,7 +559,7 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse({ ok: true, inventoryId: body.p_inventory_id, state: body.p_reconciliation_state }));
     }
 
-    if (url.includes('/admin_upsert_reporting_machine')) {
+    if (rpcName === 'admin_upsert_reporting_machine_by_id') {
       const body = route.request().postDataJSON();
       state.machineSavePayload = body;
       state.machineType = body?.p_machine_type ?? state.machineType;
@@ -546,8 +570,12 @@ const installMockSupabaseRoutes = async (context, state) => {
           machine_type: body?.p_machine_type ?? 'commercial',
           sunze_machine_id: body?.p_sunze_machine_id ?? 'SUNZE-CC-001',
           status: 'active',
-          account_name: body?.p_account_name ?? 'Bloomjoy UAT',
-          location_name: body?.p_location_name ?? 'Mall Atrium',
+          operational_phase: body?.p_operational_phase ?? 'live',
+          account_id: body.p_account_id,
+          account_name: 'Bloomjoy UAT',
+          location_id: body.p_location_id,
+          location_name: body.p_location_id === valleyLocationId ? 'Valley Mall' : 'Mall Atrium',
+          location_timezone: 'America/Los_Angeles',
           latest_sale_date: '2026-05-11',
         })
       );
@@ -967,6 +995,20 @@ const run = async () => {
       'Snapcase save sends the canonical storage value',
       state.machineSavePayload?.p_machine_id === machineId
         && state.machineSavePayload?.p_machine_type === 'snapcase',
+      JSON.stringify(state.machineSavePayload)
+    );
+    recorder.assert(
+      'Machine type edit preserves canonical company and location IDs through the validated save API',
+      state.rpcCalls.includes('admin_upsert_reporting_machine_by_id')
+        && !state.rpcCalls.includes('admin_upsert_reporting_machine')
+        && state.machineSavePayload?.p_account_id === companyId
+        && state.machineSavePayload?.p_location_id === mallLocationId
+        && state.machineSavePayload?.p_expected_account_id === companyId
+        && state.machineSavePayload?.p_expected_location_id === mallLocationId
+        && state.machineSavePayload?.p_new_location_name === null
+        && state.machineSavePayload?.p_new_location_timezone === null
+        && !Object.hasOwn(state.machineSavePayload, 'p_account_name')
+        && !Object.hasOwn(state.machineSavePayload, 'p_location_name'),
       JSON.stringify(state.machineSavePayload)
     );
 
