@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -59,6 +59,10 @@ import {
 import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi';
 import { getSnapCaseMappingEffectiveWindow } from '@/lib/snapcaseMappingWindow';
 import { AdminReportingServiceStatus } from '@/pages/admin/AdminReportingServiceStatus';
+import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
+import { validateCompanyAssignment } from '@/lib/companyAssignment';
+import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
+import { useAuth } from '@/contexts/auth-context';
 
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
@@ -77,6 +81,10 @@ type ImportedMachineSetupForm = {
   locationId: string;
   machineLabel: string;
   locationName: string;
+  locationTimezone: string;
+  addLocation: boolean;
+  expectedAccountId: string | null;
+  expectedLocationId: string | null;
   machineType: CanonicalMachineType;
   taxRatePercent: string;
 };
@@ -89,6 +97,10 @@ const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
   locationId: '',
   machineLabel: '',
   locationName: '',
+  locationTimezone: '',
+  addLocation: false,
+  expectedAccountId: null,
+  expectedLocationId: null,
   machineType: 'commercial',
   taxRatePercent: '0',
 };
@@ -219,6 +231,8 @@ const formatStatusVariant = (status: string): 'default' | 'destructive' | 'outli
 
 export default function AdminReportingPage() {
   const queryClient = useQueryClient();
+  const { user, isSuperAdmin } = useAuth();
+  const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: isSuperAdmin, staleTime: 30000 });
   const [scheduleForm, setScheduleForm] = useState({
     title: 'Bubble Planet weekly machine sales',
     machineId: '',
@@ -313,6 +327,11 @@ export default function AdminReportingPage() {
       return;
     }
 
+    if (setupMachine.provider === 'sunze' || form.mappingMode === 'new') {
+      const assignmentError = validateCompanyAssignment(form, companyChoices.data?.companies ?? [], null, setupMachine.provider === 'snapcase');
+      if (assignmentError) { toast.error(assignmentError); return; }
+    }
+
     if (setupMachine.provider === 'snapcase') {
       if (form.mappingMode === 'existing' && !form.reportingMachineId) {
         toast.error('Choose the existing Hub machine.');
@@ -339,7 +358,8 @@ export default function AdminReportingPage() {
           reportingMachineId: form.mappingMode === 'existing' ? form.reportingMachineId : null,
           accountId: form.mappingMode === 'new' ? form.accountId : null,
           locationId: form.mappingMode === 'new' ? form.locationId : null,
-          locationName: form.mappingMode === 'new' ? form.locationName.trim() : null,
+          locationName: form.mappingMode === 'new' && form.addLocation ? form.locationName.trim() : null,
+          locationTimezone: form.mappingMode === 'new' && form.addLocation ? form.locationTimezone : null,
           machineLabel: form.mappingMode === 'new' ? form.machineLabel.trim() : null,
           partnershipId: selectedPartnership?.id ?? null,
           effectiveStartDate: effectiveWindow.effectiveStartDate,
@@ -365,7 +385,7 @@ export default function AdminReportingPage() {
     const taxRatePercent = Number(form.taxRatePercent);
     if (
       !form.machineLabel.trim() ||
-      !form.locationName.trim() ||
+      (!form.locationId && !form.addLocation) ||
       !form.taxRatePercent.trim() ||
       Number.isNaN(taxRatePercent) ||
       taxRatePercent < 0 ||
@@ -381,7 +401,12 @@ export default function AdminReportingPage() {
         externalMachineId: setupMachine.machine.sunzeMachineId,
         partnershipId: selectedPartnership!.id,
         machineLabel: form.machineLabel.trim(),
-        locationName: form.locationName.trim(),
+        accountId: form.accountId,
+        locationId: form.addLocation ? null : form.locationId,
+        locationName: form.addLocation ? form.locationName.trim() : null,
+        locationTimezone: form.addLocation ? form.locationTimezone : null,
+        expectedAccountId: form.expectedAccountId,
+        expectedLocationId: form.expectedLocationId,
         machineType: form.machineType,
         taxRatePercent,
         assignmentStartDate: selectedPartnership!.effective_start_date,
@@ -1112,6 +1137,7 @@ function ImportedMachineSetupDialog({
   onSave: (form: ImportedMachineSetupForm) => void;
 }) {
   const [form, setForm] = useState<ImportedMachineSetupForm>(emptyImportedMachineSetupForm);
+  const loadedSourceKeyRef = useRef('');
   const sunzeMachine = machine?.provider === 'sunze' ? machine.machine : null;
   const snapcaseMachine = machine?.provider === 'snapcase' ? machine.machine : null;
   const recommendedPartnership = useMemo(
@@ -1121,51 +1147,36 @@ function ImportedMachineSetupDialog({
   const selectedPartnership = partnerships.find(
     (partnership) => partnership.id === form.partnershipId
   );
-  const accounts = useMemo(
-    () => Array.from(new Map(machines.map((item) => [item.account_id, item.customer_accounts?.name ?? item.account_id])).entries()),
-    [machines]
-  );
-  const accountLocations = useMemo(
-    () => Array.from(
-      new Map(
-        machines
-          .filter((item) => item.account_id === form.accountId)
-          .map((item) => [item.location_id, item.reporting_locations?.name ?? item.location_id])
-      ).entries()
-    ),
-    [machines, form.accountId]
-  );
 
   useEffect(() => {
-    if (!machine) return;
+    if (!machine) { loadedSourceKeyRef.current = ''; return; }
+    const sourceKey = `${machine.provider}:${machine.provider === 'sunze' ? machine.machine.sunzeMachineId : machine.machine.sourceMachineId}`;
+    if (loadedSourceKeyRef.current === sourceKey) return;
+    loadedSourceKeyRef.current = sourceKey;
     const currentSunzeMachine = machine.provider === 'sunze' ? machine.machine : null;
     const currentSnapCaseMachine = machine.provider === 'snapcase' ? machine.machine : null;
     const recommended = getRecommendedPartnership(currentSunzeMachine, partnerships);
-    const snapCaseText = normalizeComparableText(
-      `${currentSnapCaseMachine?.sourceLabel ?? ''} ${currentSnapCaseMachine?.sourceMerchantName ?? ''}`
-    );
-    const suggestedAccountName = snapCaseText.includes('preit')
-      ? 'bloomjoy enterprises'
-      : snapCaseText.includes('gilroy') || snapCaseText.includes('great mall')
-        ? 'tgpaci'
-        : null;
-    const suggestedAccountId = suggestedAccountName
-      ? accounts.find(([, name]) => normalizeComparableText(name) === suggestedAccountName)?.[0] ?? ''
-      : '';
+    const mappedMachine = currentSnapCaseMachine?.reportingMachineId
+      ? machines.find((item) => item.id === currentSnapCaseMachine.reportingMachineId)
+      : machines.find((item) => currentSunzeMachine && item.sunze_machine_id === currentSunzeMachine.sunzeMachineId);
     setForm({
       ...emptyImportedMachineSetupForm,
       partnershipId: currentSnapCaseMachine?.partnershipId ?? recommended?.partnership.id ?? '',
       mappingMode: currentSnapCaseMachine?.reportingMachineId ? 'existing' : 'new',
       reportingMachineId: currentSnapCaseMachine?.reportingMachineId ?? '',
-      accountId: suggestedAccountId,
+      accountId: mappedMachine?.account_id ?? '',
+      locationId: mappedMachine?.location_id ?? '',
+      expectedAccountId: mappedMachine?.account_id ?? null,
+      expectedLocationId: mappedMachine?.location_id ?? null,
+      locationTimezone: mappedMachine?.reporting_locations?.timezone ?? '',
       machineLabel: currentSnapCaseMachine?.sourceLabel ?? currentSunzeMachine?.sunzeMachineName ?? '',
       locationName: inferImportedMachineLocationName(currentSunzeMachine),
     });
-  }, [machine, partnerships, accounts]);
+  }, [machine, partnerships, machines]);
 
   return (
     <Dialog open={Boolean(machine)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={(event) => { if (event.target instanceof HTMLElement && event.target.id.endsWith('-new-company')) event.preventDefault(); }}>
         <DialogHeader>
           <DialogTitle>Set Up Imported Machine</DialogTitle>
           <DialogDescription>
@@ -1276,20 +1287,7 @@ function ImportedMachineSetupDialog({
                 </select>
               </div>
             )}
-            {snapcaseMachine && form.mappingMode === 'new' && (
-              <div>
-                <Label htmlFor="imported-machine-account">Customer account</Label>
-                <select
-                  id="imported-machine-account"
-                  value={form.accountId}
-                  onChange={(event) => setForm({ ...form, accountId: event.target.value, locationId: '' })}
-                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">Choose existing account</option>
-                  {accounts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                </select>
-              </div>
-            )}
+            {(!snapcaseMachine || form.mappingMode === 'new') && <CompanyAssignmentFields id="imported-machine" value={form} enabled={Boolean(machine)} disabled={isSaving} activeTargetsOnly={Boolean(snapcaseMachine)} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />}
             {(!snapcaseMachine || form.mappingMode === 'new') && <div>
               <Label htmlFor="imported-machine-label">Machine label</Label>
               <Input
@@ -1297,31 +1295,6 @@ function ImportedMachineSetupDialog({
                 value={form.machineLabel}
                 onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
                 placeholder={sunzeMachine?.sunzeMachineName ?? snapcaseMachine?.sourceLabel ?? 'Machine label'}
-                className="h-11"
-              />
-            </div>}
-            {snapcaseMachine && form.mappingMode === 'new' && accountLocations.length > 0 && (
-              <div>
-                <Label htmlFor="imported-machine-location-existing">Existing location (optional)</Label>
-                <select
-                  id="imported-machine-location-existing"
-                  value={form.locationId}
-                  onChange={(event) => setForm({ ...form, locationId: event.target.value })}
-                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">Create/use location by name</option>
-                  {accountLocations.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                </select>
-              </div>
-            )}
-            {(!snapcaseMachine || form.mappingMode === 'new') && <div>
-              <Label htmlFor="imported-machine-location">Location</Label>
-              <Input
-                id="imported-machine-location"
-                value={form.locationName}
-                onChange={(event) => setForm({ ...form, locationName: event.target.value })}
-                placeholder="Location name"
-                disabled={Boolean(snapcaseMachine && form.locationId)}
                 className="h-11"
               />
             </div>}
@@ -1385,7 +1358,7 @@ function ImportedMachineSetupDialog({
           <Button
             className="min-h-11"
             onClick={() => onSave(form)}
-            disabled={isSaving || !machine || (machine.provider === 'sunze' && !form.partnershipId)}
+            disabled={isSaving || !machine || ((!snapcaseMachine || form.mappingMode === 'new') && !form.accountId) || (machine.provider === 'sunze' && !form.partnershipId)}
           >
             {isSaving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

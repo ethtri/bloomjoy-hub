@@ -43,6 +43,9 @@ export type PartnershipSetupMachine = {
   sunze_machine_id: string | null;
   status: string;
   operational_phase: ReportingMachineOperationalPhase;
+  account_id?: string | null;
+  location_id?: string | null;
+  location_timezone?: string | null;
   account_name: string;
   location_name: string;
   latest_sale_date: string | null;

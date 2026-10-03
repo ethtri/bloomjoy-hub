@@ -560,9 +560,12 @@ export const createReportExportSignedUrl = async (storagePath: string): Promise<
 
 type UpsertReportingMachineInput = {
   machineId?: string | null;
-  accountName: string;
-  locationName: string;
-  locationTimezone?: string | null;
+  accountId: string;
+  locationId: string | null;
+  expectedAccountId?: string | null;
+  expectedLocationId?: string | null;
+  newLocationName?: string | null;
+  newLocationTimezone?: string | null;
   machineLabel: string;
   machineType: ReportingMachineType;
   sunzeMachineId?: string | null;
@@ -603,7 +606,12 @@ type MapSourceMachineToPartnershipInput = {
   externalMachineId: string;
   partnershipId: string;
   machineLabel: string;
-  locationName: string;
+  accountId: string;
+  locationId?: string | null;
+  locationName?: string | null;
+  locationTimezone?: string | null;
+  expectedAccountId?: string | null;
+  expectedLocationId?: string | null;
   machineType: ReportingMachineType;
   taxRatePercent: number;
   assignmentStartDate: string;
@@ -619,6 +627,7 @@ type MapSnapCaseMachineInput = {
   accountId?: string | null;
   locationId?: string | null;
   locationName?: string | null;
+  locationTimezone?: string | null;
   machineLabel?: string | null;
   partnershipId?: string | null;
   effectiveStartDate: string;
@@ -1063,6 +1072,7 @@ export const mapSnapCaseMachineAdmin = async (
     p_account_id: input.accountId || null,
     p_location_id: input.locationId || null,
     p_location_name: input.locationName || null,
+    p_location_timezone: input.locationTimezone || null,
     p_machine_label: input.machineLabel || null,
     p_partnership_id: getOptionalSnapCasePartnershipId(input.partnershipId),
     p_effective_start_date: input.effectiveStartDate,
@@ -1091,11 +1101,16 @@ export const mapSnapCaseMachineAdmin = async (
 export const mapSourceMachineToPartnershipAdmin = async (
   input: MapSourceMachineToPartnershipInput
 ): Promise<MapSourceMachineToPartnershipResult> => {
-  const { data, error } = await supabaseClient.rpc('admin_map_source_machine_to_partnership', {
+  const { data, error } = await supabaseClient.rpc('admin_map_source_machine_to_partnership_by_id', {
     p_external_machine_id: input.externalMachineId,
     p_partnership_id: input.partnershipId,
     p_machine_label: input.machineLabel,
-    p_location_name: input.locationName,
+    p_account_id: input.accountId,
+    p_location_id: input.locationId ?? null,
+    p_location_name: input.locationName ?? null,
+    p_location_timezone: input.locationTimezone ?? null,
+    p_expected_account_id: input.expectedAccountId ?? null,
+    p_expected_location_id: input.expectedLocationId ?? null,
     p_machine_type: input.machineType,
     p_tax_rate_percent: input.taxRatePercent,
     p_assignment_start_date: input.assignmentStartDate,
@@ -1216,16 +1231,19 @@ export const lookupReportingUserByEmailAdmin = async (
 export const upsertReportingMachineAdmin = async (
   input: UpsertReportingMachineInput
 ): Promise<AdminReportingMachine> => {
-  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_with_phase', {
+  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_by_id', {
     p_machine_id: input.machineId ?? null,
-    p_account_name: input.accountName,
-    p_location_name: input.locationName,
+    p_account_id: input.accountId,
+    p_location_id: input.locationId,
+    p_expected_account_id: input.expectedAccountId ?? null,
+    p_expected_location_id: input.expectedLocationId ?? null,
+    p_new_location_name: input.newLocationName ?? null,
+    p_new_location_timezone: input.newLocationTimezone ?? null,
     p_machine_label: input.machineLabel,
     p_machine_type: input.machineType,
     p_sunze_machine_id: input.sunzeMachineId ?? null,
     p_operational_phase: input.operationalPhase,
     p_reason: input.reason,
-    p_location_timezone: input.locationTimezone ?? null,
   });
 
   if (error || !data) {
