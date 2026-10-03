@@ -5,6 +5,7 @@ import { resolveForwardedSupabaseAccessToken } from "../_shared/auth.ts";
 import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { normalizeStorefrontCart } from "../_shared/storefront-cart.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
+import { checkoutMaintenanceResponse } from "../_shared/checkout-maintenance.ts";
 
 export const config = {
   verify_jwt: false,
@@ -179,6 +180,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  const maintenanceResponse = checkoutMaintenanceResponse();
+  if (maintenanceResponse) return maintenanceResponse;
 
   try {
     const authResult = await resolveOptionalCheckoutUser(req);

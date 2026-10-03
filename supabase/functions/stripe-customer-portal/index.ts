@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
+import { checkoutMaintenanceResponse } from "../_shared/checkout-maintenance.ts";
 import {
   blockingPlusSubscriptionStatuses,
   resolveStripePlusBillingState,
@@ -101,6 +102,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  const maintenanceResponse = checkoutMaintenanceResponse();
+  if (maintenanceResponse) return maintenanceResponse;
 
   try {
     const authResult = await resolveAuthenticatedUser(req);

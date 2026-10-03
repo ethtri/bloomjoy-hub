@@ -1,5 +1,16 @@
 # QA Smoke Test Checklist
 
+## Bounded billing maintenance
+
+- [ ] In an isolated backend, set `STOREFRONT_CHECKOUT_PAUSED=true`: sugar,
+  sticks, Plus and Billing return HTTP 503 with readable CORS/error text and
+  Retry-After 120 before auth/provider calls. OPTIONS still succeeds; signed
+  webhooks and checkout-status remain available. False/missing restores normal
+  behavior. Never put test credentials in production during this check.
+- [ ] For a merchant change, follow `Docs/STRIPE_MERCHANT_CUTOVER.md`: confirm
+  the coordinated account/price/portal/signing-secret readback and no-charge live
+  previews before closeout. Keep historical merchant data and rollback sources.
+
 ## Finance reporting and dated tax treatment (`#1708`)
 
 - In a disposable migrated environment, open `/portal/reports?view=finance` with an authorized sales/refund manager or Super-admin. Verify sales excluding tax minus requested refund impact equals net sales. Expand the breakdown: recorded money refunds, gifts and outstanding balances are separate, with no second deduction. Select a machine and export CSV; dates, scope, values and unavailable/partial coverage agree.

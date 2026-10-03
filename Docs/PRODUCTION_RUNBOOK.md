@@ -62,6 +62,7 @@ Set the following values before launch.
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID` | Server-only | `stripe-customer-portal` | Explicit Stripe Billing Portal configuration for the same merchant and Plus price | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
+| `STOREFRONT_CHECKOUT_PAUSED` | Server-only | Sugar/sticks/Plus Checkout and Customer Portal | Exact `true` returns retryable HTTP 503 before provider work; false/missing preserves normal operation. Webhooks and checkout-status stay available. | Release owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Verified sender in Resend | Technical owner |
 | `REFUND_CUSTOMER_FROM_EMAIL` | Server-only | refund customer-message paths | Exact verified refund sender `refunds@bloomjoysweets.com`; never falls back to the OAuth login or internal notification sender | Technical owner |

@@ -133,12 +133,31 @@ Checkout and standalone equipment-deposit exclusion. Orders and captured
 notifications remained zero. This is preparation evidence, not a paid Checkout,
 membership, portal or asynchronous-payment end-to-end pass.
 
-The full rehearsal awaits the owner's sandbox credential rotation handoff.
-The disposable cloud branch was removed while that handoff is pending to stop
-usage billing. Recreate an isolated branch and replace its private credentials
-when resuming within the approved cumulative budget; never reuse the deleted
-branch credentials or substitute production. Production cutover remains blocked
-until the required rehearsal succeeds.
+The owner completed sandbox key rotation on October 2. The replacement was
+saved privately and verified against the Services sandbox. A fresh disposable
+branch then completed six real Stripe test-card Checkouts: public/member sugar,
+public/member sticks, Plus and a delayed-event scenario. Five paid supply orders
+and eleven locally captured notifications were recorded. Duplicate events added
+no orders or notifications. Actual provider test-event payloads were forwarded
+to the signed local webhook handler. Authenticated Billing showed the paid
+invoice and scheduled cancellation at period end; access remained until ending
+the synthetic subscription, then returned to standard. Nine invalid/auth/unpaid/
+standalone-deposit guards and all six paid checkout-status lookups passed.
+
+Delayed handling used an unpaid ACH-shaped event fixture followed by a real
+test-card settlement and signed asynchronous-success event. It verifies the
+unpaid/success/idempotency logic, not actual bank settlement. Micro checkout
+remained off; the current cart does not combine sugar and sticks. All customers
+were synthetic; Resend was captured locally and WeCom credentials were cleared.
+The rehearsal server stopped and the disposable branch/obsolete branch keys
+were removed afterward. The cumulative approved USD 1 budget was preserved.
+
+A bounded maintenance control now pauses sugar/sticks/Plus Checkout and Billing
+before authentication/provider work when `STOREFRONT_CHECKOUT_PAUSED=true`.
+Requests receive CORS-readable HTTP 503 with a 120-second Retry-After. OPTIONS,
+checkout-status and webhook processing remain available. Missing/false keeps
+normal operation. All four handler pause responses and two focused helper tests
+passed. Production cutover is still pending the coordinated procedure below.
 
 Verify public/member sugar, public/member sticks, applicable mixed-cart flows,
 and optional Plus Checkout. Complete only Stripe test payments. Confirm paid
@@ -171,8 +190,8 @@ do not introduce an unrelated Stripe SDK/API upgrade during this cutover.
    not a rollback backup. Keep the old webhook and account available for support.
 3. Prepare the new live webhook and verify its event set and account. Until
    signing secrets are coordinated, do not send production traffic to it.
-4. Pause new supply/Plus Checkout using the existing maintenance controls, or
-   perform a bounded reviewed maintenance deployment if no safe pause exists.
+4. Set `STOREFRONT_CHECKOUT_PAUSED=true` and deploy the reviewed sugar/sticks/Plus
+   Checkout and Customer Portal handlers. Confirm all four respond HTTP 503.
    Drain/recheck open sessions and in-flight requests. Document the exact pause
    mechanism before using it; avoid mixed old/new credentials while requests run.
 5. Apply the new server-only settings as one coordinated bundle:
@@ -183,6 +202,9 @@ do not introduce an unrelated Stripe SDK/API upgrade during this cutover.
 6. Refresh affected functions together if required for environment loading:
    sugar/sticks/Plus Checkout, checkout-status, Customer Portal, and webhook.
    Verify signatures and the account/price/portal references before reopening.
+   Keep the pause enabled until the coordinated deployment and setting readback
+   pass. Set it false, refresh the four guarded handlers and perform the checks
+   below; if a check fails, immediately pause again before repairing/rollback.
 7. Perform live checks without submitting payment: inspect newly created live
    Checkout Sessions, merchant branding, amount, tax, URLs, and account ownership;
    then expire only the explicitly created verification sessions. Do not charge

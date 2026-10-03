@@ -24,10 +24,15 @@ orientation snapshot; it is not a backlog or release ledger.
   The temporary tax-calculation write permission has been removed. The Services
   webhook and nine-setting bundle are prepared privately; the webhook stays
   disabled. A complete verified old bundle and served sources are saved for
-  rollback. Nine isolated handler guards passed with no orders/notifications;
-  paid Checkout, membership, portal and delayed-payment rehearsal remains pending
-  the owner's sandbox credential rotation. The disposable cloud test branch was
-  removed to stop billing. Production cutover has not occurred.
+  rollback. The owner completed sandbox key rotation. Six real test-card
+  Checkouts, member eligibility, period-end Billing cancellation, ended-access
+  removal, duplicate event suppression, nine guards and paid status checks passed.
+  Delayed-event handling passed with an unpaid fixture and test-card settlement;
+  actual ACH bank settlement is not established. Five synthetic supply orders
+  and eleven locally captured notifications were recorded. The rehearsal server
+  stopped and disposable cloud branch was removed. A tested, bounded checkout/
+  Billing pause is prepared for the coordinated change. Production cutover has
+  not occurred.
   See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
   settings, and rollback procedure. Preserve TGPaci's historical records.
 
