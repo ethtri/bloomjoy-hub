@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "email_alert_preferences_v1",
+  "revision": 0,
+  "email": "alex.manager@example.invalid",
+  "eligible": true,
+  "machines": [
+    { "machineId": "operator-machine-north", "machineLabel": "North Atrium", "locationName": "North Hall", "timezone": "America/Los_Angeles", "isManager": true, "isTechnician": false, "canViewSales": true, "availableAlertIds": ["daily", "weekly", "new-refund", "decision-ready"], "authorizedAlertIds": ["daily", "weekly", "new-refund", "decision-ready", "sales-quiet", "device-offline"] },
+    { "machineId": "operator-machine-garden", "machineLabel": "Garden Annex", "locationName": "Garden Hall", "timezone": "America/Denver", "isManager": true, "isTechnician": false, "canViewSales": true, "availableAlertIds": ["daily", "weekly", "new-refund", "decision-ready"], "authorizedAlertIds": ["daily", "weekly", "new-refund", "decision-ready", "sales-quiet", "device-offline"] }
+  ],
+  "settings": { "timezone": "America/Los_Angeles", "dailyTime": "08:00", "weeklyDay": 1, "weeklyTime": "08:00", "quietEnabled": true, "quietStart": "20:00", "quietEnd": "07:00", "offlineBypass": false, "newRefundDelivery": "immediate" },
+  "alerts": [
+    { "id": "daily", "enabled": true, "scopeMode": "all_assigned", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
+    { "id": "weekly", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
+    { "id": "new-refund", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
+    { "id": "decision-ready", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": true, "unavailableReason": null, "isDefault": true, "authorized": true, "sourceAvailable": true },
+    { "id": "sales-quiet", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": false, "unavailableReason": "Complete cash comparison source is not verified", "isDefault": true, "authorized": true, "sourceAvailable": false },
+    { "id": "device-offline", "enabled": false, "scopeMode": "selected", "machineIds": [], "available": false, "unavailableReason": "Payment device status source is not verified", "isDefault": true, "authorized": true, "sourceAvailable": false }
+  ]
+}

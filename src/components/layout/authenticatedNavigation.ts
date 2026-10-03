@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
+  Bell,
   Building2,
   ClipboardCheck,
   Clock3,
@@ -101,6 +102,7 @@ export type AuthenticatedNavBuildInput = {
   canUsePortalTimekeeping: boolean;
   canUseLaborReports?: boolean;
   canUseRefundReports?: boolean;
+  canUseEmailAlerts?: boolean;
   currentPathname?: string;
   showAccountLink: boolean;
 };
@@ -220,6 +222,7 @@ export const adminDestinations: AdminDestination[] = [
 ];
 
 const coreDestinations: CoreDestination[] = [
+  { href: '/portal/notifications', labelKey: 'portal.nav.emailAlerts', descriptionKey: 'portal.nav.emailAlertsDescription', icon: Bell, section: 'settings', access: 'email-alerts' },
   {
     href: '/portal/time-review',
     labelKey: 'portal.nav.timeReview',
@@ -310,6 +313,7 @@ const canAccessPortalDestination = (
   destinationAccess: PortalAccessLevel,
   input: AuthenticatedNavBuildInput
 ) => {
+  if (destinationAccess === 'email-alerts') return input.canUseEmailAlerts === true;
   if (destinationAccess === 'team') {
     return input.canUsePortalTeam;
   }
@@ -393,6 +397,7 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
         'customers',
         'administration',
         'reporting',
+        'settings',
       ] satisfies AuthenticatedNavSectionId[])
     : authenticatedNavSections.map((section) => section.id);
 

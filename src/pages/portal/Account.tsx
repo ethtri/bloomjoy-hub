@@ -37,6 +37,7 @@ import {
   type PortalAccountProfileInput,
 } from '@/lib/accountProfile';
 import { toast } from 'sonner';
+import { useEmailAlerts } from '@/hooks/useEmailAlerts';
 
 const DEFAULT_PROFILE_FORM: PortalAccountProfileInput = {
   fullName: '',
@@ -57,6 +58,7 @@ const formatMembershipStatus = (status: string) =>
     .join(' ');
 
 export default function AccountPage() {
+  const emailAlerts = useEmailAlerts();
   const { user, adminAccess, isCorporatePartner } = useAuth();
   const { t } = useLanguage();
   const {
@@ -453,6 +455,8 @@ export default function AccountPage() {
               ) : undefined
             }
           />
+
+          {emailAlerts.data?.eligible && <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-5"><div><h2 className="text-base font-semibold">Email alerts</h2><p className="mt-1 text-sm text-muted-foreground">Choose updates for your machines and when they reach your inbox.</p></div><Button asChild variant="outline"><Link to="/portal/notifications">Manage email alerts</Link></Button></div>}
 
           {!isScopedAdminOnly && !isCorporatePartnerOnly && accessSource === 'free_grant' && freeGrantExpiryLabel && (
             <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">

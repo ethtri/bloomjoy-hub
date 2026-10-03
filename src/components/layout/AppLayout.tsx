@@ -2,6 +2,7 @@ import { useLayoutEffect, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
+  Bell,
   ExternalLink,
   KeyRound,
   LayoutDashboard,
@@ -42,6 +43,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
+import { useEmailAlerts } from '@/hooks/useEmailAlerts';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { markPortalShellHidden, markPortalShellVisible } from '@/lib/portalPerformance';
 import type { TranslationKey } from '@/lib/i18n';
@@ -93,6 +95,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { canUsePortalTeam } = usePortalTechnicianManagement();
   const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
   const analyticsAccess = useReportingAnalyticsAccess(isAuthenticated);
+  const emailAlerts = useEmailAlerts(isAuthenticated);
   const navSections = isAuthenticated
     ? buildAuthenticatedNavSections({
         adminAccess,
@@ -105,6 +108,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         canUsePortalTimekeeping,
         canUseLaborReports: analyticsAccess.canUseLabor,
         canUseRefundReports: analyticsAccess.canUseRefunds,
+        canUseEmailAlerts: emailAlerts.data?.eligible === true,
         currentPathname: location.pathname,
         showAccountLink,
       })
@@ -155,6 +159,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {emailAlerts.data?.eligible && <DropdownMenuItem asChild><Link to="/portal/notifications" className="cursor-pointer gap-2"><Bell className="h-4 w-4"/>{t('portal.nav.emailAlerts')}</Link></DropdownMenuItem>}
         {showAccountLink && (
           <>
             <DropdownMenuItem asChild>

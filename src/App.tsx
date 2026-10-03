@@ -13,6 +13,7 @@ import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AuthenticatedShellSkeleton } from "@/components/auth/AuthenticatedShellSkeleton";
 import { MemberRoute } from "@/components/auth/MemberRoute";
+import { EmailAlertsRoute } from "@/components/auth/EmailAlertsRoute";
 import { AdminRoute, RefundOperationsRoute } from "@/components/auth/AdminRoute";
 import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
@@ -76,6 +77,7 @@ const PortalSupport = lazyRoute(() => import("./pages/portal/Support"));
 const PortalOnboarding = lazyRoute(() => import("./pages/portal/Onboarding"));
 const PortalOrders = lazyRoute(() => import("./pages/portal/Orders"));
 const PortalAccount = lazyRoute(() => import("./pages/portal/Account"));
+const PortalNotifications = lazyRoute(() => import("./pages/portal/Notifications"));
 const PortalTeam = lazyRoute(() => import("./pages/portal/Team"));
 const PortalReports = lazyRoute(() => import("./pages/portal/Reports"));
 const PortalTime = lazyRoute(() => import("./pages/portal/Time"));
@@ -241,6 +243,9 @@ export const AppShell = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
+            <Route element={<EmailAlertsRoute />}>
+              <Route path="/portal/notifications" element={<PortalNotifications />} />
+            </Route>
             <Route element={<RefundOperationsRoute />}>
               <Route path="/refunds" element={<RefundWorkspace />} />
               <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />

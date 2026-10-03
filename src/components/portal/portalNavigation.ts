@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
+  Bell,
   BookOpen,
   ClipboardCheck,
   Clock3,
@@ -18,6 +19,7 @@ import type { TranslationKey } from '@/lib/i18n';
 export type PortalAccessLevel =
   | 'all'
   | 'account'
+  | 'email-alerts'
   | 'baseline'
   | 'training'
   | 'plus'
@@ -53,6 +55,11 @@ export const portalDestinations: PortalDestination[] = [
     access: 'all',
     mobileOrder: 1,
     end: true,
+  },
+  {
+    href: '/portal/notifications', label: 'Email alerts', labelKey: 'portal.nav.emailAlerts',
+    description: 'Choose machine updates and delivery times.', descriptionKey: 'portal.nav.emailAlertsDescription',
+    icon: Bell, access: 'email-alerts', mobileOrder: 5,
   },
   {
     href: '/portal/time',
