@@ -29,11 +29,18 @@
 - In synthetic delivery tests, recheck account and machine access after claim,
   cross quiet-hour and daylight-saving boundaries, and invoke duplicate ticks.
   Confirm one delivery per period/event. Unknown provider outcomes remain held.
-- Check totals against per-machine canonical sales and requested refund impact.
-  Payments and gifts remain separate context; missing data is not zero. Managers
-  see authorized request comments; technicians receive only safe operational
-  excerpts. No customer contact/payment credentials or private tokens enter the
-  technician projection.
+- Check daily/weekly totals against selected, authorized machine sales and new
+  requests received in the period, including requested dollars. Actual company
+  subtotals and machine rows reconcile. A resolved request received in-period
+  remains included; an old open case does not enter the email. Unknown amounts
+  and incomplete sales remain explicit, not zero or prepared/paid amounts.
+- Check weekly comparisons on the same machines with current and prior data,
+  partial comparison coverage and a zero prior baseline. Verify long company and
+  machine names, zero activity, missing data, multiple timezones, and large fleets
+  at 320/390 px and desktop with images blocked and dark-mode preference.
+- Optional immediate request emails retain authorized comments and case links;
+  technician excerpts omit customer contact/payment credentials, private tokens
+  and unauthorized financial amounts. No case narrative is repeated in digests.
 - Verify condition alerts say cash sales or payment device where those are the
   proven sources. Stale status, incomplete coverage and a missing observation
   cannot become a quiet-sales or offline incident.
@@ -101,12 +108,14 @@ historical fixtures cannot add product gates that the workflow does not contain.
   refund decision without an “already linked/reserved” blocker. Replaying the
   same case still creates no second attempt, and an unknown provider result stays
   held for reconciliation. Do not send a live refund during this check.
-- [ ] The 08:00 America/Los_Angeles manager refund digest lists every canonically
+- [ ] Legacy sender regression only (before personal-sender adoption): the 08:00
+  America/Los_Angeles manager refund digest lists every canonically
   open case on that manager's current machines, including unchanged cases on the
   next day and more than eight cases. Prepared approve/deny and cash-payment
   decisions appear first; all other rows name the System, Agent, or customer
   next step and say no manager action is needed.
-- [ ] A manager with no scoped open cases gets no digest; co-managers get separate
+- [ ] Legacy sender regression only: a manager with no scoped open cases gets no
+  legacy refund digest; co-managers get separate
   correctly scoped messages, and an unmapped admin gets none. Reassignment or
   changed case facts before provider start cancels a stale prepared message.
   An unknown provider outcome is held for reconciliation without a blind retry.

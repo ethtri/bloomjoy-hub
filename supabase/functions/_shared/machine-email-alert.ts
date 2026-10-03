@@ -1,4 +1,5 @@
 import { parseRefundManagerDailyDigestProjection } from "./refund-manager-digest.ts";
+import { buildMachineDigestEmail } from "./machine-email-digest.ts";
 
 /** Recipient-scoped operational emails. No raw provider payload is accepted. */
 export const MACHINE_EMAIL_ALERT_SCHEMA = "machine_email_alert_v1" as const;
@@ -29,6 +30,19 @@ export type MachineEmailCase = {
   currencyCode: string | null;
   canOpenCase: boolean;
 };
+export type MachineEmailDigest = {
+  accountId: string;
+  accountName: string;
+  newRequestCount: number;
+  requestAmountsAllowed: boolean;
+  requestedAmountCents: number | null;
+  requestedAmountKnownCount: number;
+  requestedAmountUnknownCount: number;
+  previousNewRequestCount: number;
+  previousRequestedAmountCents: number | null;
+  previousRequestedAmountKnownCount: number;
+  previousRequestedAmountUnknownCount: number;
+};
 export type MachineEmailMachine = {
   machineId: string;
   machineLabel: string;
@@ -47,6 +61,8 @@ export type MachineEmailMachine = {
   transactionCount: number | null;
   previousGrossSalesCents: number | null;
   refundCases: MachineEmailCase[];
+  /** Absent in existing v1 jobs; never reconstruct requested money from current case amounts. */
+  digest?: MachineEmailDigest;
 };
 export type MachineEmailSummary = {
   machineCount: number;
@@ -253,6 +269,74 @@ function parseCase(value: unknown): MachineEmailCase {
   return result;
 }
 
+function parseDigest(value: unknown): MachineEmailDigest {
+  const row = object(value);
+  keys(row, [
+    "accountId",
+    "accountName",
+    "newRequestCount",
+    "requestAmountsAllowed",
+    "requestedAmountCents",
+    "requestedAmountKnownCount",
+    "requestedAmountUnknownCount",
+    "previousNewRequestCount",
+    "previousRequestedAmountCents",
+    "previousRequestedAmountKnownCount",
+    "previousRequestedAmountUnknownCount",
+  ]);
+  const digest: MachineEmailDigest = {
+    accountId: id(row.accountId),
+    accountName: text(row.accountName),
+    newRequestCount: integer(row.newRequestCount),
+    requestAmountsAllowed: boolean(row.requestAmountsAllowed),
+    requestedAmountCents: row.requestedAmountCents === null
+      ? null
+      : integer(row.requestedAmountCents),
+    requestedAmountKnownCount: integer(row.requestedAmountKnownCount),
+    requestedAmountUnknownCount: integer(row.requestedAmountUnknownCount),
+    previousNewRequestCount: integer(row.previousNewRequestCount),
+    previousRequestedAmountCents: row.previousRequestedAmountCents === null
+      ? null
+      : integer(row.previousRequestedAmountCents),
+    previousRequestedAmountKnownCount: integer(
+      row.previousRequestedAmountKnownCount,
+    ),
+    previousRequestedAmountUnknownCount: integer(
+      row.previousRequestedAmountUnknownCount,
+    ),
+  };
+  const validateAmounts = (
+    count: number,
+    known: number,
+    unknown: number,
+    amount: number | null,
+  ) => {
+    if (
+      known + unknown !== count ||
+      (!digest.requestAmountsAllowed &&
+        (amount !== null || known !== 0 || unknown !== count)) ||
+      (digest.requestAmountsAllowed && ((count === 0 && amount !== 0) ||
+        (count > 0 && known === 0 && amount !== null) ||
+        (known > 0 && amount === null)))
+    ) {
+      throw new Error("email_alert_requested_amount_invalid");
+    }
+  };
+  validateAmounts(
+    digest.newRequestCount,
+    digest.requestedAmountKnownCount,
+    digest.requestedAmountUnknownCount,
+    digest.requestedAmountCents,
+  );
+  validateAmounts(
+    digest.previousNewRequestCount,
+    digest.previousRequestedAmountKnownCount,
+    digest.previousRequestedAmountUnknownCount,
+    digest.previousRequestedAmountCents,
+  );
+  return digest;
+}
+
 function parseMachine(value: unknown): MachineEmailMachine {
   const row = object(value);
   keys(row, [
@@ -273,6 +357,7 @@ function parseMachine(value: unknown): MachineEmailMachine {
     "transactionCount",
     "previousGrossSalesCents",
     "refundCases",
+    ...(row.digest === undefined ? [] : ["digest"]),
   ]);
   if (
     !["reported_snapshot", "unavailable"].includes(String(row.coverageStatus))
@@ -300,7 +385,15 @@ function parseMachine(value: unknown): MachineEmailMachine {
       : integer(row.transactionCount),
     previousGrossSalesCents: money(row.previousGrossSalesCents),
     refundCases: row.refundCases.map(parseCase),
+    ...(row.digest === undefined ? {} : { digest: parseDigest(row.digest) }),
   };
+  if (
+    machine.digest &&
+    machine.digest.newRequestCount !==
+      machine.refundCases.filter((c) => c.isNew).length
+  ) {
+    throw new Error("email_alert_requested_count_invalid");
+  }
   if (
     !machine.reportingAllowed &&
     [
@@ -388,11 +481,28 @@ export function parseMachineEmailProjection(
     throw new Error("email_alert_projection_invalid");
   }
   const machines = row.machines.map(parseMachine);
+  if (
+    !["daily", "weekly"].includes(String(row.category)) &&
+    machines.some((m) => m.digest !== undefined)
+  ) {
+    throw new Error("email_alert_unexpected_digest");
+  }
   const cases = machines.flatMap((m) => m.refundCases);
   if (
     new Set(machines.map((m) => m.machineId)).size !== machines.length ||
     new Set(cases.map((c) => c.caseId)).size !== cases.length
   ) throw new Error("email_alert_duplicate_projection");
+  const accountNames = new Map<string, string>();
+  for (const { digest } of machines) {
+    if (!digest) continue;
+    if (
+      accountNames.has(digest.accountId) &&
+      accountNames.get(digest.accountId) !== digest.accountName
+    ) {
+      throw new Error("email_alert_account_identity_invalid");
+    }
+    accountNames.set(digest.accountId, digest.accountName);
+  }
   const expected = summarizeMachineEmail(machines);
   const summary = object(row.summary);
   keys(summary, Object.keys(expected));
@@ -594,18 +704,14 @@ export function buildMachineEmail(
 ): MachineEmailMessage {
   // Accept only a validated projection even for direct/internal callers.
   const p = parseMachineEmailProjection(projection);
+  if (p.category === "daily" || p.category === "weekly") {
+    return buildMachineDigestEmail({ projection: p, links });
+  }
   const machine = p.machines[0];
-  const daily = p.category === "daily";
-  const digest = daily || p.category === "weekly";
-  const period = p.dateFrom === p.dateTo
-    ? p.dateFrom
-    : `${p.dateFrom} to ${p.dateTo}`;
   const salesScope = p.category === "sales-quiet"
     ? (p.signal as QuietSalesSignal).paymentScope
     : "all";
-  const title = digest
-    ? `${daily ? "Daily operations brief" : "Weekly performance review"}`
-    : p.category === "new-refund"
+  const title = p.category === "new-refund"
     ? "A customer reported a problem"
     : p.category === "sales-quiet"
     ? `${
@@ -616,14 +722,10 @@ export function buildMachineEmail(
         : "Sales"
     } are quieter than usual`
     : "Nayax connection disconnected";
-  const subject = digest
-    ? `Bloomjoy ${daily ? "daily brief" : "weekly review"} · ${period}`
-    : `${title} · ${machine.machineLabel}`;
+  const subject = `${title} · ${machine.machineLabel}`;
   const plain: string[] = [
     title,
-    digest
-      ? `${period} · ${p.summary.machineCount} followed machines · USD`
-      : `${machine.machineLabel} · ${machine.locationName}`,
+    `${machine.machineLabel} · ${machine.locationName}`,
     "",
   ];
   const parts: string[] = [];
@@ -718,121 +820,7 @@ export function buildMachineEmail(
         : links.preferencesUrl,
     );
   };
-  if (digest) {
-    const s = p.summary;
-    paragraph(
-      `Sales available for ${s.salesMachineCount} of ${s.machineCount} machines. Missing sales are unavailable, not zero.`,
-    );
-    measures([[
-      s.salesMachineCount === s.machineCount
-        ? "Sales before refunds"
-        : "Known sales subtotal before refunds",
-      dollars(s.grossSalesCents),
-    ], [
-      "Transactions",
-      s.transactionCount === null ? "Unavailable" : String(s.transactionCount),
-    ], [
-      "Period refund impact (same sales scope)",
-      dollars(s.refundAmountCents),
-    ], [
-      "Sales after period refunds (same sales scope)",
-      dollars(s.netSalesCents),
-    ]]);
-    paragraph(
-      `Followed machines: ${s.newRequestCount} new requests in the period · ${s.openCount} open now${
-        s.decisionCount ? ` · ${s.decisionCount} need your decision` : ""
-      }. Case status as of ${when(p.observedAt, p.timezone)} (${p.timezone}).`,
-    );
-    paragraph(
-      "Sales exclude sales tax using Hub’s current report calculation. Period refund impact includes request deductions and reversals. A later refund payment is not deducted again. Transactions do not prove successful dispensing.",
-    );
-    const assigned = p.machines.filter((m) => !m.includedInPerformanceScope)
-      .flatMap((m) => m.refundCases);
-    if (assigned.length) {
-      paragraph(
-        `Additional assigned refund work: ${
-          assigned.filter((c) => c.isOpen).length
-        } open cases · ${
-          assigned.filter((c) => c.needsDecision).length
-        } need your decision. These machines are separate from the followed-machine performance totals above.`,
-      );
-    }
-    const sorted = [...p.machines].sort((a, b) =>
-      Number(b.includedInPerformanceScope) -
-        Number(a.includedInPerformanceScope) ||
-      Number(b.refundCases.some((c) => c.needsDecision)) -
-        Number(a.refundCases.some((c) => c.needsDecision)) ||
-      Number(b.refundCases.length > 0) - Number(a.refundCases.length > 0) ||
-      a.machineLabel.localeCompare(b.machineLabel)
-    );
-    let assignedHeading = false;
-    for (const m of sorted) {
-      if (!m.includedInPerformanceScope && !assignedHeading) {
-        heading("Assigned refund work");
-        paragraph(
-          "Other assigned machines with open cases. Their sales and customer-work counts are not included in the followed-machine totals.",
-        );
-        assignedHeading = true;
-      }
-      heading(`${m.machineLabel} · ${m.locationName}`);
-      if (m.includedInPerformanceScope) {
-        paragraph(
-          `${
-            m.dateFrom === m.dateTo
-              ? m.dateFrom
-              : `${m.dateFrom} to ${m.dateTo}`
-          } · ${m.timezone}.`,
-        );
-        if (m.reportingAllowed) {
-          measures([
-            ["Sales before refunds", dollars(m.grossSalesCents)],
-            [
-              "Transactions",
-              m.transactionCount === null
-                ? "Unavailable"
-                : String(m.transactionCount),
-            ],
-            ["Period refund impact", dollars(m.refundAmountCents)],
-            ["Sales after period refunds", dollars(m.netSalesCents)],
-          ]);
-        } else {paragraph(
-            "Reporting values are outside your access for this machine.",
-          );}
-        if (m.reportingAllowed) paragraph(m.coverageNote);
-        if (
-          !daily && m.salesComplete && m.grossSalesCents !== null &&
-          m.previousGrossSalesCents !== null && m.previousGrossSalesCents > 0
-        ) {
-          paragraph(
-            `${
-              ((m.grossSalesCents / m.previousGrossSalesCents - 1) * 100)
-                .toFixed(1)
-            }% versus the previous week’s reported sales (${
-              dollars(m.previousGrossSalesCents)
-            }), using the same machine and sales basis. Late imports may change this comparison.`,
-          );
-        }
-      }
-      const recent = m.refundCases.filter((c) => c.isNew);
-      const earlier = m.refundCases.filter((c) => !c.isNew);
-      paragraph(
-        `${recent.length} new requests · ${
-          m.refundCases.filter((c) => c.isOpen).length
-        } open at report time.`,
-      );
-      if (recent.length) {
-        heading("Received in this reporting period", 3);
-        recent.forEach((c) => renderCase(c, m));
-      } else paragraph("No new refund requests in this reporting period.");
-      if (earlier.length) {
-        heading("Earlier requests still open", 3);
-        earlier.forEach((c) => renderCase(c, m));
-      }
-    }
-    if (p.machines.some((m) => m.reportingAllowed)) {
-      anchor("Open reports", links.reportUrl);
-    }
-  } else if (p.category === "new-refund") {
+  if (p.category === "new-refund") {
     paragraph(
       "This is an operational heads-up for a machine you follow. The customer’s description is a reported symptom, not a confirmed diagnosis. No refund decision is requested from you in this email.",
     );
@@ -894,9 +882,7 @@ export function buildMachineEmail(
     );
   }
   paragraph(
-    digest
-      ? "You receive this update for your subscribed machines."
-      : "You receive this update because you follow this alert for the machine.",
+    "You receive this update because you follow this alert for the machine.",
   );
   anchor("Manage or turn off email alerts", links.preferencesUrl);
   const html =
@@ -906,9 +892,7 @@ export function buildMachineEmail(
       esc(title)
     }</h1><p style="color:#555660;margin:0 0 24px">${
       esc(
-        digest
-          ? `${period} · USD · machine-local reporting dates`
-          : `${machine.machineLabel} · ${machine.locationName}`,
+        `${machine.machineLabel} · ${machine.locationName}`,
       )
     }</p>${parts.join("")}</main></body></html>`;
   return {
