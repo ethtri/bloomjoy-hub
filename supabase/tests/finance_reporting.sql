@@ -194,7 +194,7 @@ insert into public.sales_adjustment_facts(id,reporting_machine_id,reporting_loca
  values('fb760000-0000-4000-8000-000000000001','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000004','2026-03-01',
  'refund',55555,'manual',repeat('7',64),null,'{"amountBasis":"tax_exclusive"}','2025-12-01');
 update public.refund_cases set reporting_adjustment_id='fb760000-0000-4000-8000-000000000001'
- where id='fb750000-0000-4000-8000-000000000005';
+ where id='fb750000-0000-4000-8000-000000000004';
 insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
  booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
  request_target_before_cents,request_target_after_cents,recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance)
@@ -204,7 +204,7 @@ insert into private.refund_request_recognition_events(event_key,refund_case_id,e
 set local session_replication_role=origin;
 select ok(public.get_refund_analytics('2026-03-01','2026-03-01',null,
  array['fb730000-0000-4000-8000-000000000004']::uuid[])#>'{period,legacyPaidDeductionExTaxCents}'='null'::jsonb,
-  'An internal-test backlink with no direct case ID cannot leak through location-filtered accounting');
+  'A hidden customer backlink with no direct case ID cannot leak through location-filtered accounting');
 select ok(public.get_refund_analytics('2026-08-01','2026-08-01')#>'{period,requestDeductionExTaxCents}'='null'::jsonb,
   'Hidden recognition event cannot leak a requested deduction through a visible machine');
 select ok(public.get_refund_analytics('2026-03-01','2026-03-31')::text not like '%88888%'
@@ -213,7 +213,7 @@ select ok(public.get_refund_analytics('2026-03-01','2026-03-31')::text not like 
  and public.get_refund_analytics('2026-08-01','2026-08-01')::text not like '%66666%',
   'Restricted payment and recognition amounts never enter the refund API payload');
 select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
- where d->>'locationId'='fb730000-0000-4000-8000-000000000004'),'Internal-only payment location does not broaden selectable dimensions');
-select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,array['fb730000-0000-4000-8000-000000000004']::uuid[])->'rows'),0,'Internal-only location cannot expose a component row');
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000004'),'Restricted-only payment location does not broaden selectable dimensions');
+select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,array['fb730000-0000-4000-8000-000000000004']::uuid[])->'rows'),0,'Restricted-only location cannot expose a component row');
 select * from finish();
 rollback;
