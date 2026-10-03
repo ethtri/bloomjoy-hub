@@ -21,6 +21,8 @@ orientation snapshot; it is not a backlog or release ledger.
   Technician visibility #1729 separates reading assigned-machine refund requests
   from manager decisions: useful customer comments, original requested amounts
   and direct request links use the same current assignment scope in Hub and email.
+  Rollout follow-up #1737 removes repeated whole-scope scans from digest metadata;
+  keep delivery paused until full replay and all-page live previews pass (#1729).
 
 - Reporting PR #1709 and its four database migrations are live in production
   (#1696). Central Reporting includes Finance, seven completed days by default,
