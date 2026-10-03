@@ -11,6 +11,7 @@ export async function verifyCompanyAssignmentConcurrency({ dbPort }) {
   const second = new pg.Client(config);
   const actor = crypto.randomUUID();
   const machine = crypto.randomUUID();
+  const createdMachineIds = [machine];
   const suffix = crypto.randomUUID();
   const name = `Concurrent company ${suffix}`;
   let companyIds = [];
@@ -57,6 +58,22 @@ export async function verifyCompanyAssignmentConcurrency({ dbPort }) {
     const afterAccess = await owner.query('select (select count(*) from public.customer_account_memberships) memberships,(select count(*) from public.customer_account_invites) invites');
     assert.deepEqual(afterAccess.rows, accessBaseline.rows);
 
+    // Rename and explicit create must serialize on the same normalized name,
+    // so an uncertain retry cannot create a second company under its new name.
+    const renamedName = `Renamed ${name}`;
+    await beginActor(first);
+    await first.query('select public.admin_manage_reporting_company($1,$2,$3,$4)',
+      [created.accountId, 'rename', created.updatedAt, renamedName]);
+    await beginActor(second);
+    const renameCreatePromise = second.query('select public.admin_create_reporting_company($1) result', [` ${renamedName.toUpperCase()} `]);
+    renameCreatePromise.catch(() => {});
+    await waitForLock(secondPid);
+    await first.query('commit');
+    const renamedDuplicate = (await renameCreatePromise).rows[0].result;
+    await second.query('commit');
+    assert.equal(renamedDuplicate.accountId, created.accountId);
+    assert.equal(renamedDuplicate.created, false);
+
     await beginActor(first);
     const target = (await first.query('select public.admin_create_reporting_company($1) result', [`Target ${name}`])).rows[0].result;
     companyIds.push(target.accountId);
@@ -77,11 +94,47 @@ export async function verifyCompanyAssignmentConcurrency({ dbPort }) {
     const saved = (await owner.query('select account_id,location_id from public.reporting_machines where id=$1', [machine])).rows[0];
     assert.equal(saved.account_id, target.accountId);
     assert.equal(saved.location_id, targetLocation);
-    return { duplicateCreates: 'same canonical ID', staleAssignment: 'rejected', invitationsAndMemberships: 'unchanged' };
+
+    // Archive wins first: the in-flight new assignment must wait and then fail.
+    await beginActor(first);
+    const archiveVersion = (await first.query('select updated_at::text version from public.customer_accounts where id=$1', [created.accountId])).rows[0].version;
+    const archived = (await first.query('select public.admin_manage_reporting_company($1,$2,$3) result',
+      [created.accountId, 'archive', archiveVersion])).rows[0].result;
+    await beginActor(second);
+    const archivedAssignment = second.query(querySave, [null, created.accountId, oldLocation, null, null]);
+    archivedAssignment.catch(() => {});
+    await waitForLock(secondPid);
+    await first.query('commit');
+    await assert.rejects(archivedAssignment, { code: '22023' });
+    await second.query('rollback');
+    assert.equal((await owner.query('select count(*)::int n from public.reporting_machines where account_id=$1', [created.accountId])).rows[0].n, 0);
+
+    // Assignment wins first: later archive preserves that existing machine and
+    // ordinary edits, instead of deleting or silently reassigning it.
+    await beginActor(first);
+    const restored = (await first.query('select public.admin_manage_reporting_company($1,$2,$3) result',
+      [created.accountId, 'restore', archived.updatedAt])).rows[0].result;
+    await first.query('commit');
+    await beginActor(first);
+    const assignedId = (await first.query(querySave, [null, created.accountId, oldLocation, null, null])).rows[0].id;
+    createdMachineIds.push(assignedId);
+    await beginActor(second);
+    const archiveAfterAssignment = second.query('select public.admin_manage_reporting_company($1,$2,$3) result',
+      [created.accountId, 'archive', restored.updatedAt]);
+    archiveAfterAssignment.catch(() => {});
+    await waitForLock(secondPid);
+    await first.query('commit');
+    await archiveAfterAssignment;
+    await second.query('commit');
+    await beginActor(first);
+    await first.query(querySave, [assignedId, created.accountId, oldLocation, created.accountId, oldLocation]);
+    await first.query('commit');
+    assert.equal((await owner.query('select account_id from public.reporting_machines where id=$1', [assignedId])).rows[0].account_id, created.accountId);
+    return { duplicateCreates: 'same canonical ID', renameCreateRace: 'same canonical ID', archiveAssignmentRace: 'both commit orders verified', staleAssignment: 'rejected', invitationsAndMemberships: 'unchanged' };
   } finally {
     await first.query('rollback').catch(() => {});
     await second.query('rollback').catch(() => {});
-    await owner.query('delete from public.reporting_machines where id=$1', [machine]);
+    await owner.query('delete from public.reporting_machines where id=any($1::uuid[])', [createdMachineIds]);
     await owner.query('delete from public.customer_accounts where id=any($1::uuid[])', [companyIds]);
     await owner.query('delete from public.admin_audit_log where actor_user_id=$1', [actor]);
     await owner.query('delete from auth.users where id=$1', [actor]);
