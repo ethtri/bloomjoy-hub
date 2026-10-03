@@ -84,6 +84,12 @@ select is(public.refund_official_action_authority('e9710000-0000-4000-8000-00000
 set local role authenticated;
 select is(public.get_refund_request('e9760000-0000-4000-8000-000000000001')->>'requestedAmountCents','600','Authenticated read RPC is callable');
 select is((select count(*)::int from public.refund_cases where id='e9760000-0000-4000-8000-000000000001'),0,'Raw case RLS still hides technician case');
+select throws_ok($$select public.admin_approve_reviewed_nayax_candidate_v1('e9760000-0000-4000-8000-000000000002',1,
+ 'e9790000-0000-4000-8000-000000000001','e9790000-0000-4000-8000-000000000002')$$,'42501',null,'Technician cannot approve card refund even when supplying proof IDs');
+select throws_ok($$select public.admin_authorize_refund_official_action('e9760000-0000-4000-8000-000000000002','decline',1,
+ 'denied','denied')$$,'42501',null,'Technician cannot authorize refund denial');
+select throws_ok($$select public.admin_authorize_refund_official_action('e9760000-0000-4000-8000-000000000002','cash_complete',1,
+ 'completed','approved',null,null,null,600,null,null,true)$$,'42501',null,'Technician cannot authorize cash payment confirmation');
 select throws_ok($$select public.admin_decide_refund_gift_card('e9760000-0000-4000-8000-000000000001',true)$$,'42501',null,'Technician gift approval denied');
 select throws_ok($$select public.admin_decide_refund_gift_card('e9760000-0000-4000-8000-000000000001',false)$$,'42501',null,'Technician gift denial denied');
 select throws_ok($$select public.admin_get_refund_gmail_case_context('e9760000-0000-4000-8000-000000000001')$$,null,null,'Technician cannot obtain raw customer correspondence');
@@ -92,6 +98,7 @@ reset role;
 select ok(not has_function_privilege('anon','public.get_refund_request(uuid)','execute'),'Anonymous detail access denied');
 select ok(not has_function_privilege('authenticated','private.refund_request_machine_scope(uuid)','execute'),'Client cannot impersonate another actor in private scope');
 select ok(not has_function_privilege('authenticated','private.refund_request_read_projection(public.refund_cases,boolean)','execute'),'Client cannot bypass read scope with projection helper');
+select ok(not has_function_privilege('authenticated','public.admin_update_refund_case(uuid,text,text,text,text,text,integer,text,boolean,text,integer,timestamp with time zone,integer,text,text)','execute'),'Raw financial editing RPC stays unavailable');
 select set_config('request.jwt.claim.sub','e9710000-0000-4000-8000-000000000003',true);
 select is(public.get_refund_request_access()->>'hasAccess','false','Sales-only user gains no refund read access');
 select throws_ok($$select public.get_refund_requests('2026-10-02','2026-10-02')$$,'42501',null,'Sales-only request list denied');
