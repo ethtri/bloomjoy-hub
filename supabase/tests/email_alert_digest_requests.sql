@@ -26,7 +26,7 @@ insert into public.technician_grants(id,account_id,sponsor_user_id,technician_em
  'digest-tech@example.invalid','ed710000-0000-4000-8000-000000000002','active','2020-01-01','Synthetic test');
 insert into public.technician_machine_assignments(technician_grant_id,machine_id,status,starts_at,grant_reason) values
  ('ed750000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000001','active','2020-01-01','Synthetic test');
--- Reporting access does not imply permission to view individual refund money.
+-- Refund read access follows technician assignment, independently of sales.
 insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) values
  ('ed710000-0000-4000-8000-000000000002','ed740000-0000-4000-8000-000000000001','2020-01-01');
 insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,
@@ -99,12 +99,12 @@ select is((select weekly->>'requestedAmountCents' from digest_metadata),'1000','
 select is((select weekly->>'requestedAmountUnknownCount' from digest_metadata),'4','Weekly reports all unknown amounts');
 select is((select weekly->>'previousNewRequestCount' from digest_metadata),'2','Weekly baseline is exactly the previous completed week');
 select is((select weekly->>'previousRequestedAmountCents' from digest_metadata),'400','Weekly comparison uses comparable intake values');
-select is((select tech->>'requestAmountsAllowed' from digest_metadata),'false','Technician reporting access does not grant refund amount access');
+select is((select tech->>'requestAmountsAllowed' from digest_metadata),'true','Technician assignment grants original request amount visibility');
 select is((select tech->>'newRequestCount' from digest_metadata),'5','Technician keeps operational request volume');
-select is((select tech->>'requestedAmountCents' from digest_metadata),null,'Technician monetary total is redacted');
-select is((select tech->>'requestedAmountKnownCount' from digest_metadata),'0','Technician receives no amount availability side channel');
-select is((select tech->>'requestedAmountUnknownCount' from digest_metadata),'5','All technician request amounts are unavailable');
-select is((select tech->>'previousRequestedAmountCents' from digest_metadata),null,'Previous technician amounts are also redacted');
+select is((select tech->>'requestedAmountCents' from digest_metadata),'1000','Technician gets original requested dollars, not prepared or paid values');
+select is((select tech->>'requestedAmountKnownCount' from digest_metadata),'3','Technician known request amount count matches manager');
+select is((select tech->>'requestedAmountUnknownCount' from digest_metadata),'2','Genuinely unknown amounts remain unknown for technicians');
+select is((select tech->>'previousRequestedAmountCents' from digest_metadata),'400','Technician prior period uses same intake provenance');
 select is(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000002','2026-10-03','2026-10-03')->>'requestedAmountCents',null,'All unknown amounts produce null rather than an invented zero');
 select is(private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000001','ed740000-0000-4000-8000-000000000003','2026-10-02','2026-10-02')->>'requestedAmountCents','0','No requests is a known zero for authorized managers');
 select throws_ok($$select private.email_alert_digest_metadata('ed710000-0000-4000-8000-000000000002','ed740000-0000-4000-8000-000000000002','2026-10-02','2026-10-02')$$,'42501',null,'An unassigned company cannot enter an aggregate');
