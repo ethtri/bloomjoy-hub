@@ -1,5 +1,16 @@
 # QA Smoke Test Checklist
 
+## Refund purchase review (`#1733`, synthetic cases)
+
+- [ ] Open a selected card purchase with a reported no-product issue, approximate time, differing wallet digits, and an unknown card network. The problem, one comparison, supporting evidence and uncertainties appear together near the decision; no timing caveat is presented as positive match evidence.
+- [ ] Compare other Nayax transactions without clearing the saved purchase. Opening, closing and browsing the shortlist makes no selection, approval, payment or customer-message request. The saved selection remains identifiable.
+- [ ] Explicitly choose and save an eligible alternative. The selected purchase, amount and eventual synthetic approval all refer to that exact candidate; canceling a draft comparison preserves the saved purchase.
+- [ ] Check incomplete and expired search fixtures. Returned count is not presented as a complete historical count or proof of uniqueness. No current candidates is distinguished from no purchases found; source, window and freshness are shown only when available.
+- [ ] Verify missing card network versus customer Other/unsure, an updated purchase time with venue timezone, and a customer reply without a source link. Show factual values without inventing provenance or requiring another customer answer.
+- [ ] Confirm a single Source details disclosure retains the copyable selected transaction ID, provider clock information and meaningful timestamped machine alerts. Unknown machine status without alerts is hidden. Optional absent time-source/attempt-count values and internal fact-version/ownership instructions are not ordinary review content.
+- [ ] Check purchase-selected, submitted, confirmed-payment and completed fixtures. Progress language does not describe purchase selection as a completed refund. Existing cash research remains machine-source evidence, and gift-card requests keep their existing decision path.
+- [ ] Verify desktop, 390 px and 320 px widths, keyboard disclosure/selection controls and long labels. Important facts, controls and focus indicators remain readable without horizontal page overflow. Use synthetic data only; never issue a live payment or contact a customer for this check.
+
 ## Company assignment (`#1719`)
 
 - As Super Admin, verify saved Company/location IDs in the full-page and sheet
