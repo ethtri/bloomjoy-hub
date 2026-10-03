@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { assertCompanyExportScope, companyBasis, groupCompanyRows, type CompanyDimension } from '@/lib/companyReporting';
+import { assertCompanyExportScope, machineCountLabel, companyBasis, groupCompanyRows, type CompanyDimension } from '@/lib/companyReporting';
 import { CompanySummary } from './CompanySummary';
 import { useQuery } from '@tanstack/react-query';
 import { Download, RefreshCw } from 'lucide-react';
@@ -60,7 +60,7 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
     { label: `Outstanding at ${scope.dateTo}`, value: uncertainBalance ? null : total(rows, 'asOfOutstandingCents'), known: uncertainBalance ? total(rows, 'asOfOutstandingCents') : undefined },
   ];
   return <div className="mt-6 space-y-6" data-reporting-finance>
-    {scope.companyId === 'all' && onCompany && <CompanySummary onCompany={onCompany} rows={groupCompanyRows(rows, dimensions).map(group => ({ id: group.id, name: group.name, detail: `${group.machineIds.size} machines with recorded activity`, value: `Net sales ${money(total(group.rows, 'netSalesExTaxCents'))}`, note: group.rows.some(row => row.coverage.unknownBalanceCount || row.coverage.unknownAmountCount) ? 'Some refund amounts or balances unknown' : 'Recorded sales and refunds; coverage unknown' }))}/>}
+    {scope.companyId === 'all' && onCompany && <CompanySummary onCompany={onCompany} rows={groupCompanyRows(rows, dimensions).map(group => ({ id: group.id, name: group.name, detail: `${machineCountLabel(group.machineIds.size)} with recorded activity`, value: `Net sales ${money(total(group.rows, 'netSalesExTaxCents'))}`, note: group.rows.some(row => row.coverage.unknownBalanceCount || row.coverage.unknownAmountCount) ? 'Some refund amounts or balances unknown' : 'Recorded sales and refunds; coverage unknown' }))}/>}
     {scope.companyId !== 'all' && <p className="text-xs text-muted-foreground">{companyBasis}</p>}
     <section aria-labelledby="finance-heading">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="finance-heading" className="text-xl font-semibold">Sales to net sales</h2><Button variant="outline" className="min-h-11" onClick={download} disabled={!rows.length || report.isFetching}><Download className="mr-2 h-4 w-4"/>Export CSV</Button></div>

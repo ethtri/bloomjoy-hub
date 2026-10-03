@@ -50,3 +50,5 @@ export function assertCompanyExportScope(dimensions: CompanyDimension[], company
   }
   return scope;
 }
+
+export const machineCountLabel = (count: number) => `${count} ${count === 1 ? 'machine' : 'machines'}`;

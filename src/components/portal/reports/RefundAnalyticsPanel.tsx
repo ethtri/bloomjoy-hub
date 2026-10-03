@@ -61,7 +61,7 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
       {showHeading && <h2 className="text-xl font-semibold tracking-tight">Refunds & recovery</h2>}
       <Button variant="outline" className="min-h-11" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
     </div>
-    <p className="text-xs text-muted-foreground">{companyBasis}</p>
+    {scope.companyId !== 'all' && <p className="text-xs text-muted-foreground">{companyBasis}</p>}
     {scope.companyId === 'all' && onCompany && <CompanySummary onCompany={onCompany} rows={groupCompanyRows(report.machines, dimensions).map(group => ({ id: group.id, name: group.name, detail: `${group.rows.reduce((sum, row) => sum + row.requestCount, 0)} recorded requests in period`, value: `Known outstanding ${money(group.rows.reduce((sum, row) => sum + row.outstandingCents, 0))}`, note: `${group.rows.reduce((sum, row) => sum + row.unknownAmountCount, 0)} unknown request amounts; ${group.rows.reduce((sum, row) => sum + row.unknownBalanceCount, 0)} unknown balances` }))}/>}
     {coverage.length > 0 && <p className="text-sm text-muted-foreground">Known amounts shown; some records are incomplete. See report details below.</p>}
     <div>
@@ -131,8 +131,7 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
         <p>Payments and gifts explain how purchases were resolved; they are not another sales deduction. API confirmation does not establish bank settlement or gift redemption.</p>
         <p>Missing amounts and history are excluded from known totals, never treated as zero. Age bands do not set a service deadline.</p>
         <p className="text-xs text-muted-foreground">{companyBasis}</p>
-    {scope.companyId === 'all' && onCompany && <CompanySummary onCompany={onCompany} rows={groupCompanyRows(report.machines, dimensions).map(group => ({ id: group.id, name: group.name, detail: `${group.rows.reduce((sum, row) => sum + row.requestCount, 0)} recorded requests in period`, value: `Known outstanding ${money(group.rows.reduce((sum, row) => sum + row.outstandingCents, 0))}`, note: `${group.rows.reduce((sum, row) => sum + row.unknownAmountCount, 0)} unknown request amounts; ${group.rows.reduce((sum, row) => sum + row.unknownBalanceCount, 0)} unknown balances` }))}/>}
-    {coverage.length > 0 && <p>Incomplete records: {coverage.join(' · ')}.</p>}
+        {coverage.length > 0 && <p>Incomplete records: {coverage.join(' · ')}.</p>}
         <p>{money(report.period.legacyPaidDeductionExTaxCents)} in historical payment-based deductions is shown separately in CSV. Historical accounting rules are preserved.</p>
         <p>{report.machineCount} {report.machineCount === 1 ? 'machine' : 'machines'} in this report. Periods support up to 367 days.</p>
         <p>Generated {new Date(report.generatedAt).toLocaleString()}</p>

@@ -11,7 +11,7 @@ import {
 import { Link, useSearchParams } from 'react-router-dom';
 import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
 import { CompanySummary } from '@/components/portal/reports/CompanySummary';
-import { companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
+import { machineCountLabel, companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
 import { knownMoney, money } from '@/lib/reportingWorkspace';
 import {
   ArrowLeft,
@@ -1287,7 +1287,7 @@ function OperatorReportingView({
         </Collapsible>
       </Card>
 
-      {companyId === 'all' && !hasLoadError && !isLoading && <CompanySummary onCompany={changeCompany} rows={groupCompanyRows(reportRows, dimensions).map(group => { const total = knownMoney(group.rows, 'netSalesCents'); return { id: group.id, name: group.name, detail: `${new Set(dimensions.filter(row => row.accountId === group.id).map(row => row.machineId)).size} accessible machines`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : 'Recorded sales; coverage unknown' }; })}/>}
+      {companyId === 'all' && !hasLoadError && !isLoading && <CompanySummary onCompany={changeCompany} rows={groupCompanyRows(reportRows, dimensions).map(group => { const total = knownMoney(group.rows, 'netSalesCents'); return { id: group.id, name: group.name, detail: `${machineCountLabel(new Set(dimensions.filter(row => row.accountId === group.id).map(row => row.machineId)).size)} in accessible scope`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : 'Recorded sales; coverage unknown' }; })}/>}
 
       <div
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"

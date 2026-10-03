@@ -1,4 +1,4 @@
-import { companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
+import { machineCountLabel, companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
 import { CompanySummary } from './CompanySummary';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -165,7 +165,7 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
       const total = knownMoney(group.rows, 'netSalesCents');
       const priorRows = previous.filter(row => group.machineIds.has(row.machineId));
       const before = knownMoney(priorRows, 'netSalesCents').value;
-      return { id: group.id, name: group.name, detail: `${new Set(companyScope.companyRows.filter(row => row.accountId === group.id).map(row => row.machineId)).size} accessible machines`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : compareAvailable && total.value != null && before != null && before > 0 ? `${((total.value - before) / before * 100).toFixed(1)}% vs comparison period` : 'Recorded sales; coverage unknown' };
+      return { id: group.id, name: group.name, detail: `${machineCountLabel(new Set(companyScope.companyRows.filter(row => row.accountId === group.id).map(row => row.machineId)).size)} in accessible scope`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : compareAvailable && total.value != null && before != null && before > 0 ? `${((total.value - before) / before * 100).toFixed(1)}% vs comparison period` : 'Recorded sales; coverage unknown' };
     })}/></div>}
     {!loading && !periodInvalid && selectedAllowed && salesView && dimensions.isSuccess && !accessError && report.isSuccess && !scopeInvalid && <>{state.view === 'overview' && <ReportingOverview {...analytics}/>} {state.view === 'locations' && <ReportingLocations {...analytics}/>}</>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && salesView && dimensions.isSuccess && !accessError && (hasLaborPanel || hasRefundPanel) && <ReportingOperations key={user?.id} scope={scope} laborScope={{ dateFrom: state.dateFrom, dateTo: state.dateTo, locationIds: state.locationId === 'all' ? undefined : [state.locationId], machineIds: state.machineId === 'all' ? undefined : [state.machineId] }} canUseLabor={hasLaborPanel} canUseRefunds={hasRefundPanel} onNavigate={view => { if (view === 'labor' && state.companyId !== 'all') toast.info('Labor reports use their own filters.'); navigateToApp(operationalReportHref(view, state)); }} />}
