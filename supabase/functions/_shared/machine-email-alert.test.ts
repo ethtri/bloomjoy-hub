@@ -177,6 +177,14 @@ Deno.test("quiet/offline evidence guards reject stale and inferred states", () =
   (wholeDevice.signal as unknown as Record<string, unknown>).component =
     "Nayax payment device";
   rejects(wholeDevice);
+  const wrongBaseline = structuredClone(variants["device-offline"]);
+  (wrongBaseline.signal as unknown as Record<string, unknown>)
+    .priorOnlineObservedAt = "2026-10-02T14:50:00Z";
+  rejects(wrongBaseline);
+  const missingBaseline = structuredClone(variants["device-offline"]);
+  delete (missingBaseline.signal as unknown as Record<string, unknown>)
+    .priorOnlineObservedAt;
+  rejects(missingBaseline);
   const stale = structuredClone(variants["device-offline"]);
   stale.observedAt = "2026-10-02T15:07:00Z";
   rejects(stale);

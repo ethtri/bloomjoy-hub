@@ -71,6 +71,7 @@ export type QuietSalesSignal = {
 };
 export type OfflineDeviceSignal = {
   component: string;
+  priorOnlineObservedAt: string;
   firstObservedAt: string;
   lastObservedAt: string;
   observationCount: number;
@@ -492,6 +493,7 @@ export function parseMachineEmailProjection(
     const signal = object(row.signal);
     keys(signal, [
       "component",
+      "priorOnlineObservedAt",
       "firstObservedAt",
       "lastObservedAt",
       "observationCount",
@@ -501,6 +503,7 @@ export function parseMachineEmailProjection(
     ]);
     projection.signal = {
       component: text(signal.component, 100),
+      priorOnlineObservedAt: timestamp(signal.priorOnlineObservedAt),
       firstObservedAt: timestamp(signal.firstObservedAt),
       lastObservedAt: timestamp(signal.lastObservedAt),
       observationCount: integer(signal.observationCount),
@@ -514,6 +517,8 @@ export function parseMachineEmailProjection(
       signal.state !== "offline" || signal.providerFieldValue !== false ||
       parsed.providerField !== "MachineMQTTStatus" ||
       parsed.component !== "Nayax MQTT connection" ||
+      Date.parse(parsed.priorOnlineObservedAt) >
+        Date.parse(parsed.firstObservedAt) ||
       parsed.observationCount < 4 ||
       Date.parse(parsed.lastObservedAt) - Date.parse(parsed.firstObservedAt) <
         15 * 60_000 ||
