@@ -1,11 +1,11 @@
 # Finance team user guides
 
-Use the eight-page guide in the preferred language:
+Use the twelve-page guide in the preferred language:
 
 - [English PDF](../../../output/pdf/bloomjoy-finance-guide.en.pdf) - [editable English source](finance-guide.en.md)
 - [简体中文 PDF](../../../output/pdf/bloomjoy-finance-guide.zh-CN.pdf) - [可编辑中文原文](finance-guide.zh-CN.md)
 
-The guides cover Finance, the detailed Sales view, Overview/Locations filters and comparisons, Refund reports, Timekeeping reports, exports, company grouping and consistent machine-company assignment. The Chinese edition retains English screen labels so readers can find the matching control. Live links require sign-in and the account's existing report access.
+The guides cover Finance, the detailed Sales view, Overview/Locations filters and comparisons, Refund reports, Timekeeping reports, exports, company grouping and consistent machine-company assignment. Pages 9-12 add dated machine reporting tax setup, separate card/cash amount bases and taxable portions, illustrative calculations, and period-end reconciliation. They distinguish reporting adjustments from actual collection, customer charges and filing evidence. The Chinese edition retains English screen labels so readers can find the matching control. Live links require sign-in and the account's existing report access.
 
 ## Screenshot provenance
 
@@ -40,4 +40,4 @@ pdftoppm -r 95 -png output/pdf/bloomjoy-finance-guide.zh-CN.pdf tmp/pdfs/zh
 
 The builder accepts `--font-dir` and `--output-dir`. The default PDFs go to `output/pdf/`; only these two finished PDFs are committed from that ignored artifact directory. Font files are embedded in the PDF, not copied into the repository. Inspect all final pages after rebuilding, including clickable links, Chinese glyphs, screenshot readability and footer spacing.
 
-Definitions were checked against current reporting panels, export helpers and `CompanyAssignmentFields`. Company grouping follows the current canonical machine assignment while each domain retains its own permissions. This guide documents the implemented controls; reading it changes no report access, tax rate, machine assignment or refund policy.
+Definitions were checked against current reporting panels, export helpers and `CompanyAssignmentFields`. Tax instructions were checked against the Machines Reporting tab, `TaxChangeDialog`, `TaxTreatmentFields`, dated treatment selection and the financial amount normalization functions at main commit `91fcd9f2`. The four added text pages use invented examples, not new screenshots or jurisdiction-specific rates. The Stripe reporting reference was checked on October 3, 2026. Company grouping follows the current canonical machine assignment while each domain retains its own permissions. This guide documents the implemented controls; reading it changes no report access, tax rate, machine assignment or refund policy.
