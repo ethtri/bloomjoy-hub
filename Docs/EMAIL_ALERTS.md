@@ -42,15 +42,19 @@ period totals or appear as a case backlog in the email.
 Sales use canonical tax-exclusive sales before refund deductions. Requested
 dollars describe what customers requested at intake, not accounting adjustments,
 approved amounts, payments or gift value. Missing amounts stay unknown; partial
-subtotals identify their incomplete coverage. Existing permissions still control
-access to financial amounts. A recent import alone does not prove complete sales
+subtotals identify their incomplete coverage. Managers and technicians can see
+original requested amounts for their authorized machines; sales visibility keeps
+its separate permission check. A recent import alone does not prove complete sales
 coverage. Weekly comparisons use the same machines with comparable data in both
 periods; zero or missing baselines never produce a misleading growth percentage.
 
 Detailed reasons, comments and follow-up work remain in Hub. Optional immediate
-request emails retain their authorized operational details: managers can open
-their cases; technicians receive a safe operational excerpt without customer
-contact/payment details or case access. See [the digest design](DIGEST_REDESIGN.md).
+request emails retain their authorized operational details and link to the
+request in Hub. Technicians can read the selected problem, useful sanitized
+customer comment, original requested amount and refund status for assigned
+machines. Approval and payment controls remain manager-only; contact/payment
+credentials and raw case records are not part of technician read access.
+See [the digest design](DIGEST_REDESIGN.md).
 
 Conditional alerts are available only where the source is verified. Cash quiet
 alerts require complete Sunze cash-day coverage with a proved time basis, plus

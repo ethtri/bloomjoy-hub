@@ -30,7 +30,9 @@ Customer symptoms and comments remain in Hub and optional immediate request mail
 - Refunds mean deduplicated requests received during the machine-local period and
   customer-requested amounts supported by intake evidence. Later resolution does
   not remove them. Approval/payment/gift/accounting values are different measures.
-- Label missing and partial amounts honestly. Existing access restrictions apply.
+- Label missing and partial amounts honestly. Technicians and managers can read
+  requested amounts for their authorized machines (#1729); sales access remains
+  separate from refund read access and manager approval/payment authority.
 - Compare weekly sales only for machines with usable data in both periods; name
   partial comparison coverage. A zero baseline yields dollar change, not infinity.
 - Preserve scheduled delivery identities, unknown-send holds, defaults and opt-outs.
@@ -42,7 +44,7 @@ restrained coral accents, aligned numeric columns and fine dividers. Use compati
 email tables with semantic data headers, inline styles and system-font fallbacks.
 
 Review actual production-renderer fixtures at desktop, 390 px and 320 px. Check
-long names, multiple companies, large fleets, unknown values, restricted technician
-data, images blocked and dark-mode preference. Verify plain text and links, run
+long names, multiple companies, large fleets, unknown values, technicians without
+sales access, images blocked and dark-mode preference. Verify plain text and links, run
 focused projection/renderer tests and full migration replay, then release through
 a reviewed PR. Synthetic previewing must not send mail or reserve real deliveries.

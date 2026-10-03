@@ -8,6 +8,8 @@ export const workspacePersonas = {
 export const domainDimensions = operatorDimensions.map(row => ({ machineId: row.machine_id, machineLabel: row.machine_label, locationId: row.location_id, locationName: row.location_name }));
 
 export function workspaceRpcResponse(name, persona, body = {}, freshness = 'fresh') {
+  if (name === 'get_refund_request_access') return { hasAccess: false, machines: [] };
+  if (name === 'get_refund_request') return null;
   const canLabor = persona.isSuperAdmin || persona.id === workspacePersonas.timeOnly.id;
   const canRefunds = persona.isSuperAdmin || persona.id === workspacePersonas.refundOnly.id;
   const selected = domainDimensions.filter(row => (!body.p_machine_ids || body.p_machine_ids.includes(row.machineId)) && (!body.p_location_ids || body.p_location_ids.includes(row.locationId)));

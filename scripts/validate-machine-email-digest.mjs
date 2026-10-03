@@ -13,7 +13,7 @@ const logo = await readFile(path.join(root, 'public/bloomjoy-icon.png'));
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-  for (const variant of ['daily', 'weekly', 'partial', 'technician', 'legacy']) {
+  for (const variant of ['daily', 'weekly', 'partial', 'technician', 'technician-request', 'legacy']) {
     for (const width of [900, 390, 320]) {
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       await page.route('https://**/*', route => route.request().url() === 'https://app.bloomjoyusa.com/bloomjoy-icon.png'
@@ -27,7 +27,7 @@ try {
       }));
       assert(state.scrollWidth <= width + 1, `${variant} overflows at ${width}px`);
       assert.equal(state.headings, 1);
-      assert.equal(state.columns, 3);
+      assert.equal(state.columns, variant === 'technician-request' ? 0 : 3);
       await page.screenshot({ path: path.join(output, `${variant}-${width}.png`), fullPage: true });
       results.push({ variant, ...state });
       await page.close();

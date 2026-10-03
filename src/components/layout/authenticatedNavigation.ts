@@ -102,6 +102,7 @@ export type AuthenticatedNavBuildInput = {
   canUsePortalTimekeeping: boolean;
   canUseLaborReports?: boolean;
   canUseRefundReports?: boolean;
+  canReadRefundRequests?: boolean;
   canUseEmailAlerts?: boolean;
   currentPathname?: string;
   showAccountLink: boolean;
@@ -305,7 +306,7 @@ const canOperateRefunds = (input: AuthenticatedNavBuildInput) => {
 
 const operationalDestinationHref = (href: string, input: AuthenticatedNavBuildInput) => {
   if (href === '/portal/time-review' && !canReviewTime(input) && input.canUseLaborReports) return `${href}?view=reports`;
-  if (href === '/refunds' && !canOperateRefunds(input) && input.canUseRefundReports) return `${href}?view=reports`;
+  if (href === '/refunds' && !canOperateRefunds(input) && !input.canReadRefundRequests && input.canUseRefundReports) return `${href}?view=reports`;
   return href;
 };
 
@@ -326,7 +327,7 @@ const canAccessPortalDestination = (
     return canReviewTime(input) || input.canUseLaborReports === true;
   }
 
-  if (destinationAccess === 'refunds') return canOperateRefunds(input) || input.canUseRefundReports === true;
+  if (destinationAccess === 'refunds') return canOperateRefunds(input) || input.canReadRefundRequests === true || input.canUseRefundReports === true;
 
   const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
   const hasRefundOperationsAccess =
