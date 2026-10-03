@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email alerts · Bloomjoy Hub · Subscription prototype</title>
+  <link rel="stylesheet" href="subscriptions.css">
+</head>
+<body>
+  <div class="prototype-bar"><div><strong>MVP design preview</strong><span>Sample account · Changes stay in this tab · No email is sent</span></div><div class="prototype-tools"><label for="persona">View as</label><select id="persona"><option value="manager">Manager</option><option value="technician">Technician</option></select><select id="demo-state" aria-label="Preview state"><option value="ready">Ready</option><option value="empty">No machine access</option><option value="save-error">Save fails</option></select><button id="try-setup">Try first-time setup</button><a href="index.html">Email mockups ↗</a></div></div>
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Main navigation"></aside>
+    <div class="workspace"><header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="Open navigation" aria-expanded="false">☰</button><span class="workspace-label">Bloomjoy Hub <span>/ Your workspace</span></span><div class="profile-wrap"><button id="profile-toggle" class="profile-button" aria-expanded="false"><span class="avatar">JL</span><span id="profile-name">Jordan Lee</span><span aria-hidden="true">⌄</span></button><div id="profile-menu" class="profile-menu" hidden><small>PERSONAL SETTINGS</small><button data-nav="preferences">Email alerts</button><button data-nav="account">Account</button></div></div></header>
+    <main id="main" tabindex="-1"></main>
+    <footer class="app-footer">Bloomjoy Hub <span>Subscription experience · Round 3</span></footer></div>
+  </div>
+  <div class="review-note"><strong>Design assumptions.</strong> Quiet-sales detection needs complete reporting periods. Offline alerts need a validated device-status feed. Technician refund excerpts need an authorized operational view. These capabilities are illustrated here, not activated. <a href="SUBSCRIPTIONS.md">Read the subscription brief ↗</a></div>
+  <dialog id="machine-panel" class="sheet" aria-labelledby="panel-title"></dialog>
+  <dialog id="discard-dialog" class="confirmation" aria-labelledby="discard-title"><h2 id="discard-title">Leave without saving?</h2><p>Your saved subscriptions will stay as they are.</p><div class="button-row"><button class="secondary" id="stay">Keep editing</button><button class="primary" id="discard">Discard changes</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="subscriptions.js"></script>
+</body>
+</html>

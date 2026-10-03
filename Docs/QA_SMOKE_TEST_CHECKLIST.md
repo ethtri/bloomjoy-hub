@@ -1,5 +1,34 @@
 # QA Smoke Test Checklist
 
+## Personal machine email alerts (`#1715`)
+
+- Open `/portal/notifications` as an assigned manager and a technician, including
+  a technician without Account Settings access. Profile/Settings, Reports and
+  machine-detail links reach the same personal preferences. Unassigned users
+  receive assignment guidance rather than another user's machines.
+- With no saved preferences, only Daily operations brief is on, at 08:00 Pacific.
+  Save a daily opt-out and change assignments: the opt-out persists. Save distinct
+  daily/weekly scopes and schedules, reload and confirm both. A stale-tab save or
+  revoked machine keeps the draft and explains the failed save.
+- Verify the machine panel changes only its current machine, last-machine removal
+  turns that category off, and enabling it never revives an old selection. Reports
+  setup carries selected machines into review without changing other alerts.
+- In synthetic delivery tests, recheck account and machine access after claim,
+  cross quiet-hour and daylight-saving boundaries, and invoke duplicate ticks.
+  Confirm one delivery per period/event. Unknown provider outcomes remain held.
+- Check totals against per-machine canonical sales and requested refund impact.
+  Payments and gifts remain separate context; missing data is not zero. Managers
+  see authorized request comments; technicians receive only safe operational
+  excerpts. No customer contact/payment credentials or private tokens enter the
+  technician projection.
+- Verify condition alerts say cash sales or payment device where those are the
+  proven sources. Stale status, incomplete coverage and a missing observation
+  cannot become a quiet-sales or offline incident.
+- Review desktop and 320/390 px screens, keyboard focus, error/loading/empty
+  states, unsaved-navigation confirmation and reachable save controls. Use
+  synthetic Auth/RPC fixtures and provider transport; no live customer messages
+  or refund decisions are required for these checks.
+
 ## Finance reporting and dated tax treatment (`#1708`)
 
 - In a disposable migrated environment, open `/portal/reports?view=finance` with an authorized sales/refund manager or Super-admin. Verify sales excluding tax minus requested refund impact equals net sales. Expand the breakdown: recorded money refunds, gifts and outstanding balances are separate, with no second deduction. Select a machine and export CSV; dates, scope, values and unavailable/partial coverage agree.

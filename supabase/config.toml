@@ -46,6 +46,10 @@ verify_jwt = false
 [functions.sales-report-scheduler]
 verify_jwt = false
 
+[functions.email-alert-dispatch]
+# The handler validates its dedicated scheduler credential before any service call.
+verify_jwt = false
+
 [functions.sunze-sales-sync]
 verify_jwt = false
 

@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { MachineEmailAlerts } from '@/components/email-alerts/MachineEmailAlerts';
 import { useAuth } from '@/contexts/auth-context';
 import {
   Dialog,
@@ -3268,6 +3269,7 @@ function MachineDialog({
           )}
         </div>
 
+        <div className="mt-4 flex justify-end"><MachineEmailAlerts machineId={machine.id}/></div>
         <nav className="mt-6 overflow-x-auto border-b border-border" aria-label="Machine setup sections">
           <div className="flex min-w-max gap-5">
             {detailTabs.map((tab) => (

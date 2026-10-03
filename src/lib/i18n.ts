@@ -145,6 +145,8 @@ export const translations = {
     'portal.nav.timeReviewDescription':
       'Review time and labor reports for your machines.',
     'portal.nav.account': 'Account Settings',
+    'portal.nav.emailAlerts': 'Email alerts',
+    'portal.nav.emailAlertsDescription': 'Choose machine updates and delivery times.',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.team': 'Team',
     'portal.nav.teamDescription':
@@ -912,6 +914,8 @@ export const translations = {
     'portal.nav.timeReview': '工时管理',
     'portal.nav.timeReviewDescription': '查看所管理机器的工时和人员报告。',
     'portal.nav.account': '账户设置 / Account Settings',
+    'portal.nav.emailAlerts': '邮件提醒 / Email alerts',
+    'portal.nav.emailAlertsDescription': '选择机器动态和邮件发送时间。',
     'portal.nav.accountDescription': '资料、账单、收货信息和语言偏好。',
     'portal.nav.team': '团队 / Team',
     'portal.nav.teamDescription': '添加 Technician，并管理已分配机器的报表权限。',

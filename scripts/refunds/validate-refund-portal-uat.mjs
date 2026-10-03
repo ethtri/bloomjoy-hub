@@ -27,6 +27,7 @@ import { createOrdinarySuccessChecks } from './portal-uat/journeys/ordinary-succ
 import { createUnknownProviderOutcomeChecks } from './portal-uat/journeys/unknown-provider-outcome.mjs';
 import { runPublicRefundSubmissionJourney } from './portal-uat/journeys/public-submission.mjs';
 import { shouldCaptureRefundPortalScreenshot } from './portal-uat/screenshot-policy.mjs';
+import { ineligibleEmailAlertPreferences } from './fixtures/email-alert-preferences.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
@@ -49,6 +50,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_time_report_access',
   'get_my_portal_access_context',
   'get_my_reporting_access_context',
+  'get_my_email_alert_preferences',
   'get_labor_analytics_access',
   'get_refund_analytics_access',
   'get_refund_automation_health',
@@ -3474,6 +3476,10 @@ const installMockSupabaseRoutes = async (
     rpcBodies.push({ name: rpcName, body: request.postDataJSON() });
     if (NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
       fixtureOwnedPortalRpcLabels.set(request, rpcName);
+    }
+
+    if (rpcName === 'get_my_email_alert_preferences') {
+      return route.fulfill(jsonResponse(ineligibleEmailAlertPreferences(mockUser.email)));
     }
 
     if (url.includes('/get_my_admin_access_context')) {

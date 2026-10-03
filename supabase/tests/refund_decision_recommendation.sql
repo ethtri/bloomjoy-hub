@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(39);
+select plan(40);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -507,6 +507,24 @@ select ok((select item->>'actionCode'='reject_request'
   where item->>'caseId'='f1050000-0000-4000-8000-000000000003'),
   'daily digest carries the advisory decline recommendation');
 reset role;
+-- Historical requested money is not a prepared payment amount for a reject
+-- recommendation. Keep canonical nulls, including when raw legacy fields exist.
+set local session_replication_role=replica;
+update public.refund_cases set refund_amount_cents=777,matched_nayax_currency_code='USD'
+where id='f1050000-0000-4000-8000-000000000003';
+set local session_replication_role=origin;
+select ok((select c->'amountCents'='null'::jsonb and c->'currencyCode'='null'::jsonb and c->>'needsDecision'='true'
+ from jsonb_array_elements(private.email_alert_projection(
+  'f1010000-0000-4000-8000-000000000001','daily',statement_timestamp(),
+  (statement_timestamp() at time zone 'America/Los_Angeles')::date-1,
+  (statement_timestamp() at time zone 'America/Los_Angeles')::date-1)->'machines') m
+ cross join lateral jsonb_array_elements(m->'refundCases') c
+ where c->>'caseId'='f1050000-0000-4000-8000-000000000003'),
+ 'machine email preserves canonical reject null amount and currency despite raw requested money');
+set local session_replication_role=replica;
+update public.refund_cases set refund_amount_cents=null,matched_nayax_currency_code=null
+where id='f1050000-0000-4000-8000-000000000003';
+set local session_replication_role=origin;
 insert into public.refund_gmail_messages(
  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,
  status,sender_email,recipient_email,subject,plain_body,received_at,

@@ -4,6 +4,10 @@ Purpose: provide a single launch-day procedure for Bloomjoy Hub production relea
 
 Last updated: 2026-09-13
 
+Machine email subscriptions use the dedicated
+[email alert release runbook](EMAIL_ALERTS_RUNBOOK.md), including daily-only
+defaults, inert scheduler configuration, activation and pause controls.
+
 ## Nayax card-refund operation (current authority)
 
 The product workflow is [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md). The live case
