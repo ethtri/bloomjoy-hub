@@ -1788,9 +1788,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
           await page.getByTestId('nayax-candidate-availability')
             .getByText(/1 result is selectable/).isVisible() &&
             await candidateOptions.filter({ has: page.locator('input[value="41000000-0000-4000-8000-000000000213"]') })
-              .getByText(/Amount differs by \$2\.99/).isVisible() &&
+              .getByText(/^Amount differs by \$2\.99/).isVisible() &&
             await candidateOptions.filter({ has: page.locator('input[value="41000000-0000-4000-8000-000000000214"]') })
-              .getByText(/Amount differs by \$3\.01/).isVisible()
+              .getByText(/^Amount differs by \$3\.01/).isVisible()
         );
       }
       if (scenario.expectedNoSelectableTransactions) {

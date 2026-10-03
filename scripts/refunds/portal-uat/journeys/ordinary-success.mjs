@@ -361,8 +361,9 @@ export const createOrdinarySuccessChecks = ({
     recorder.assert(
       'Manager case keeps the raw request and concise purchase proof in the main decision',
       await page.getByTestId('refund-request-summary').isVisible() &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Ending 4242') &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction time') &&
+        await page.getByTestId('refund-purchase-comparison').isVisible() &&
+        (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Ending 4242') &&
+        (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Nayax authorization time') &&
         (await page.getByRole('button', { name: /^Internal\/test archive/ }).count()) === 0
     );
     await settleRefundPortalPage(page);
@@ -643,7 +644,8 @@ export const createOrdinarySuccessChecks = ({
     recorder.assert(
       'Unselected provider transaction IDs remain absent from the workflow body',
       !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only') &&
-        (await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).count()) === 1
+        (await page.getByTestId('selected-nayax-transaction-id').count()) === 1 &&
+        (await page.getByTestId('selected-nayax-transaction-id').textContent()) === 'NAYAX-UAT-SELECTED-7001'
     );
 
     recorder.assert(
