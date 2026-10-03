@@ -93,6 +93,7 @@ import {
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
+import { CompanyManagementSheet } from '@/components/admin/CompanyManagementSheet';
 import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 import {
@@ -1383,6 +1384,9 @@ export default function AdminMachinesPage() {
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
+              {isSuperAdmin && (
+                <CompanyManagementSheet disabled={isLocalDemoMode} />
+              )}
               {isSuperAdmin && (
                 <Button asChild variant="outline">
                   <Link to={`/admin/machines/inventory${isLocalDemoMode ? '?demo=on' : ''}`}>

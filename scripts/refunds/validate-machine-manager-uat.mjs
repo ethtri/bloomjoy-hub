@@ -408,6 +408,9 @@ const installMockSupabaseRoutes = async (context, state) => {
           accountId: companyId,
           accountName: 'Bloomjoy UAT',
           status: 'active',
+          archivedAt: null,
+          updatedAt: '2026-10-03T00:00:00.000Z',
+          machineCount: 2,
           locations: [
             { locationId: mallLocationId, locationName: 'Mall Atrium', timezone: 'America/Los_Angeles', status: 'active' },
             { locationId: valleyLocationId, locationName: 'Valley Mall', timezone: 'America/Los_Angeles', status: 'active' },

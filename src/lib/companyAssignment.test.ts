@@ -23,6 +23,16 @@ Deno.test('general company assignment permits inactive targets without changing 
   assert(Boolean(validateCompanyAssignment(selected, [inactive], saved, true)), 'SnapCase keeps inherited validation');
   assert(inactive.status === 'inactive' && inactive.locations[0].status === 'inactive', 'Selection never reactivates company/location');
 });
+Deno.test('archive only excludes new targets, preserves current saved assignments and differs from inactive status', () => {
+  const archived = { ...companies[0], archivedAt: '2026-10-03T00:00:00Z' };
+  assert(singleEligibleCompanyId([archived]) === '', 'Archived company must never be preselected for new assignment');
+  assert(singleEligibleCompanyId([archived, companies[1]]) === 'b', 'Only nonarchived company is eligible');
+  assert(Boolean(validateCompanyAssignment(draft, [archived])), 'New assignment to archived company is unavailable');
+  assert(validateCompanyAssignment(draft, [archived], saved) === null, 'Current archived assignment is retained');
+  assert(validateCompanyAssignment({ ...draft, addLocation: true }, [archived], saved) === null, 'Current company identity stays valid when a location is explicitly added');
+  assert(Boolean(validateCompanyAssignment({ ...draft, accountId: 'a' }, [archived], { ...saved, accountId: 'b' })), 'Cannot reassign from another company to archived target');
+  assert(singleEligibleCompanyId([{ ...archived, archivedAt: null }]) === 'a', 'Restore makes company selectable again');
+});
 Deno.test('company change clears incompatible location IDs without matching equal names and restores only the saved ID', () => {
   const changed = changeCompanyAssignment(draft, 'b', saved);
   assert(changed.locationId === '', 'Do not select a same-named location');

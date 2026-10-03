@@ -1,5 +1,5 @@
 export type CompanyLocation = { locationId: string; locationName: string; timezone: string; status: string };
-export type CompanyChoice = { accountId: string; accountName: string; status: string; locations: CompanyLocation[] };
+export type CompanyChoice = { accountId: string; accountName: string; status: string; locations: CompanyLocation[]; archivedAt?: string | null; updatedAt?: string; machineCount?: number };
 export type CompanyChoices = { canCreateCompany: boolean; companies: CompanyChoice[] };
 export type CompanyAssignmentDraft = {
   accountId: string;
@@ -17,7 +17,7 @@ export type SavedCompanyAssignment = {
 };
 
 export const singleEligibleCompanyId = (companies: CompanyChoice[], activeTargetsOnly = false) => {
-  const eligible = companies.filter((company) => !activeTargetsOnly || company.status === 'active');
+  const eligible = companies.filter((company) => !company.archivedAt && (!activeTargetsOnly || company.status === 'active'));
   return eligible.length === 1 ? eligible[0].accountId : '';
 };
 
@@ -46,7 +46,7 @@ export const validateCompanyAssignment = (
   // Preserve an unchanged saved assignment even if it is inactive or no longer in the choices.
   if (saved && draft.accountId === saved.accountId && draft.locationId === saved.locationId && !draft.addLocation) return null;
   const company = companies.find((item) => item.accountId === draft.accountId);
-  if (!company || (activeTargetsOnly && company.status !== 'active')) return 'Choose an available company before saving.';
+  if (!company || (company.archivedAt && company.accountId !== saved?.accountId) || (activeTargetsOnly && company.status !== 'active')) return 'Choose an available company before saving.';
   if (draft.addLocation) {
     if (!draft.locationName.trim()) return 'Enter the new location name.';
     try {

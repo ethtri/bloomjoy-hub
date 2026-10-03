@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-10-03 - Company management and Merlin ownership
+
+- Company setup uses the existing canonical account IDs. Admins can rename,
+  archive and restore companies; archiving removes a company from new machine
+  assignments without deleting it, changing account access or hiding existing
+  machine history. Existing assignments remain editable.
+- Company names remain unique regardless of capitalization and surrounding
+  spaces. Renaming changes the displayed name, not the underlying identity.
+- Per owner direction, Merlin is a venue/partner grouping, not a machine-owning
+  company. Its machines belong to Bloomjoy Enterprises. Correct the company
+  alignment while preserving venue identities, provider mappings, partnership
+  agreements, explicit machine assignments and sales/refund records.
+- Reporting groups historical activity under the machine's current company;
+  this correction does not rewrite transaction dates or financial amounts.
+- Existing Merlin payroll profiles retain their original policies, rates,
+  periods and entries. The ownership correction preserves the two existing
+  payroll machine assignments through a narrowly recorded compatibility scope;
+  it does not grant access to other Bloomjoy Enterprises machines or move pay
+  history to a different account. Existing technician access keeps the same
+  explicitly assigned machines.
+
 ## 2026-10-03 - Technician refund visibility follows machine assignments
 
 For #1729 the owner clarified that seeing refund requests is an essential part of
