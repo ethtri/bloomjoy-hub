@@ -118,6 +118,7 @@ export async function verifyCompanyPayrollCorrection({ dbPort }) {
     const before = await invariants();
     const beforeReports = await reports();
     const beforeEffective = await effectiveTechnicianScopes();
+    assert.deepEqual(beforeEffective, [...machines.slice(0,4).map(id => `{${id}}`),'{}'], 'baseline resolver has four exact active scopes and no revoked scope'); checks++;
     const technicianScope = await value('select array_agg(machine_id order by machine_id)::text result from public.technician_machine_assignments where technician_grant_id=any($1)', [grants]);
 
     // Drift must fail before any ownership or access mutation.
