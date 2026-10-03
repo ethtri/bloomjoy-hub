@@ -209,7 +209,7 @@ check(
   'Canonical case links are encoded and browser-tested as navigation-only',
   managerNotification.includes('/refunds?case=${encodeURIComponent(refundCaseId)}') &&
     portalUi.includes('handleSelectCase(caseFromUrl)') &&
-    portalUi.includes("new URLSearchParams(window.location.search).get('case')") &&
+    portalUi.includes("companyParams.get('case')") &&
     portalUat.includes("/refunds?case=${encodeURIComponent('case-card-pending')}") &&
     portalUat.includes("name === 'nayax-transaction-lookup'") &&
     portalUat.includes("name === 'nayax-card-refund'") &&

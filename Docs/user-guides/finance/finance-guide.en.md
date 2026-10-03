@@ -1,6 +1,6 @@
 # Bloomjoy Finance team guide
 
-Updated October 2, 2026. Screenshots show illustrative sample data, not company results. Sign in to follow the live links. English screen labels are preserved in both editions.
+Updated October 3, 2026. Screenshots show illustrative sample data, not company results. Sign in to follow the live links. English screen labels are preserved in both editions.
 
 ## 1. Start with Finance
 
@@ -8,7 +8,7 @@ Updated October 2, 2026. Screenshots show illustrative sample data, not company 
 
 ![Finance totals - illustrative sample data](assets/finance-core.png)
 
-- Choose the **Period** and **Location**. Open **More filters** for a machine. Sales use each machine's local business date. With no dates in the link, the initial period is the last seven completed days.
+- Choose **Company**, **Period** and **Location**. Open **More filters** for a machine. Sales use each machine's local business date. With no dates in the link, the initial period is the last seven completed days.
 - Read **Sales excluding tax**, **Refund deductions**, then **Net sales**. In this sample, $150.00 - $16.00 = $134.00. Net sales is a reporting amount; it is not profit or money deposited in the bank.
 - Scroll to **By machine** and select a machine name to review it using the same period. **Save view** saves the filters for your account in this browser; it does not save a frozen report.
 - **Export CSV** downloads Finance for the selected period and scope. Money columns are integer **cents**: 12345 means $123.45. Divide by 100 when formatting dollars in a spreadsheet. Keep the date, scope and coverage rows.
@@ -51,7 +51,7 @@ In Finance, open **Sales, tax and refund breakdown**.
 
 ![Sales detail controls - illustrative sample data](assets/sales.png)
 
-- Set **Date range** and **Machine** in the **Operator performance** report. For specific dates, select the custom range and enter its dates. Read the filter summary directly below the controls.
+- Set **Company**, **Date range** and **Machine** in the **Operator performance** report. For specific dates, select the custom range and enter its dates. Read the filter summary directly below the controls.
 - Open **More filters** to choose **Group results by** (Daily, Weekly or Monthly) and **Payment scope**. Sales uses these controls instead of the Overview comparison selector.
 - Review the sales totals, period summary and trend. Scroll to **Detailed breakdown** and choose **View details** for machine and payment rows. Use **Export polished PDF** for the selected sales report.
 - Under the shared sales basis, sales and refund impact exclude tax; refund payments are context, not another deduction. If older records use a different basis or an amount is unavailable, read the labels and coverage notes before comparing it with Finance. A sales row does not prove machine uptime.
@@ -65,7 +65,7 @@ In Finance, open **Sales, tax and refund breakdown**.
 
 ![Requests received - illustrative sample data](assets/refunds-core.png)
 
-- Choose **Period**, **Location** and, under **More filters**, **Machine**. Refund reports live in **Refunds**, rather than a central Reporting tab. From Overview, **View reports in Refunds** carries the selected dates and location/machine scope.
+- Choose **Company**, **Period**, **Location** and, under **More filters**, **Machine**. Refund reports live in **Refunds**. From Overview, **View reports in Refunds** carries the selected dates and company/location/machine scope, checked against your Refund access.
 - **Requests received in this period** follows requests received during the selected dates: their requested purchase value, resolution by period end and remaining balance. Duplicate requests count once; a request does not confirm a failed purchase.
 - **Activity recorded in this period** follows the dates of payments, gift issuance and accounting changes. It can include older requests. Money refunds, gift purchase value, gift face value and goodwill describe different things; do not add them all as cash paid or deduct them again from net sales.
 - **Outstanding across all requests** looks at all available request history as of period end, not only new requests in the period. **Report details** explains dates, missing records and historical deductions. Use **Export CSV** for the breakdown; Finance and Refunds totals can differ when their authorized machine scopes differ.
@@ -88,3 +88,31 @@ In Finance, open **Sales, tax and refund breakdown**.
 **If a report looks incomplete:** use **Retry** or **Try again** for loading errors. For empty results, check dates, location and machine. Read **Data coverage and metric definitions** in Reporting or **Report details** in Refunds. Recent imports do not prove complete records across every provider, machine and date.
 
 Before using an export: confirm the period, authorized scope, units and coverage notes. If a discrepancy remains, share the report view, dates and machine/location with the team responsible for reporting; keep private customer and payment details out of general screenshots.
+
+---
+
+## 7. Compare companies and find their machines
+
+[Open Sales](https://app.bloomjoyusa.com/portal/reports?view=sales) | [Open Refunds](https://app.bloomjoyusa.com/refunds)
+
+![Company reporting controls - illustrative sample data](assets/company-reports.png)
+
+- **All companies** shows the companies within your access. Select **Company** to narrow the report, available machines and export together. Overview, Sales, Locations, Finance and Refund reports each retain their own access rules; one report may show fewer companies than another.
+- In Refunds, **Company** also narrows the case queue, its counts and search. A direct link to a case opens that authorized case even if your previous company filter was different. Deliberately choosing another company changes the queue again.
+- Company grouping follows each machine's **current** company, including older activity. It does not rewrite the original sale/refund date or location. This is a management view, not a statement of legal ownership at the transaction date.
+- Check the company label before exporting or sharing a saved view. If a company link is unavailable, select another permitted company or explicitly choose **All companies**. An unavailable selection never silently becomes every machine. Timekeeping and Partners use their own filters.
+- Recorded sales and refund counts help identify what to review. Missing data is not zero, and these reports do not certify that a machine is online or operating normally.
+
+---
+
+## 8. Keep machine company assignments consistent
+
+[Open Machines — authorized admins](https://app.bloomjoyusa.com/admin/machines)
+
+![Machine company selection - illustrative sample data](assets/company-machines.png)
+
+- In a machine's edit form, choose an existing **Company** from the dropdown and save normally. The selection uses a stable company ID, so typing a spelling variation cannot create another company. The existing assignment is retained when you open an edit.
+- If a company is genuinely new, use **Add company**, enter its name and select **Create company**. Creation is a separate action: it creates no invitation. An exact name match ignores capitalization and surrounding spaces and reuses the existing company.
+- When changing company, choose a location belonging to that company or explicitly add a location with its timezone. The old location and historical records remain intact. Company-level report access follows the selected company; machine manager assignments stay the same.
+- **Cancel** leaves the machine draft intact. If the company was created but saving the machine fails, retry the machine save; the company already exists. If another admin changed the assignment, review the latest assignment before saving again.
+- Company setup requires the existing machine administration permission. Finance users who only read reports can ask their machine administrator to correct an assignment. Imported-machine setup uses the same explicit company selection.

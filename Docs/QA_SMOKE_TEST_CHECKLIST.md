@@ -1,5 +1,18 @@
 # QA Smoke Test Checklist
 
+## Company assignment (`#1719`)
+
+- As Super Admin, verify saved Company/location IDs in the full-page and sheet
+  editors. New machine, Sunze and SnapCase setup include zero-machine companies.
+- Explicit Add company handles duplicate capitalization/outer spaces and preserves
+  the machine draft on Cancel/failure. Simultaneous creates resolve to one company;
+  no invitations or memberships are created. Stale assignment saves fail clearly.
+- A company change requires a compatible location or explicit new location/timezone.
+  Historical facts, cases, shared old locations, managers, provider/tax settings and
+  settlement assignments remain unchanged. Ordinary identity saves preserve status.
+- Check loading/retry, empty choices, unavailable saved choices, long names, keyboard
+  Cancel/focus, 320/390px and 200% zoom using the synthetic machine UI fixture.
+
 ## Personal machine email alerts (`#1715`)
 
 - Open `/portal/notifications` as an assigned manager and a technician, including
