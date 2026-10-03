@@ -48,6 +48,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
+import { TaxTreatmentFields, type TaxTreatmentDraft } from '@/components/portal/reports/TaxTreatmentFields';
+import { fetchReportingTaxTreatments, getEffectiveReportingTaxTreatment, saveReportingTaxConfiguration, type ReportingTaxTender, type ReportingTaxTreatmentValues } from '@/lib/reportingTaxTreatment';
 import {
   fetchPartnershipReportingSetup,
   setReportingMachineTaxRateAdmin,
@@ -296,11 +298,14 @@ const emptyMachineForm = {
   operationalPhase: 'live' as ReportingMachineOperationalPhase,
 };
 
+const treatmentDraft = (value: ReportingTaxTreatmentValues): TaxTreatmentDraft => ({ amountBasis: value.amountBasis, taxablePortionPercent: String(value.taxablePortionPercent) });
 const emptyTaxChangeForm = {
   machineId: '',
   taxRatePercent: '',
   effectiveStartDate: today(),
   reason: '',
+  cardTreatment: null as TaxTreatmentDraft | null,
+  cashTreatment: null as TaxTreatmentDraft | null,
 };
 
 const parseTaxFilter = (value: string | null): MachineTaxFilter => {
@@ -410,7 +415,7 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
 
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const { user, isScopedAdmin, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { machineId: routeMachineId } = useParams<{ machineId?: string }>();
@@ -439,6 +444,10 @@ export default function AdminMachinesPage() {
   const [savingTaxMachineId, setSavingTaxMachineId] = useState<string | null>(null);
   const [taxChangeForm, setTaxChangeForm] = useState(emptyTaxChangeForm);
   const [isTaxChangeDialogOpen, setIsTaxChangeDialogOpen] = useState(false);
+  const taxTreatments = useQuery({
+    queryKey: ['admin-reporting-tax-treatments', user?.id], queryFn: fetchReportingTaxTreatments,
+    enabled: isTaxChangeDialogOpen, staleTime: 30000,
+  });
   const [historyMachine, setHistoryMachine] = useState<PartnershipSetupMachine | null>(null);
   const [editingMachine, setEditingMachine] = useState<PartnershipSetupMachine | null>(null);
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
@@ -1027,6 +1036,8 @@ export default function AdminMachinesPage() {
       taxRatePercent: taxRate ? String(Number(taxRate.tax_rate_percent)) : '',
       effectiveStartDate: taxRate ? today() : initialReportingTaxStartDate,
       reason: '',
+      cardTreatment: null,
+      cashTreatment: null,
     });
     setIsTaxChangeDialogOpen(true);
   };
@@ -1123,14 +1134,35 @@ export default function AdminMachinesPage() {
       return;
     }
 
+    const changingTreatment = Boolean(taxChangeForm.cardTreatment || taxChangeForm.cashTreatment);
+    if (changingTreatment && !taxTreatments.isSuccess) {
+      toast.error('Reload the saved treatment before saving treatment changes.');
+      return;
+    }
+    const treatmentFor = (tender: ReportingTaxTender) => {
+      const draft = tender === 'card' ? taxChangeForm.cardTreatment : taxChangeForm.cashTreatment;
+      return draft ? { amountBasis: draft.amountBasis, taxablePortionPercent: Number(draft.taxablePortionPercent) }
+        : getEffectiveReportingTaxTreatment(taxTreatments.data ?? [], machine.id, tender, taxChangeForm.effectiveStartDate);
+    };
+    if ([taxChangeForm.cardTreatment, taxChangeForm.cashTreatment].some(draft => draft && (!draft.taxablePortionPercent.trim() || !Number.isFinite(Number(draft.taxablePortionPercent)) || Number(draft.taxablePortionPercent) < 0 || Number(draft.taxablePortionPercent) > 100))) {
+      toast.error('Enter each taxable portion from 0 to 100.');
+      return;
+    }
+
     setSavingTaxMachineId(machine.id);
     try {
-      await setReportingMachineTaxRateAdmin({
+      const configuration = {
         machineId: machine.id,
         taxRatePercent: parsedRate,
         effectiveStartDate: taxChangeForm.effectiveStartDate,
         reason: taxChangeForm.reason.trim(),
-      });
+      };
+      if (changingTreatment) {
+        await saveReportingTaxConfiguration({ ...configuration, card: treatmentFor('card'), cash: treatmentFor('cash') });
+        await queryClient.invalidateQueries({ queryKey: ['admin-reporting-tax-treatments'] });
+      } else {
+        await setReportingMachineTaxRateAdmin(configuration);
+      }
       toast.success(`${machine.machine_label} tax change recorded.`);
       closeTaxChangeDialog(false);
       await refresh();
@@ -1281,6 +1313,7 @@ export default function AdminMachinesPage() {
                 isRefundManagerSetupLoading={isRefundManagerSetupLoading}
                 isLocalDemoMode={isLocalDemoMode}
                 canEditMachineIdentity={isMachineIdentityEditable}
+                canManageReportingTax={isSuperAdmin || isScopedAdmin}
                 canActivateCardRefunds={!isLocalDemoMode && isSuperAdmin}
                 globalRefunds={refundManagerSetup.globalRefunds}
                 demoManagerAccounts={demoMachineManagerAccounts}
@@ -1303,6 +1336,7 @@ export default function AdminMachinesPage() {
           isInitialSetup={!setup.taxRates.some((rate) => rate.machine_id === taxChangeForm.machineId)}
           isSaving={Boolean(taxChangeForm.machineId && savingTaxMachineId === taxChangeForm.machineId)}
           onSave={saveTaxChange}
+          treatments={taxTreatments}
         />
         <TaxHistorySheet
           machine={historyMachine}
@@ -1647,6 +1681,7 @@ export default function AdminMachinesPage() {
         isInitialSetup={!setup.taxRates.some((rate) => rate.machine_id === taxChangeForm.machineId)}
         isSaving={Boolean(taxChangeForm.machineId && savingTaxMachineId === taxChangeForm.machineId)}
         onSave={saveTaxChange}
+        treatments={taxTreatments}
       />
       <TaxHistorySheet
         machine={historyMachine}
@@ -2345,6 +2380,7 @@ function TaxChangeDialog({
   isInitialSetup,
   isSaving,
   onSave,
+  treatments,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -2354,19 +2390,20 @@ function TaxChangeDialog({
   isInitialSetup: boolean;
   isSaving: boolean;
   onSave: () => void;
+  treatments: ReturnType<typeof useQuery<Awaited<ReturnType<typeof fetchReportingTaxTreatments>>>>;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{isInitialSetup ? 'Set reporting tax rate' : 'Change reporting tax rate'}</DialogTitle>
           <DialogDescription>
             {isInitialSetup
-              ? 'Add the rate used for this machine’s reporting history. Confirm the effective date before saving.'
-              : 'Use this when a machine moves or a jurisdiction changes. The previous rate closes the day before this one applies.'}
+              ? 'Add reporting settings for this machine’s history. Confirm the effective date before saving.'
+              : 'Choose when these reporting settings take effect. The previous rate ends the day before.'}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
+        <div className="grid min-h-0 gap-4 overflow-y-auto px-1">
           <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
             <div className="text-xs font-medium uppercase text-muted-foreground">Machine</div>
             <div className="mt-1 font-medium text-foreground">{machine?.machine_label ?? 'Select a machine'}</div>
@@ -2406,8 +2443,20 @@ function TaxChangeDialog({
               placeholder={isInitialSetup ? 'Initial reporting tax setup' : 'Machine moved to a new jurisdiction'}
             />
           </div>
+          <TaxTreatmentFields
+            values={{
+              card: form.cardTreatment ?? treatmentDraft(getEffectiveReportingTaxTreatment(treatments.data ?? [], form.machineId, 'card', form.effectiveStartDate)),
+              cash: form.cashTreatment ?? treatmentDraft(getEffectiveReportingTaxTreatment(treatments.data ?? [], form.machineId, 'cash', form.effectiveStartDate)),
+            }}
+            rate={form.taxRatePercent}
+            loading={treatments.isLoading}
+            error={treatments.isError}
+            disabled={isSaving}
+            onRetry={() => void treatments.refetch()}
+            onChange={(tender, value) => setForm({ ...form, [tender === 'card' ? 'cardTreatment' : 'cashTreatment']: value })}
+          />
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -2493,6 +2542,7 @@ function MachineDialog({
   isRefundManagerSetupLoading,
   isLocalDemoMode,
   canEditMachineIdentity,
+  canManageReportingTax = canEditMachineIdentity,
   canActivateCardRefunds,
   globalRefunds,
   demoManagerAccounts,
@@ -2516,6 +2566,7 @@ function MachineDialog({
   isRefundManagerSetupLoading: boolean;
   isLocalDemoMode: boolean;
   canEditMachineIdentity: boolean;
+  canManageReportingTax?: boolean;
   canActivateCardRefunds: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   demoManagerAccounts: AdminAccountSummary[];
@@ -3483,7 +3534,7 @@ function MachineDialog({
               </div>
             )}
             <div className="mt-5 flex flex-wrap gap-2">
-              {canEditMachineIdentity && (
+              {canManageReportingTax && (
                 <>
                   <Button variant="outline" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}><CalendarClock className="mr-2 h-4 w-4" /> {machineRow?.taxRate ? 'Change tax rate' : 'Set tax rate'}</Button>
                   <Button variant="outline" onClick={() => onShowTaxHistory?.(machine)} disabled={taxHistoryCount === 0}><History className="mr-2 h-4 w-4" /> Rate history ({taxHistoryCount})</Button>
@@ -3492,7 +3543,7 @@ function MachineDialog({
               {canEditMachineIdentity ? (
                 <Button variant="ghost" asChild><Link to="/admin/partnerships">Manage partnerships <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
               ) : (
-                <p className="self-center text-xs text-muted-foreground">Partnership and tax changes are managed by a Super Admin.</p>
+                <p className="self-center text-xs text-muted-foreground">Partnership changes are managed by a Super Admin.</p>
               )}
             </div>
           </section>

@@ -58,6 +58,7 @@ import {
 } from '@/lib/signedExportWindow';
 import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi';
 import { getSnapCaseMappingEffectiveWindow } from '@/lib/snapcaseMappingWindow';
+import { AdminReportingServiceStatus } from '@/pages/admin/AdminReportingServiceStatus';
 
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
@@ -559,6 +560,14 @@ export default function AdminReportingPage() {
               status={refundReviewRows.some(isRefundReviewActionable) ? 'pending' : 'completed'}
             />
           </div>
+
+          <AdminReportingServiceStatus />
+          <p className="mt-4 text-sm text-muted-foreground">
+            <Link to="/admin/partnerships?step=preview" className="font-medium text-primary underline underline-offset-4">
+              Partner report setup
+            </Link>{' '}
+            shows export blockers in Weekly Preview. Choose the partnership and reporting week to review.
+          </p>
 
           {lastSetupResult && (
             <ImportedMachineSetupReceipt

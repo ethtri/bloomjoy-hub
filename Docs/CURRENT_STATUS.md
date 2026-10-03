@@ -33,6 +33,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Reporting PR #1709 includes the October 2 review fixes: seven completed days
+  by default, prior-year comparison, a single detailed Sales view, and admin-only
+  service diagnostics. The hosted preview still lacks the Finance/Labor/Refund
+  access services; frontend deployment alone cannot enable those views. The
+  isolated `npm run reporting:preview` serves the actual Finance UI with labeled
+  synthetic data. Production and shared UAT were not changed for preview access.
+
 - PR #1706 deployed a service-only assisted path for an already-supplied payout
   limitation on an existing legacy form. The reviewed same-case writer, source
   receipt, authority and retry guards passed synthetic regression; production

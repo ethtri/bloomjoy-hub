@@ -1,5 +1,54 @@
 # QA Smoke Test Checklist
 
+## Finance reporting and dated tax treatment (`#1708`)
+
+- In a disposable migrated environment, open `/portal/reports?view=finance` with an authorized sales/refund manager or Super-admin. Verify sales excluding tax minus requested refund impact equals net sales. Expand the breakdown: recorded money refunds, gifts and outstanding balances are separate, with no second deduction. Select a machine and export CSV; dates, scope, values and unavailable/partial coverage agree.
+- Open Finance directly as a sales-only or refund-only user and with a saved out-of-scope machine. No Finance data request is made for a denied/unverified scope. A missing optional Finance service leaves existing reporting usable and provides Retry on the Finance link. An empty response is not labeled zero activity.
+- In `/admin/machines` → Reporting as a Super-admin and as a scoped admin for an assigned machine, retain the existing rate/date/reason flow. Expand the optional tax-treatment settings, change card/cash amount basis and taxable portion, and save once. Reload to verify the dated values and audit reason. Rate-only edits must not reset treatments; invalid or failed combined saves must not partially change configuration. Scoped tax editing must not expose machine identity editing or expand machine scope.
+- In synthetic accounting fixtures, verify tax-inclusive full/partial taxable amounts, tax-exclusive and separately recorded tax, explicit zero versus unknown, an effective-date boundary, and a refund of an earlier purchase. Explicit source metadata wins; current source defaults and issued snapshots remain unchanged.
+- Verify Finance and the tax editor at desktop and 320/390 px, including keyboard disclosure, visible validation, empty/loading/error states, and no page overflow. Run `npm run reporting:validate-finance-uat -- --app-url http://127.0.0.1:8084` and `npm run reporting:validate-tax-uat -- --app-url http://127.0.0.1:8084`; these use synthetic reporting Auth/RPC fixtures rather than production changes.
+
+## Reporting workspace
+
+- [ ] Open `/portal/reports` with authorized sales access. Overview, Sales and
+  Locations retain the selected dates, comparison, location, machine and sales
+  tender in the URL. Saved views store filters for the current user only; reopening
+  or sharing a URL never grants data access.
+- [ ] Compare equal periods, unequal prior-month lengths, missing source rows and
+  failed reads. Missing data is unavailable, never fabricated zero activity.
+  Open daily chart values with the keyboard; location drilldown and browser Back
+  preserve the selected period. Read coverage before interpreting a quiet machine.
+- [ ] Labor is independently authorized. Three 20-minute entries show one recorded
+  hour and three paid shifts. Time-only managers see no earnings or pay export.
+  Monthly estimates, partial months, missing rates and account-wide statement
+  readiness remain explicit; publication is not payment.
+- [ ] Refunds & Recovery independently authorizes every machine. Request cohorts,
+  payment/accounting activity and period-end balances stay separate; partial cash,
+  gifts, unknown dates and incomplete history remain distinguishable. CSV matches
+  the visible authorized scope and contains no customer/payment identifiers.
+- [ ] Open a location's 360 view and inspect permitted labor/refund panels; each
+  domain rechecks scope. A sales-only user receives no labor/refund aggregate calls,
+  while time-only and refund-only managers can reach their own reporting view.
+- [ ] Existing detailed sales PDF export and partner agreement reporting remain
+  operable under Sales → Detailed report & PDFs and Partners → Export → Polished
+  PDF report. Those views show only their own filters; the original sales report
+  supports longer custom periods independently of the analytics date limit.
+- [ ] Period offers complete-day, week, month, year and Custom range choices.
+  Custom dates apply together, preserve scope and survive refresh/Back. Invalid
+  dates do not fetch data. Labor/refunds show no sales tender or comparison control.
+  Partners retain agreement-specific period controls. Verify saved view,
+  briefing and CSV downloads, empty/error states and 320/360/390/768/1024/1440px layouts.
+- [ ] When the optional labor/refund permission services are unavailable, existing
+  operator and partner reports still open without a loading/retry loop. A granted
+  labor or refund view remains usable when the other service fails. Unverified
+  domains never fetch report data; accounts without verified access can retry.
+- [ ] Run `npm run reporting:test-analytics`,
+  `npm run reporting:validate-workspace-uat -- --app-url http://127.0.0.1:8081`,
+  `npm run reporting:validate-portal-uat -- --app-url http://127.0.0.1:8081`,
+  and `node scripts/validate-reporting-access-uat.mjs --app-url http://127.0.0.1:8081`
+  against a local server with synthetic fixtures. Run disposable database replay
+  for the real authorization and canonical financial-calculation assertions.
+
 ## Refund workflow
 
 Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior. Tests and
@@ -1017,3 +1066,21 @@ npm run refunds:validate-portal-uat-lifecycle
 - Render the gift-card email at desktop, 375 px and 320 px with images blocked. Value, code, one redemption step, locations and exact expiry/one-use terms remain readable. All checks use synthetic codes and email addresses; do not send a customer email or perform a financial test.
 - Focused browser verification: start a local server with synthetic Supabase URL `http://127.0.0.1:59999` and a synthetic public key, then run `node scripts/refunds/refund-gift-card-browser.mjs` (default local URL `http://127.0.0.1:8097`; override with `REFUND_GIFT_CARD_UAT_URL`). Synthetic transport cannot certify real inbox timing or provider redemption.
 
+### Reporting review refinements (#1708, #1709)
+
+- Open Reporting with no dates: show the last seven completed days. A direct link to unavailable Finance falls back to an authorized Overview automatically, preserving dates and machine/location scope. Failed access must not reuse cached Finance permission. A successful denial never loads Finance data.
+- Compare same dates in the prior year, including February 29 and a year boundary. Machines without prior-year records show unavailable/not comparable. Explicit URL and saved dates survive preset changes and reloads.
+- Sales opens the detailed report with no sub-tabs. Enter from a one-machine/one-location Overview; every sales request retains both filters. The inherited location is named, Clear location works, and Reset clears machine/location/tender. Invalid linked scope never silently widens to all machines.
+- Overview includes a collapsed machine/payment breakdown. Reports contain no unrelated Labor/Refund access diagnostic or partner setup alert. A blocked partner export remains disabled and says Export unavailable; figures are marked Preliminary. Admin Reporting shows failed service checks only; denied access is not an outage. Partner report setup links to the existing Weekly Preview reasons/fixes.
+- Use `npm run reporting:preview` to review Finance on this computer with labeled sample data. Verify summary, disclosure, machine drilldown and CSV at desktop and 320/390 px. The launcher ignores real client settings and blocks external requests, unknown RPCs, mutations and server exports.
+
+### Operational report homes and mobile navigation (#1708, #1709)
+
+- At 320/390 px, central Reporting uses the labeled Report selector and all five options have visible 44 px targets. Desktop keeps Overview, Sales, Finance, Locations and Partners tabs. Location/machine rows, daily trend details and payment rows can be read without sideways scrolling on a phone.
+- Follow labor/refund headlines from Overview and Locations. The owning app opens Reports with the same dates/location/machine; legacy `/portal/reports?view=labor` and `view=refunds` links retain the original scope. The full operational panels no longer appear in Locations.
+- A labor-only or refund-only actor with no workflow capabilities can open the permitted report and its sidebar link, but cannot open the time editor or refund queue. Successful denial, failed service checks and failed cached permission checks never reveal report values or grant workflow actions. Failures do not repeatedly retry as shells mount.
+- Invalid linked dates/location/machine block data requests. Scope-only changes preserve malformed linked dates until a person changes Period. CSV keeps the displayed report scope. Refund-only users do not see a Business overview link that redirects them back to the same report.
+- Start synthetic dev on 8084 and run `npm run reporting:validate-operational-uat -- --app-url http://127.0.0.1:8084`; also run the workspace/access/Finance suites. For interactive sample review, `npm run reporting:preview` supports `/portal/time-review?view=reports` and `/refunds?view=reports` on 8097.
+- Selected machine and payment filters remain named when More filters is closed. Remove one with a keyboard or touch and verify the dates, location and other selections survive. An unmatched location search offers Clear search without suggesting an import failure.
+- Operational report totals precede detailed methodology, which remains available through a keyboard-operable disclosure. Unknown counts appear only when relevant and retain their correct request/date population. Labor load failures offer Retry. Populated Finance coverage must not claim there are no loaded sales.
+- In a disposable database, a visible-machine accounting fact linked to an unauthorized or internal-test refund makes the Refund report's accounting totals Unavailable in the UI and CSV. Authorized payment/gift recovery stays visible; an unaffected date retains its legacy paid deduction. The SQL Finance fixture covers direct links, null-ID backlinks and recognition events; `node scripts/validate-refund-report-home-uat.mjs --app-url http://127.0.0.1:8084` covers unavailable rendering and export.
