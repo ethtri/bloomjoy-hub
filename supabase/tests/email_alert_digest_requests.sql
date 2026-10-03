@@ -60,7 +60,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
 update public.refund_cases set status='completed' where id='ed760000-0000-4000-8000-000000000001';
 update public.refund_cases set issue_category='expected_cash_change',payment_method='cash',resolution_method='gift_card',
  cash_inserted_amount_cents=1000,expected_change_amount_cents=300,affected_amount_cents=900,gift_card_value_cents=1500,
- gift_card_pool_id='ed770000-0000-4000-8000-000000000001',gift_card_expires_at='2027-10-03T00:00Z',gift_card_state='manager_review'
+ gift_card_pool_id='ed770000-0000-4000-8000-000000000001',gift_card_expires_at='2027-10-03T00:00Z',gift_card_state='pending_inventory'
  where id='ed760000-0000-4000-8000-000000000004';
 update public.refund_cases set duplicate_of_refund_case_id='ed760000-0000-4000-8000-000000000001'
  where id='ed760000-0000-4000-8000-000000000011';
@@ -111,6 +111,10 @@ select throws_ok($$select private.email_alert_digest_metadata('ed710000-0000-400
 select ok(not has_function_privilege('authenticated','private.email_alert_digest_metadata(uuid,uuid,date,date)','execute'),'Clients cannot request aggregates for another actor');
 select ok(not has_function_privilege('service_role','private.email_alert_customer_requested_usd(public.refund_cases)','execute'),'Raw case helper has no service API grant');
 select ok(not has_function_privilege('anon','private.email_alert_digest_metadata(uuid,uuid,date,date)','execute'),'Anonymous aggregate access is denied');
+-- Exercise the real digest with a supported, still-open gift stock wait. This
+-- intake regression does not fabricate a separate Manager decision preparation.
+select is(public.refund_lifecycle_contract('ed760000-0000-4000-8000-000000000004')#>>'{nextWork,isOpen}','true','Expected-change intake remains an open request');
+select is(public.refund_lifecycle_contract('ed760000-0000-4000-8000-000000000004')#>>'{nextWork,actor}','system','Gift stock wait follows its existing System-owned lifecycle');
 create temporary table digest_projection as select private.email_alert_projection(
  'ed710000-0000-4000-8000-000000000001','daily','2026-10-03T15:00Z','2026-10-02','2026-10-02') p;
 select is((select m#>>'{digest,newRequestCount}' from digest_projection,jsonb_array_elements(p->'machines') m where m->>'machineId'='ed740000-0000-4000-8000-000000000001'),'5','Daily projection carries authoritative period totals');
