@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -561,11 +561,11 @@ const createPageForPersona = async (
   browser,
   persona,
   viewport,
-  { freshness = 'fresh' } = {},
+  { freshness = 'fresh', rpcHandler = rpcResponse } = {},
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
-  const state = { operatorExports: [], partnerExports: [], adminRpcCalls: [] };
+  const state = { operatorExports: [], partnerExports: [], adminRpcCalls: [], rpcCalls: [] };
 
   await context.addInitScript(
     ({ sessionValue, fixedNow, email }) => {
@@ -613,6 +613,7 @@ const createPageForPersona = async (
     if (url.pathname.includes('/rest/v1/rpc/')) {
       const rpcName = decodeURIComponent(url.pathname.split('/').pop());
       const body = parsePostBody(route.request());
+      state.rpcCalls.push({ rpcName, body });
       if (debug) console.log(`[${persona.email}] rpc ${rpcName}`, body);
       if (rpcName.startsWith('admin_upsert_reporting_')) {
         state.adminRpcCalls.push({ rpcName, body });
@@ -620,7 +621,7 @@ const createPageForPersona = async (
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(rpcResponse(rpcName, persona, body, freshness)),
+        body: JSON.stringify(rpcHandler(rpcName, persona, body, freshness)),
       });
     }
     if (debug) console.log(`[${persona.email}] rest ${route.request().method()} ${url.pathname}`);
@@ -703,6 +704,11 @@ const textOf = async (locator) => (await locator.innerText()).replace(/\s+/g, ' 
 
 const waitForReport = async (page) => {
   await page.getByRole('heading', { name: 'Reporting', level: 1 }).waitFor();
+  const sales = page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Sales', exact: true });
+  if (await sales.count()) {
+    await sales.click();
+    await selectRadixOption(page.locator(selectors.operatorDateRange), 'Last 7 days');
+  }
 };
 
 const visibleLocator = async (locator, description) => {
@@ -839,24 +845,24 @@ const assertOperatorDailyReconciliation = async (page) => {
   await metrics.waitFor();
   const metricsText = await textOf(metrics);
   for (const [label, expected] of [
-    ['recorded sales', '$680.00'],
-    ['reported refunds', '$20.00'],
-    ['sales after refunds', '$660.00'],
+    ['recorded sales', '$510.00'],
+    ['reported refunds', '$15.00'],
+    ['sales after refunds', '$495.00'],
   ]) {
     assert(metricsText.toLowerCase().includes(label) && metricsText.includes(expected), `Operator ${label} KPI must reconcile to ${expected}. Found: ${metricsText}`);
   }
-  assert(/Transactions\s+68\b/i.test(metricsText), `Operator Transactions KPI must reconcile to 68. Found: ${metricsText}`);
+  assert(/Transactions\s+51\b/i.test(metricsText), `Operator Transactions KPI must reconcile to 51. Found: ${metricsText}`);
 
   const dailySection = page.locator(selectors.operatorDailySales);
   await dailySection.waitFor();
   const expectedDays = new Map([
+    ['2026-07-15', ['$0.00', '0']],
     ['2026-07-16', ['$150.00', '$145.00', '$5.00', '15']],
     ['2026-07-17', ['$80.00', '$80.00', '$0.00', '8']],
     ['2026-07-18', ['$120.00', '$110.00', '$10.00', '12']],
     ['2026-07-19', ['$0.00', '0']],
     ['2026-07-20', ['$70.00', '$70.00', '$0.00', '7']],
     ['2026-07-21', ['$90.00', '$90.00', '$0.00', '9']],
-    ['2026-07-22', ['$170.00', '$165.00', '$5.00', '17']],
   ]);
   for (const [date, expectedValues] of expectedDays) {
     const row = await visibleLocator(
@@ -874,7 +880,7 @@ const assertOperatorDailyReconciliation = async (page) => {
   await openDetailedBreakdown(page);
   const detailedBreakdown = page.locator('[data-reporting-operator-detailed-breakdown]');
   const detailText = await textOf(detailedBreakdown);
-  for (const row of operatorFacts) {
+  for (const row of operatorFacts.filter(row => row.period_start >= '2026-07-15' && row.period_start <= '2026-07-21')) {
     assert(detailText.includes(row.machine_label), `Detailed report must include ${row.machine_label}.`);
     assert(detailText.includes(paymentLabels[row.payment_method]), `Detailed report must include ${paymentLabels[row.payment_method]}.`);
     assert(detailText.includes(`$${(row.gross_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.gross_sales_cents / 100).toFixed(2)} recorded sales.`);
@@ -903,10 +909,10 @@ const assertVisibleDetailedTotals = async (page, label) => {
   assert(
     JSON.stringify(totals) ===
       JSON.stringify({
-        netSalesCents: 66000,
-        grossSalesCents: 68000,
-        refundAmountCents: 2000,
-        transactionCount: 68,
+        netSalesCents: 49500,
+        grossSalesCents: 51000,
+        refundAmountCents: 1500,
+        transactionCount: 51,
       }),
     `${label} detailed rows must reconcile exactly. Found: ${JSON.stringify(totals)}`,
   );
@@ -956,7 +962,7 @@ const settleScreenshotViewport = async (page, toastPattern) => {
               if (document.activeElement instanceof HTMLElement) {
                 document.activeElement.blur();
               }
-              window.scrollTo(0, 0);
+              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
               document.documentElement.scrollTop = 0;
               document.body.scrollTop = 0;
               resolve(undefined);
@@ -985,7 +991,7 @@ const assertOperatorDesktop = async (browser) => {
     await waitForReport(page);
     await check('Operator-only reporting user cannot see partner controls or revenue-share data', async () => {
       assert(
-        (await page.getByRole('radio', { name: /partner dashboard/i }).count()) === 0,
+        (await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }).count()) === 0,
         'Operator-only reporting must not expose the partner dashboard toggle.',
       );
       assert(
@@ -1103,14 +1109,14 @@ const assertOperatorDesktop = async (browser) => {
       assert((await summaryRows.count()) === 2, `Weekly summary must show two weekly periods. Found ${await summaryRows.count()}.`);
       const weeklySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
       assert(
-        weeklySummaryText.includes('Jul 16 - Jul 19') &&
-          weeklySummaryText.includes('Jul 20 - Jul 22') &&
+        weeklySummaryText.includes('Jul 15 - Jul 19') &&
+          weeklySummaryText.includes('Jul 20 - Jul 21') &&
           !weeklySummaryText.includes('Jul 13') &&
           !weeklySummaryText.includes('Jul 26'),
         `Partial weekly labels must stay inside the selected date range. Found: ${weeklySummaryText}`,
       );
       const metricsText = await textOf(page.locator(selectors.operatorMetrics));
-      assert(metricsText.includes('$680.00') && metricsText.includes('$660.00'), 'Weekly grouping must preserve reconciled totals.');
+      assert(metricsText.includes('$510.00') && metricsText.includes('$495.00'), 'Weekly grouping must preserve reconciled totals.');
       await settleScreenshotViewport(page);
       await page.screenshot({ path: path.join(outputDir, 'operator-weekly-summary-desktop.png'), fullPage: true });
       await assertVisibleDetailedTotals(page, 'Weekly');
@@ -1123,7 +1129,7 @@ const assertOperatorDesktop = async (browser) => {
       assert((await monthlyRows.count()) === 1, `Monthly summary must show one selected-period row. Found ${await monthlyRows.count()}.`);
       const monthlySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
       assert(
-        monthlySummaryText.includes('Jul 16 - Jul 22') &&
+        monthlySummaryText.includes('Jul 15 - Jul 21') &&
           !monthlySummaryText.includes('Jul 1 - Jul 31'),
         `Partial monthly labels must stay inside the selected date range. Found: ${monthlySummaryText}`,
       );
@@ -1138,13 +1144,13 @@ const assertOperatorDesktop = async (browser) => {
       await selectRadixOption(machineTrigger, 'North Atrium');
       await selectOperatorPayment(page, 'Card');
       const metrics = page.locator(selectors.operatorMetrics);
-      await expectCurrency(metrics, '$210.00', 'Filtered operator recorded-sales KPI');
-      await expectCurrency(metrics, '$205.00', 'Filtered operator after-refund KPI');
-      await expectCurrency(metrics, '$5.00', 'Filtered operator refund KPI');
+      await expectCurrency(metrics, '$100.00', 'Filtered operator recorded-sales KPI');
+      await expectCurrency(metrics, '$100.00', 'Filtered operator after-refund KPI');
+      await expectCurrency(metrics, '$0.00', 'Filtered operator refund KPI');
       const metricsText = await textOf(metrics);
-      assert(/Transactions\s+21\b/i.test(metricsText), `Filtered Transactions KPI must be 21. Found: ${metricsText}`);
+      assert(/Transactions\s+10\b/i.test(metricsText), `Filtered Transactions KPI must be 10. Found: ${metricsText}`);
       const filteredDaily = await textOf(page.locator(selectors.operatorDailySales));
-      assert(filteredDaily.includes('$100.00') && filteredDaily.includes('$110.00'), 'Filtered daily totals must include only North Atrium credit-card sales.');
+      assert(filteredDaily.includes('$100.00') && !filteredDaily.includes('$110.00'), 'Filtered daily totals must include only completed-day North Atrium credit-card sales.');
       assert(!filteredDaily.includes('$170.00'), 'Filtered daily totals must not retain all-machine sales.');
 
       const exportButton = page.locator('[data-portal-report-export="operator-pdf"]');
@@ -1152,7 +1158,7 @@ const assertOperatorDesktop = async (browser) => {
       await page.waitForFunction(() => document.body.innerText.includes('Reporting'));
       await waitForRecordedRequest(page, state.operatorExports, 'Operator export request');
       const exportedFilters = state.operatorExports[0].filters;
-      assert(exportedFilters.dateFrom === fixedDateFrom && exportedFilters.dateTo === fixedDateTo, 'Operator export must retain the Last 7 days date window.');
+      assert(exportedFilters.dateFrom === '2026-07-15' && exportedFilters.dateTo === '2026-07-21', 'Operator export must retain the last seven completed days.');
       assert(exportedFilters.grain === 'day', 'Operator export must retain Daily breakdown.');
       assert(JSON.stringify(exportedFilters.machineIds) === JSON.stringify(['operator-machine-north']), 'Operator export must retain selected machine scope.');
       assert(JSON.stringify(exportedFilters.paymentMethods) === JSON.stringify(['credit']), 'Operator export must retain selected payment scope.');
@@ -1418,7 +1424,7 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
     await waitForReport(page);
     await check('Super Admin can open and leave a scoped partner machine drilldown', async () => {
       const partnerToggle = await visibleLocator(
-        page.getByRole('radio', { name: /partner dashboard/i }),
+        page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }),
         'Super Admin partner dashboard toggle',
       );
       await partnerToggle.click();
@@ -1658,6 +1664,11 @@ const writeResults = () => {
   fs.writeFileSync(path.join(outputDir, 'reporting-uat-results.md'), `${markdown}\n`);
 };
 
+export { personas, operatorDimensions, rpcResponse, makeUser, makeSession, createPageForPersona, fixedNowIso };
+
+// Let the expansion suite reuse the established synthetic personas and finance
+// fixtures without starting the legacy browser run during import.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
 fs.mkdirSync(outputDir, { recursive: true });
 for (const artifactName of fs.readdirSync(outputDir)) {
   if (/\.(?:json|md|png|txt)$/i.test(artifactName)) {
@@ -1691,4 +1702,5 @@ if (runError) {
 } else {
   console.log(`Reporting UAT passed at ${appUrl}`);
   console.log(`Screenshots and results written to ${path.relative(repoRoot, outputDir)}`);
+}
 }

@@ -20,7 +20,7 @@ const includes = (relativePath, needle, message) => {
 
 const authenticatedNavigation = includes(
   'src/components/layout/authenticatedNavigation.ts',
-  "if (item.href === '/admin')",
+  "if (href === '/admin')",
   'Admin overview must use exact active matching so child admin routes do not create two current nav items.',
 );
 includes(

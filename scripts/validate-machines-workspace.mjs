@@ -23,7 +23,7 @@ const checks = [
   ['sort persists in the URL', machinesSource.includes("nextParams.set('sort', nextSort)")],
   ['long portfolios load incrementally', machinesSource.includes('Load 20 more')],
   ['initial tax history starts at the reporting baseline', machinesSource.includes("effectiveStartDate: taxRate ? today() : initialReportingTaxStartDate")],
-  ['Scoped Admin tax actions are hidden', machinesSource.includes('canEditMachineIdentity && (') && machinesSource.includes("'Change tax rate' : 'Set tax rate'")],
+  ['Tax controls use existing scoped authority independently of identity editing', machinesSource.includes('canManageReportingTax={isSuperAdmin || isScopedAdmin}') && machinesSource.includes('canManageReportingTax && (') && machinesSource.includes('const isMachineIdentityEditable = isSuperAdmin;')],
   ['no manager autosave copy', !machinesSource.includes('assignments autosave')],
   ['exceptions-first Nayax review', machinesSource.includes("inventoryView === 'attention'") && machinesSource.includes('No Nayax setup needs attention')],
   ['Ready refund rows require live global availability', machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && globalRefunds.available") && machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && refundManagerSetup.globalRefunds.available")],

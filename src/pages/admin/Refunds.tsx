@@ -1,3 +1,6 @@
+import { useAuth } from '@/contexts/auth-context';
+import { Link } from 'react-router-dom';
+import { fetchRefundAnalyticsAccess } from '@/lib/refundAnalytics';
 import { RefundGiftCardSupplySection } from '@/components/refunds/RefundGiftCardSupplySection';
 import { resolveManagerRefundAmountDraft } from '@/lib/refundManagerAmount';
 import { RefundGiftCardManagerPanel } from '@/components/refunds/RefundGiftCardManagerPanel';
@@ -2773,6 +2776,8 @@ const getPrimaryActionIssues = (
 };
 
 export default function AdminRefundsPage() {
+  const { user } = useAuth();
+  const reportAccess = useQuery({ queryKey: ['reporting-refund-access', user?.id], queryFn: fetchRefundAnalyticsAccess, enabled: Boolean(user?.id), staleTime: 0, retry: false });
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const activityHistoryDetailsRef = useRef<HTMLDetailsElement>(null);
@@ -7688,6 +7693,7 @@ export default function AdminRefundsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {reportAccess.isSuccess && !reportAccess.isFetching && reportAccess.data.hasAccess && <Button variant="outline" asChild className="min-h-11"><Link to="/refunds?view=reports">Reports</Link></Button>}
               {gmailNeedsAttention && (
                 <span
                   data-testid="refund-gmail-health"

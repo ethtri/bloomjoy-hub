@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/auth-context';
+import { OperationalReportAccess } from './OperationalReportAccess';
 import {
   getVisibleAdminDestinations,
   type AdminSurface,
@@ -108,6 +109,7 @@ export function AdminRoute() {
 
 export function RefundOperationsRoute() {
   const { adminAccess, capabilities, loading, isSuperAdmin } = useAuth();
+  const location = useLocation();
   const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
   const canAccessRefunds =
     isSuperAdmin ||
@@ -121,6 +123,10 @@ export function RefundOperationsRoute() {
         Loading...
       </div>
     );
+  }
+
+  if (new URLSearchParams(location.search).get('view') === 'reports') {
+    return <OperationalReportAccess domain="refunds" />;
   }
 
   if (canAccessRefunds) {

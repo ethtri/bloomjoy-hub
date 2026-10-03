@@ -601,6 +601,12 @@ Notes:
 - Use Stripe event replay first when possible; use the backfill helper when replay is unavailable or insufficient.
 
 ## Common issues
+### Interactive reporting preview
+
+Run `npm run reporting:preview`, then open `http://127.0.0.1:8097/portal/reports?view=finance` on this computer. This runs the actual reporting components with clearly labeled synthetic data and sample authentication. It ignores `.env` files and inherited client variables, binds only to loopback, and blocks external requests and unsupported mutations. Finance CSV works locally; server PDF exports and other operations are unavailable. Stop with Ctrl+C. Use `-- --port <port>` if 8097 is occupied.
+
+The Vercel frontend preview does not apply database migrations. A preview connected to a backend without the Finance, Labor or Refunds reporting RPCs cannot show those views. Use the sample preview for UI review, or a separately prepared non-production database for backend integration testing; do not apply production migrations just to make a preview work.
+
 - Missing env vars can break pages. Check console + `.env` (or `.env.local`).
 - If Stripe webhook forwarding isn't configured, subscription/order sync may not update locally.
 - If training documents do not open from Supabase-backed rows, confirm the `training-documents` bucket exists and that the upload helper was run with a valid service-role key.

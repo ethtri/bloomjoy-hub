@@ -10,6 +10,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
+import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
+import { OperationalReportAccess } from './OperationalReportAccess';
 
 export function MemberRoute() {
   const {
@@ -24,6 +26,7 @@ export function MemberRoute() {
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const isReportingRoute = lockedDestination.access === 'reporting';
+  const analyticsAccess = useReportingAnalyticsAccess(isReportingRoute);
   const isTeamRoute = lockedDestination.access === 'team';
   const isTimekeepingRoute = lockedDestination.access === 'timekeeping';
   const isTimeReviewRoute = lockedDestination.access === 'time-review';
@@ -38,18 +41,6 @@ export function MemberRoute() {
     adminAccess.canAccessAdmin ||
     adminAccess.allowedSurfaces.includes('*') ||
     adminAccess.allowedSurfaces.includes('access');
-
-  if (
-    loading ||
-    (isTeamRoute && isResolvingPortalTeam) ||
-    (isTimekeepingRoute && isResolvingPortalTimekeeping)
-  ) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
 
   const canAccessRoute = isTimeReviewRoute
     ? canUseTimeReview
@@ -68,8 +59,35 @@ export function MemberRoute() {
           canUsePortalTimekeeping
         );
 
-  if (canAccessRoute) {
+  const canAccessReportingDomain = analyticsAccess.canUseLabor || analyticsAccess.canUseRefunds;
+
+  if (
+    loading ||
+    (isTeamRoute && isResolvingPortalTeam) ||
+    (isTimekeepingRoute && isResolvingPortalTimekeeping) ||
+    (isReportingRoute && !canAccessRoute && !canAccessReportingDomain && analyticsAccess.isLoading)
+  ) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading...
+      </div>
+    );
+  }
+
+  if (isTimeReviewRoute && new URLSearchParams(location.search).get('view') === 'reports') {
+    return <OperationalReportAccess domain="labor" />;
+  }
+
+  if (canAccessRoute || (isReportingRoute && canAccessReportingDomain)) {
     return <Outlet />;
+  }
+
+  if (isReportingRoute && (analyticsAccess.labor.isError || analyticsAccess.refunds.isError)) {
+    return <PortalLayout><section className="portal-section"><div className="container-page space-y-4" role="alert">
+      <h1 className="text-2xl font-semibold">Reporting access could not be verified</h1>
+      <p className="text-muted-foreground">We could not check your labor or refund reporting permissions. Try again to load your available views.</p>
+      <Button onClick={() => { void analyticsAccess.labor.refetch(); void analyticsAccess.refunds.refetch(); }}>Retry access check</Button>
+    </div></section></PortalLayout>;
   }
 
   const lockedTitle = isTimeReviewRoute
