@@ -8,15 +8,15 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- A #1429/#628 structured assistance repair is in verification. RF-FF2A88FA's
-  processed mixed reply contains an already-supplied payout limitation, while a
-  later legacy form still waits for that answer. The proposed service-only path
-  saves only that reviewed limitation through the existing same-case form,
-  preserving its fact receipt and purchase/financial evidence. The exact
-  replacement machine and purchase time remain unproved. No live assistance,
-  customer question, message, decision or payment has occurred. RF-720E12A5's
-  approved label does not prove any of its ambiguous purchase occurrences;
-  ordinary lookup eligibility has not been broadened.
+- PR #1706 deployed a service-only assisted path for an already-supplied payout
+  limitation on an existing legacy form. The reviewed same-case writer, source
+  receipt, authority and retry guards passed synthetic regression; production
+  verification preserved business records and all twelve worker bundles. No
+  live assistance or customer/Manager contact, provider action, decision or
+  payment occurred. RF-FF2A88FA's pending limitation has not been saved through
+  this path; exact replacement-machine and purchase-time proof remain missing.
+  RF-720E12A5 still has ambiguous occurrence evidence; ordinary approved-case
+  lookup eligibility was not broadened.
 
 - PR #1705 deployed historical cash evidence retention and consistent research
   work. RF-C83C2E1E now has three retained positive candidates and shows Agent
