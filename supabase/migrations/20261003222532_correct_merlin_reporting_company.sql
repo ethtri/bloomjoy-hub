@@ -4,8 +4,8 @@
 -- The exact production IDs below are correction scope, not user-facing labels.
 do $correction$
 declare
-  source_id constant uuid:='e7205cab-38a4-41c2-b93f-b2b9d0e74754';
-  target_id constant uuid:='893c32d0-d81e-482d-b139-2f25ed2668fb';
+  correction_source_account_id constant uuid:='e7205cab-38a4-41c2-b93f-b2b9d0e74754';
+  correction_target_account_id constant uuid:='893c32d0-d81e-482d-b139-2f25ed2668fb';
   machine_ids uuid[]:=array[
     '32acf22f-0238-465a-a23f-9b43c06e0055','ae3e581a-beec-496d-a7dc-b9b1030a15d0',
     'bda16d19-e27e-4028-9374-300984ce83b7','c7236c42-2812-44f2-8f44-0135104a7b4f',
@@ -19,7 +19,7 @@ declare
 begin
   -- Empty-schema replay has no production identities. Partial presence is drift
   -- and must fail rather than create or select a similarly named company.
-  if not exists(select 1 from public.customer_accounts where id in(source_id,target_id)) then return; end if;
+  if not exists(select 1 from public.customer_accounts where id in(correction_source_account_id,correction_target_account_id)) then return; end if;
   -- Hold the reviewed dependency sets stable while checking and correcting.
   -- Row locks alone cannot prevent a new membership/grant/assignment phantom.
   lock table public.customer_account_memberships, public.admin_scoped_access_scopes,
@@ -29,19 +29,19 @@ begin
     public.reporting_locations in share row exclusive mode;
   -- Match normal assignment writers' machine-then-company lock order.
   perform id from public.reporting_machines where id=any(machine_ids) order by id for update;
-  perform id from public.customer_accounts where id in(source_id,target_id) order by id for update;
-  if not exists(select 1 from public.customer_accounts where id=source_id and name='Merlin Entertainments')
-    or not exists(select 1 from public.customer_accounts where id=target_id and name='Bloomjoy Enterprises' and reporting_archived_at is null) then
+  perform id from public.customer_accounts where id in(correction_source_account_id,correction_target_account_id) order by id for update;
+  if not exists(select 1 from public.customer_accounts where id=correction_source_account_id and name='Merlin Entertainments')
+    or not exists(select 1 from public.customer_accounts where id=correction_target_account_id and name='Bloomjoy Enterprises' and reporting_archived_at is null) then
     raise exception '#1730 reviewed source/destination company identity changed';
   end if;
   if (select count(*) from public.reporting_machines where id=any(machine_ids))<>6
-    or exists(select 1 from public.reporting_machines where account_id=source_id and not id=any(machine_ids)) then
+    or exists(select 1 from public.reporting_machines where account_id=correction_source_account_id and not id=any(machine_ids)) then
     raise exception '#1730 reviewed six-machine scope changed';
   end if;
-  if exists(select 1 from public.customer_account_memberships where account_id in(source_id,target_id))
-    or exists(select 1 from public.admin_scoped_access_scopes where account_id in(source_id,target_id))
-    or exists(select 1 from public.reporting_machine_entitlements where account_id in(source_id,target_id))
-    or exists(select 1 from public.technician_grants where account_id=source_id and status in('active','pending') and not id=any(grant_ids))
+  if exists(select 1 from public.customer_account_memberships where account_id in(correction_source_account_id,correction_target_account_id))
+    or exists(select 1 from public.admin_scoped_access_scopes where account_id in(correction_source_account_id,correction_target_account_id))
+    or exists(select 1 from public.reporting_machine_entitlements where account_id in(correction_source_account_id,correction_target_account_id))
+    or exists(select 1 from public.technician_grants where account_id=correction_source_account_id and status in('active','pending') and not id=any(grant_ids))
     or exists(select 1 from public.operator_machine_assignments where reporting_machine_id=any(machine_ids)
       and status='active' and revoked_at is null and id not in('c43c30f6-cc37-4dd0-b768-5549b3bab677','78666acd-ffb7-4e01-91f9-0232abc4f792')) then
     raise exception '#1730 reviewed zero account-scoped access or exact active dependency set changed';
@@ -62,11 +62,11 @@ begin
     ('8fa9b522-b5c6-4880-96a2-55fa1036e6f2','83f8576b-7f4e-460f-b812-41edf34e21c2')
   ) expected(machine_id,location_id) order by location_id loop
     perform id from public.reporting_locations where id=scope.location_id for update;
-    if not exists(select 1 from public.reporting_machines where id=scope.machine_id and location_id=scope.location_id and account_id in(source_id,target_id))
-      or not exists(select 1 from public.reporting_locations where id=scope.location_id and account_id in(source_id,target_id))
+    if not exists(select 1 from public.reporting_machines where id=scope.machine_id and location_id=scope.location_id and account_id in(correction_source_account_id,correction_target_account_id))
+      or not exists(select 1 from public.reporting_locations where id=scope.location_id and account_id in(correction_source_account_id,correction_target_account_id))
       or exists(select 1 from public.reporting_machines where location_id=scope.location_id and id<>scope.machine_id)
       or exists(select 1 from public.reporting_locations l join public.reporting_locations destination
-        on destination.account_id=target_id and lower(destination.name)=lower(l.name) and destination.id<>l.id
+        on destination.account_id=correction_target_account_id and lower(destination.name)=lower(l.name) and destination.id<>l.id
         where l.id=scope.location_id) then
       raise exception '#1730 reviewed exclusive venue or destination collision changed for machine %',scope.machine_id;
     end if;
@@ -82,23 +82,23 @@ begin
     ('78666acd-ffb7-4e01-91f9-0232abc4f792','6f95c31a-9923-4971-a0a5-5fe615aad9fa','ae3e581a-beec-496d-a7dc-b9b1030a15d0')
   ) expected(assignment_id,profile_id,machine_id) loop
     if not exists(select 1 from public.operator_machine_assignments a
-      join public.operator_payout_profiles p on p.id=a.operator_profile_id and p.account_id=source_id and p.status='active'
+      join public.operator_payout_profiles p on p.id=a.operator_profile_id and p.account_id=correction_source_account_id and p.status='active'
       where a.id=scope.assignment_id and a.operator_profile_id=scope.profile_id and a.reporting_machine_id=scope.machine_id
-        and a.account_id=source_id and a.status='active' and a.revoked_at is null
+        and a.account_id=correction_source_account_id and a.status='active' and a.revoked_at is null
         and a.effective_start_date='2026-09-01' and a.effective_end_date is null) then
       raise exception '#1730 reviewed payroll arrangement changed for profile %',scope.profile_id;
     end if;
     insert into private.reporting_company_payroll_compatibility(operator_assignment_id,operator_profile_id,reporting_machine_id,payroll_account_id,reporting_account_id,correction_issue)
-      values(scope.assignment_id,scope.profile_id,scope.machine_id,source_id,target_id,1730) on conflict do nothing;
+      values(scope.assignment_id,scope.profile_id,scope.machine_id,correction_source_account_id,correction_target_account_id,1730) on conflict do nothing;
     get diagnostics inserted_count=row_count;
     if inserted_count=1 then
       insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
         values(null,'reporting_company.payroll_preserved','operator_machine_assignment',scope.assignment_id::text,'{}'::jsonb,
-          jsonb_build_object('operatorProfileId',scope.profile_id,'machineId',scope.machine_id,'payrollAccountId',source_id,'reportingAccountId',target_id),meta);
+          jsonb_build_object('operatorProfileId',scope.profile_id,'machineId',scope.machine_id,'payrollAccountId',correction_source_account_id,'reportingAccountId',correction_target_account_id),meta);
     end if;
     if not exists(select 1 from private.reporting_company_payroll_compatibility where operator_assignment_id=scope.assignment_id
       and operator_profile_id=scope.profile_id and reporting_machine_id=scope.machine_id
-      and payroll_account_id=source_id and reporting_account_id=target_id and correction_issue=1730) then
+      and payroll_account_id=correction_source_account_id and reporting_account_id=correction_target_account_id and correction_issue=1730) then
       raise exception '#1730 payroll preservation record conflicts';
     end if;
   end loop;
@@ -106,44 +106,44 @@ begin
   if (select count(*) from public.technician_grants where id=any(grant_ids))<>4 then raise exception '#1730 reviewed Technician grants missing'; end if;
   perform id from public.technician_grants where id=any(grant_ids) order by id for update;
   for scope in select * from public.technician_grants where id=any(grant_ids) order by id loop
-    if scope.account_id not in(source_id,target_id) or scope.status<>'active' or scope.revoked_at is not null
+    if scope.account_id not in(correction_source_account_id,correction_target_account_id) or scope.status<>'active' or scope.revoked_at is not null
       or not coalesce(public.is_super_admin(scope.sponsor_user_id),false)
       or not exists(select 1 from public.technician_machine_assignments a where a.technician_grant_id=scope.id)
       or exists(select 1 from public.technician_machine_assignments a where a.technician_grant_id=scope.id and not a.machine_id=any(machine_ids)) then
       raise exception '#1730 reviewed Technician grant authority or exact-machine scope changed';
     end if;
-    if scope.account_id=source_id then
-      update public.technician_grants set account_id=target_id where id=scope.id;
+    if scope.account_id=correction_source_account_id then
+      update public.technician_grants set account_id=correction_target_account_id where id=scope.id;
       insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
         values(null,'technician_access.company_corrected','technician_grant',scope.id::text,
-          jsonb_build_object('accountId',source_id),jsonb_build_object('accountId',target_id),meta);
+          jsonb_build_object('accountId',correction_source_account_id),jsonb_build_object('accountId',correction_target_account_id),meta);
     end if;
   end loop;
 
   for scope in select * from public.reporting_locations where id in(select location_id from public.reporting_machines where id=any(machine_ids)) order by id loop
-    if scope.account_id=source_id then
-      update public.reporting_locations set account_id=target_id where id=scope.id;
+    if scope.account_id=correction_source_account_id then
+      update public.reporting_locations set account_id=correction_target_account_id where id=scope.id;
       insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
         values(null,'reporting_location.company_corrected','reporting_location',scope.id::text,
-          jsonb_build_object('accountId',source_id),jsonb_build_object('accountId',target_id),meta);
+          jsonb_build_object('accountId',correction_source_account_id),jsonb_build_object('accountId',correction_target_account_id),meta);
     end if;
   end loop;
   for scope in select * from public.reporting_machines where id=any(machine_ids) order by id loop
-    if scope.account_id=source_id then
-      update public.reporting_machines set account_id=target_id where id=scope.id;
+    if scope.account_id=correction_source_account_id then
+      update public.reporting_machines set account_id=correction_target_account_id where id=scope.id;
       insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
         values(null,'reporting_machine.company_corrected','reporting_machine',scope.id::text,
-          jsonb_build_object('accountId',source_id,'locationId',scope.location_id),
-          jsonb_build_object('accountId',target_id,'locationId',scope.location_id),meta);
+          jsonb_build_object('accountId',correction_source_account_id,'locationId',scope.location_id),
+          jsonb_build_object('accountId',correction_target_account_id,'locationId',scope.location_id),meta);
     end if;
   end loop;
-  select * into source_before from public.customer_accounts where id=source_id;
+  select * into source_before from public.customer_accounts where id=correction_source_account_id;
   if source_before.reporting_archived_at is null then
-    update public.customer_accounts set reporting_archived_at=clock_timestamp() where id=source_id;
+    update public.customer_accounts set reporting_archived_at=clock_timestamp() where id=correction_source_account_id;
     insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
-      values(null,'reporting_company.archived','customer_account',source_id::text,
+      values(null,'reporting_company.archived','customer_account',correction_source_account_id::text,
         jsonb_build_object('archivedAt',null),
-        (select jsonb_build_object('archivedAt',reporting_archived_at) from public.customer_accounts where id=source_id),meta);
+        (select jsonb_build_object('archivedAt',reporting_archived_at) from public.customer_accounts where id=correction_source_account_id),meta);
   end if;
 end;
 $correction$;
