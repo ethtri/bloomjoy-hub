@@ -877,14 +877,33 @@ function OperatorReportingView({
   );
   const defaultRange = useMemo(() => getOperatorPresetRange('last_7_days'), []);
   const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters && (workspaceFilters.dateFrom !== defaultRange.dateFrom || workspaceFilters.dateTo !== defaultRange.dateTo) ? 'custom' : 'last_7_days');
-  const [dateFrom, setDateFrom] = useState(workspaceFilters?.dateFrom ?? defaultRange.dateFrom);
-  const [dateTo, setDateTo] = useState(workspaceFilters?.dateTo ?? defaultRange.dateTo);
   const [params, setParams] = useSearchParams();
-  const [grain, setGrain] = useState<ReportGrain>(['day','week','month'].includes(params.get('grain') ?? '') ? params.get('grain') as ReportGrain : 'day');
-  const [companyId, setCompanyId] = useState(workspaceFilters?.companyId ?? 'all');
-  const [machineId, setMachineId] = useState(workspaceFilters?.selectedMachineId ?? (workspaceFilters?.machineIds?.length === 1 ? workspaceFilters.machineIds[0] : 'all'));
-  const [locationIds, setLocationIds] = useState<string[]>(workspaceFilters?.locationIds ?? []);
-  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(params.has('payments') ? (params.get('payments') ?? '').split(',').filter(value => ['cash','credit','other','unknown'].includes(value)) as PaymentMethod[] : workspaceFilters?.paymentMethods ?? []);
+  // The URL is the report filter source of truth, including browser history.
+  const dateFrom = params.get('from') ?? workspaceFilters?.dateFrom ?? defaultRange.dateFrom;
+  const dateTo = params.get('to') ?? workspaceFilters?.dateTo ?? defaultRange.dateTo;
+  const grain: ReportGrain = ['day', 'week', 'month'].includes(params.get('grain') ?? '') ? params.get('grain') as ReportGrain : 'day';
+  const companyId = params.get('company') || 'all';
+  const machineId = params.get('machine') || 'all';
+  const locationIds = useMemo(() => params.get('location') && params.get('location') !== 'all' ? [params.get('location')!] : [], [params]);
+  const selectedPayments = useMemo(() => params.has('payments')
+    ? (params.get('payments') ?? '').split(',').filter(value => ['cash', 'credit', 'other', 'unknown'].includes(value)) as PaymentMethod[]
+    : ['cash', 'credit', 'other', 'unknown'].includes(params.get('tender') ?? '') ? [params.get('tender') as PaymentMethod] : [], [params]);
+  const updateFilters = (patch: Record<string, string>) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === 'all') next.delete(key); else next.set(key, value);
+    }
+    setParams(next);
+  };
+  const setDateFrom = (value: string) => updateFilters({ from: value });
+  const setDateTo = (value: string) => updateFilters({ to: value });
+  const setMachineId = (value: string) => updateFilters({ machine: value });
+  const setGrain = (value: ReportGrain) => updateFilters({ grain: value });
+  const setLocationIds = (value: string[]) => updateFilters({ location: value[0] ?? 'all' });
+  const setSelectedPayments = (value: PaymentMethod[] | ((current: PaymentMethod[]) => PaymentMethod[])) => {
+    const next = typeof value === 'function' ? value(selectedPayments) : value;
+    updateFilters({ payments: next.join(',') || 'all', tender: next.length === 1 ? next[0] : 'all' });
+  };
   const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
   const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -902,12 +921,11 @@ function OperatorReportingView({
   const companyScope = useMemo(() => resolveCompanyScope(dimensions, companyId, locationIds[0] ?? 'all', machineId), [dimensions, companyId, locationIds, machineId]);
   const companyName = companyScope.companies.find(row => row.id === companyId)?.name ?? 'All companies';
   const machineOptions = [...new Map(companyScope.machineRows.map(row => [row.machineId, row])).values()];
-  const changeCompany = (id: string) => { const next = companyChange(dimensions, id, locationIds[0] ?? 'all', machineId); setCompanyId(id); setLocationIds(next.locationId === 'all' ? [] : [next.locationId]); setMachineId(next.machineId); if (next.locationId !== (locationIds[0] ?? 'all') || next.machineId !== machineId) toast.info('Filters outside this company were cleared.'); };
-  useEffect(() => {
-    const next = new URLSearchParams(params); next.set('from', dateFrom); next.set('to', dateTo);
-    for (const [key, value] of Object.entries({ company: companyId, machine: machineId, location: locationIds[0] ?? 'all', grain, payments: selectedPayments.join(',') || 'all', tender: selectedPayments.length === 1 ? selectedPayments[0] : 'all' })) { if (value === 'all') next.delete(key); else next.set(key, value); }
-    if (next.toString() !== params.toString()) setParams(next);
-  }, [dateFrom, dateTo, companyId, machineId, locationIds, grain, selectedPayments, params, setParams]);
+  const changeCompany = (id: string) => {
+    const next = companyChange(dimensions, id, locationIds[0] ?? 'all', machineId);
+    updateFilters({ company: id, location: next.locationId, machine: next.machineId });
+    if (next.locationId !== (locationIds[0] ?? 'all') || next.machineId !== machineId) toast.info('Filters outside this company were cleared.');
+  };
   const machineUnavailable = !dimensionsLoading && !dimensionsError && (companyScope.invalid || companyScope.empty);
 
   const filters: SalesReportFilters = useMemo(
@@ -967,19 +985,13 @@ function OperatorReportingView({
     setPeriodPreset(preset);
     if (preset === 'custom') return;
     const nextRange = getOperatorPresetRange(preset);
-    setDateFrom(nextRange.dateFrom);
-    setDateTo(nextRange.dateTo);
+    updateFilters({ from: nextRange.dateFrom, to: nextRange.dateTo });
   };
 
   const resetFilters = () => {
     const nextRange = getOperatorPresetRange('last_7_days');
     setPeriodPreset('last_7_days');
-    setDateFrom(nextRange.dateFrom);
-    setDateTo(nextRange.dateTo);
-    setGrain('day');
-    setMachineId('all');
-    setLocationIds([]);
-    setSelectedPayments([]);
+    updateFilters({ from: nextRange.dateFrom, to: nextRange.dateTo, grain: 'day', machine: 'all', location: 'all', payments: 'all', tender: 'all' });
     setAreMoreFiltersOpen(false);
   };
 
@@ -1022,7 +1034,7 @@ function OperatorReportingView({
   };
 
   const hasLoadError = Boolean(error || dimensionsError);
-  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected scope is unavailable" description="Choose a company and machine available in this report."/><Button variant="outline" onClick={() => { setCompanyId('all'); setLocationIds([]); setMachineId('all'); }}>Choose all companies</Button></div>;
+  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected scope is unavailable" description="Choose a company and machine available in this report."/><Button variant="outline" onClick={() => updateFilters({ company: 'all', location: 'all', machine: 'all' })}>Choose all companies</Button></div>;
 
 
   return (

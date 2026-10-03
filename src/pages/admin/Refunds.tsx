@@ -3109,7 +3109,7 @@ export default function AdminRefundsPage() {
   const companyCases = useMemo(() => overview.cases.filter(companyMatches), [overview.cases, companyMatches]);
   const companyInternalCases = useMemo(() => internalTestCases.filter(companyMatches), [internalTestCases, companyMatches]);
   const companyQueueItems = useMemo(() => (liveQueueProjection?.items ?? []).filter(companyMatches), [liveQueueProjection, companyMatches]);
-  const companies = companyOptions(queueProjectionActive ? liveQueueProjection?.items ?? [] : [...overview.cases, ...internalTestCases]);
+  const companies = companyOptions([...(queueProjectionActive ? liveQueueProjection?.items ?? [] : [...overview.cases, ...internalTestCases]), ...(reportAccess.isSuccess && reportAccess.data.hasAccess ? reportAccess.data.dimensions : [])]);
   const companyUnavailable = companyId !== 'all' && !companies.some(row => row.id === companyId);
   const changeQueueCompany = (id: string) => {
     if (caseSelectionSafetyRef.current.actionInFlight || caseSelectionSafetyRef.current.hasUnsavedCaseText) { toast.info('Finish the current action or save/discard case text before changing company.'); return; }
