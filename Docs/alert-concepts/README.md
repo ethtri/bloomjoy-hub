@@ -1,93 +1,132 @@
-# Bloomjoy Hub email alerts: first-round concepts
+# Bloomjoy email alerts: round 2
 
-October 2, 2026 · Product exploration · [Issue #1711](https://github.com/ethtri/bloomjoy-hub/issues/1711)
+October 2, 2026 · [Issue #1711](https://github.com/ethtri/bloomjoy-hub/issues/1711) · [Draft PR #1712](https://github.com/ethtri/bloomjoy-hub/pull/1712)
 
-Open [the mockup gallery](index.html). It includes a complete visual email for every candidate below, desktop/mobile preview, a subscription-settings concept and print-all view. All examples, people, locations, customer comments and numbers are synthetic. These files make no network requests and do not send mail or change product settings. Vite's development server may supply its usual local development connection.
+The owner selected original concepts **01, 02, 03, 04, 07 and 08**. This iteration refines those six only. Navigation, subscriptions, presets and print output share that scope. The first round remains in Git history. No alerts are activated or email sent.
 
-## Recommendation
+Open [the updated gallery](index.html). Four fictional machines illustrate decisions, older backlog, resolved requests, zero requests and missing sales data. All figures and customer comments are synthetic.
 
-Start with **weekly performance + machine issues** and **optional new-refund FYIs**. Add **repeated-problem alerts** next. Explore enriching the existing daily refund digest with performance and operational evidence where timing and recipient scope match. Preserve every open case and the existing manager decision workflow.
+## What changed
 
-The strongest product idea is using refund intake as an early machine-health signal: show the customer's selected reason, a short safe excerpt, the machine and incident time, and whether other customers reported the same symptom. A customer report is evidence to investigate, not a confirmed diagnosis.
+- Daily and weekly emails begin with fleet totals, then give **each machine its own numbers and refund requests**.
+- Each machine shows sales before refunds, transactions, period refund impact, sales after period refunds, new requests and open cases. Weekly adds its own comparison.
+- Each request includes ID, current status, selected reason, customer comment, receipt time, reported incident time and exact-case link. Earlier open cases stay under their machine with a distinct label.
+- New-request FYI and manager decision-ready emails use the same case example at different workflow moments.
+- Quiet-sales now uses a completed reporting day. Device-offline names the payment device and the source observation, without claiming the whole machine is down.
 
-Managers need priorities and decisions. Technicians need symptoms, location, ownership and a next step. Their email versions should follow their existing access, rather than exposing the same financial/customer payload to both roles.
+## Six selected alerts
 
-## Candidate catalog
+| Original ID / mockup | Job | Timing / trigger | Action |
+| --- | --- | --- | --- |
+| [01 Daily operations brief](index.html#daily) | See yesterday's performance and today's customer work by machine | Daily chosen time; prior reporting day plus current case snapshot | Open dated report or exact case |
+| [02 Weekly performance review](index.html#weekly) | Compare each machine and understand its customer reports | Last complete Monday–Sunday week versus prior complete week | Open period report or exact case |
+| [03 New refund request](index.html#new-refund) | Early operational awareness for a followed machine | First canonical submission; immediate or digest | View exact report in an authorized role-appropriate view |
+| [04 Refund decision ready](index.html#decision-ready) | Make the actual manager decision | Existing ready transition or material decision change | Review and approve/deny inside Hub |
+| [07 Sales unexpectedly quiet](index.html#sales-quiet) | Investigate an unusual activity change | Verified completed period versus comparable open periods | Check activity and location context |
+| [08 Device reports offline](index.html#device-offline) | Inspect an explicitly disconnected component | Recent authoritative offline observations persist | View source status and device service guide |
 
-| # / mockup | Who | Proposed timing or trigger | Useful next action | Product position |
-| --- | --- | --- | --- | --- |
-| [01 Daily operations brief](index.html#daily) | Managers; reduced technician view | After each completed reporting day | Review performance, every open refund case, selected reasons and representative comments | Extend existing daily workflow; define how it combines before adding another email |
-| [02 Weekly performance review](index.html#weekly) | Managers and technician leads | Chosen weekly day/time | Compare the same machines and identify recurring symptoms | First new subscription; existing sales and refund data |
-| [03 New refund request](index.html#new-refund) | Subscribed technicians; optional manager FYI | A new canonical request is submitted | View reported machine symptom | First new subscription; distinct from a decision notice |
-| [04 Refund decision ready](index.html#decision-ready) | Assigned machine managers | Prepared decision becomes ready or materially changes | Review and decide inside Hub | Existing workflow, shown for continuity |
-| [05 Repeated problem reported](index.html#repeat-issue) | Subscribed technician and manager | Example: 3 distinct same-symptom reports within 2 hours | Review the cluster and arrange a check | Next addition; grouping and calibration needed |
-| [06 Decisions waiting longest](index.html#decision-aging) | Assigned manager | Existing daily digest, sorted by decision-ready age | Clear oldest genuine decisions | Enrich the existing digest; no new reminder schedule |
-| [07 Sales unexpectedly quiet](index.html#sales-quiet) | Manager and route technician | Sustained deviation during known open hours | Check recent activity and venue context | Existing sales; needs reliable completeness, baselines and hours |
-| [08 Device reports offline](index.html#device-offline) | Technician; optional manager | Authoritative device status persists, e.g. 15 minutes | Check the named device connection | Future: no established device-status feed found |
-| [09 Reporting data delayed](index.html#data-delayed) | Feed owner; optional subscriber FYI | Source misses its expected update window | Check reporting availability | Extend existing freshness signals; never infer machine outage |
-| [10 Maintenance coming due](index.html#maintenance) | Assigned technician | Recorded maintenance-plan reminder | Open the specific task and guide | Future: schedule and completion records needed |
-| [11 Supplies may run low](index.html#supplies) | Restock manager and technician | Estimated coverage is shorter than time to next visit | Verify stock and plan refill | Future: stock counts, logged usage and visit plan needed |
-| [12 Service visit assigned](index.html#service-job) | Actual assignee | A saved service task is assigned or materially updated | Review the job and record findings | Future: service-task lifecycle needed |
-| [13 Recovery observed](index.html#recovery) | Current recipients of the originating incident | Stable return of the observed signal | Review recovery evidence | Future: incident state and dependable recovery signals |
+All six are selected for further development planning. 07 needs calibrated comparisons and verified reporting coverage. 08 needs validated device-status meanings and observation cadence. Selection does not claim those dependencies are complete.
 
-Each gallery item also documents its audience, cadence, trigger, noise controls, data needs, subject, preview text and intended destination. CTA buttons explain their proposed destination instead of opening live accounts.
+## Digest anatomy
+
+1. **Period and scope:** explicit dates, currency and machine-local reporting basis. Delivery timezone is separately configurable.
+2. **Fleet totals:** sales before refunds, transactions, period refund impact and sales after period refunds. A partial total is a known subtotal with its covered machine count.
+3. **Customer work:** requests received in the period; all open cases at generation time; genuinely ready manager decisions. Show the snapshot time.
+4. **Coverage:** sales and refund intake separately. A recent import timestamp is not proof of a complete sales period.
+5. **Every machine:** name/ID, its four measures, request counts, weekly comparison when meaningful, and its request details. Decision-bearing machines come first, then other customer work, then the rest. Ranking never hides machines.
+6. **Received in this period:** retain requests since resolved because their operational evidence still matters. Use a safe excerpt or “No customer comment provided.”
+7. **Earlier requests still open:** separate label within that machine, without duplicating cases from the period list.
+8. **Recorded outcomes:** confirmed card refunds and issued gift-card value are separate per-machine context. They can resolve older requests and are not deducted again.
+
+Verified zero requests says zero. Unknown sales remain unavailable even when refund information is current. “No open cases” describes the customer queue, not hardware health.
+
+### Complete coverage without an overwhelming email
+
+Use compact case rows, not a large quote card for each request. Preserve one complete daily email per manager and never silently cap machines or required open cases. Implementation must validate long-queue message size and clipping in supported email clients, with complete compact HTML and plain-text coverage. A link supplements the email rather than replacing required per-case content. This concept does not introduce multiple daily deliveries.
+
+The existing manager daily digest includes every assigned-machine open case. Optional followed machines cannot narrow it. Combine only when scope/timing match; otherwise preserve the existing digest or include “Other assigned machines with open cases,” still grouped by machine. The mock's selected scope equals its manager scope. Missing sales must never delay an existing decision notice.
+
+## Metric contract
+
+Reuse canonical shared Hub calculations and their snapshot/version; do not calculate financial totals from raw vendor exports inside the email renderer.
+
+| Label | Meaning |
+| --- | --- |
+| Sales before refunds | Shared grossSalesCents: recorded sales excluding sales tax, before request-period deductions. Not tax-inclusive receipts. |
+| Transactions | Canonical transactionCount, not units, successful vends or unique customers. Do not call it paid transactions without defining a filtered measure. |
+| Period refund impact | Canonical period request deductions/increases less reversals/decreases. Not the cash returned during the period. |
+| Sales after period refunds | Shared netSalesCents, using the same machine, period and source basis. |
+| New requests | Unique canonical requests received within the period, excluding duplicate/test cases and retaining since-resolved cases. |
+| Open now | Unresolved customer work at generation time, including older requests. |
+| Need your decision | Prepared current manager decisions only. Research/customer waiting/provider recovery are not manager homework. |
+| Card refunds confirmed | Provider-confirmed outcome amounts in the period; separate context, not a promise about bank posting. |
+| Gift-card value issued | Issued face value, separate from returned cash and original-purchase deduction. Not proof of delivery or redemption. |
+
+Hub recognizes request-period impact before payment. A later payment must not create a second deduction. This corrects the first round's overly broad statement that requests are not deducted from sales. Customer estimate, reviewed payment amount, tax-exclusive impact and gift-card face value can differ legitimately.
+
+### Daily synthetic reconciliation
+
+Reporting day October 1; case snapshot October 2, 8:00 AM Pacific.
+
+| Machine | Sales before refunds | Transactions | Period impact | Sales after period refunds | New / open / decisions |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Harbor Mall · BJ-014 | $420 | 42 | $30 | $390 | 3 / 4 / 2 |
+| Midtown · BJ-021 | $336 | 35 | $8 | $328 | 1 / 1 / 1 |
+| Pine Square · BJ-032 | $240 | 25 | $0 | $240 | 0 / 0 / 0 |
+| West Arcade · BJ-061 | Unavailable | Unavailable | $0 known | Unavailable | 0 / 0 / 0 |
+| Known sales subtotal: 3 machines | **$996** | **102** | **$38, same 3 machines** | **$958** | **4 / 5 / 3, all 4 machines** |
+
+Four new cases remain open plus one earlier case. Card-refund outcomes total $18.90 and gift-card value totals $10, shown per machine and not subtracted again.
+
+### Weekly synthetic reconciliation
+
+Period September 21–27; comparison September 14–20; case snapshot September 28, 8:00 AM Pacific.
+
+| Machine | Sales before refunds | Prior week | Transactions | Period impact | Sales after period refunds | New / open / decisions |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Midtown · BJ-021 | $2,360 | $2,000 | 236 | $20 | $2,340 | 2 / 1 / 1 |
+| Harbor Mall · BJ-014 | $2,800 | $3,000 | 280 | $30 | $2,770 | 3 / 2 / 0 |
+| Pine Square · BJ-032 | $1,960 | $1,800 | 196 | $10 | $1,950 | 1 / 1 / 0 |
+| West Arcade · BJ-061 | $1,300 | $1,000 | 130 | $0 | $1,300 | 0 / 0 / 0 |
+| Total | **$8,420** | **$7,800** | **842** | **$60** | **$8,360** | **6 / 4 / 1** |
+
+Three of six new cases remain open plus one earlier case. Before-refund sales rose 7.9%; Midtown rose 18.0%. Card-refund outcomes total $46 and gift-card value totals $30, including older-request outcomes. October cases are not reused in this earlier week.
+
+## Alert refinements
+
+**03 versus 04.** A new request reports a symptom while preparation continues. It never asks a technician to approve a refund or makes an ordinary automatic gift card require manager review. Separate received and incident times. For 04 reuse the existing ready event, scope checks and delivery ledger, with exact case/amount and current server authority. Revalidate stale decisions and assignments. If the same event produces both emails for a manager, the decision notice takes precedence. An immediate notice never removes an open case from the next daily digest.
+
+**07: sales unexpectedly quiet.** The example is a completed day: 12 transactions versus the median 40 across eight comparable Thursdays, 70% below usual. It assumes verified period coverage, which is not a live capability claim. Validate local dates, opening hours, stable cohorts, source changes, closures, maintenance, promotions, ramp-up and late uploads. Hide percentages for zero/unknown/incomplete baselines. Use transactions or before-refund sales so deductions do not manufacture a decline.
+
+Sunze cash ingestion is daily with a backup; SnapCase imports twice daily. Nayax report arrival does not by itself prove transaction coverage, and offline devices may buffer cash. Begin with completed periods whose coverage can be established. Intraday detection remains within this selected type but depends on demonstrably timely data; a faster email scheduler cannot fix source latency.
+
+**08: device reports offline.** Existing point-in-time Nayax context has online/attention/unknown observations. The broad attention bucket cannot become “offline for 15 minutes.” Raw vendor status fields also need validation. Establish exact component, explicit offline meaning, observation/heartbeat timestamps, freshness limit, expected cadence and authorized polling/webhook method. Stale observations or failed polling mean unknown. A terminal status is not the vending controller or mechanical condition.
+
+Debounce short changes, group provider-wide issues, respect planned maintenance and explicit quiet-hour exceptions, and avoid a second quiet-sales notice for the same known offline incident. Internal recovery state resets deduplication; a separate recovery-email category is outside this selected scope.
 
 ## Subscription experience
 
-The settings mock lets reviewers try machine choices, editable role presets, optional categories, cadence, delivery time, IANA time zone and quiet hours. Changes last only for the page session.
+Only the five selected optional categories appear. Manager preset: daily, weekly, sales-quiet. Technician preset: new-request and device-offline. Existing manager-ready emails remain a separate protected workflow. These are editable suggestions, not automatic enrollment; 07/08 disclose signal-validation needs.
 
-- Manager starting suggestion: weekly performance review. Existing manager decisions and open-case summaries remain visible as separate workflows.
-- Technician starting suggestion: new customer reports and repeated-problem alerts for selected machines. Future assigned-service notices can join when tasks exist.
-- Explicitly chosen machines only. Following a location's future machines should be a separate, clearly described option if added.
-- Optional instant alerts wait until quiet hours end; a device-status exception requires explicit opt-in. A customer report alone does not bypass quiet hours.
-- Every optional email explains why it arrived and offers category opt-out and alert management. Optional settings do not silently disable the existing manager workflow.
-- Current authorization is checked before delivery and again when the user follows the link. A subscription does not grant new machine, refund or customer access.
-- Preferences are a concept, not a new operational policy. Thresholds and presets are proposals, not restrictions on the current business workflow.
+Users choose authorized machines, timezone, digest time, weekly day, immediate-versus-daily request delivery and quiet hours. The offline quiet-hour exception starts off. Preview changes last only for the page session. Subscriptions do not grant access, and optional choices do not disable existing manager obligations.
 
-## Content and notification rules
+Production needs escaped, sanitized and permission-filtered customer text. Use short redacted excerpts only where the recipient's access permits them; otherwise omit the text and link to the authorized view. Customer identity, card details, payout information and private access tokens remain outside technician email.
 
-1. Lead with machine, location, observed event and one next action. Quote the customer's report separately from system findings. Do not state an unverified mechanical cause.
-2. Keep received requests, pending decisions, confirmed card refunds and issued gift-card value separate. A requested amount is not money returned, a provider-confirmed refund is not a bank-posting promise, and payment activity is not verified successful dispensing.
-3. Use the exact existing refund categories. The current set covers no product, incorrect product, duplicate charge, wrong amount, fewer items than purchased, expected cash change and other.
-4. Keep submission time separate from reported incident time. Late requests should not manufacture a live spike. Deduplicate canonical cases; flag uncertain incident windows.
-5. Group repeated reports into an incident. Later matching reports update that incident rather than repeating the same interruption. A manager decision notice takes precedence over an intake FYI for the same event; it does not remove the case from the next daily digest.
-6. Show reporting coverage, complete-through time, comparison window and currency. Missing data is unavailable, never zero. Use like-for-like machines/time periods and suppress unstable percentages. Do not describe requests received this week divided by this week's payments as a verified failure rate.
-7. A daily digest includes every authorized open case, including unchanged cases. Empty required refund digests stay suppressed; an explicitly subscribed operations report may still have useful sales content. Long queues require tested rendering and complete per-case coverage, not silent truncation.
-8. Escape and sanitize any customer content before email rendering. Use short redacted excerpts only where the recipient's operational access allows them; omit the excerpt if it cannot be safely redacted. No customer names, contact details, card digits, payout details or private links in technician emails. Link to current authenticated scope for fuller evidence. All excerpts here are invented.
-9. Data-feed recovery, device reconnection, resumed sales and verified repair are different events. Only a recorded service check and successful test vend support “back in service.” Refund/customer obligations remain open until independently resolved.
-10. Reuse the existing notification service, routing, deduplication and delivery ledger. Distinguish queued, provider accepted, delivered, bounced and unknown outcomes. Do not blindly resend unknown outcomes or add CC/BCC scope.
+## Evidence and implementation slices
 
-## Existing foundation and evidence
+Read-only review of origin/main at 36674447. No live-delivery audit this round. Sources: Docs/REFUND_WORKFLOW.md, Docs/SALES_SOURCE_FIELD_CONTRACT.md, Docs/DECISIONS.md, src/lib/reporting.ts, manager digest/ready templates, .github/workflows/sales-import-sync.yml, scripts/snapcase/RUNBOOK.md and provider machine context.
 
-Reviewed `origin/main` at `36674447` on October 2, 2026. This was a read-only code/product review, not an independent audit of today's production configuration or delivery.
+1. Shared per-machine projection for 01/02, preserving canonical metrics, reporting windows and case-snapshot clocks.
+2. Subscription settings and recipient-safe 03; refine 04's existing presentation and reuse delivery controls.
+3. Calibrate 07 using verified periods and unknown-data handling before adding intraday variants.
+4. Validate provider evidence for 08, then build persistence and scoped notifications using existing services.
 
-| Foundation | Source | Implication |
-| --- | --- | --- |
-| Machine performance and scheduled reports | `src/lib/reporting.ts`, `supabase/functions/sales-report-scheduler/index.ts` | Sales, transactions, time periods, machine scope, source freshness and scheduled-report machinery exist. |
-| Structured refund symptoms and comments | `src/lib/refundOperations.ts`, `src/pages/RefundRequest.tsx` | Intake can support operational symptoms without inventing another customer form. |
-| Complete scoped manager digest | `supabase/functions/_shared/refund-manager-digest.ts`, `refund-manager-email.ts`; [#1431](https://github.com/ethtri/bloomjoy-hub/issues/1431) | Preserve all open cases, decisions first, current manager scope and empty suppression. Initial schedule is 08:00 America/Los_Angeles. |
-| Immediate manager decisions | `supabase/functions/_shared/refund-manager-ready-email.ts`, `refund-manager-ready-delivery.ts`; [#1425](https://github.com/ethtri/bloomjoy-hub/issues/1425) | New intake FYIs must not compete with prepared decision notices. |
-| Notification noise and ownership | [#1278](https://github.com/ethtri/bloomjoy-hub/issues/1278), `Docs/REFUND_WORKFLOW.md` | Managers decide; system/assigned internal owners handle preparation and technical recovery. Current workflow supersedes historical cash/gift-card descriptions in older issues. |
-| Machine-level technician access | `src/lib/technicianEntitlements.ts`, `src/lib/adminTechnicianAccess.ts` | Use existing grants; technician-safe alert payloads still need deliberate design. |
-| Prior delivery evidence | `Docs/CURRENT_STATUS.md` records natural digests on September 27–28 | Historical evidence, not proof that any new concept is enabled. |
-
-No self-service alert center, reliable hardware-status feed, consumables model or complete maintenance/service-task lifecycle was established by this review. These are explicit development dependencies. No production settings, database schema, payment actions, sender configuration or app routes change in this concept package.
-
-## Success measures for a later implementation
-
-Measure useful delivery and action, not opens alone: ready-to-notice latency, time to a genuine manager decision, report-to-technician acknowledgement where a task exists, repeat-incident acknowledgement, duplicate interruptions, opt-outs and incorrect-scope deliveries. Assess whether customer report clusters correspond to technician-confirmed problems before tuning thresholds. Proposed rules should be calibrated against complete historical data before claiming effectiveness.
+The sequence does not deselect any of the six or add business approval restrictions. Existing authorization, duplicate prevention and unknown-delivery protections remain.
 
 ## Review locally
 
-1. On this PR branch, run `npm ci`, then `npm run dev -- --host 127.0.0.1 --port 8096 --strictPort`.
-2. Open `http://127.0.0.1:8096/Docs/alert-concepts/index.html`. No account or credentials are needed.
-3. Review all 13 candidates, switch Desktop/Mobile, use the narrow-screen selector, and try Subscription settings, role presets, save and category opt-out.
-4. Use Print all mockups for a document view. The gallery also works by opening `index.html` directly beside its CSS/JS files.
+Run npm ci, then npm run dev -- --host 127.0.0.1 --port 8096 --strictPort. Open http://127.0.0.1:8096/Docs/alert-concepts/index.html. No credentials needed. The HTML also opens directly beside its CSS and two JavaScript files.
 
-These are browser-rendered design mockups, not production email templates. Cross-client Gmail/Outlook rendering, plain-text alternatives, live opt-out handling and delivery testing belong to implementation. The gallery uses a local font fallback when brand fonts are unavailable.
+Review 01/02 at desktop and phone widths: four machine sections, all new requests, earlier backlog, exact-case links and missing-sales treatment. Confirm original IDs 01/02/03/04/07/08 in navigation and print output. Try presets, saving, scope validation, opt-out and simulated destinations.
 
-## Concept verification
-
-All 13 concepts rendered at 1440, 390 and 320 pixels without horizontal overflow or JavaScript errors. Subscription settings were checked at both mobile widths. Role presets, local-only save, empty machine-scope feedback, category opt-out, desktop/mobile preview, direct concept links and destination explanations passed. Desktop and phone screenshots were captured; the daily, weekly and new-request layouts were visually inspected. Independent product review corrected recommendation sequencing, exact-case links and sample timeline continuity.
-
-Repository checks: `npm ci`, `npm run build`, `npm test --if-present` (24 passed), and `npm run lint --if-present` passed. The install reported existing dependency advisories; the build reported an older browser-data list and bundle-size warnings. No dependency changes were made. A focused lint check also passed after the final mockup edits. This evidence verifies the concept gallery and unchanged application build, not production email delivery.
+These are browser-rendered design mockups, not production Gmail/Outlook templates. Cross-client rendering, plain-text parity, long-queue delivery and live recipient/delivery checks belong to implementation. Revision verification is recorded in PR #1712.
