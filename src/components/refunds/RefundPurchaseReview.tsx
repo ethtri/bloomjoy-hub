@@ -2,6 +2,7 @@ import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { NayaxLookupCandidate, RefundCaseRecord, RefundSelectedNayaxTransaction } from '@/lib/refundOperations';
+import { getRefundPurchaseTimePresentation } from '@/lib/refundPurchaseTimePresentation';
 import {
   getRefundCardNetworkLabel,
   getRefundMachineContextPresentation,
@@ -12,7 +13,6 @@ import {
   formatRefundDateTime,
   refundCandidateTimeMeaning,
   refundCandidateTimeSourceDetail,
-  refundProviderTimeLabel,
 } from '@/lib/refundTimePresentation';
 
 type Props = {
@@ -46,11 +46,10 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
     locallySelected,
     events: refundCase.events,
   });
-  const timeEvidence = candidate?.timeEvidence ?? selected?.timeEvidence;
-  const providerTime = candidate?.providerTimestampAt ?? candidate?.authorizedAt ?? selected?.providerTimestampAt ??
-    (!timeEvidence ? selected?.providerAuthorizedAt : null);
-  const machineClock = candidate?.machineAuthorizationTime ?? selected?.providerAuthorizedAt;
-  const providerTimezone = timeEvidence?.machineClockTimezone;
+  const time = getRefundPurchaseTimePresentation({ candidate, selected, venueTimezone: timezone });
+  const timeEvidence = time.evidence;
+  const machineClock = time.machineAt;
+  const providerTimezone = time.machineTimezone;
   const providerDigits = candidate?.cardLast4 ?? selected?.cardLast4;
   const providerNetwork = candidate?.cardNetwork ?? selected?.cardNetwork;
   const machineContext = candidate ? getRefundMachineContextPresentation(candidate) : null;
@@ -59,8 +58,8 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
   const rows = [
     { label: 'Amount', customer: money(refundCase.paymentAmountCents), provider: money(candidate?.amountCents ?? selected?.saleAmountCents, candidate?.currencyCode ?? selected?.currencyCode) },
     { label: 'Time', customer: customerTime, customerNote: customerTimeConfidence,
-      provider: formatRefundDateTime(providerTime, timezone), providerNote: refundProviderTimeLabel(timeEvidence) },
-    { label: 'Card digits', customer: refundCase.cardLast4 ? `Ending ${refundCase.cardLast4}` : 'Not supplied', customerNote: customerDigitsSource,
+      provider: formatRefundDateTime(time.displayAt, time.displayTimezone), providerNote: time.label },
+    { label: 'Card digits', customer: refundCase.cardLast4 ? `Ending ${refundCase.cardLast4}` : 'Not supplied', customerNote: `${customerPayment} · ${customerDigitsSource}`,
       provider: providerDigits ? `Ending ${providerDigits}` : 'Not available', providerNote: candidate?.recognitionMethod || selected?.recognitionMethod || undefined },
     { label: 'Card type', customer: getRefundCardNetworkLabel(refundCase.cardNetwork), provider: providerNetwork === 'other_unknown' ? 'Not identified' : providerNetwork ? getRefundCardNetworkLabel(providerNetwork) : 'Not available' },
     { label: 'Machine', customer: `${refundCase.machineLabel} · ${refundCase.locationName}`,
@@ -116,14 +115,14 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
             <Copy className="mr-2 h-4 w-4" />Copy ID
           </Button>
         </div>}
-        <div><p className="font-medium text-foreground">Customer payment</p><p>{customerPayment}</p></div>
         <div><p className="font-medium text-foreground">Provider time</p>
           <p>{refundCandidateTimeSourceDetail(timeEvidence)}</p><p>{refundCandidateTimeMeaning(timeEvidence)}</p>
-          <p>Displayed in venue time: {timezone || 'Venue timezone unavailable'}.</p>
+          {!time.usingSavedMachineTime && <p>Displayed in venue time: {timezone || 'Venue timezone unavailable'}.</p>}
         </div>
         {providerTimezone && machineClock && <div data-testid="refund-provider-clock-diagnostic">
           <p className="font-medium text-foreground">Provider machine clock</p>
           <p>{formatRefundDateTime(machineClock, providerTimezone)} · {providerTimezone}</p>
+          {!time.machineTimezoneVerified && <p>Saved timezone; the machine's clock timezone is unverified.</p>}
           {providerTimezone !== timezone && <p>The provider and venue clocks use different timezones. A different clock display alone does not establish a time error.</p>}
         </div>}
         {candidate?.productLabel && <div><p className="font-medium text-foreground">Machine product</p><p>{candidate.productLabel}</p></div>}
