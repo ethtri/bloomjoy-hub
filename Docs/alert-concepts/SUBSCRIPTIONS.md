@@ -1,5 +1,11 @@
 # Email alert subscriptions: MVP UI proposal
 
+Implementation update: [#1715](https://github.com/ethtri/bloomjoy-hub/issues/1715)
+supersedes the defaults in this historical prototype. The owner requested daily
+digests on for managers and technicians, with every other approved alert off by
+default, including the manager-only decision-ready opt-in. Unsaved daily defaults
+follow current and future authorized assignments; explicit preferences persist.
+
 Continuation of [issue #1711](https://github.com/ethtri/bloomjoy-hub/issues/1711) and [draft PR #1712](https://github.com/ethtri/bloomjoy-hub/pull/1712). The owner accepted six email concepts and requested the subscription UI. This is a local interactive design artifact using fictional accounts and machines. It does not add production routes, save live subscriptions or send email.
 
 Open [the prototype](subscriptions.html). Use the outer review controls to switch between a Manager with four machines and a Technician with reporting access to two machines, try first-time setup, and demonstrate no machine access or a failed save. A reload resets the sample. All screens share a saved snapshot and a separate editing draft for this tab.

@@ -56,5 +56,7 @@ jobs:
         run: npm run edge-url-allowlists:check
       - name: Test
         run: npm test --if-present
+      - name: Machine email alert delivery and projection regressions
+        run: npm run email-alerts:test
       - name: Lint
         run: npm run lint --if-present

@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-10-02 - Personal machine email alerts and daily-only defaults
+
+The owner approved implementation and production deployment of the six reviewed
+email alerts and subscription flow in #1711/#1715. Daily digests start enabled
+for managers and technicians on their authorized machine assignments, including
+future assignments until the user selects a fixed set. Preserve explicit saved
+opt-outs. Weekly, new-request, decision-ready, quiet-sales and offline subscriptions
+start off. Preferences belong to the signed-in user and use the account email;
+subscribing does not grant machine, sales, customer-record or decision access.
+The daily-only direction also supersedes the prototype's automatic immediate
+decision-ready notice: it becomes a manager-only opt-in. Customer transactional
+refund messages and unrelated operational incident notifications retain their
+existing controls.
+
+Digests show totals followed by machine-level performance and refund requests.
+Reuse the canonical reporting calculations; keep requested refund impact separate
+from recorded payments and gift value. Missing coverage is unavailable, not zero.
+The alert sender rechecks current access and preferences immediately before
+delivery and deduplicates scheduled messages. Provider outcomes that may have
+sent are retained for reconciliation rather than blindly retried.
+
 ## 2026-10-02 - Finance reconciliation and editable reporting tax treatment
 
 The owner authorized the engineering follow-up in #1708, extending the existing
