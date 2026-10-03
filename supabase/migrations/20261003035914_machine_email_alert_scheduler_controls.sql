@@ -82,6 +82,7 @@ revoke all on function public.service_mark_refund_digest_pre_personal_alerts(uui
 create function public.service_mark_refund_manager_digest_provider_started(p_batch_id uuid,p_claim_token uuid,p_mapping_fingerprint text,p_recipient text)
 returns boolean language plpgsql volatile security definer set search_path='' as $$
 begin
+ perform 1 from private.email_alert_delivery_settings where singleton for share;
  if (select activated_at is not null from private.email_alert_delivery_settings) then return false;end if;
  return public.service_mark_refund_digest_pre_personal_alerts(p_batch_id,p_claim_token,p_mapping_fingerprint,p_recipient);
 end $$;
@@ -103,6 +104,9 @@ do $$ declare definition text;begin
     else lower(btrim(mapping_row.manager_email)) end;');
  execute definition;
  definition:=pg_get_functiondef('public.service_mark_refund_manager_ready_notice_provider_started(uuid,uuid,text,text)'::regprocedure);
+ definition:=replace(definition,'  select * into action_row from public.refund_manager_notification_actions',
+  '  perform 1 from private.email_alert_delivery_settings where singleton for share;
+  select * into action_row from public.refund_manager_notification_actions');
  definition:=replace(definition,'recipient_value:=lower(btrim(mapping_row.manager_email));',
   'recipient_value:=case when (select activated_at is not null from private.email_alert_delivery_settings)
     then (select lower(btrim(email)) from auth.users where id=mapping_row.manager_user_id and deleted_at is null and (banned_until is null or banned_until<=statement_timestamp()))

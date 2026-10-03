@@ -118,7 +118,7 @@ begin
           where s.machine_id=any(c.machine_ids) and (c.id<>'decision-ready' or s.is_manager) and (c.id<>'sales-quiet' or s.can_view_sales)),'[]'::jsonb) end,
       'authorized',c.authorized,'sourceAvailable',c.source_available,'available',c.authorized and c.source_available,
       'unavailableReason',case when not c.authorized then 'No eligible assigned machines'
-        when not c.source_available and c.id='device-offline' then 'Device status source is not verified'
+        when not c.source_available and c.id='device-offline' then 'Nayax connection source has not been verified'
         when not c.source_available then 'Complete comparison source is not verified' else null end,
       'isDefault',c.user_id is null)) from category_rows c)) into result;
   return result;

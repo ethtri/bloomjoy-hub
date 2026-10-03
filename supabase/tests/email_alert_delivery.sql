@@ -81,6 +81,10 @@ select is((select public.service_mark_email_alert_provider_started((c->>'jobId')
 select is((select public.service_complete_email_alert((c->>'jobId')::uuid,(c->>'claimToken')::uuid,'known_not_sent') from email_claim),false,'Started attempt cannot be marked safely retryable');
 select is((public.service_claim_next_email_alert('2026-10-03T15:30Z')->>'claimed'),'false','Unknown provider outcome never auto-retries');
 select is((select public.service_complete_email_alert((c->>'jobId')::uuid,(c->>'claimToken')::uuid,'sent','synthetic-provider-id') from email_claim),true,'Provider receipt settles unknown attempt');
+create temporary table revoked_email_claim as select public.service_claim_next_email_alert('2026-10-04T15:00Z') c;
+select is((select c->>'recipient' from revoked_email_claim),'tech@example.invalid','Later technician daily claimed with current assignment');
+update public.technician_grants set status='suspended' where id='eb750000-0000-4000-8000-000000000001';
+select is((select public.service_mark_email_alert_provider_started((c->>'jobId')::uuid,(c->>'claimToken')::uuid,c->>'recipient',c->>'routeFingerprint') from revoked_email_claim),false,'Revoked technician access after claim blocks provider boundary');
 set local session_replication_role=replica;
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
  ('eb740000-0000-4000-8000-000000000002','eb710000-0000-4000-8000-000000000001','manager@example.invalid','active');

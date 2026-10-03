@@ -18,21 +18,36 @@ select is((public.service_get_email_alert_signal_inputs()#>>'{devices,0,subscrib
 select ok(not has_function_privilege('authenticated','public.service_record_email_alert_device_observation(uuid,timestamptz,text,boolean)','execute'),'Clients cannot forge provider observations');
 select ok(not has_function_privilege('anon','public.service_record_email_alert_signal(jsonb)','execute'),'Clients cannot forge quiet signals');
 select throws_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'Status',false)$$,'22023',null,'Generic attention status is not proof of offline');
-select throws_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp()-interval '1 hour','IsOnline',false)$$,'22023',null,'Stale status cannot start an outage');
-select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'IsOnline',false)$$,'Fresh explicit false observation recorded');
+select throws_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp()-interval '1 hour','MachineMQTTStatus',false)$$,'22023',null,'Stale status cannot start an outage');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Fresh explicit false observation recorded');
 select is((select count(*)::int from private.email_alert_signals),0,'One offline sample does not invent duration');
-select is((select count(*)::int from private.email_alert_signal_capabilities where alert_id='device-offline'),1,'Explicit source observation enables source capability');
+select is((select count(*)::int from private.email_alert_signal_capabilities where alert_id='device-offline'),0,'False without prior connected baseline does not claim MQTT support');
 update private.email_alert_device_observations set first_observed_at=statement_timestamp()-interval '15 minutes',last_observed_at=statement_timestamp()-interval '5 minutes',observation_count=3;
-select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'IsOnline',false)$$,'Continuous explicit observations prove interval');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Repeated false without baseline remains unknown');
+select is((select count(*)::int from private.email_alert_signals),0,'A default false terminal cannot manufacture a disconnected event');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',true)$$,'Explicit connected state establishes same-mapping support');
+select is((select count(*)::int from private.email_alert_signal_capabilities where alert_id='device-offline'),1,'Confirmed connected MQTT source enables connection category');
+update private.email_alert_device_observations set is_online=false,last_online_observed_at=statement_timestamp()-interval '20 minutes',
+ first_observed_at=statement_timestamp()-interval '15 minutes',last_observed_at=statement_timestamp()-interval '5 minutes',observation_count=3;
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Continuous explicit observations prove interval');
 select is((select count(*)::int from private.email_alert_signals where alert_id='device-offline'),1,'One durable event per outage');
-select is((select payload->>'component' from private.email_alert_signals),'Nayax payment device','Component label does not claim machine mechanics offline');
-select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'IsOnline',false)$$,'Repeated observation refreshes existing outage');
+select is((select payload->>'component' from private.email_alert_signals),'Nayax MQTT connection','Component label does not claim payments or machine mechanics offline');
+select ok((select (payload->>'priorOnlineObservedAt')::timestamptz<=(payload->>'firstObservedAt')::timestamptz from private.email_alert_signals),'Outage retains proven prior connected observation');
+select is((select private.email_alert_signal_is_current(id,statement_timestamp()) from private.email_alert_signals),true,'Current source mapping and fresh streak validate event');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Repeated observation refreshes existing outage');
 select is((select count(*)::int from private.email_alert_signals),1,'Outage heartbeat does not create repeat event IDs');
-select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'IsOnline',true)$$,'Online observation clears current outage');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',true)$$,'Online observation clears current outage');
 select is((select count(*)::int from private.email_alert_signals where valid_until>statement_timestamp()),0,'Recovered device cannot deliver stale offline alert');
 update private.email_alert_device_observations set is_online=false,first_observed_at=statement_timestamp()-interval '1 hour',last_observed_at=statement_timestamp()-interval '7 minutes',observation_count=9;
-select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'IsOnline',false)$$,'Observation after gap restarts streak');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Observation after gap restarts streak');
 select is((select observation_count from private.email_alert_device_observations),1,'Gap cannot establish continuous offline interval');
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_account_key='OTHER_TEST_ACCOUNT' where id='ec740000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(private.email_alert_capability_is_current('ec740000-0000-4000-8000-000000000001','device-offline',statement_timestamp()),false,'Changed mapping invalidates previously observed connected baseline');
+select lives_ok($$select public.service_record_email_alert_device_observation('ec740000-0000-4000-8000-000000000001',statement_timestamp(),'MachineMQTTStatus',false)$$,'Changed mapping starts unknown again');
+select is((select has_observed_online from private.email_alert_device_observations),false,'New account mapping cannot reuse former online baseline');
+select is((select count(*)::int from private.email_alert_signal_capabilities where alert_id='device-offline'),0,'Changed mapping removes stale capability');
 set local session_replication_role=replica;
 insert into public.sunze_cash_source_watermarks(reporting_machine_id,coverage_started_at,covered_through,last_successful_import_at,freshness_expires_at,
  payment_time_basis,payment_time_timezone,timestamp_proof_scope,import_run_id) values

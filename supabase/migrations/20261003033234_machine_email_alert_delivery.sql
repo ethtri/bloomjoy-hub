@@ -379,13 +379,14 @@ create function public.service_mark_email_alert_provider_started(p_job_id uuid,p
 returns boolean language plpgsql volatile security definer set search_path='' as $$
 declare j private.email_alert_jobs;projection jsonb;recipient text;m record;
 begin
+ perform 1 from private.email_alert_delivery_settings where singleton for share;
  select * into j from private.email_alert_jobs where id=p_job_id for update;
  if j.id is null or j.claim_token is distinct from p_claim_token or j.state<>'reserved' or j.provider_started_at is not null then return false;end if;
  perform pg_advisory_xact_lock(hashtextextended('email_alert_user:'||j.user_id::text,0));
  perform 1 from public.email_alert_profiles where user_id=j.user_id for update;
- perform 1 from public.technician_grants g where g.technician_user_id=j.user_id or lower(g.technician_email)=(select lower(email) from auth.users where id=j.user_id) for share;
+ perform 1 from public.technician_grants g where g.technician_user_id=j.user_id or lower(btrim(g.technician_email))=(select lower(btrim(email)) from auth.users where id=j.user_id) for share;
  perform 1 from public.technician_machine_assignments a join public.technician_grants g on g.id=a.technician_grant_id
-  where g.technician_user_id=j.user_id or lower(g.technician_email)=(select lower(email) from auth.users where id=j.user_id) for share of a;
+  where g.technician_user_id=j.user_id or lower(btrim(g.technician_email))=(select lower(btrim(email)) from auth.users where id=j.user_id) for share of a;
  for m in select machine_id from private.email_alert_machine_scope(j.user_id) order by machine_id loop
   perform pg_advisory_xact_lock(hashtext('machine_manager:'||m.machine_id::text));
   perform 1 from public.reporting_machines where id=m.machine_id for update;
