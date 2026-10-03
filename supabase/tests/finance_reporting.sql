@@ -143,6 +143,8 @@ select is((public.get_finance_reporting('2026-05-01','2026-05-31')#>>'{rows,0,co
 select is((public.get_finance_reporting('2026-05-01','2026-05-31')#>>'{rows,0,moneyPaidCents}')::bigint,0::bigint,'Undated receipt is never attributed to observed date');
 
 -- A malformed duplicate or backlink cannot reveal hidden financial evidence.
+select is((public.get_refund_analytics('2026-03-01','2026-03-31')#>>'{period,legacyPaidDeductionExTaxCents}')::bigint,
+  200::bigint,'Refund report retains authorized independent legacy paid deductions');
 set local session_replication_role=replica;
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,duplicate_of_refund_case_id) values
@@ -151,7 +153,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
  adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at) values
  ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',99999,'manual',repeat('3',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01'),
- ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',88888,'manual',repeat('4',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01');
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-03','refund',88888,'manual',repeat('4',64),'fb750000-0000-4000-8000-000000000004','{"amountBasis":"tax_exclusive"}','2025-12-01');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status,case_population,
  automation_state,internal_test_reason,internal_test_classified_at,internal_test_classified_by)
@@ -160,9 +162,24 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  'closed_incomplete','provider_test','2026-03-01T12:00Z','fb710000-0000-4000-8000-000000000001');
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
  adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at)
- values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-01','refund',77777,'manual',repeat('5',64),
+ values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001','2026-03-04','refund',77777,'manual',repeat('5',64),
  'fb750000-0000-4000-8000-000000000005','{"amountBasis":"tax_exclusive"}','2025-12-01');
 set local session_replication_role=origin;
+select ok(public.get_refund_analytics('2026-03-03','2026-03-03')#>'{period,legacyPaidDeductionExTaxCents}'='null'::jsonb,
+  'Refund accounting never reveals a hidden customer case through a visible-machine adjustment');
+select ok(public.get_refund_analytics('2026-03-04','2026-03-04')#>'{period,legacyPaidDeductionExTaxCents}'='null'::jsonb,
+  'Refund accounting never includes internal-test adjustments in customer totals');
+select ok(public.get_refund_analytics('2026-03-01','2026-03-31')#>'{period,requestDeductionExTaxCents}'='null'::jsonb
+  and public.get_refund_analytics('2026-03-01','2026-03-31')#>'{period,reversalExTaxCents}'='null'::jsonb,
+  'Restricted components make all grouped refund accounting explicitly unavailable');
+select is((public.get_refund_analytics('2026-03-02','2026-03-02')#>>'{period,legacyPaidDeductionExTaxCents}')::bigint,
+  200::bigint,'A safe filtered date still retains its authorized legacy paid adjustment');
+select is((public.get_refund_analytics('2026-03-01','2026-03-31')#>>'{period,cashPaidCents}')::bigint,
+  440::bigint,'Restricted accounting does not hide authorized case-linked payment activity');
+select is((public.get_refund_analytics('2026-03-01','2026-03-31')#>>'{period,giftPurchaseCents}')::bigint,
+  1100::bigint,'Restricted accounting does not hide authorized gift recovery');
+select ok((public.get_refund_analytics('2026-03-01','2026-03-31')#>>'{period,unresolvedAccountingCount}')::bigint>0,
+  'Unavailable restricted accounting has explicit coverage');
 select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,moneyPaidCents}')::bigint,640::bigint,'Hidden and internal-test payments excluded from recorded money');
 select ok(public.get_finance_reporting('2026-03-01','2026-03-31')#>'{rows,0,netSalesExTaxCents}'='null'::jsonb,'Restricted accounting is unavailable rather than leaking canonical legacy amounts');
 select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,coverage,unknownBalanceCount}')::int,2,'Cross-scope lineage marks balance unknown without revealing hidden recovery');
@@ -172,11 +189,29 @@ select ok(public.get_finance_reporting('2026-03-01','2026-03-31')::text not like
 set local session_replication_role=replica;
 insert into public.reporting_locations(id,account_id,name,timezone)
  values('fb730000-0000-4000-8000-000000000004','fb720000-0000-4000-8000-000000000001','Restricted archive','America/Los_Angeles');
-insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,
+insert into public.sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,
  adjustment_type,amount_cents,source,source_row_hash,refund_case_id,raw_payload,created_at)
- values('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000004','2026-03-01',
- 'refund',55555,'manual',repeat('7',64),'fb750000-0000-4000-8000-000000000005','{"amountBasis":"tax_exclusive"}','2025-12-01');
+ values('fb760000-0000-4000-8000-000000000001','fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000004','2026-03-01',
+ 'refund',55555,'manual',repeat('7',64),null,'{"amountBasis":"tax_exclusive"}','2025-12-01');
+update public.refund_cases set reporting_adjustment_id='fb760000-0000-4000-8000-000000000001'
+ where id='fb750000-0000-4000-8000-000000000005';
+insert into private.refund_request_recognition_events(event_key,refund_case_id,event_kind,effective_at,recorded_at,
+ booking_date,reporting_machine_id,reporting_location_id,tender,source,purchase_attribution_date,
+ request_target_before_cents,request_target_after_cents,recognized_target_before_cents,recognized_target_after_cents,amount_basis,amount_provenance)
+ values('finance:hidden-recognition','fb750000-0000-4000-8000-000000000004','late_request_opening',
+ '2026-08-01T12:00Z','2026-08-01T12:00Z','2026-08-01','fb740000-0000-4000-8000-000000000001',
+ 'fb730000-0000-4000-8000-000000000001','card','synthetic_fixture','2026-02-01',0,66666,0,66666,'tax_exclusive','synthetic');
 set local session_replication_role=origin;
+select ok(public.get_refund_analytics('2026-03-01','2026-03-01',null,
+ array['fb730000-0000-4000-8000-000000000004']::uuid[])#>'{period,legacyPaidDeductionExTaxCents}'='null'::jsonb,
+  'An internal-test backlink with no direct case ID cannot leak through location-filtered accounting');
+select ok(public.get_refund_analytics('2026-08-01','2026-08-01')#>'{period,requestDeductionExTaxCents}'='null'::jsonb,
+  'Hidden recognition event cannot leak a requested deduction through a visible machine');
+select ok(public.get_refund_analytics('2026-03-01','2026-03-31')::text not like '%88888%'
+ and public.get_refund_analytics('2026-03-01','2026-03-31')::text not like '%77777%'
+ and public.get_refund_analytics('2026-03-01','2026-03-31')::text not like '%55555%'
+ and public.get_refund_analytics('2026-08-01','2026-08-01')::text not like '%66666%',
+  'Restricted payment and recognition amounts never enter the refund API payload');
 select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
  where d->>'locationId'='fb730000-0000-4000-8000-000000000004'),'Internal-only payment location does not broaden selectable dimensions');
 select is(jsonb_array_length(public.get_finance_reporting('2026-03-01','2026-03-31',null,array['fb730000-0000-4000-8000-000000000004']::uuid[])->'rows'),0,'Internal-only location cannot expose a component row');

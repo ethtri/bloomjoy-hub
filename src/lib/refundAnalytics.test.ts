@@ -33,6 +33,19 @@ Deno.test('refund CSV selects safe columns and escapes spreadsheet formula label
   assert(csv.includes('"Venue, A"'), 'Comma not quoted');
 });
 
+Deno.test('restricted refund accounting stays unavailable in CSV while authorized recovery stays visible', () => {
+  const payload = structuredClone(report);
+  payload.period.requestDeductionExTaxCents = null;
+  payload.period.reversalExTaxCents = null;
+  payload.period.legacyPaidDeductionExTaxCents = null;
+  const csv = refundAnalyticsCsv(payload, { dateFrom: report.dateFrom, dateTo: report.dateTo });
+  for (const key of ['requestDeductionExTaxCents', 'reversalExTaxCents', 'legacyPaidDeductionExTaxCents']) {
+    assert(csv.includes(`"Period activity","${key}","Unavailable","USD cents"`), `${key} was falsely converted to zero`);
+  }
+  assert(csv.includes('"Period activity","cashPaidCents","1000","USD cents"'), 'Authorized money recovery hidden');
+  assert(csv.includes('"Period activity","giftPurchaseCents","1100","USD cents"'), 'Authorized gift recovery hidden');
+});
+
 Deno.test('inclusive refund period accepts leap dates and rejects invalid or unbounded dates', () => {
   validateRefundAnalyticsScope({ dateFrom: '2024-02-29', dateTo: '2024-02-29' });
   for (const [dateFrom, dateTo] of [['2026-02-29', '2026-03-01'], ['2026-09-30', '2026-09-01'], ['2025-01-01', '2026-03-01']]) {

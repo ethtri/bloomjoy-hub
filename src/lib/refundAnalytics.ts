@@ -18,8 +18,8 @@ export type RefundAnalytics = {
   };
   period: {
     cashPaidCents: number; giftPurchaseCents: number; giftFaceCents: number; goodwillCents: number;
-    requestDeductionExTaxCents: number; reversalExTaxCents: number;
-    legacyPaidDeductionExTaxCents: number; unresolvedAccountingCount: number;
+    requestDeductionExTaxCents: number | null; reversalExTaxCents: number | null;
+    legacyPaidDeductionExTaxCents: number | null; unresolvedAccountingCount: number;
   };
   asOf: { outstandingCents: number; openRequestCount: number; unknownBalanceCount: number };
   coverage: { unknownRequestDateCount: number; unknownPaymentDateCount: number };
@@ -70,16 +70,16 @@ export async function fetchRefundAnalytics(scope: RefundAnalyticsScope): Promise
 
 // Explicit column selection prevents future payload additions leaking into exports.
 // Neutralize spreadsheet formulas in machine/location labels, including leading whitespace.
-function csvCell(value: string | number): string {
-  const text = String(value);
+function csvCell(value: string | number | null): string {
+  const text = value === null ? 'Unavailable' : String(value);
   const safe = /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
 export function refundAnalyticsCsv(report: RefundAnalytics, scope: RefundAnalyticsScope): string {
-  const metrics = (basis: string, values: Record<string, number>, keys: string[]) =>
+  const metrics = (basis: string, values: Record<string, number | null>, keys: string[]) =>
     keys.map(key => [basis, key, values[key], key.endsWith('Cents') ? 'USD cents' : 'count']);
-  const rows: (string | number)[][] = [
+  const rows: (string | number | null)[][] = [
     ['Refund analytics', report.calculationVersion], ['Generated at', report.generatedAt],
     ['Date from', report.dateFrom], ['Date through', report.dateTo], ['Date basis', report.dateBasis],
     ['Machine filters', (scope.machineIds ?? []).join(' | ') || 'All authorized'],

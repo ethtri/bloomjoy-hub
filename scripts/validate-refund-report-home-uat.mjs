@@ -71,6 +71,34 @@ try {
       await page.getByRole('region', { name: 'Refunds and recovery analytics', exact: true }).waitFor();
     } finally { await context.close(); }
   }
+  {
+    const { page, context } = await createPageForPersona(browser, workspacePersonas.refundOnly, { width: 390, height: 844 }, {
+      rpcHandler: (name, persona, body, freshness) => {
+        const response = workspaceRpcResponse(name, persona, body, freshness);
+        return name === 'get_refund_analytics' ? { ...response, period: { ...response.period,
+          requestDeductionExTaxCents: null, reversalExTaxCents: null, legacyPaidDeductionExTaxCents: null } } : response;
+      },
+    });
+    try {
+      await page.goto(reportUrl, { waitUntil: 'networkidle' });
+      const region = page.getByRole('region', { name: 'Refunds and recovery analytics', exact: true });
+      await region.waitFor();
+      for (const label of ['Request deductions', 'Reversals']) {
+        assert.equal(await region.getByText(label, { exact: true }).locator('..').getByText('Unavailable', { exact: true }).count(), 1,
+          `${label} must not display restricted accounting as zero`);
+      }
+      assert.equal(await region.getByText('Recorded money refunds', { exact: true }).locator('..').getByText('$20.00', { exact: true }).count(), 1);
+      assert.equal(await region.getByText('Purchase resolved by gifts', { exact: true }).locator('..').getByText('$15.00', { exact: true }).count(), 1);
+      assert(await region.getByText(/accounting totals unavailable/).isVisible());
+      await region.locator('details summary').click();
+      assert(await region.getByText(/Unavailable in historical payment-based deductions/).isVisible());
+      const download = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export CSV' }).click();
+      const csv = fs.readFileSync(await (await download).path(), 'utf8');
+      assert(csv.includes('"Period activity","legacyPaidDeductionExTaxCents","Unavailable","USD cents"'));
+      await page.screenshot({ path: path.join(output, 'refund-report-restricted-accounting-390.png'), fullPage: true });
+    } finally { await context.close(); }
+  }
   for (const domain of ['refund', 'labor']) {
     const actor = domain === 'refund' ? workspacePersonas.refundOnly : { ...workspacePersonas.timeOnly, capabilities: [] };
     const rpc = domain === 'refund' ? 'get_refund_analytics' : 'get_labor_analytics_report';

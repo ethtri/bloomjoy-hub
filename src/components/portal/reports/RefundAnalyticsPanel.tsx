@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchRefundAnalytics, refundAnalyticsCsv, type RefundAnalyticsScope } from '@/lib/refundAnalytics';
 
-const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+const money = (cents: number | null) => cents === null ? 'Unavailable'
+  : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const categoryLabel = (value: string) => value.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
 
 function Metric({ label, value, detail }: { label: string; value: string | number; detail: string }) {
@@ -32,6 +33,8 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
     <Button variant="outline" className="mt-4 min-h-11" onClick={() => query.refetch()}><RotateCcw className="mr-2 h-4 w-4" />Try again</Button>
   </div>;
   const report = query.data;
+  const accountingUnavailable = report.period.requestDeductionExTaxCents === null
+    || report.period.reversalExTaxCents === null || report.period.legacyPaidDeductionExTaxCents === null;
   const coverage = [
     report.cohort.unknownAmountCount > 0 && `${report.cohort.unknownAmountCount} request amounts in this period unknown`,
     report.asOf.unknownBalanceCount > 0 && `${report.asOf.unknownBalanceCount} balances across all requests unknown`,
@@ -64,7 +67,7 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
     </div>
     <div>
       <SectionHeading className="mb-3 text-sm font-semibold">Activity recorded in this period</SectionHeading>
-      {report.period.unresolvedAccountingCount > 0 && <p className="mb-3 text-xs text-muted-foreground">{report.period.unresolvedAccountingCount} accounting components unresolved; known accounting totals shown.</p>}
+      {report.period.unresolvedAccountingCount > 0 && <p className="mb-3 text-xs text-muted-foreground">{report.period.unresolvedAccountingCount} accounting components unresolved; {accountingUnavailable ? 'accounting totals unavailable.' : 'known accounting totals shown.'}</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Recorded money refunds" value={money(report.period.cashPaidCents)} detail={`Cash/card payments by recorded date, not confirmed bank settlement.${report.coverage.unknownPaymentDateCount > 0 ? ` ${report.coverage.unknownPaymentDateCount} recorded payment dates unknown.` : ''}`} />
         <Metric label="Purchase resolved by gifts" value={money(report.period.giftPurchaseCents)} detail={`${money(report.period.giftFaceCents)} gift face value; ${money(report.period.goodwillCents)} Bloomjoy goodwill. Issuance is not cash paid or redemption.`} />

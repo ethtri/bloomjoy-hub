@@ -138,6 +138,29 @@ begin
     select c.*,case when c.has_history and c.target_cents is not null and c.gift_cents is not null and not c.undated_payment
       then greatest(c.target_cents-c.paid_cents-c.gift_cents,0) end as outstanding_cents
     from cases c
+  ), restricted_accounting as (
+    -- Canonical components have grouped away case IDs. As in Finance, an
+    -- inconsistent backlink or internal-test fact makes accounting unavailable;
+    -- never reveal its amount through a machine aggregate or rebuild the ledger.
+    select exists(
+      select 1 from scope s join public.sales_adjustment_facts f on f.reporting_machine_id=s.id
+      join public.refund_cases c on c.id=f.refund_case_id
+        or (f.refund_case_id is null and c.reporting_adjustment_id=f.id)
+      where f.adjustment_date between p_date_from and p_date_to
+        and f.adjustment_type in ('refund','complaint_refund') and f.amount_cents>0
+        and (p_location_ids is null or f.reporting_location_id=any(p_location_ids))
+        and (c.case_population<>'customer' or not exists(
+          select 1 from private.refund_analytics_machine_scope(auth.uid()) allowed
+          where allowed.id=c.reporting_machine_id))
+    ) or exists(
+      select 1 from scope s join private.refund_request_recognition_events e on e.reporting_machine_id=s.id
+      join public.refund_cases c on c.id=e.refund_case_id
+      where e.booking_date between p_date_from and p_date_to
+        and (p_location_ids is null or e.reporting_location_id=any(p_location_ids))
+        and (c.case_population<>'customer' or not exists(
+          select 1 from private.refund_analytics_machine_scope(auth.uid()) allowed
+          where allowed.id=c.reporting_machine_id))
+    ) as present
   ), accounting as materialized (
     select d.* from scope s cross join lateral
       private.machine_sales_daily_components(s.id,p_date_from,p_date_to) d
@@ -180,10 +203,14 @@ begin
     'period',jsonb_build_object('cashPaidCents',coalesce(sum(b.period_paid_cents),0),
       'giftPurchaseCents',coalesce(sum(b.period_gift_cents),0),'giftFaceCents',coalesce(sum(b.period_face_cents),0),
       'goodwillCents',coalesce(sum(b.period_goodwill_cents),0),
-      'requestDeductionExTaxCents',(select coalesce(sum(request_deduction_ex_tax_cents),0) from accounting),
-      'reversalExTaxCents',(select coalesce(sum(refund_reversal_ex_tax_cents),0) from accounting),
-      'legacyPaidDeductionExTaxCents',(select coalesce(sum(legacy_paid_deduction_ex_tax_cents),0) from accounting),
-      'unresolvedAccountingCount',(select coalesce(sum(unresolved_refund_count),0) from accounting)),
+      'requestDeductionExTaxCents',case when (select present from restricted_accounting) then null
+        else (select coalesce(sum(request_deduction_ex_tax_cents),0) from accounting) end,
+      'reversalExTaxCents',case when (select present from restricted_accounting) then null
+        else (select coalesce(sum(refund_reversal_ex_tax_cents),0) from accounting) end,
+      'legacyPaidDeductionExTaxCents',case when (select present from restricted_accounting) then null
+        else (select coalesce(sum(legacy_paid_deduction_ex_tax_cents),0) from accounting) end,
+      'unresolvedAccountingCount',greatest((select coalesce(sum(unresolved_refund_count),0) from accounting),
+        case when (select present from restricted_accounting) then 1 else 0 end)),
     'asOf',jsonb_build_object('outstandingCents',coalesce(sum(b.outstanding_cents),0),
       'openRequestCount',count(*) filter(where b.outstanding_cents>0),
       'unknownBalanceCount',count(*) filter(where b.outstanding_cents is null)),
