@@ -111,6 +111,14 @@ jobs:
           exit 1
       - name: Verify technician refund requests and retained manager boundaries
         run: npm run refunds:request-access:uat -- --app-url http://127.0.0.1:8081
+      - name: Upload synthetic technician request screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: technician-request-access-${{ github.run_id }}
+          path: output/playwright/refund-request-access
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify gift-card customer, manager and supply journeys
         env:
           REFUND_GIFT_CARD_UAT_URL: http://127.0.0.1:8081
