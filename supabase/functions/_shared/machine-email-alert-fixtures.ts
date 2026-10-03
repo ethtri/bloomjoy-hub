@@ -1,5 +1,6 @@
 import {
   type MachineEmailCase,
+  type MachineEmailDigest,
   type MachineEmailMachine,
   type MachineEmailProjection,
   summarizeMachineEmail,
@@ -32,6 +33,22 @@ export const fixtureCase = (
   canOpenCase: true,
   ...overrides,
 });
+export const fixtureDigest = (
+  overrides: Partial<MachineEmailDigest> = {},
+): MachineEmailDigest => ({
+  accountId: fixtureId(501),
+  accountName: "TGPaci",
+  newRequestCount: 1,
+  requestAmountsAllowed: true,
+  requestedAmountCents: 1000,
+  requestedAmountKnownCount: 1,
+  requestedAmountUnknownCount: 0,
+  previousNewRequestCount: 1,
+  previousRequestedAmountCents: 800,
+  previousRequestedAmountKnownCount: 1,
+  previousRequestedAmountUnknownCount: 0,
+  ...overrides,
+});
 export const fixtureMachine = (
   n = 101,
   overrides: Partial<MachineEmailMachine> = {},
@@ -59,6 +76,11 @@ export const fixtureMachine = (
 export function fixtureProjection(): MachineEmailProjection {
   const machines = [
     fixtureMachine(101, {
+      digest: fixtureDigest({
+        newRequestCount: 2,
+        requestedAmountCents: 1800,
+        requestedAmountKnownCount: 2,
+      }),
       refundCases: [
         fixtureCase(1),
         fixtureCase(2, {
@@ -70,6 +92,13 @@ export function fixtureProjection(): MachineEmailProjection {
       ],
     }),
     fixtureMachine(102, {
+      digest: fixtureDigest({
+        accountId: fixtureId(502),
+        accountName: "Bloomjoy NC",
+        newRequestCount: 0,
+        requestedAmountCents: 0,
+        requestedAmountKnownCount: 0,
+      }),
       machineLabel: "BJ-061 · West Arcade",
       locationName: "Upper level",
       salesComplete: false,
@@ -84,6 +113,13 @@ export function fixtureProjection(): MachineEmailProjection {
       refundCases: [],
     }),
     fixtureMachine(103, {
+      digest: fixtureDigest({
+        accountId: fixtureId(503),
+        accountName: "Bloomjoy Enterprises",
+        newRequestCount: 0,
+        requestedAmountCents: 0,
+        requestedAmountKnownCount: 0,
+      }),
       machineLabel: "BJ-021 · Midtown",
       locationName: "Station foyer",
       includedInPerformanceScope: false,
@@ -205,6 +241,11 @@ export function fixtureVariants(): Record<string, MachineEmailProjection> {
   long.managerOpenCases = null;
   long.managerCaseMachines = [];
   long.machines = [fixtureMachine(101, {
+    digest: fixtureDigest({
+      newRequestCount: 40,
+      requestedAmountCents: 40000,
+      requestedAmountKnownCount: 40,
+    }),
     refundCases: Array.from({ length: 40 }, (_, i) =>
       fixtureCase(i + 10, {
         commentExcerpt:
@@ -212,6 +253,60 @@ export function fixtureVariants(): Record<string, MachineEmailProjection> {
       })),
   })];
   long.summary = summarizeMachineEmail(long.machines);
+  const companies = structuredClone(daily);
+  companies.managerOpenCases = null;
+  companies.managerCaseMachines = [];
+  companies.machines = [
+    structuredClone(daily.machines[0]),
+    fixtureMachine(104, {
+      machineLabel: "BJ-021 · Midtown",
+      locationName: "Station foyer",
+      grossSalesCents: 33600,
+      refundAmountCents: 1500,
+      netSalesCents: 32100,
+      transactionCount: 35,
+      previousGrossSalesCents: 30000,
+      refundCases: [fixtureCase(4)],
+      digest: fixtureDigest({
+        accountId: fixtureId(502),
+        accountName: "Bloomjoy NC",
+        requestedAmountCents: 800,
+      }),
+    }),
+    fixtureMachine(105, {
+      machineLabel: "BJ-032 · Pine Square",
+      locationName: "Food court",
+      grossSalesCents: 24000,
+      refundAmountCents: 0,
+      netSalesCents: 24000,
+      transactionCount: 25,
+      previousGrossSalesCents: 28000,
+      refundCases: [],
+      digest: fixtureDigest({
+        accountId: fixtureId(503),
+        accountName: "Bloomjoy Enterprises",
+        newRequestCount: 0,
+        requestedAmountCents: 0,
+        requestedAmountKnownCount: 0,
+        previousNewRequestCount: 0,
+        previousRequestedAmountCents: 0,
+        previousRequestedAmountKnownCount: 0,
+      }),
+    }),
+  ];
+  companies.summary = summarizeMachineEmail(companies.machines);
+  const weeklyCompanies = structuredClone(companies);
+  weeklyCompanies.category = "weekly";
+  weeklyCompanies.dateFrom = weekly.dateFrom;
+  weeklyCompanies.dateTo = weekly.dateTo;
+  for (const m of weeklyCompanies.machines) {
+    m.dateFrom = weekly.dateFrom;
+    m.dateTo = weekly.dateTo;
+    for (const c of m.refundCases) {
+      c.receivedAt = "2026-09-24T19:00:00Z";
+      c.incidentAt = c.receivedAt;
+    }
+  }
   return {
     daily,
     weekly,
@@ -219,6 +314,8 @@ export function fixtureVariants(): Record<string, MachineEmailProjection> {
     "sales-quiet": quiet,
     "device-offline": offline,
     "daily-long": long,
+    "daily-companies": companies,
+    "weekly-companies": weeklyCompanies,
   };
 }
 

@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-10-03 - Compact company and machine performance digests
+
+For #1726 the owner requested a redesign of daily and weekly emails around sales
+and refund requests initiated during the reporting period, confirming that refunds
+means **new requests plus the amount requested**. Show overall totals, then actual
+company groups and compact machine rows. Weekly uses the same hierarchy with
+concise, comparable prior-week insights. Use the existing Bloomjoy visual identity
+and verify the rendered email at desktop and mobile sizes.
+
+This supersedes the personal digest's historical open-case narrative and use of
+accounting refund impact as its headline refund amount. Preserve canonical sales
+calculations, refund workflows, access boundaries, delivery proofs, daily-only
+defaults and saved preferences. Customer intake amounts with insufficient evidence
+remain unknown; never substitute a prepared or paid amount. Details stay in Hub
+and optional immediate notifications. This decision authorizes implementation and
+deployment; release evidence belongs in the issue and PR.
+
 ## 2026-10-02 - Personal machine email alerts and daily-only defaults
 
 The owner approved implementation and production deployment of the six reviewed

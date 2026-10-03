@@ -14,6 +14,10 @@ orientation snapshot; it is not a backlog or release ledger.
   work after the initial scheduler timeout. Production activation and scheduled
   tick evidence are tracked there; use `EMAIL_ALERTS_RUNBOOK.md` for delivery
   status and recovery. The legacy-sender ownership fence survives a pause.
+  Digest redesign #1726 uses overall/company/machine sales and new requested
+  refund totals, with concise weekly comparisons and compact branded emails.
+  Intake requested amounts remain separate from approved/paid/accounting values;
+  unknown data and existing financial permissions remain explicit.
 
 - Reporting PR #1709 and its four database migrations are live in production
   (#1696). Central Reporting includes Finance, seven completed days by default,
