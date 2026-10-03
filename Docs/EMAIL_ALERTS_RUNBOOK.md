@@ -5,6 +5,23 @@ managers and technicians start with a daily brief at 08:00 America/Los_Angeles.
 Weekly, new requests, decision-ready, quiet sales and connection alerts start off.
 Saved choices remain authoritative. See [EMAIL_ALERTS.md](EMAIL_ALERTS.md) for scope.
 
+## Digest presentation update (#1726)
+
+The compact daily/weekly renderer accepts both existing v1 projections and the
+additive machine-level digest metadata. Deploy the compatible worker before the
+forward projection migration; the prior worker rejects unknown projection fields.
+Missing metadata on an existing stored job means unavailable requested dollars
+and an ungrouped machine, never an inferred company or prepared refund amount.
+
+This update needs no new credentials, cron, preference reset or historical resend.
+Preserve the deployed daily-health optimization (#1724) and legacy delivery-proof
+fields. Check all paginated upcoming projections through the read-only preview
+RPC and the reviewed renderer; record aggregate results without saving customer
+narratives. Download and compare the deployed worker bundle with the reviewed
+source, including the new digest module. Inspect actual synthetic desktop/mobile
+renders and plain text. After resuming ordinary delivery, inspect the next normal
+scheduled tick; do not force a real email to demonstrate the new template.
+
 ## Release checks
 
 Use a clean reviewed branch in its dedicated worktree. Sync current `main` before
