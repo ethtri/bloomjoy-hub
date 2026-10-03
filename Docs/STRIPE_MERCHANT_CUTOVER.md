@@ -34,8 +34,8 @@ The owner opened Bloomjoy Services LLC account `acct_1UMDXoAw1uae6O3W` under
 the existing login on October 2, 2026. Its nonbinding onboarding has saved the
 separate legal name/EIN, Multi-member LLC structure, confirmed business address,
 bloomjoyusa.com, Other merchandise category, actual business description, and
-BLOOMJOY statement descriptor. Included Radar Lite is selected; tax calculation
-and climate contributions are off. After the owner completed verification and
+BLOOMJOY statement descriptor. Included Radar Lite is selected and climate
+contributions are off; tax is configured as recorded below. After owner verification and
 bank confirmation, the October 2 Dashboard readback showed Payments, Payouts,
 and ACH Direct Debit Active with no active verification tasks. The USD default
 payout bank matches the supplied business bank; automatic daily payouts are
