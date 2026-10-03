@@ -40,7 +40,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
-  Copy,
   ExternalLink,
   Info,
   Loader2,
@@ -57,6 +56,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReportFreshnessAdvisory';
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundPurchaseReview } from '@/components/refunds/RefundPurchaseReview';
+import { getRefundSelectionPresentation } from '@/lib/refundReviewPresentation';
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
 import { RefundCashDecisionWorkbench } from '@/components/refunds/RefundCashDecisionWorkbench';
 import { RefundTransactionCandidateReview } from '@/components/refunds/RefundTransactionCandidateReview';
@@ -622,12 +623,6 @@ const refundCustomerTimeDisplay = (
   return formatRefundDateTime(refundCase.incidentAt, incidentTimezone);
 };
 
-const refundCustomerTimeSourceLabel = (refundCase: RefundCaseRecord) =>
-  ['ambiguous', 'nonexistent'].includes(refundCase.incidentTimeResolution ?? '') &&
-    refundCase.incidentLocalDateTime
-    ? 'Customer-entered local time · no instant inferred'
-    : 'Customer report';
-
 const formatProviderCurrency = (cents: number, currencyCode: string) => {
   try {
     return `${new Intl.NumberFormat('en-US', {
@@ -773,23 +768,46 @@ const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
     (field): field is RefundMissingField => fields.includes(field),
   );
 
+const correctionValueLabel = (field: string, value: string | undefined, refundCase: RefundCaseRecord) => {
+  if (!value) return 'not supplied';
+  if (field === 'incident_time') {
+    const timezone = refundCaseTimezone(refundCase);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+        ? formatRefundDateTime(value, timezone)
+        : `${formatRefundLocalDateTime(value)}${timezone ? ` (${timezone})` : ''}`;
+    }
+    const clock = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (clock) {
+      const hour = Number(clock[1]);
+      const zone = isRefundTimeZone(timezone) && !Number.isNaN(Date.parse(refundCase.incidentAt))
+        ? new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'short' })
+          .formatToParts(new Date(refundCase.incidentAt)).find((part) => part.type === 'timeZoneName')?.value
+        : timezone;
+      return `${hour % 12 || 12}:${clock[2]} ${hour >= 12 ? 'PM' : 'AM'}${zone ? ` ${zone}` : ''}`;
+    }
+  }
+  return value;
+};
+
 const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: RefundCaseRecord; onReview?: (trigger: HTMLButtonElement) => void }) => {
   const correction = refundCase.customerCorrection;
   if (!correction) return null;
+  const submitted = correction.state === 'submitted';
   return <section id={`refund-correction-${refundCase.id}`} tabIndex={-1} className="border-b border-border p-4" aria-label="Customer correction">
-    <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
-    <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
-      ? 'Continue reviewing this request. The customer does not need to answer these details again.'
-      : correction.isActive ? correction.isUsable ? 'The secure link was sent. Bloomjoy is waiting for this response.' : 'Sending is still being confirmed. Keep the existing request.'
-      : 'Review the existing response or delivery record before requesting anything else.'}</p>
-    {correction.answers && <dl className="mt-3 space-y-2 text-sm">{Object.entries(correction.answers).map(([field,answer]) => <div key={field}>
-      <dt className="font-medium">{missingFieldCustomerLabel[field as RefundMissingField] ?? statusLabel(field)}</dt>
-      <dd className="text-muted-foreground">{answer.disposition === 'cannot_provide' ? 'Customer is unsure or cannot provide this.'
-        : answer.disposition === 'confirmed' ? `Confirmed: ${correction.previousValues[field] ?? 'previous detail'}`
-        : field === 'location_or_machine' ? 'Customer selected a different public location; the case now uses that selection.'
-        : `Changed from ${correction.previousValues[field] ?? 'not provided'} to ${answer.value ?? ''}`}</dd>
+    <h3 className="text-sm font-semibold">{submitted ? 'Customer updated this request' : correction.isActive ? 'Customer update requested' : 'Customer update needs review'}</h3>
+    {submitted && correction.respondedAt && <p className="mt-1 text-sm text-muted-foreground">{formatRefundDateTime(correction.respondedAt, refundCaseTimezone(refundCase))}</p>}
+    {!submitted && <p className="mt-2 text-sm text-muted-foreground">{correction.isActive
+      ? correction.isUsable ? 'Waiting for the customer’s update.' : 'Update-link delivery is being confirmed.'
+      : 'Check the existing response or delivery record.'}</p>}
+    {correction.answers && <dl className="mt-3 space-y-2 text-sm">{Object.entries(correction.answers).map(([field, answer]) => <div key={field}>
+      <dt className="font-medium">{correctionLabels[field] ?? statusLabel(field)}</dt>
+      <dd className="mt-1 text-muted-foreground">{answer.disposition === 'cannot_provide' ? 'Customer is unsure or cannot supply this.'
+        : answer.disposition === 'confirmed' ? `Confirmed: ${correctionValueLabel(field, correction.previousValues[field], refundCase)}`
+        : field === 'location_or_machine' ? `Updated to ${refundCase.machineLabel} · ${refundCase.locationName}`
+        : `${correctionValueLabel(field, correction.previousValues[field], refundCase)} → ${correctionValueLabel(field, answer.value, refundCase)}`}</dd>
     </div>)}</dl>}
-    {correction.state === 'submitted' && <p className="mt-3 text-sm">{correction.recheckState === 'completed' ? 'The purchase check completed. Review its result below.' : correction.nextAction === 'recheck' ? 'Bloomjoy is checking the updated purchase details.' : 'Bloomjoy owns the next review.'}</p>}
+    {submitted && correction.nextAction === 'recheck' && correction.recheckState !== 'completed' && <p className="mt-3 text-sm text-muted-foreground">Checking the updated purchase details.</p>}
     {correction.state === 'pending' && onReview && <Button className="mt-3" variant="outline" onClick={(event) => onReview(event.currentTarget)}>Review current request</Button>}
   </section>;
 };
@@ -1237,24 +1255,13 @@ const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
 const customerFactSourceLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.customerFactEvidence?.source) {
     case 'verified_customer_email':
-      return 'verified customer email reply';
+      return 'customer email reply';
     case 'secure_wallet_correction':
-      return 'secure wallet correction';
+      return 'saved customer update';
     case 'current_case_record':
-      return 'current case record (no version-matched customer reply)';
+      return 'saved case details';
     default:
       return 'original customer submission';
-  }
-};
-
-const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
-  switch (refundCase.cardLast4Provenance) {
-    case 'physical_card':
-      return 'physical-card digits';
-    case 'wallet_device_token':
-      return 'wallet/device-token digits';
-    default:
-      return 'digit source not yet confirmed';
   }
 };
 
@@ -1307,6 +1314,12 @@ const issueCategoryLabel = (refundCase: RefundCaseRecord) => {
       return 'Charged more than once';
     case 'wrong_amount':
       return 'Charged the wrong amount';
+    case 'partial_items':
+      return 'Received fewer items than paid for';
+    case 'expected_cash_change':
+      return 'Expected change from a cash payment';
+    case 'other':
+      return 'Other product or payment issue';
     default:
       return 'Issue category not provided';
   }
@@ -6482,12 +6495,7 @@ export default function AdminRefundsPage() {
           selectableComparisonCandidate ??
           null;
     const incidentTimezone = refundCaseTimezone(selectedCase);
-    const comparisonTimeEvidence = comparisonCandidate?.timeEvidence ?? null;
-    const providerMachineTimezone =
-      comparisonTimeEvidence?.machineClockTimezone?.trim() || null;
     const selectedTimeEvidence = selectedTransactionEvidence?.timeEvidence ?? null;
-    const selectedProviderMachineTimezone =
-      selectedTimeEvidence?.machineClockTimezone?.trim() || null;
     const customerTimeMeaning = refundCustomerTimeMeaning(selectedCase.incidentTimeResolution);
     const hasSelectableCandidate = effectiveCandidates.some(
       (candidate) => candidate.selectionAllowed !== false
@@ -6658,14 +6666,22 @@ export default function AdminRefundsPage() {
       : baseManagerState;
     const recommendation = refundDecisionRecommendation(selectedCase);
     const recommendedPurchase = recommendation?.purchase;
+    const selectionPresentation = getRefundSelectionPresentation({
+      evidenceSource: selectedTransactionEvidence?.evidenceSource,
+      recommendationState: comparisonCandidate?.recommendationState ?? selectedNayaxSummary?.recommendationState,
+      locallySelected: !selectedTransactionEvidence && Boolean(editor.matchedNayaxCandidateToken.trim()),
+      events: selectedCase.events,
+    });
     const plainManagerState = {
       label: editor.decision === 'denied' ? 'Deny request'
         : recommendation?.kind === 'refund'
-          ? `Selected purchase: ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')}`
+          ? 'Selected for review'
           : recommendation?.kind === 'reject' ? 'Review rejection' : refundPlainStatus(selectedCase),
       explanation: editor.decision === 'denied'
         ? 'Choose a clear customer-facing reason, then save the Manager’s final decision.'
-        : recommendation?.summary ?? (waitingOnCustomer ? 'We have asked the customer for the details needed to find this purchase.'
+        : recommendation?.kind === 'refund'
+          ? selectionPresentation.sourceLabel
+          : recommendation?.summary ?? (waitingOnCustomer ? 'We have asked the customer for the details needed to find this purchase.'
         : selectedCase.decision === 'approved' ? 'The refund is approved. Bloomjoy is completing the remaining work.'
         : selectedCase.decision === 'denied' ? 'The decision is saved. Bloomjoy is notifying the customer.'
         : selectedCase.lifecycle?.nextWork?.isOpen === false ? 'This case is closed.'
@@ -6955,6 +6971,75 @@ export default function AdminRefundsPage() {
     return (
       <div data-testid="refund-card-workbench" className="space-y-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
+          {!selectedCaseIsResolvedDuplicate && (
+          <>
+          <RefundCardHistoricalNotices presentation={cardHistoricalNotices} />
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
+          {revisionDeliveryReview}
+          <div className="grid gap-px bg-border">
+            <article data-testid="refund-request-summary" className="bg-card px-4 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
+                <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
+              </div>
+              <div
+                data-testid="refund-customer-comments"
+                className="mt-3 max-w-3xl rounded-lg bg-muted/35 px-3 py-2.5"
+              >
+                <p data-testid="refund-customer-problem-summary" className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
+                  {selectedCase.issueSummary?.trim() || issueCategoryLabel(selectedCase)}
+                </p>
+              </div>
+              <details className="mt-4 border-t border-border/70 pt-2">
+                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">Customer details and updates</summary>
+                <dl data-testid="refund-customer-payment-details" className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div><dt className="text-muted-foreground">How customer paid</dt><dd className="mt-1 font-medium">{paymentInteractionLabel(selectedCase)}</dd></div>
+                  {selectedCase.qrClaimOpenedAt && <div><dt className="text-muted-foreground">Refund request received</dt><dd className="mt-1 font-medium">{formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}</dd></div>}
+                  {selectedCase.productDescription && <div><dt className="text-muted-foreground">Product</dt><dd className="mt-1 font-medium">{selectedCase.productDescription}</dd></div>}
+                  {selectedCase.walletDeviceKind && <div><dt className="text-muted-foreground">Wallet device</dt><dd className="mt-1 font-medium">{statusLabel(selectedCase.walletDeviceKind)}</dd></div>}
+                  {selectedCase.incidentTimeSource && <div><dt className="text-muted-foreground">How customer found the time</dt><dd className="mt-1 font-medium">{incidentTimeSourceLabel(selectedCase)}</dd></div>}
+                  {selectedCase.nearbyAttemptCount && <div><dt className="text-muted-foreground">Customer-reported attempts</dt><dd className="mt-1 font-medium">{nearbyAttemptCountLabel(selectedCase)}</dd></div>}
+                </dl>
+                {customerTimeMeaning && <p className="mt-3 text-sm leading-6 text-muted-foreground">{customerTimeMeaning}</p>}
+                {selectedCase.customerFactEvidence && (
+                  <div className="mt-4 text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground">Customer detail source</p>
+                    <p data-testid="refund-customer-fact-evidence" className="mt-2 leading-5">
+                      Updated from {customerFactSourceLabel(selectedCase)} on{' '}
+                      {formatRefundDateTime(selectedCase.customerFactEvidence.appliedAt, incidentTimezone)}.
+                      {selectedCase.customerFactEvidence.changedFields.length > 0 && <span className="mt-1 block">
+                        Details updated: {selectedCase.customerFactEvidence.changedFields.map((field) => correctionLabels[field] ?? statusLabel(field)).join(', ')}.
+                      </span>}
+                    </p>
+                    {selectedCase.customerFactEvidence.source === 'secure_wallet_correction' && selectedCase.customerCorrection?.answers && <a className="mt-2 inline-block underline underline-offset-4" href={`#refund-correction-${selectedCase.id}`}>View saved customer update</a>}
+                  </div>
+                )}
+              </details>
+            </article>
+
+            <RefundPurchaseReview
+              refundCase={selectedCase}
+              candidate={comparisonCandidate ? { ...comparisonCandidate, cardNetwork: candidateCardNetwork(comparisonCandidate) } : null}
+              selected={selectedTransactionEvidence}
+              timezone={incidentTimezone}
+              customerTime={refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
+              customerTimeConfidence={incidentTimeConfidenceLabel(selectedCase)}
+              customerPayment={paymentInteractionLabel(selectedCase)}
+              customerDigitsSource={cardLast4SourceLabel(selectedCase)}
+              locallySelected={!selectedTransactionEvidence && Boolean(editor.matchedNayaxCandidateToken.trim())}
+            />
+            {!comparisonCandidate && !selectedTransactionEvidence && (
+              <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" className="bg-card px-4 py-4">
+                <h4 data-testid="nayax-decision-heading" className="text-base font-semibold">{transactionView.heading}</h4>
+                {hasPersistedSelectedMatch && <p data-testid="selected-nayax-transaction-evidence-missing" className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Saved purchase details are unavailable. Review the existing transaction in Nayax; the customer's earlier answers remain saved.
+                </p>}
+              </article>
+            )}
+
+          </div>
+          </>
+          )}
           <RefundCardManagerDecisionPanel
             refundAmount={canEditCardAmount && cardApprovalAmount ? {
               value: cardApprovalAmount.value,
@@ -6969,7 +7054,7 @@ export default function AdminRefundsPage() {
               : recommendation || editor.decision === 'denied' || showNonDecisionCardAction
                 ? cardManagerCapabilityAction
                 : { kind: 'hidden' }}
-            purchase={recommendedPurchase ? {
+            purchase={comparisonCandidate || selectedTransactionEvidence ? null : recommendedPurchase ? {
               amount: formatProviderCurrency(recommendedPurchase.amountCents, recommendedPurchase.currencyCode),
               time: recommendedPurchase.transactionAt ? formatRefundDateTime(recommendedPurchase.transactionAt, incidentTimezone) : null,
               timeLabel: recommendedPurchase.timeMeaning === 'purchase' ? 'Purchased' : 'Transaction time',
@@ -6987,472 +7072,7 @@ export default function AdminRefundsPage() {
               void handlePrimaryAction();
             }}
           />
-
-          {!selectedCaseIsResolvedDuplicate && (
-          <>
-          <RefundCardHistoricalNotices presentation={cardHistoricalNotices} />
-          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
-          {revisionDeliveryReview}
-          <div className="grid gap-px bg-border">
-            <article data-testid="refund-request-summary" className="bg-card px-4 py-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
-                <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
-              </div>
-              <div
-                data-testid="refund-customer-comments"
-                className="mt-3 max-w-3xl rounded-lg bg-muted/35 px-3 py-2.5"
-              >
-                <p data-testid="refund-customer-problem-summary" className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
-                  {selectedCase.issueSummary || 'No customer comments were provided.'}
-                </p>
-              </div>
-              <details className="mt-4 border-t border-border/70 pt-4">
-                <summary className="cursor-pointer text-sm font-medium">Customer purchase details</summary>
-                <dl data-testid="refund-customer-payment-details" className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Customer time</dt>
-                    <dd className="mt-1 font-medium text-foreground">
-                      {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
-                    </dd>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
-                      {incidentTimezone || 'timezone unavailable'} ·{' '}
-                      {incidentTimeConfidenceLabel(selectedCase)}
-                    </p>
-                    {customerTimeMeaning && (
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {customerTimeMeaning}
-                      </p>
-                    )}
-                  </div>
-                  {selectedCase.qrClaimOpenedAt && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">Refund request received</p>
-                      <p className="mt-1 font-medium text-foreground">
-                        {formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Request receipt · shown in venue time · {incidentTimezone || 'timezone unavailable'}
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Requested</dt>
-                    <dd className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Card ending</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{selectedCase.cardLast4 || 'Not provided'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Card type</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{cardNetworkLabel(selectedCase.cardNetwork)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">How customer paid</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{paymentInteractionLabel(selectedCase)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Last four source</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{cardLast4SourceLabel(selectedCase)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Issue</dt>
-                    <dd className="mt-1 font-medium text-foreground">{issueCategoryLabel(selectedCase)}</dd>
-                  </div>
-                  {selectedCase.productDescription && (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Product</dt>
-                      <dd className="mt-1 font-medium text-foreground">{selectedCase.productDescription}</dd>
-                    </div>
-                  )}
-                  {selectedCase.walletDeviceKind && (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Wallet device</dt>
-                      <dd className="mt-1 font-medium text-foreground">{selectedCase.walletDeviceKind}</dd>
-                    </div>
-                  )}
-                </dl>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span>{incidentTimeSourceLabel(selectedCase)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{nearbyAttemptCountLabel(selectedCase)}</span>
-                </div>
-                {selectedCase.customerFactEvidence && (
-                  <details className="mt-3 text-xs text-muted-foreground">
-                    <summary className="cursor-pointer font-medium text-foreground">Case evidence source</summary>
-                    <p data-testid="refund-customer-fact-evidence" className="mt-2 leading-5">
-                      Customer facts from {customerFactSourceLabel(selectedCase)} ·{' '}
-                      {formatDate(selectedCase.customerFactEvidence.appliedAt)} ·{' '}
-                      {cardLast4ProvenanceLabel(selectedCase)} · fact version{' '}
-                      {selectedCase.customerFactEvidence.factVersion}
-                    </p>
-                  </details>
-                )}
-              </details>
-            </article>
-
-            <details className="bg-card px-4 py-3"><summary className="cursor-pointer text-sm font-medium">Purchase details and search history</summary>
-            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="flex flex-col bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Machine transaction
-                  </p>
-                  <h4 data-testid="nayax-decision-heading" className="mt-1 text-base font-semibold text-foreground">
-                    {transactionView.heading}
-                  </h4>
-                  {selectedTransactionEvidence && (
-                    <p
-                      data-testid="selected-nayax-transaction-evidence"
-                      className="mt-1 text-sm text-muted-foreground"
-                      aria-label="Selected purchase summary"
-                    >
-                      {formatProviderCurrency(
-                        selectedTransactionEvidence.saleAmountCents,
-                        selectedTransactionEvidence.currencyCode
-                      )}{' · '}{selectedTransactionEvidence.machineLabel}
-                    </p>
-                  )}
-                </div>
-                <Badge className="w-fit border-border bg-background text-foreground">
-                  {transactionView.badge}
-                </Badge>
-              </div>
-
-              {selectedTransactionEvidence ? (
-                <section
-                  className="contents"
-                >
-                  <details data-testid="selected-nayax-transaction-evidence-details" className="group order-1 mt-3 rounded-lg border border-border bg-background p-3">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-md text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                      <span>Transaction evidence</span>
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-                    </summary>
-                    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Selected Nayax transaction ID
-                        </p>
-                        <code
-                          data-testid="selected-nayax-transaction-id"
-                          className="mt-1 block break-all font-mono text-sm font-semibold text-foreground"
-                        >
-                          {selectedTransactionEvidence.transactionId}
-                        </code>
-                      </div>
-                      <Button
-                        data-testid="copy-selected-nayax-transaction-id"
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="min-h-11 shrink-0 bg-background"
-                        aria-label="Copy selected Nayax transaction ID"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)
-                            .then(() => toast.success('Nayax transaction ID copied.'))
-                            .catch(() => toast.error('Unable to copy the transaction ID. Select the ID and copy it manually.'));
-                        }}
-                      >
-                        <Copy className="mr-2 h-4 w-4" />
-                        Copy ID
-                      </Button>
-                    </div>
-                    <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Provider-confirmed sale</dt>
-                      <dd className="mt-1 font-medium text-foreground">
-                        {formatProviderCurrency(
-                          selectedTransactionEvidence.saleAmountCents,
-                          selectedTransactionEvidence.currencyCode
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Machine</dt>
-                      <dd className="mt-1 font-medium text-foreground">
-                        {selectedTransactionEvidence.machineLabel}
-                      </dd>
-                      <dd className="mt-1 text-xs text-muted-foreground">
-                        {selectedTransactionEvidence.locationName}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Customer-reported time</dt>
-                      <dd className="mt-1 font-medium text-foreground">
-                        {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
-                      </dd>
-                      <dd className="mt-1 text-xs text-muted-foreground">
-                        {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
-                        {incidentTimezone || 'timezone unavailable'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-muted-foreground">
-                        {refundProviderTimeLabel(selectedTimeEvidence)}
-                      </dt>
-                      <dd className="mt-1 font-medium text-foreground">
-                        {formatRefundDateTime(
-                          selectedTransactionEvidence.providerTimestampAt ??
-                            (!selectedTimeEvidence
-                              ? selectedTransactionEvidence.providerAuthorizedAt
-                              : null),
-                          incidentTimezone
-                        )}
-                      </dd>
-                      <dd className="mt-1 text-xs text-muted-foreground">
-                        Shown in venue time · {incidentTimezone || 'timezone unavailable'}
-                      </dd>
-                      <dd className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {refundCandidateTimeSourceDetail(selectedTimeEvidence)}
-                      </dd>
-                    </div>
-                    {selectedProviderMachineTimezone && (
-                      <div>
-                        <dt className="text-xs text-muted-foreground">Provider machine clock</dt>
-                        <dd className="mt-1 font-medium text-foreground">
-                          {formatRefundDateTime(
-                            selectedTransactionEvidence.providerAuthorizedAt,
-                            selectedProviderMachineTimezone
-                          )}
-                        </dd>
-                        <dd className="mt-1 text-xs text-muted-foreground">
-                          Verified machine zone · {selectedProviderMachineTimezone}
-                        </dd>
-                      </div>
-                    )}
-                    <div className="sm:col-span-2">
-                      <dt className="text-xs text-muted-foreground">How to use this time</dt>
-                      <dd className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {refundCandidateTimeMeaning(selectedTimeEvidence)}
-                      </dd>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <dt className="text-xs text-muted-foreground">Card or wallet details</dt>
-                      <dd className="mt-1 font-medium text-foreground">
-                        Nayax: {cardNetworkLabel(selectedTransactionEvidence.cardNetwork)}
-                        {' · '}ending {selectedTransactionEvidence.cardLast4 || 'n/a'}
-                        {selectedTransactionEvidence.recognitionMethod
-                          ? ` · ${selectedTransactionEvidence.recognitionMethod}`
-                          : ''}
-                      </dd>
-                      <dd className="mt-1 text-xs text-muted-foreground">
-                        Customer: {paymentInteractionLabel(selectedCase)}
-                      </dd>
-                    </div>
-                    </dl>
-
-                    <div className="mt-3 border-t border-primary/15 pt-3 text-xs leading-5">
-                      <p className="font-semibold text-foreground">Why this transaction was selected</p>
-                      <p className="mt-1 text-muted-foreground">
-                        {selectedTransactionEvidence.matchExplanation}
-                      </p>
-                    </div>
-                  </details>
-                </section>
-              ) : hasPersistedSelectedMatch ? (
-                <div
-                  data-testid="selected-nayax-transaction-evidence-missing"
-                  className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm leading-6 text-orange-950"
-                  role="status"
-                >
-                  Bloomjoy Hub cannot show the saved transaction details. Check the same machine in Nayax and report the portal gap. Do not ask the customer to repeat purchase details.
-                </div>
-              ) : null}
-
-              {comparisonCandidate ? (
-                <>
-                  <div data-testid="refund-purchase-comparison" className="mt-3 overflow-hidden rounded-lg border border-border bg-background text-sm">
-                    <div className="hidden grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground sm:grid">
-                      <span>Detail</span>
-                      <span>Customer request</span>
-                      <span>{hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}</span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-y-2 border-t border-border px-3 py-3 sm:grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-2 sm:gap-y-0">
-                      <span className="font-semibold text-muted-foreground sm:font-normal">Amount</span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">Customer request</span>
-                        {formatCurrency(selectedCase.paymentAmountCents)}
-                      </span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
-                          {hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}
-                        </span>
-                        {formatCurrency(comparisonCandidate.amountCents)}
-                        {comparisonCandidate.amountDeltaCents === 0 ? ' (same)' : ' (different)'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-y-2 border-t border-border px-3 py-3 sm:grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-2 sm:gap-y-0">
-                      <span className="font-semibold text-muted-foreground sm:font-normal">Time</span>
-                      <span className="min-w-0 font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">Customer request</span>
-                        {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
-                        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                          {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
-                          {incidentTimezone || 'timezone unavailable'}
-                        </span>
-                        {customerTimeMeaning && (
-                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                            {customerTimeMeaning}
-                          </span>
-                        )}
-                      </span>
-                      <span className="min-w-0 font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
-                          {hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}
-                        </span>
-                        {formatRefundDateTime(
-                          comparisonCandidate.providerTimestampAt ?? comparisonCandidate.authorizedAt,
-                          incidentTimezone
-                        )}
-                        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                          {refundProviderTimeLabel(comparisonTimeEvidence)} · shown in venue time
-                          {comparisonTimeEvidence?.occurrenceComparable &&
-                            typeof comparisonCandidate.timeDeltaMinutes === 'number'
-                            ? ` · ${comparisonCandidate.timeDeltaMinutes} min from customer report`
-                            : ''}
-                        </span>
-                        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                          {refundCandidateTimeSourceDetail(comparisonTimeEvidence)}
-                        </span>
-                        {providerMachineTimezone && providerMachineTimezone !== incidentTimezone && (
-                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                            Provider machine clock:{' '}
-                            {formatRefundDateTime(
-                              comparisonCandidate.machineAuthorizationTime,
-                              providerMachineTimezone
-                            )}{' · '}{providerMachineTimezone}
-                          </span>
-                        )}
-                        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                          {refundCandidateTimeMeaning(comparisonTimeEvidence)}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-y-2 border-t border-border px-3 py-3 sm:grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-2 sm:gap-y-0">
-                      <span className="font-semibold text-muted-foreground sm:font-normal">Card</span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">Customer request</span>
-                        Ending {selectedCase.cardLast4 || 'n/a'}
-                      </span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
-                          {hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}
-                        </span>
-                        {comparisonCandidate.cardBrand || 'Card'} ending {comparisonCandidate.cardLast4 || 'n/a'}
-                        {selectedCase.cardLast4 && comparisonCandidate.cardLast4
-                          ? selectedCase.cardLast4 === comparisonCandidate.cardLast4
-                            ? ' (same)'
-                            : ' (different)'
-                          : ''}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-y-2 border-t border-border px-3 py-3 sm:grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-2 sm:gap-y-0">
-                      <span className="font-semibold text-muted-foreground sm:font-normal">Card type</span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">Customer request</span>
-                        {cardNetworkLabel(selectedCase.cardNetwork)}
-                      </span>
-                      <span className="font-medium text-foreground">
-                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
-                          {hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}
-                        </span>
-                        {cardNetworkLabel(candidateCardNetwork(comparisonCandidate))}
-                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                          {cardNetworkComparisonLabel(selectedCase, comparisonCandidate)}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {providerMachineTimezone && incidentTimezone &&
-                    providerMachineTimezone !== incidentTimezone && (
-                    <details
-                      data-testid="refund-provider-clock-diagnostic"
-                      className="group mt-3 rounded-md border border-border bg-background px-3 py-2 text-xs"
-                    >
-                      <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                        <span>Provider clock differs from venue</span>
-                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-                      </summary>
-                      <p className="mt-2 leading-5 text-muted-foreground">
-                        The venue uses {incidentTimezone}; this Nayax machine uses {providerMachineTimezone}.
-                        {' '}Bloomjoy normalizes and displays each clock separately.
-                        {comparisonTimeEvidence?.occurrenceComparable
-                          ? ' Timing is compared because the purchase-event basis is verified.'
-                          : ' Timing is not used as purchase proof because the purchase-event basis is not verified.'}
-                        {' '}This is System context, not information the customer needs to repeat.
-                      </p>
-                    </details>
-                  )}
-
-                  {(comparisonCandidate.productLabel || typeof comparisonCandidate.standardPriceCents === 'number') && (
-                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                      Machine product:{' '}
-                      <span className="font-medium text-foreground">
-                        {comparisonCandidate.productLabel || 'Selection not named'}
-                        {typeof comparisonCandidate.standardPriceCents === 'number'
-                          ? `, configured at ${formatCurrency(comparisonCandidate.standardPriceCents)}`
-                          : ''}
-                      </span>
-                    </p>
-                  )}
-
-                  {comparisonCandidate.matchFactors && comparisonCandidate.matchFactors.length > 0 && (
-                    <details className="group mt-3 rounded-md border border-border bg-background px-3 py-2">
-                      <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                        <span>
-                          {comparisonCandidate.selectionAllowed === false
-                            ? 'Why this transaction cannot be selected'
-                            : comparisonCandidate.identifierReviewState === 'reviewable_uncertainty'
-                              ? 'What supports this match and what is uncertain'
-                              : waitingOnCustomer
-                                ? 'What matches and what still needs confirmation'
-                                : 'Why this looks like a match'}
-                        </span>
-                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-                      </summary>
-                      <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
-                        {comparisonCandidate.matchFactors.slice(0, 4).map((factor) => (
-                          <li key={`${factor.key}-${factor.label}`} className="flex gap-2">
-                            <span aria-hidden="true" className="text-primary">•</span>
-                            <span>{matchFactorDisplayLabel(factor, comparisonCandidate, selectedCase)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-
-                  {(comparisonCandidate.machineStatus || (comparisonCandidate.nearbyMachineAlerts?.length ?? 0) > 0) && (
-                    <details className="mt-3 rounded-md border border-border bg-background p-2 text-xs text-muted-foreground">
-                      <summary className="cursor-pointer font-medium text-foreground">Machine context</summary>
-                      <div className="mt-2 space-y-2 leading-5">
-                        {comparisonCandidate.machineStatus && <p>{comparisonCandidate.machineStatus.label}.</p>}
-                        {comparisonCandidate.nearbyMachineAlerts?.map((alert) => (
-                          <p key={`${alert.category}-${alert.occurredAt}`}>
-                            {alert.category} at {formatDate(alert.occurredAt)}
-                          </p>
-                        ))}
-                        <p className="text-muted-foreground">
-                          This context may help investigation. It does not prove that this purchase failed.
-                        </p>
-                      </div>
-                    </details>
-                  )}
-
-                  <div className="mt-3">{renderCardSaleCandidates()}</div>
-                </>
-              ) : (
-                <div className="mt-3">
-                  <div>{renderCardSaleCandidates()}</div>
-                </div>
-              )}
-            </article>
-            </details>
-          </div>
-          </>
-          )}
+          {!selectedCaseIsResolvedDuplicate && <div className="border-t border-border px-4 py-4">{renderCardSaleCandidates()}</div>}
         </section>
 
         {selectedCase.lifecycle && (

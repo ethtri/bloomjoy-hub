@@ -5,7 +5,7 @@ export const refundLifecycleStageLabels: Record<RefundLifecycleStage, string> = 
   matching: 'Matching the purchase',
   waiting_on_customer: 'Waiting for customer reply',
   needs_transaction_selection: 'Waiting for transaction confirmation',
-  transaction_confirmed: 'Transaction confirmed',
+  transaction_confirmed: 'Purchase selected',
   awaiting_payout: 'Preparing the reimbursement',
   refund_initiated: 'Refund initiated',
   confirming_with_nayax: 'Confirming the refund',
