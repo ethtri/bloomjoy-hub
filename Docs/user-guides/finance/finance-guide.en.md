@@ -1,6 +1,6 @@
 # Bloomjoy Finance team guide
 
-Updated October 3, 2026. Screenshots show illustrative sample data, not company results. Sign in to follow the live links. English screen labels are preserved in both editions.
+Updated October 3, 2026. Screenshots and tax examples are illustrative, not company results or recommended tax rates. Sign in to follow the live links. English screen labels are preserved in both editions. Pages 9-12 cover reporting tax setup and reconciliation.
 
 ## 1. Start with Finance
 
@@ -116,3 +116,66 @@ Before using an export: confirm the period, authorized scope, units and coverage
 - When changing company, choose a location belonging to that company or explicitly add a location with its timezone. The old location and historical records remain intact. Company-level report access follows the selected company; machine manager assignments stay the same.
 - **Cancel** leaves the machine draft intact. If the company was created but saving the machine fails, retry the machine save; the company already exists. If another admin changed the assignment, review the latest assignment before saving again.
 - Company setup requires the existing machine administration permission. Finance users who only read reports can ask their machine administrator to correct an assignment. Imported-machine setup uses the same explicit company selection.
+
+---
+
+## 9. Set a machine's reporting tax rate
+
+[Open Machines](https://app.bloomjoyusa.com/admin/machines)
+
+These settings change reporting calculations for a machine and dated activity. They do not change the machine's customer price, provider tax collection, Stripe Checkout, or a tax filing. Viewing Finance does not grant tax-edit access; scoped admins can edit only their permitted machines.
+
+- **Step 1:** Open the machine and select **Reporting**. Confirm its machine name, company and location. Select **Set tax rate** for initial setup or **Change tax rate** for an existing rate. Use **Rate history** to check saved rates and their date ranges.
+- **Step 2:** Enter **New reporting tax %**, from 0 to 100. Enter 8.25 for 8.25%, not 0.0825. Use the documented rate for that machine and period. A saved 0% is an explicit no-tax reporting setting; a missing rate is incomplete configuration, not evidence of exemption.
+- **Step 3:** Choose **Applies from**, the first date the setting should apply. Initial setup defaults to January 1, 2026; confirm that date against the actual history. A change defaults to today. The previous rate ends the day before the new start. Backdating can change reports for earlier periods.
+- **Step 4:** Enter **Reason** (at least eight characters), explaining the change and its source. Open **Tax treatment (optional)** if the source basis or taxable portion also needs changing; see page 10. These controls use the same effective date and reason.
+- **Step 5:** Select **Set tax rate** or **Save rate change**. Reopen the machine's Reporting section and check **Rate history**. To check card/cash treatment, reopen the dialog, select the relevant **Applies from** date and expand the controls. Return to Finance, refresh, and export the same machine and dates again.
+
+If saving reports an error or an uncertain result, refresh and inspect the saved settings before retrying. If treatment loading fails, **Retry treatment** reloads it; the UI still permits a rate-only save that preserves existing treatment. Editing treatment requires the saved treatment to load.
+
+---
+
+## 10. Choose the source basis and taxable portion
+
+In the tax dialog, expand **Tax treatment (optional)**. Set **Card source amounts** and **Cash source amounts** separately. These describe the particular imported sales amount, not every field from that provider and not the amount of a customer refund.
+
+- **Automatic:** preserves the source's reporting basis. It does not discover local tax law or guarantee that every source field includes tax. When no dated treatment exists, the defaults are Automatic and 100% taxable portion. Missing or unknown basis can still produce incomplete coverage.
+- **Includes tax:** the imported sales amount already contains embedded tax. Where separate recorded tax is unavailable, the report can calculate the tax-exclusive amount using the dated rate and taxable portion. This prevents treating a customer-charge total as tax-exclusive revenue.
+- **Excludes tax:** the imported sales amount is already tax-exclusive. Do not subtract tax from that amount again. This setting does not mean the customer was charged no tax or that the sale is legally exempt.
+- Expand **Taxable portion**. Enter **Card taxable %** and **Cash taxable %**, each from 0 to 100. The portion is the share of tax-exclusive purchase value subject to the entered rate, not the percentage of transactions paid by card or cash. 100% applies the full rate; 0% removes no estimated tax.
+- **Effective reporting rate = entered tax rate x taxable portion / 100.** A sample 10% rate with a 50% portion produces a 5% effective reporting rate. The card and cash portions can differ when their documented treatment differs. Do not copy a location's exception to all machines without matching scope and dates.
+
+Recorded tax details remain authoritative. Source overrides affect reporting assumptions; customer-charge refund amounts retain their own tax basis. A tax-exclusive provider sales field does not prove that the related customer charge or refund excludes tax.
+
+Keep the machine/location, provider, exact report or field, amount basis, rate, taxable portion, effective date and supporting record together. For example, a source's Order amount and Payment amount can have different bases. Confirm which field was imported before choosing an override.
+
+---
+
+## 11. Worked tax examples
+
+All amounts and rates below are invented. The examples assume no separate recorded tax, a known source basis and the applicable dated configuration. They explain reporting arithmetic, not the tax treatment required for any location.
+
+- **Fully taxable, Includes tax:** recorded sales $110.00; rate 10%; portion 100%. Effective rate = 10%. Sales excluding tax = $110.00 / 1.10 = **$100.00**. Reporting tax removed = **$10.00**. Do not simply subtract 10% of $110.00: embedded tax is calculated on the tax-exclusive base.
+- **Partly taxable, Includes tax:** recorded sales $105.00; rate 10%; portion 50%. Effective rate = 5%. Sales excluding tax = $105.00 / 1.05 = **$100.00**. Reporting tax removed = **$5.00**. The taxable portion is $50.00 of the $100.00 base.
+- **Excludes tax:** recorded sales $100.00; rate 10%; portion 100%. Sales excluding tax remains **$100.00**; no embedded tax is removed from that source amount. The setting does not add $10.00 to this sales value or prove how much the customer actually paid.
+- **Refund impact:** with a separately proved $11.00 tax-inclusive purchase deduction at 10% and 100% taxable portion, the tax-exclusive deduction is **$10.00**. If sales excluding tax are $100.00, net sales after that deduction are **$90.00**. Paying the recorded $11.00 refund later does not deduct another $11.00 from net sales.
+- **Date change:** if a new rate starts October 1, September activity keeps its applicable September rate. A report spanning both dates uses dated settings; applying the October rate to the entire period in a spreadsheet can produce a difference.
+
+For an inclusive source, the simplified formula is **tax-exclusive sales = recorded amount / (1 + effective reporting rate / 100)**; tax removed is the difference. Actual totals can differ by cents because normalization rounds within the system's grouping and uses recorded tax when available. Compare the exported calculated amounts rather than rounding every transaction independently.
+
+If a rate, basis or amount is missing, read the coverage note. **Unavailable** is not zero; a **Known subtotal** omits unknown amounts. A numeric display does not by itself prove complete tax coverage.
+
+---
+
+## 12. Reconcile and keep a period-end copy
+
+[Open Finance](https://app.bloomjoyusa.com/portal/reports?view=finance) | [Stripe Tax reporting reference](https://docs.stripe.com/tax/reports)
+
+- **Choose a common scope:** use the same completed dates, company, location and machines across Finance, Sales and Refund reports. Confirm each account's authorized scope. Compare the machine's local business dates with the timezone used by the provider export. Payment-method filters on Overview/Locations affect sales only.
+- **Trace the sales basis:** compare the selected machine/day sales to the source export. Record the exact field, whether it includes tax, and any separate tax field. Use the applicable dated rate and card/cash treatment. Check coverage, delayed imports and cash uploaded after an offline period before treating absent records as zero.
+- **Tie the deductions:** reconcile requested deductions, reversals and older refunds deducted when paid to Finance. Money refunds paid and gift-card resolution explain activity; they are not extra deductions. Keep gift face value and goodwill separate from purchase value and cash outflows.
+- **Export a dated copy:** keep the Finance CSV, the selected Sales PDF, relevant Refund CSV and supporting source exports with the scope, download date and tax-setting evidence. Finance CSV money is cents. **Save view** saves filters only; reopening it can reflect later imports, corrected rates or current company assignments.
+- **Bridge to cash and costs separately:** net sales is not profit or a bank payout. Reconcile provider payouts using their fees, settlement timing and refunds, and reconcile physical cash using collection records. Review Timekeeping/pay reports separately; labor and unallocated earnings are not automatically deducted from Finance net sales.
+- **Use collection evidence for tax filing:** reporting tax removed is a calculation adjustment. Reconcile actual collected tax and tax reversals with the appropriate provider/tax records. Stripe Tax exports cover completed transactions with Stripe Tax enabled; they are not automatically the machine card/cash ledger. Select the correct legal entity/account, dates and currency. Stripe notes that completed transactions can take up to 24 hours to appear in its tax reports; see the linked reference.
+
+For an unresolved difference, record the report link, filters, machine/day, expected versus displayed amount, source field and coverage note. Give this to the reporting administrator or finance owner. A screen access issue belongs with the access administrator; documented rate/basis corrections belong with an authorized machine administrator. Preserve customer and payment identifiers in private reconciliation records.

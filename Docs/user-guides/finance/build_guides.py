@@ -48,11 +48,15 @@ def build(language, destination):
         heading = next(line[3:] for line in lines if line.startswith('## '))
         start = next(index for index, line in enumerate(lines) if line.startswith('## '))
         lines = lines[start + 1:]
-        image_line = next(line for line in lines if line.startswith('!['))
-        alt, image_path = re.fullmatch(r'!\[([^\]]+)\]\(([^)]+)\)', image_line).groups()
-        image_index = lines.index(image_line)
-        before = '\n'.join(lines[:image_index]).strip()
-        body = '\n'.join(lines[image_index + 1:]).strip()
+        image_line = next((line for line in lines if line.startswith('![')), None)
+        if image_line:
+            alt, image_path = re.fullmatch(r'!\[([^\]]+)\]\(([^)]+)\)', image_line).groups()
+            image_index = lines.index(image_line)
+            before = '\n'.join(lines[:image_index]).strip()
+            body = '\n'.join(lines[image_index + 1:]).strip()
+        else:
+            before = ''
+            body = '\n'.join(lines).strip()
         blocks = []
         for block in re.split(r'\n\s*\n', body):
             if block.startswith('- '):
@@ -79,20 +83,21 @@ def build(language, destination):
             _, ph = paragraph.wrap(WIDTH - 2 * MARGIN, HEIGHT)
             paragraph.drawOn(doc, MARGIN, y - ph)
             y -= ph + 8
-        caption = Paragraph(('示例截图：实际应用界面，使用合成数据。与公司实际结果不同。' if chinese else
-                             'Illustrative sample: actual application screen with synthetic data. Values differ from company results.'), small)
-        _, ch = caption.wrap(WIDTH - 2 * MARGIN, HEIGHT)
-        image = ImageReader(str(HERE / image_path))
-        iw, ih = image.getSize()
-        available_height = y - 37 - sum(body_heights) - ch - 18
-        scale = min((WIDTH - 2 * MARGIN) / iw, 350 / ih, available_height / ih)
-        if scale <= 0:
-            raise ValueError(f'Page {number} has no space for its screenshot')
-        dw, dh = iw * scale, ih * scale
-        doc.drawImage(image, (WIDTH - dw) / 2, y - dh, dw, dh)
-        y -= dh + 5
-        caption.drawOn(doc, MARGIN, y - ch)
-        y -= ch + 11
+        if image_line:
+            caption = Paragraph(('示例截图：实际应用界面，使用合成数据。与公司实际结果不同。' if chinese else
+                                 'Illustrative sample: actual application screen with synthetic data. Values differ from company results.'), small)
+            _, ch = caption.wrap(WIDTH - 2 * MARGIN, HEIGHT)
+            image = ImageReader(str(HERE / image_path))
+            iw, ih = image.getSize()
+            available_height = y - 37 - sum(body_heights) - ch - 18
+            scale = min((WIDTH - 2 * MARGIN) / iw, 350 / ih, available_height / ih)
+            if scale <= 0:
+                raise ValueError(f'Page {number} has no space for its screenshot')
+            dw, dh = iw * scale, ih * scale
+            doc.drawImage(image, (WIDTH - dw) / 2, y - dh, dw, dh)
+            y -= dh + 5
+            caption.drawOn(doc, MARGIN, y - ch)
+            y -= ch + 11
         for paragraph, ph in zip(body_objects, body_heights):
             paragraph.drawOn(doc, MARGIN, y - (ph - 7))
             y -= ph
