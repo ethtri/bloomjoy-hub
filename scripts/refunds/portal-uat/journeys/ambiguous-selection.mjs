@@ -152,7 +152,7 @@ const runNayaxLookupNoticeChecks = async ({
     'Unavailable transaction search stays read-only without manual provider controls',
     await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
       (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
-      (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+      (await page.getByText('Selection and search tools', { exact: true }).count()) === 0 &&
       (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0 &&
       (await page.getByRole('button', { name: 'Refresh transaction results' }).count()) === 0
   );
@@ -264,8 +264,7 @@ const runApiUnavailableCaseEvidenceChecks = async ({
   await page.getByRole('button', { name: /^All active 1$/ }).click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-ADAM-MANUAL').click();
-  await page.getByText('Customer purchase details', { exact: true }).click();
-  await page.getByText('Purchase details and search history', { exact: true }).click();
+  await page.getByText('Customer details and updates', { exact: true }).click();
 
   const requestSummary = page.getByTestId('refund-request-summary');
   const paymentDetails = page.getByTestId('refund-customer-payment-details');
@@ -787,7 +786,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedHeading: '4 transactions found',
       expectedStatus: '4 results',
       expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
-      expectedCandidateCount: 1,
+      expectedCandidateCount: 4,
       expectedSafetyMatrix: true,
     },
     {
@@ -1485,11 +1484,15 @@ const runNayaxLookupStatusMatrixChecks = async ({
       await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
       await pendingRow.click();
     }
-    if (scenario.queueView !== 'Waiting on customer') {
-      await page.getByText('Purchase details and search history', { exact: true }).click();
-    }
+    const initialOverview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
+    const initialCase = initialOverview.cases.find((refundCase) => refundCase.id === 'case-card-pending') ?? initialOverview.cases[0];
+    const expectedPurchaseHeading = initialCase.hasMatchedNayaxTransaction && initialCase.selectedNayaxTransaction
+      ? 'Selected for review'
+      : scenario.response.candidates.some((candidate) => candidate.isRecommended === true && candidate.selectionAllowed !== false)
+        ? 'Compare this purchase'
+        : scenario.expectedHeading;
     if (scenario.simpleJourney) {
-      await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).waitFor({ timeout: 10000 });
+      await page.getByTestId('nayax-decision-heading').getByText(expectedPurchaseHeading, { exact: true }).waitFor({ timeout: 10000 });
       recorder.assert(
         'Opening an execution-ready exact-match case uses durable server lookup evidence without a browser lookup',
         functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
@@ -1500,7 +1503,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       recorder.assert(
         `Opening the ${scenario.name} case preserves the customer wait without exposing transaction-search controls`,
         functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
-          (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+          (await page.getByText('Selection and search tools', { exact: true }).count()) === 0 &&
           (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
           await page.getByTestId('refund-manager-state').getByText('Waiting on customer', { exact: true }).isVisible() &&
           (await page.getByTestId('refund-manager-next-step').innerText()) === scenario.expectedAction,
@@ -1509,7 +1512,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       await closeRefundPortalContext(context);
       continue;
     } else {
-      await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true })
+      await page.getByTestId('nayax-decision-heading').getByText(expectedPurchaseHeading, { exact: true })
         .waitFor({ timeout: 10000 });
       recorder.assert(
         `Opening the ${scenario.name} case renders durable server lookup evidence without a browser lookup`,
@@ -1517,20 +1520,22 @@ const runNayaxLookupStatusMatrixChecks = async ({
         functionCalls.join(', ')
       );
     }
-    await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true }).waitFor({ timeout: 10000 });
-    await page.getByTestId('nayax-result-card').getByText(scenario.expectedHeading, { exact: true }).waitFor({ timeout: 10000 });
+    await page.getByTestId('nayax-decision-heading').getByText(expectedPurchaseHeading, { exact: true }).waitFor({ timeout: 10000 });
 
     const resultCardText = await page.getByTestId('nayax-result-card').innerText();
+    const lookupStatusText = (await page.getByTestId('nayax-transaction-status').count()) > 0
+      ? await page.getByTestId('nayax-transaction-status').innerText()
+      : '';
     recorder.assert(
       `Nayax ${scenario.name} status is explicit`,
-        resultCardText.includes(scenario.expectedHeading) &&
-        resultCardText.includes(scenario.expectedStatus) &&
-        (!scenario.expectedDescription || scenario.expectedDescription.test(resultCardText)) &&
+        resultCardText.includes(expectedPurchaseHeading) &&
+        (!scenario.expectedDescription || scenario.expectedDescription.test(lookupStatusText)) &&
         !resultCardText.includes(scenario.response.summary) &&
         functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
       JSON.stringify({
         functionCalls,
         resultText: resultCardText.slice(0, 1200),
+        lookupStatusText,
       })
     );
     recorder.assert(
@@ -1562,7 +1567,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
           await page.getByTestId('nayax-result-card').isVisible()
       );
-      await page.getByText('Transaction search details', { exact: true }).click();
+      await page.getByText('Selection and search tools', { exact: true }).click();
       const operationsRecovery = page.getByTestId('nayax-operations-recovery');
       recorder.assert(
         'The current manager can reach only the narrow transaction-check recovery control',
@@ -1652,11 +1657,12 @@ const runNayaxLookupStatusMatrixChecks = async ({
     }
     recorder.assert(
       `Nayax ${scenario.name} keeps reported and QR times separate`,
-      (await page.getByText('Customer time', { exact: true }).count()) >= 1 &&
+      ((await page.getByTestId('refund-purchase-comparison').getByText('Time', { exact: true }).count()) >= 1 ||
+        (await page.getByTestId('refund-request-summary').getByText('Customer time', { exact: true }).count()) >= 1) &&
         (await page.getByText('Refund request received', { exact: true }).count()) >= 1
     );
-    const statusText = page.getByTestId('nayax-result-card')
-      .getByText(scenario.expectedHeading, { exact: true });
+    const statusText = page.getByTestId('nayax-decision-heading')
+      .getByText(expectedPurchaseHeading, { exact: true });
     const statusTextContrast = await computedContrastRatio(statusText);
     recorder.assert(
       `Nayax ${scenario.name} status text meets contrast`,
@@ -1763,31 +1769,35 @@ const runNayaxLookupStatusMatrixChecks = async ({
           .getByTestId('nayax-candidate-option');
         const resultText = await page.getByTestId('nayax-result-card').innerText();
         recorder.assert(
-          'Unsafe provider results stay out of the Manager candidate list',
-          (await candidateOptions.count()) === 1 &&
+          'All returned provider results remain visible with their exact selection safeguards',
+          (await candidateOptions.count()) === scenario.response.candidates.length &&
             await candidateOptions.evaluateAll((options) => options.every((option) => {
               const element = option;
               return element.getBoundingClientRect().height > 0;
             })) &&
             await candidateOptions.locator('input[type="radio"]').evaluateAll(
-              (inputs) => inputs.every((input) => !input.disabled)
-            ) &&
-            resultText.includes('Amount differs by $2.99') &&
-            !resultText.includes('Amount differs by $3.01')
+              (inputs, candidates) => inputs.every((input) => {
+                const candidate = candidates.find((entry) => entry.candidateToken === input.value);
+                return candidate != null && input.disabled === (candidate.selectionAllowed === false);
+              }), scenario.response.candidates
+            ),
+          JSON.stringify({ count: await candidateOptions.count(), resultText })
         );
         recorder.assert(
           'Only the corroborated exact-card candidate remains selectable',
           await page.getByTestId('nayax-candidate-availability')
-            .getByText('1 available transaction result', { exact: true }).isVisible() &&
-            await candidateOptions.getByText('Amount differs by $2.99', { exact: true }).isVisible()
+            .getByText(/1 result is selectable/).isVisible() &&
+            await candidateOptions.filter({ has: page.locator('input[value="41000000-0000-4000-8000-000000000213"]') })
+              .getByText(/^Amount differs by \$2\.99/).isVisible() &&
+            await candidateOptions.filter({ has: page.locator('input[value="41000000-0000-4000-8000-000000000214"]') })
+              .getByText(/^Amount differs by \$3\.01/).isVisible()
         );
       }
       if (scenario.expectedNoSelectableTransactions) {
         const candidateOptions = page.getByTestId('nayax-candidate-option');
         recorder.assert(
           'Physical-card conflicts state that zero transactions are selectable and name the mismatch',
-            await page.getByTestId('nayax-candidate-availability').getByText('1 current transaction result', { exact: true }).isVisible() &&
-            await page.getByTestId('nayax-candidate-availability').getByText(/none can be selected/i).isVisible() &&
+            await page.getByTestId('nayax-candidate-availability').getByText(/None of these results can currently be selected/i).isVisible() &&
             await page.getByText(/The card ending does not match the physical card reported by the customer\./).first().isVisible() &&
             await candidateOptions.locator('input[type="radio"]').evaluateAll(
               (inputs) => inputs.every((input) => input.disabled)
@@ -1798,15 +1808,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
         const candidateOptions = page.getByTestId('nayax-transaction-comparison').getByTestId('nayax-candidate-option');
         recorder.assert(
           'Same-card purchases with unproved occurrence timing stay selectable and manager-owned without another customer question',
-          await page.getByTestId('nayax-candidate-availability').getByText('2 available transaction results', { exact: true }).isVisible() &&
-            await page.getByTestId('nayax-candidate-availability').getByText(/2 results are selectable.*choose one only/i).isVisible() &&
+          await page.getByTestId('nayax-candidate-availability').getByText(/2 results are selectable.*choose one only/i).isVisible() &&
             (await candidateOptions.count()) === 2 &&
             await candidateOptions.locator('input[type="radio"]').evaluateAll(
               (inputs) => inputs.every((input) => !input.disabled)
             ) &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
             (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
-            await candidateOptions.evaluateAll((options) => options.every((option) =>
+            await candidateOptions.locator('..').evaluateAll((options) => options.every((option) =>
               option.textContent?.includes(
                 'Unverified venue-clock interpretation · provider resolution unknown · machine clock resolution and source unknown'
               )
@@ -1825,7 +1834,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
               return /^Select transaction \d+$/i.test(input.getAttribute('aria-label') ?? '') &&
                 /ending \d{4}/i.test(description) &&
                 /Nayax record time/i.test(description) &&
-                /does not prove when the purchase happened/i.test(description);
+                /Select this transaction/i.test(description);
             })
           )
         );
@@ -1847,21 +1856,24 @@ const runNayaxLookupStatusMatrixChecks = async ({
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         const requestSummary = page.getByTestId('refund-request-summary');
-        await requestSummary.getByText('Customer purchase details', { exact: true }).click();
-        const physicalCardSource = requestSummary.getByText('physical card', { exact: true });
+        await requestSummary.getByText('Customer details and updates', { exact: true }).click();
+        const physicalCardSource = page.getByTestId('refund-purchase-comparison').getByText(/physical card/i).first();
         const mismatchExplanation = candidateOption.getByText(
-          /Card ending differs; wallet, contactless, or source differences may explain it/
+          'Card digits differ; their sources may not be comparable.', { exact: true }
         );
         await physicalCardSource.waitFor({ state: 'visible' });
         recorder.assert(
           'A close contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
-          await page.getByTestId('nayax-candidate-availability').getByText('1 available transaction result', { exact: true }).isVisible() &&
+          await page.getByTestId('nayax-candidate-availability').getByText(/1 result is selectable/).isVisible() &&
             await candidateOption.isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
             await requestSummary.isVisible() &&
             await physicalCardSource.isVisible() &&
             await mismatchExplanation.isVisible() &&
+            await page.getByTestId('refund-purchase-comparison').getByText('Ending 6768', { exact: true }).isVisible() &&
+            await page.getByTestId('refund-purchase-comparison').getByText('Ending 3760', { exact: true }).isVisible() &&
+            (await candidateOption.getByText('Card digits match.', { exact: true }).count()) === 0 &&
             (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
         );
         await candidateOption.click();
@@ -1881,8 +1893,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
       if (scenario.expectedSelectionPaused) {
         recorder.assert(
           'Waiting cases show current results without offering an action the server would reject',
-          await page.getByTestId('nayax-candidate-availability').getByText('1 current transaction result', { exact: true }).isVisible() &&
-            await page.getByTestId('nayax-candidate-option').first().isDisabled() &&
+          await page.getByTestId('nayax-candidate-availability').getByText(/Selection stays paused until the customer replies/).isVisible() &&
+            await page.getByTestId('nayax-candidate-option').first().locator('input[type="radio"]').isDisabled() &&
             await page.getByText(/selection stays paused until the customer replies/i).isVisible()
         );
       }
@@ -1909,7 +1921,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
         );
       }
       if (scenario.expectedWalletCardMismatch) {
-        await page.getByText('What matches and what still needs confirmation', { exact: true }).click();
         recorder.assert(
           `Nayax ${scenario.name} explains wallet card-number differences without calling them a match`,
           await page.getByText('Card ending differs; wallet, contactless, or source differences may explain it', { exact: true }).first().isVisible()
@@ -1928,7 +1939,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
           noRefundAction: (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
           exactAmountComparison:
             preparationText.includes('Customer requested $10.00. Selected transaction: $10.90 ($0.90 difference).'),
-          productVisible: await page.getByText('Selection 9', { exact: true }).isVisible(),
+          productVisible: await page.getByTestId('nayax-candidate-option').first()
+            .getByText(/^Product: Selection 9 · Payment status: approved$/).isVisible(),
           preferredMarked: preferredCandidateText.includes('Recommended'),
           preferredFullCharge: preferredCandidateText.includes('product-labelled $10.90 full provider charge'),
           alternateVisible: retainedBaseCandidateText.includes('$10.00') &&
@@ -1977,22 +1989,27 @@ const runNayaxLookupStatusMatrixChecks = async ({
           `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
           { waitUntil: 'domcontentloaded' }
         );
-        await page.getByText('Purchase details and search history', { exact: true }).click();
-        await page.getByTestId('selected-nayax-transaction-evidence')
-          .waitFor({ state: 'visible', timeout: 10000 });
+        await page.getByTestId('selected-nayax-transaction-id')
+          .waitFor({ state: 'attached', timeout: 10000 });
         await page.getByTestId('refund-primary-action')
           .waitFor({ state: 'visible', timeout: 10000 });
-        const persistedEvidenceText = await page.getByTestId('selected-nayax-transaction-evidence').innerText();
-        await page.getByTestId('selected-nayax-transaction-evidence-details').click();
+        const persistedEvidenceText = await page.getByTestId('nayax-result-card').innerText();
+        await page.getByTestId('selected-nayax-transaction-evidence-details').locator('summary').click();
         const persistedEvidenceDetails = await page.getByTestId(
           'selected-nayax-transaction-evidence-details'
         ).innerText();
+        await page.getByTestId('refund-compare-other-transactions').click();
+        const retainedCandidateTokens = await page.getByTestId('nayax-candidate-option')
+          .locator('input[type="radio"]').evaluateAll((inputs) => inputs.map((input) => input.value));
         recorder.assert(
           'Legacy saved selection survives reopen without inventing a prepared Manager decision',
           persistedEvidenceText.includes('$10.90') &&
-            persistedEvidenceDetails.includes('$10.00 base-price record') &&
-            persistedEvidenceDetails.includes('$10.90 full provider charge') &&
-            (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+            persistedEvidenceText.includes('$10.00 unlabelled base-price record') &&
+            persistedEvidenceText.includes('$10.90 full provider charge') &&
+            (await page.getByTestId('selected-nayax-transaction-id').innerText()) === 'NAYAX-UAT-PREPARED-1' &&
+            (await page.getByTestId('nayax-candidate-option').count()) === scenario.response.candidates.length &&
+            await page.getByTestId('nayax-candidate-option').first().isVisible() &&
+            JSON.stringify(retainedCandidateTokens) === JSON.stringify(scenario.response.candidates.map((candidate) => candidate.candidateToken)) &&
             (await page.getByTestId('refund-primary-action').innerText()).includes('Finding the purchase') &&
             (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0 &&
             (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
@@ -2000,6 +2017,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           JSON.stringify({
             persistedEvidenceText,
             persistedEvidenceDetails,
+            retainedCandidateTokens,
             candidateCount: await page.getByTestId('nayax-candidate-option').count(),
             primaryAction: await page.getByTestId('refund-primary-action').innerText(),
             refundActionCount: await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count(),
@@ -2048,9 +2066,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
           `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
           { waitUntil: 'domcontentloaded' }
         );
-        await page.getByText('Purchase details and search history', { exact: true }).click();
-        await page.getByTestId('selected-nayax-transaction-evidence')
-          .waitFor({ state: 'visible', timeout: 10000 });
+        await page.getByTestId('selected-nayax-transaction-id')
+          .waitFor({ state: 'attached', timeout: 10000 });
         recorder.assert(
           'Fresh server reads retain the exact saved transaction without repeating the save or contacting the provider',
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
@@ -2162,7 +2179,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     } else if (scenario.name === 'unique QR wallet recommendation') {
       recorder.assert(
         'Legacy QR wallet selection remains reviewable but cannot issue a refund without current preparation',
-        (await page.getByTestId('selected-nayax-transaction-evidence').count()) === 1 &&
+        (await page.getByTestId('selected-nayax-transaction-id').count()) === 1 &&
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
           !functionCalls.includes('nayax-card-refund') &&
           (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
@@ -2206,14 +2223,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0
         : scenario.name === 'unique QR wallet recommendation'
-          ? (await page.getByTestId('selected-nayax-transaction-evidence').count()) === 1 &&
+          ? (await page.getByTestId('selected-nayax-transaction-id').count()) === 1 &&
             (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
         : scenario.confirmCandidate
           ? await page.getByTestId('refund-action-receipt').isVisible() &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
           : scenario.prepareCandidateOnly
-            ? (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+            ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.response.candidates.length &&
               (await page.getByTestId('refund-primary-action').innerText()).includes('Finding the purchase') &&
               (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0
           : scenario.expectedCandidateCount
@@ -2311,7 +2328,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
       .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
     await pendingRow.waitFor({ state: 'visible', timeout: 20000 });
     await pendingRow.click();
-    await page.getByText('Purchase details and search history', { exact: true }).click();
     await page.getByTestId('nayax-candidate-option').first().click();
     recorder.assert(
       `Selection save ${failure.name} cannot expose Refund before server confirmation`,
@@ -2332,10 +2348,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
       { waitUntil: 'domcontentloaded' }
     );
     await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
-    await page.getByText('Purchase details and search history', { exact: true }).click();
-    const persistedSelection = page.getByTestId('selected-nayax-transaction-evidence');
+    const persistedSelection = page.getByTestId('selected-nayax-transaction-id');
     if (failure.expectedPersisted) {
-      await persistedSelection.waitFor({ state: 'visible', timeout: 10000 });
+      await persistedSelection.waitFor({ state: 'attached', timeout: 10000 });
     }
     recorder.assert(
       `Selection save ${failure.name} reconciles from fresh server truth without a provider action`,
@@ -2455,7 +2470,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await stalePage.getByRole('button', { name: /^All active \d+$/ }).click();
   await waitForQueueCount(stalePage, 1);
   await queueCase(stalePage, 'RF-UAT-PENDING').click();
-  await stalePage.getByText('Purchase details and search history', { exact: true }).click();
   await stalePage.getByTestId('nayax-candidate-option').waitFor({ timeout: 10000 });
   recorder.assert(
     'Completed transaction evidence remains reviewable without an expiry refresh loop',

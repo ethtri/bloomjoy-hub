@@ -6,9 +6,17 @@ import ts from 'typescript';
 import { webcrypto } from 'node:crypto';
 const source=ts.createSourceFile('Refunds.tsx',fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function load(name,dependencies,sourceFile=source){
- let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(sourceFile)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(sourceFile);
- assert.ok(initializer,`Actual handler ${name} exists`);
- const code=ts.transpile(`const handler=${initializer.getText(sourceFile)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
+ let declaration;
+ function visit(node){
+  if(ts.isVariableDeclaration(node) && (
+   node.name.getText(sourceFile)===name ||
+   (ts.isObjectBindingPattern(node.name) && node.name.elements.some(element=>element.name.getText(sourceFile)===name))
+  )) declaration=node;
+  ts.forEachChild(node,visit);
+ }
+ visit(sourceFile);
+ assert.ok(declaration?.initializer,`Actual handler ${name} exists`);
+ const code=ts.transpile(`const ${declaration.name.getText(sourceFile)}=${declaration.initializer.getText(sourceFile)};globalThis.handler=${name};`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
@@ -54,6 +62,11 @@ const freshPersistedSelection = {
  selectedNayaxTransaction:{saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
 };
 const freshAvailability = {transactionConfirmed:true,caseVersion:7,canIssueCardRefund:true,refundAmountCents:700};
+const purchaseIdentityModule={exports:{}};
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundPurchaseReviewIdentity.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ purchaseIdentityModule,
+);
 const preparedNextWork={schemaVersion:'refund_next_work_v1',isOpen:true,actor:'manager',actionCode:'approve_or_deny_request',actionLabel:'Review the exact saved purchase',lastProgressAt:null,dueAt:null,blocker:null,payloadRedacted:true};
 const preparedLifecycle={stage:'transaction_confirmed',paymentState:'not_requested',managerQueue:{bucket:'ready_to_pay'},nextWork:preparedNextWork};
 test('a late case-save response can update only the case that initiated it',()=>{
@@ -153,30 +166,33 @@ test('current card capability remains visible in the composed manager presentati
   matchedCardSaleAmountCents:1000,
  });
  assert.equal(cardAmountCents,700);
- const comparisonCandidate=load('comparisonCandidate',{
-  selectedCaseHasCurrentCardCapability:true,
+ const savedIdentityDependencies={
+  getRefundPurchaseReviewIdentity:purchaseIdentityModule.exports.getRefundPurchaseReviewIdentity,
   selectedCaseNeedsLegacyPaymentReview:false,
-  activeCandidate:{amountCents:1000,cardLast4:'9999'},
-  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
-  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+  selectedCase:staleOptionalCase,
+  editor:{matchedNayaxCandidateToken:''},
+  hasPersistedSelectedMatch:true,
   selectableComparisonCandidate:null,
-  effectiveCandidates:[],
- });
+  effectiveCandidates:[{candidateToken:'different-purchase',amountCents:1000,cardLast4:'9999'}],
+ };
+ const comparisonCandidate=load('comparisonCandidate',savedIdentityDependencies);
  assert.equal(comparisonCandidate,null);
+ assert.equal(load('selectedTransactionEvidence',savedIdentityDependencies),freshPersistedSelection.selectedNayaxTransaction);
  const exactCandidate={
+  candidateToken:'same-tuple-different-purchase',
   amountCents:700,currencyCode:'USD',authorizedAt:'2026-09-12T18:31:00Z',
   machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242',
  };
  const selectedComparisonCandidate=load('comparisonCandidate',{
-  selectedCaseHasCurrentCardCapability:true,
-  selectedCaseNeedsLegacyPaymentReview:false,
-  activeCandidate:exactCandidate,
-  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
-  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
-  selectableComparisonCandidate:null,
-  effectiveCandidates:[],
+  ...savedIdentityDependencies,effectiveCandidates:[exactCandidate],
  });
- assert.equal(selectedComparisonCandidate,exactCandidate);
+ assert.equal(selectedComparisonCandidate,null,'Matching amount, digits and time cannot bind returned evidence to the saved purchase');
+ const draftIdentityDependencies={
+  ...savedIdentityDependencies,effectiveCandidates:[exactCandidate],
+  editor:{matchedNayaxCandidateToken:exactCandidate.candidateToken},
+ };
+ assert.equal(load('comparisonCandidate',draftIdentityDependencies),exactCandidate);
+ assert.equal(load('selectedTransactionEvidence',draftIdentityDependencies),null,'Draft purchase evidence excludes the saved selection');
  const transactionDecisionPending=load('transactionDecisionPending',{
   selectedCaseHasCurrentCardCapability:true,
   hasSelectedMatch:false,

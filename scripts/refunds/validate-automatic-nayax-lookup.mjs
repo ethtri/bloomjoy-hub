@@ -6,6 +6,8 @@ const intake = read("supabase/functions/refund-case-intake/index.ts");
 const gmailSync = read("supabase/functions/refund-gmail-sync/index.ts");
 const sweep = read("supabase/functions/refund-case-automation-sweep/index.ts");
 const portal = `${read("src/pages/admin/Refunds.tsx")}\n${read("src/components/refunds/RefundExceptionalRecoveryPanels.tsx")}`;
+const purchaseReview = read('src/components/refunds/RefundPurchaseReview.tsx');
+const candidateReview = read('src/components/refunds/RefundTransactionCandidateReview.tsx');
 const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
 const lookupBeginError = read("supabase/functions/_shared/nayax-lookup-begin-error.ts");
@@ -99,9 +101,14 @@ assert(
   "page open, selection, and routine manager actions must remain read-only",
 );
 assert(
-  portal.includes("matchFactorDisplayLabel") &&
-    portal.includes("Why this looks like a match") &&
-    portal.includes("Why this transaction cannot be selected"),
+  purchaseReview.includes('Supports this purchase') &&
+    purchaseReview.includes('Uncertain or different') &&
+    purchaseReview.includes('evidence.supporting.map') &&
+    purchaseReview.includes('evidence.conflicts') &&
+    purchaseReview.includes('evidence.uncertainties') &&
+    candidateReview.includes('getRefundReviewEvidence') &&
+    candidateReview.includes('describeUnavailableCandidate(candidate)') &&
+    candidateReview.includes('Not selectable'),
   "plain-language match and conflict reasons must be visible"
 );
 assert(!portal.includes("The transaction search will run when this case opens."), "opening a case must not be described as the trigger");
