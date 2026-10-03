@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { parseSalesReportCompany, resolveSalesReportCompany } from "./sales-report-company.ts";
+import { parseSalesReportCompany, resolveSalesReportCompany, validateCompanyExportFilters } from "./sales-report-company.ts";
 
 const companyA = "15701000-0000-4000-8000-000000000001";
 const companyB = "15701000-0000-4000-8000-000000000002";
@@ -9,6 +9,14 @@ const dimensions = [
   { account_id: companyA, account_name: "Company A", machine_id: "machine-b" },
   { account_id: companyB, account_name: "Company B", machine_id: "machine-c" },
 ];
+
+Deno.test('malformed company export filters never normalize into all locations or tenders', () => {
+  validateCompanyExportFilters({ locationIds: [], paymentMethods: [] });
+  validateCompanyExportFilters({ locationIds: [companyA], machineIds: [companyB], paymentMethods: ['credit'] });
+  for (const raw of [{ locationIds: ['invalid'] }, { locationIds: [companyA, false] }, { locationIds: 'all' }, { machineIds: {} }, { paymentMethods: ['invalid'] }]) {
+    assertThrows(() => validateCompanyExportFilters(raw));
+  }
+});
 
 Deno.test("company identity accepts legacy all scope but never treats an invalid selection as all", () => {
   for (const value of [null, undefined, "", "all"]) assertEquals(parseSalesReportCompany(value), null);

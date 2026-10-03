@@ -11,6 +11,20 @@ export function parseSalesReportCompany(value: unknown): string | null {
 
 type CompanyDimension = { account_id: string; account_name: string; machine_id: string };
 
+export function validateCompanyExportFilters(raw: Record<string, unknown>): void {
+  for (const key of ['machineIds', 'locationIds']) {
+    const value = raw[key];
+    if (value == null) continue;
+    if (!Array.isArray(value) || value.some(id => typeof id !== 'string' || !uuidPattern.test(id.trim()))) {
+      throw new Error('Choose valid machine and location filters before exporting.');
+    }
+  }
+  const payments = raw.paymentMethods;
+  if (payments != null && (!Array.isArray(payments) || payments.some(method => typeof method !== 'string' || !['cash', 'credit', 'other', 'unknown'].includes(method.trim().toLowerCase())))) {
+    throw new Error('Choose valid payment filters before exporting.');
+  }
+}
+
 export function resolveSalesReportCompany(
   companyId: string,
   dimensions: CompanyDimension[],

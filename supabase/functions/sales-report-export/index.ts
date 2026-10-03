@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-import { parseSalesReportCompany, resolveSalesReportCompany } from "../_shared/sales-report-company.ts";
+import { parseSalesReportCompany, resolveSalesReportCompany, validateCompanyExportFilters } from "../_shared/sales-report-company.ts";
 import {
   buildSalesReportReference,
   buildSalesReportPdf,
@@ -120,15 +120,17 @@ const normalizeFilters = (value: unknown): ReportFilters => {
   const grain = String(raw.grain ?? "week").trim().toLowerCase();
   const dateFrom = String(raw.dateFrom ?? defaultDateFrom).trim();
   const dateTo = String(raw.dateTo ?? defaultDateTo).trim();
+  const companyId = parseSalesReportCompany(raw.companyId);
+  if (companyId) validateCompanyExportFilters(raw);
 
   return {
-    companyId: parseSalesReportCompany(raw.companyId),
+    companyId,
     title: String(raw.title ?? "Bloomjoy sales report").trim() || "Bloomjoy sales report",
     dateFrom: datePattern.test(dateFrom) ? dateFrom : defaultDateFrom,
     dateTo: datePattern.test(dateTo) ? dateTo : defaultDateTo,
     grain: validGrains.has(grain) ? (grain as ReportFilters["grain"]) : "week",
-    machineIds: normalizeUuidArray(raw.machineIds),
-    locationIds: normalizeUuidArray(raw.locationIds),
+    machineIds: normalizeUuidArray(raw.machineIds).map(id => id.toLowerCase()),
+    locationIds: normalizeUuidArray(raw.locationIds).map(id => id.toLowerCase()),
     paymentMethods: normalizePaymentMethods(raw.paymentMethods),
   };
 };
