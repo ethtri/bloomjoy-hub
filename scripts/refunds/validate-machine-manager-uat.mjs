@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { ineligibleEmailAlertPreferences } from './fixtures/email-alert-preferences.mjs';
 
 import {
   closeUatSuiteResourcesAfterPageDrain,
@@ -296,6 +297,10 @@ const installMockSupabaseRoutes = async (context, state) => {
     const url = route.request().url();
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     state.rpcCalls.push(rpcName);
+
+    if (rpcName === 'get_my_email_alert_preferences') {
+      return route.fulfill(jsonResponse(ineligibleEmailAlertPreferences(mockUser.email)));
+    }
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
