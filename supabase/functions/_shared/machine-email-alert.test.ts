@@ -343,6 +343,61 @@ Deno.test("digest report links carry supported dates and exact single-machine sc
     "no unsupported multi-machine query",
   );
 });
+Deno.test("mixed machine-local daily and weekly periods stay visible beside the affected row and in its report link", () => {
+  for (const weekly of [false, true]) {
+    const p =
+      fixtureVariants()[weekly ? "weekly-companies" : "daily-companies"];
+    p.dateFrom = weekly ? "2026-09-21" : "2026-10-02";
+    p.dateTo = weekly ? "2026-09-27" : "2026-10-02";
+    p.observedAt = "2026-10-03T15:00:00Z";
+    for (const m of p.machines) {
+      m.dateFrom = p.dateFrom;
+      m.dateTo = p.dateTo;
+    }
+    const shifted = p.machines[0];
+    shifted.timezone = "Pacific/Kiritimati";
+    shifted.dateFrom = weekly ? "2026-09-28" : "2026-10-03";
+    shifted.dateTo = weekly ? "2026-10-04" : "2026-10-03";
+    for (const c of shifted.refundCases) {
+      c.receivedAt = "2026-10-02T12:00:00Z";
+      c.incidentAt = c.receivedAt;
+    }
+    const email = buildMachineEmail({ projection: p, links });
+    const expectedDate = weekly ? /September 28.*October 4/ : /Oct(?:ober)? 3/;
+    assert(
+      expectedDate.test(email.text) && expectedDate.test(email.html),
+      "a different machine period is explicit in both versions, not silently covered by the recipient date heading",
+    );
+    const rows = [
+      ...email.html.matchAll(/<tr\b[^>]*>(?:(?!<tr\b)[\s\S])*?<\/tr>/g),
+    ];
+    const row = rows.find((match) =>
+      match[0].includes(`machine=${shifted.machineId}`)
+    )?.[0] ?? "";
+    assert(
+      expectedDate.test(row),
+      "the actual period is attached to the affected machine row",
+    );
+    const urls = [...email.html.matchAll(/href="([^"]+)"/g)]
+      .map((match) => new URL(match[1].replaceAll("&amp;", "&")));
+    const machineLink = urls.find((url) =>
+      url.searchParams.get("machine") === shifted.machineId
+    );
+    assert(
+      machineLink?.searchParams.get("from") === shifted.dateFrom &&
+        machineLink?.searchParams.get("to") === shifted.dateTo,
+      "machine report opens its actual reporting period",
+    );
+    const primary = urls.find((url) =>
+      url.pathname === "/portal/reports" && !url.searchParams.has("machine")
+    );
+    assert(
+      primary?.searchParams.get("from") === p.dateFrom &&
+        primary?.searchParams.get("to") === p.dateTo,
+      "primary report retains the recipient reporting period",
+    );
+  }
+});
 Deno.test("technician privacy and escaped narratives cannot turn into hidden financial data or HTML", () => {
   const p = fixtureProjection();
   p.managerOpenCases = null;
