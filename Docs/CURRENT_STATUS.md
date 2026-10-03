@@ -8,11 +8,22 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
-- PR #1705 is verifying RF-C83C2E1E's historical cash evidence and research
-  projection. A newer export for another week hid published positives, while
-  legacy stage/payment/queue labels advertised payout despite Agent research.
-  The bounded repair retains relevant positives and aligns those labels. Source
-  clock/complete coverage remain unvalidated; no purchase is selected or paid.
+- PR #1706 deployed a service-only assisted path for an already-supplied payout
+  limitation on an existing legacy form. The reviewed same-case writer, source
+  receipt, authority and retry guards passed synthetic regression; production
+  verification preserved business records and all twelve worker bundles. No
+  live assistance or customer/Manager contact, provider action, decision or
+  payment occurred. RF-FF2A88FA's pending limitation has not been saved through
+  this path; exact replacement-machine and purchase-time proof remain missing.
+  RF-720E12A5 still has ambiguous occurrence evidence; ordinary approved-case
+  lookup eligibility was not broadened.
+
+- PR #1705 deployed historical cash evidence retention and consistent research
+  work. RF-C83C2E1E now has three retained positive candidates and shows Agent
+  purchase research with no Manager action. Source clock and complete coverage
+  remain unvalidated; the three current Manager-ready snapshots remain empty.
+  Protected records and all twelve worker sources passed verification. No
+  selection, decision, payment, customer send or Manager notice occurred.
 - RF-6197F008's original owner-mailbox Gmail source and reminder manager copy
   were recovered read-only (#1426). The original ledger body is reconstructed;
   send provenance is established, customer delivery is not. Historical Reply-To
