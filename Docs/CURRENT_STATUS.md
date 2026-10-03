@@ -6,6 +6,41 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Website billing merchant (switched)
+
+- #1693 tracks routing new website supply and optional Plus revenue to a separate
+  Bloomjoy Services LLC Stripe account. The October 1 production credential and
+  recorded Checkout audit confirmed the previous merchant was TGPaci LLC. The
+  coordinated production switch completed October 2. The owner opened separate
+  Services account `acct_1UMDXoAw1uae6O3W` on October 2. Business and public
+  details are saved. October 2 Dashboard readback shows Payments, Payouts and ACH
+  Active after owner verification and bank confirmation. Customer receipts and
+  owner payment emails are enabled; the authorized standalone deposit link is
+  privately verified. Live/sandbox catalogs, connector access, California tax
+  settings/registrations and Customer Portal configurations are ready. The owner
+  reconfirmed the active permit; live/sandbox calculations return exempt food
+  sugar and taxable sticks/Plus under the current working codes. The approved
+  limited live server credential is privately saved and account-verified.
+  The temporary tax-calculation write permission has been removed. The Services
+  webhook and nine-setting bundle are active in production. A complete verified
+  old bundle and served sources are saved for
+  rollback. The owner completed sandbox key rotation. Six real test-card
+  Checkouts, member eligibility, period-end Billing cancellation, ended-access
+  removal, duplicate event suppression, nine guards and paid status checks passed.
+  Delayed-event handling passed with an unpaid fixture and test-card settlement;
+  actual ACH bank settlement is not established. Five synthetic supply orders
+  and eleven locally captured notifications were recorded. The rehearsal server
+  stopped and disposable cloud branch was removed. The tested, bounded checkout/
+  Billing pause was used and reopened. All nine Services settings and seventeen
+  served source files match the reviewed change. The actual website sticks
+  button and sugar/sticks/authenticated Plus no-charge previews reach Services;
+  explicit portal configuration/return and webhook signatures pass. All unpaid
+  verification sessions were expired; the synthetic login/customer was removed.
+  The old webhook is retained disabled with no pending old billing obligations;
+  historical records remain unchanged. No live payment or notification was sent.
+  See `Docs/STRIPE_MERCHANT_CUTOVER.md` for the baseline, coordinated
+  settings, and rollback procedure. Preserve TGPaci's historical records.
+
 ## Refund workflow (current)
 
 - Reporting PR #1709 includes the October 2 review fixes: seven completed days
