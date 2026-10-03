@@ -264,5 +264,30 @@ select ok(not (select is_called from finance_refund_projection_calls),
   'Empty selections never evaluate any refund projection');
 -- Restore the original body for later tests sharing this disposable session.
 do $restore$ begin execute (select refund_definition from finance_projection_definitions); end; $restore$;
+-- The access projection must retain sales-only historical placements outside
+-- the selected dates, collapse repeated sales to one placement, and exclude
+-- every location seen only in another machine's facts.
+set local session_replication_role=replica;
+insert into public.reporting_locations(id,account_id,name,timezone) values
+ ('fb730000-0000-4000-8000-000000000005','fb720000-0000-4000-8000-000000000001','Sales archive','America/Los_Angeles'),
+ ('fb730000-0000-4000-8000-000000000006','fb720000-0000-4000-8000-000000000001','Hidden sales archive','America/Los_Angeles');
+insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
+ net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000005','2020-02-01','credit',1000,1,'manual_csv',repeat('8',64),'{"amountBasis":"tax_exclusive"}'),
+ ('fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000005','2020-02-02','cash',2000,2,'manual_csv',repeat('9',64),'{"amountBasis":"tax_exclusive"}'),
+ ('fb740000-0000-4000-8000-000000000002','fb730000-0000-4000-8000-000000000006','2020-02-01','credit',99999,1,'manual_csv',repeat('0',64),'{"amountBasis":"tax_exclusive"}');
+set local session_replication_role=origin;
+select is((select count(*) from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000005'),1::bigint,
+ 'Repeated sales preserve exactly one authorized historical-only location');
+select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') d
+ where d->>'locationId'='fb730000-0000-4000-8000-000000000006'),
+ 'A sales-only historical location on an unauthorized machine never broadens access');
+select is(jsonb_array_length(public.get_finance_reporting('2025-10-02','2026-10-01',null,
+ array['fb730000-0000-4000-8000-000000000005']::uuid[])->'rows'),1,
+ 'Annual Finance retains the authorized historical dimension outside the selected period');
+select is((public.get_finance_reporting('2025-10-02','2026-10-01',null,
+ array['fb730000-0000-4000-8000-000000000005']::uuid[])#>>'{rows,0,recordedSalesCents}')::bigint,0::bigint,
+ 'Retaining a historical dimension does not pull outside-period sales into annual totals');
 select * from finish();
 rollback;
