@@ -1,4 +1,7 @@
+import type { CompanyDimension } from './companyReporting.ts';
+
 export type RefundAnalyticsScope = {
+  companyId?: string; companyName?: string;
   dateFrom: string;
   dateTo: string;
   machineIds?: string[];
@@ -8,6 +11,7 @@ export type RefundAnalyticsScope = {
 export type RefundAnalytics = {
   calculationVersion: 'refund-analytics-v1';
   generatedAt: string;
+  companyId?: string; companyName?: string;
   dateFrom: string;
   dateTo: string;
   dateBasis: string;
@@ -44,7 +48,7 @@ export function validateRefundAnalyticsScope(scope: RefundAnalyticsScope): void 
 
 export type RefundAnalyticsAccess = {
   hasAccess: boolean;
-  dimensions: { machineId: string; machineLabel: string; locationId: string; locationName: string }[];
+  dimensions: { machineId: string; machineLabel: string; locationId: string; locationName: string; accountId?: string | null; accountName?: string | null }[];
 };
 
 export async function fetchRefundAnalyticsAccess(): Promise<RefundAnalyticsAccess> {
@@ -57,7 +61,8 @@ export async function fetchRefundAnalyticsAccess(): Promise<RefundAnalyticsAcces
 export async function fetchRefundAnalytics(scope: RefundAnalyticsScope): Promise<RefundAnalytics> {
   validateRefundAnalyticsScope(scope);
   const { supabaseClient } = await import('@/lib/supabaseClient');
-  const { data, error } = await supabaseClient.rpc('get_refund_analytics', {
+  const { data, error } = await supabaseClient.rpc(scope.companyId && scope.companyId !== 'all' ? 'get_company_refund_analytics' : 'get_refund_analytics', {
+    ...(scope.companyId && scope.companyId !== 'all' ? { p_company_id: scope.companyId } : {}),
     p_date_from: scope.dateFrom, p_date_to: scope.dateTo,
     p_machine_ids: scope.machineIds ?? null, p_location_ids: scope.locationIds ?? null,
   });
@@ -76,11 +81,12 @@ function csvCell(value: string | number | null): string {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
-export function refundAnalyticsCsv(report: RefundAnalytics, scope: RefundAnalyticsScope): string {
+export function refundAnalyticsCsv(report: RefundAnalytics, scope: RefundAnalyticsScope, dimensions: CompanyDimension[] = []): string {
   const metrics = (basis: string, values: Record<string, number | null>, keys: string[]) =>
     keys.map(key => [basis, key, values[key], key.endsWith('Cents') ? 'USD cents' : 'count']);
   const rows: (string | number | null)[][] = [
     ['Refund analytics', report.calculationVersion], ['Generated at', report.generatedAt],
+    ['Company', scope.companyName ?? 'All companies'], ['Company ID', scope.companyId ?? 'all'], ['Company basis', 'Current reporting company; historical locations and dates preserved'],
     ['Date from', report.dateFrom], ['Date through', report.dateTo], ['Date basis', report.dateBasis],
     ['Machine filters', (scope.machineIds ?? []).join(' | ') || 'All authorized'],
     ['Location filters', (scope.locationIds ?? []).join(' | ') || 'All authorized'],
@@ -90,8 +96,8 @@ export function refundAnalyticsCsv(report: RefundAnalytics, scope: RefundAnalyti
     ...metrics('Period activity', report.period, ['cashPaidCents', 'giftPurchaseCents', 'giftFaceCents', 'goodwillCents', 'requestDeductionExTaxCents', 'reversalExTaxCents', 'legacyPaidDeductionExTaxCents', 'unresolvedAccountingCount']),
     ...metrics('As of period end', report.asOf, ['outstandingCents', 'openRequestCount', 'unknownBalanceCount']),
     ...metrics('Coverage', report.coverage, ['unknownRequestDateCount', 'unknownPaymentDateCount']),
-    [], ['Machine', 'Location', 'Cohort requests', 'Requested cents', 'Unknown cohort amounts', 'As-of outstanding cents', 'Unknown balances'],
-    ...report.machines.map(m => [m.machineLabel, m.locationName, m.requestCount, m.requestedCents, m.unknownAmountCount, m.outstandingCents, m.unknownBalanceCount]),
+    [], ['Company ID', 'Current company', 'Machine', 'Location', 'Cohort requests', 'Requested cents', 'Unknown cohort amounts', 'As-of outstanding cents', 'Unknown balances'],
+    ...report.machines.map(m => [dimensions.find(row => row.machineId === m.machineId)?.accountId ?? '', dimensions.find(row => row.machineId === m.machineId)?.accountName ?? 'Unassigned company', m.machineLabel, m.locationName, m.requestCount, m.requestedCents, m.unknownAmountCount, m.outstandingCents, m.unknownBalanceCount]),
     [], ['Category', 'Cohort requests', 'Requested cents', 'Unknown amounts'],
     ...report.categories.map(c => [c.category, c.requestCount, c.requestedCents, c.unknownAmountCount]),
     [], ['Age at period end', 'Requests', 'Outstanding cents', 'Unknown balances'],

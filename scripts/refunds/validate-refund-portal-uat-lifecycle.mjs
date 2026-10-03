@@ -247,7 +247,7 @@ assert.match(pollingSource, /!lifecycle\.terminal && lifecycle\.refreshAfterSeco
 assert.match(pollingSource, /Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.active\)/);
 assert.match(
   refundsSource,
-  /ready_to_pay: overview\.cases\.filter\(isReadyToPayCase\)\.length[\s\S]*?waiting_on_customer: overview\.cases\.filter/
+  /ready_to_pay: companyCases\.filter\(isReadyToPayCase\)\.length[\s\S]*?waiting_on_customer: companyCases\.filter/
 );
 assert.doesNotMatch(
   refundsSource,

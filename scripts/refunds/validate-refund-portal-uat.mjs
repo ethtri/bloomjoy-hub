@@ -91,6 +91,7 @@ const parseArgs = (argv) => {
     runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN || '',
     headed: false,
     managerApprovalOnly: false,
+    nayaxHandoffOnly: false,
     dualRoleOnly: false,
     providerOutcomesOnly: false,
     legacyStateOnly: false,
@@ -115,6 +116,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--headed') {
       args.headed = true;
+      continue;
+    }
+
+    if (arg === '--nayax-handoff-only') {
+      args.nayaxHandoffOnly = true;
       continue;
     }
 
@@ -262,7 +268,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.mixedVersionOnly && !args.cashOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.nayaxHandoffOnly && !args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.mixedVersionOnly && !args.cashOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -4000,7 +4006,7 @@ const installMockSupabaseRoutes = async (
 
 const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit) => {
   await navigateRefundPortalPage(page, `${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
+  await page.waitForURL(url => url.pathname === '/login', { timeout: 10000 }).catch(() => undefined);
   try {
     await page.waitForSelector('#email-password', { timeout: 10000 });
   } catch (error) {
@@ -5082,6 +5088,7 @@ const {
   harness: {
     getUatPageFailures,
     installMockSupabaseRoutes,
+    openQueueCase,
     queueCase,
     signInRefundUser,
     waitForQueueCount,
@@ -5301,6 +5308,8 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (args.nayaxHandoffOnly) {
+      await runNayaxManagerApprovalHandoffChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
     } else if (args.providerOutcomesOnly) {
       await runSystemPreselectionOverrideChecks({
         browser,
@@ -5587,7 +5596,7 @@ const run = async () => {
     return;
   }
 
-  if (args.providerOutcomesOnly) {
+  if (args.nayaxHandoffOnly || args.providerOutcomesOnly) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
       console.error(`\nRefund provider outcome UAT failed: ${focusedFailures.length} check(s).`);

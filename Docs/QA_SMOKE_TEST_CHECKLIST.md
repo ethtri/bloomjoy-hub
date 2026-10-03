@@ -1,5 +1,18 @@
 # QA Smoke Test Checklist
 
+## Company assignment (`#1719`)
+
+- As Super Admin, verify saved Company/location IDs in the full-page and sheet
+  editors. New machine, Sunze and SnapCase setup include zero-machine companies.
+- Explicit Add company handles duplicate capitalization/outer spaces and preserves
+  the machine draft on Cancel/failure. Simultaneous creates resolve to one company;
+  no invitations or memberships are created. Stale assignment saves fail clearly.
+- A company change requires a compatible location or explicit new location/timezone.
+  Historical facts, cases, shared old locations, managers, provider/tax settings and
+  settlement assignments remain unchanged. Ordinary identity saves preserve status.
+- Check loading/retry, empty choices, unavailable saved choices, long names, keyboard
+  Cancel/focus, 320/390px and 200% zoom using the synthetic machine UI fixture.
+
 ## Personal machine email alerts (`#1715`)
 
 - Open `/portal/notifications` as an assigned manager and a technician, including
@@ -1122,3 +1135,11 @@ npm run refunds:validate-portal-uat-lifecycle
 - Selected machine and payment filters remain named when More filters is closed. Remove one with a keyboard or touch and verify the dates, location and other selections survive. An unmatched location search offers Clear search without suggesting an import failure.
 - Operational report totals precede detailed methodology, which remains available through a keyboard-operable disclosure. Unknown counts appear only when relevant and retain their correct request/date population. Labor load failures offer Retry. Populated Finance coverage must not claim there are no loaded sales.
 - In a disposable database, a visible-machine accounting fact linked to an unauthorized or internal-test refund makes the Refund report's accounting totals Unavailable in the UI and CSV. Authorized payment/gift recovery stays visible; an unaffected date retains its legacy paid deduction. The SQL Finance fixture covers direct links, null-ID backlinks and recognition events; `node scripts/validate-refund-report-home-uat.mjs --app-url http://127.0.0.1:8084` covers unavailable rendering and export.
+
+## Company assignment and reporting (#1719)
+
+- In Sales (including detailed Sales), overview, Locations, Finance and Refund reports, select Company; dates, comparison and tender stay intact. Company totals match included machine rows, with unknown amounts retained. Old links/saved views default to All companies.
+- Change Company with a location/machine selected: keep compatible selections and announce cleared incompatible ones. Invalid company links and empty intersections offer explicit recovery and never load all machines.
+- In the full and redacted Refund queue, Company scopes counts and cross-status search. An authorized exact-case link takes precedence on arrival; deliberately changing Company clears a conflicting case link without losing unsaved work. Unresolved mappings remain visible under All companies.
+- Verify company/current-company basis in CSV/PDF, scope revalidation at export, formula protection, and unchanged payment/decision permissions. Company reassignment keeps historical fact/case locations and dates.
+- Check 320/390px, desktop, keyboard focus, long company names and 200% zoom without sideways navigation or page overflow. Run `node scripts/serve-reporting-preview.mjs --port 8106 --company-samples`, then `node scripts/validate-company-reporting-uat.mjs --app-url http://127.0.0.1:8106` for read-only synthetic UI coverage. Database authorization requires separate disposable-database verification.

@@ -68,7 +68,7 @@ select ok(
   position(
     'not in (''commercial'', ''mini'', ''micro'', ''snapcase'', ''unknown'')'
     in pg_get_functiondef(
-      'public.admin_upsert_reporting_machine(uuid,text,text,text,text,text,text)'::regprocedure
+      'private.upsert_reporting_machine_identity(uuid,uuid,uuid,text,text,text,text,boolean)'::regprocedure
     )
   ) > 0,
   'The machine create/edit RPC accepts canonical Snapcase values'
@@ -78,7 +78,7 @@ select ok(
   position(
     'not in (''commercial'', ''mini'', ''micro'', ''snapcase'', ''unknown'')'
     in pg_get_functiondef(
-      'public.admin_map_source_machine_to_partnership(text,uuid,text,text,text,numeric,date,date,date,text)'::regprocedure
+      'public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid)'::regprocedure
     )
   ) > 0,
   'The imported-machine reporting workflow accepts canonical Snapcase values'

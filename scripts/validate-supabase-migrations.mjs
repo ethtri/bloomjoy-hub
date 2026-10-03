@@ -14,6 +14,7 @@ import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest }
 import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-parity.mjs';
 import { writeRealRefundPreparationSeed } from './refunds/refund-real-preparation-seed.mjs';
 import { stageInactiveGiftMigrations, verifyInactiveBaselineCatalog, writeInactiveGiftCompatibilityTest } from './refunds/refund-inactive-compatibility-upgrade.mjs';
+import { verifyCompanyAssignmentConcurrency } from './company-assignment-concurrency.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -646,6 +647,8 @@ async function main() {
         testSummary,
       });
       log('Supabase database persona tests passed.');
+      await verifyCompanyAssignmentConcurrency({ dbPort });
+      log('Company duplicate-create and stale-assignment concurrent transactions passed without access provisioning.');
       if (options.portalSeedDir) {
         await writeRealRefundPreparationSeed({
           dbPort, outputDir: options.portalSeedDir,

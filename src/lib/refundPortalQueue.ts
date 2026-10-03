@@ -1,4 +1,5 @@
 export type RefundPortalQueueItem = {
+  accountId?: string | null; accountName?: string | null;
   caseId: string;
   publicReference: string;
   amountCents: number | null;
@@ -83,7 +84,8 @@ export const parseRefundPortalQueueProjection = (
     ) {
       throw new Error('Unsupported refund queue summary.');
     }
-    return item as RefundPortalQueueItem;
+    if ((item.accountId != null && typeof item.accountId !== 'string') || (item.accountName != null && typeof item.accountName !== 'string')) throw new Error('Unsupported refund queue company.');
+    return { ...item, accountId: item.accountId ?? null, accountName: item.accountName ?? null } as RefundPortalQueueItem;
   });
   if (new Set(items.map((item) => item.caseId)).size !== items.length) {
     throw new Error('Unsupported refund queue summary.');

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { parseSalesReportCompany, resolveSalesReportCompany, validateCompanyExportFilters } from "../_shared/sales-report-company.ts";
 import {
   buildSalesReportReference,
   buildSalesReportPdf,
@@ -29,6 +30,8 @@ const serviceSupabase =
     : null;
 
 type ReportFilters = {
+  companyId: string | null;
+  companyName?: string;
   title: string;
   dateFrom: string;
   dateTo: string;
@@ -117,14 +120,17 @@ const normalizeFilters = (value: unknown): ReportFilters => {
   const grain = String(raw.grain ?? "week").trim().toLowerCase();
   const dateFrom = String(raw.dateFrom ?? defaultDateFrom).trim();
   const dateTo = String(raw.dateTo ?? defaultDateTo).trim();
+  const companyId = parseSalesReportCompany(raw.companyId);
+  if (companyId) validateCompanyExportFilters(raw);
 
   return {
+    companyId,
     title: String(raw.title ?? "Bloomjoy sales report").trim() || "Bloomjoy sales report",
     dateFrom: datePattern.test(dateFrom) ? dateFrom : defaultDateFrom,
     dateTo: datePattern.test(dateTo) ? dateTo : defaultDateTo,
     grain: validGrains.has(grain) ? (grain as ReportFilters["grain"]) : "week",
-    machineIds: normalizeUuidArray(raw.machineIds),
-    locationIds: normalizeUuidArray(raw.locationIds),
+    machineIds: normalizeUuidArray(raw.machineIds).map(id => id.toLowerCase()),
+    locationIds: normalizeUuidArray(raw.locationIds).map(id => id.toLowerCase()),
     paymentMethods: normalizePaymentMethods(raw.paymentMethods),
   };
 };
@@ -162,7 +168,13 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const filters = normalizeFilters((body as Record<string, unknown>)?.filters);
+    const rawFilters = (body as Record<string, unknown>)?.filters;
+    let filters: ReportFilters;
+    try {
+      filters = normalizeFilters(rawFilters);
+    } catch (error) {
+      return jsonResponse({ error: error instanceof Error ? error.message : "Invalid report filters." }, 400);
+    }
     const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
       auth: { persistSession: false },
       global: {
@@ -172,9 +184,25 @@ serve(async (req) => {
       },
     });
 
+    if (filters.companyId) {
+      const { data: dimensions, error } = await userSupabase.rpc("get_reporting_dimensions");
+      if (error) return jsonResponse({ error: "Company access could not be verified. Try again." }, 503);
+      try {
+        const requested = rawFilters && typeof rawFilters === "object" && "machineIds" in rawFilters
+          ? filters.machineIds : undefined;
+        const scope = resolveSalesReportCompany(filters.companyId, dimensions ?? [], requested);
+        filters = { ...filters, ...scope };
+      } catch (error) {
+        return jsonResponse({ error: error instanceof Error ? error.message : "Selected company is unavailable." }, 403);
+      }
+    }
+
+    // Company membership and the caller's authority are resolved together by the
+    // company RPC, so a concurrent reassignment cannot widen the exported scope.
     const { data: reportRows, error: reportError } = await userSupabase.rpc(
-      "get_sales_report",
+      filters.companyId ? "get_company_sales_report" : "get_sales_report",
       {
+        ...(filters.companyId ? { p_company_id: filters.companyId } : {}),
         p_date_from: filters.dateFrom,
         p_date_to: filters.dateTo,
         p_grain: filters.grain,
@@ -248,6 +276,7 @@ serve(async (req) => {
       generatedAt,
       snapshotId: snapshot.id,
       reportReference,
+      companyScopeLabel: filters.companyName || "All companies",
       machineScopeLabel: formatScopeLabel({
         explicitCount: filters.machineIds.length,
         labels: machineLabels,

@@ -115,6 +115,7 @@ type SalesReportPdfContext = {
   machineScopeLabel?: string;
   locationScopeLabel?: string;
   paymentScopeLabel?: string;
+  companyScopeLabel?: string;
 };
 
 type PdfFonts = {
@@ -149,7 +150,7 @@ type MachineRollup = {
   rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/shared-basis-v2";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v3";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -830,7 +831,9 @@ const drawDashboardPage = (
   const usesSharedSalesBasis = calculationVersion === "shared-sales-basis-v1";
   const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: COLORS.page });
-  drawBrandHeader(page, fonts, assets, context.title, context.subtitle, context.reportReference);
+  drawBrandHeader(page, fonts, assets, context.title,
+    context.companyScopeLabel ? `Company: ${context.companyScopeLabel}` : context.subtitle,
+    context.reportReference);
 
   const periodLabel = `${formatDateLong(context.dateFrom)} - ${formatDateLong(context.dateTo)}`;
   const generatedLabel = formatGeneratedAt(context.generatedAt);
@@ -900,9 +903,9 @@ const drawDashboardPage = (
   drawText(
     page,
     fonts,
-    usesSharedSalesBasis
+    (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
       ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
-      : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope.",
+      : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope."),
     {
       x: MARGIN + 18,
       y: y + storyHeight - 50,
@@ -1296,6 +1299,7 @@ const normalizeContext = (
         : "All accessible locations"),
     paymentScopeLabel: context.paymentScopeLabel ||
       (paymentLabels.length > 0 ? paymentLabels.join(", ") : "All: Cash, Card, Other, Unknown"),
+    companyScopeLabel: context.companyScopeLabel || "",
   };
 };
 
@@ -1313,6 +1317,7 @@ export const buildSalesReportPdf = async ({
   machineScopeLabel,
   locationScopeLabel,
   paymentScopeLabel,
+  companyScopeLabel,
 }: SalesReportPdfContext & {
   rows: SalesReportPdfRow[];
   summary?: SalesReportPdfSummary;
@@ -1342,6 +1347,7 @@ export const buildSalesReportPdf = async ({
       machineScopeLabel,
       locationScopeLabel,
       paymentScopeLabel,
+      companyScopeLabel,
     },
     rows,
   );

@@ -92,6 +92,9 @@ import {
 } from '@/lib/reporting';
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
+import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
+import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
+import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 import {
   formatMachineType,
   formatLabel,
@@ -153,8 +156,6 @@ const setupQueryKey = ['admin-partnership-reporting-setup'];
 const refundManagerSetupQueryKey = ['admin-refund-manager-setup'];
 const refundNayaxInventoryQueryKey = ['admin-refund-nayax-inventory'];
 const initialReportingTaxStartDate = '2026-01-01';
-const hiddenManualMachineAccountName = 'Manual Reporting Machines';
-const hiddenFallbackLocationName = 'Unmapped source machines';
 
 const refundReadinessLabel = (state: MachineSetupRowViewModel['refundReadinessState']) => ({
   ready_to_refund: 'Ready to refund',
@@ -290,7 +291,9 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const emptyMachineForm = {
   machineId: null as string | null,
-  accountName: '',
+  accountId: '',
+  locationId: '',
+  addLocation: false,
   locationName: '',
   locationTimezone: 'America/Los_Angeles',
   machineLabel: '',
@@ -396,6 +399,9 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
       sunze_machine_id: 'DEMO-SUNZE-01',
       status: 'active',
       operational_phase: 'live',
+      account_id: 'demo-company-1',
+      location_id: 'demo-location-1',
+      location_timezone: 'America/New_York',
       account_name: 'Refund UAT Synthetic Account',
       location_name: 'Refund UAT Mall',
       latest_sale_date: today(),
@@ -407,6 +413,9 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
       sunze_machine_id: 'DEMO-SUNZE-02',
       status: 'active',
       operational_phase: 'live',
+      account_id: 'demo-company-1',
+      location_id: 'demo-location-2',
+      location_timezone: 'America/Chicago',
       account_name: 'Refund UAT Synthetic Account',
       location_name: 'Refund UAT Arcade',
       latest_sale_date: today(),
@@ -451,7 +460,9 @@ export default function AdminMachinesPage() {
   });
   const [historyMachine, setHistoryMachine] = useState<PartnershipSetupMachine | null>(null);
   const [editingMachine, setEditingMachine] = useState<PartnershipSetupMachine | null>(null);
-  const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
+  const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(() =>
+    searchParams.get('edit') === 'machine' && !searchParams.get('machineId') && !routeMachineId
+  );
   const [demoRefundManagerEmailsByMachineId, setDemoRefundManagerEmailsByMachineId] = useState<
     Record<string, string[]>
   >({});
@@ -2584,6 +2595,16 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const { user: assignmentUser } = useAuth();
+  const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, assignmentUser?.id], queryFn: fetchCompanyChoices, enabled: open && canEditMachineIdentity, staleTime: 30000 });
+  const loadedIdentityKeyRef = useRef('');
+  const currentAssignment: SavedCompanyAssignment | null = machine ? {
+    accountId: machine.account_id ?? '', accountName: machine.account_name,
+    locationId: machine.location_id ?? '', locationName: machine.location_name,
+    locationTimezone: machine.location_timezone ?? '',
+  } : null;
+  const [savedAssignment, setSavedAssignment] = useState<SavedCompanyAssignment | null>(currentAssignment);
+  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} value={form} saved={savedAssignment} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');
@@ -2750,11 +2771,21 @@ function MachineDialog({
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { loadedIdentityKeyRef.current = ''; return; }
+    const identityKey = machine?.id ?? 'new';
+    if (loadedIdentityKeyRef.current === identityKey) return;
+    loadedIdentityKeyRef.current = identityKey;
+    setSavedAssignment(machine ? {
+      accountId: machine.account_id ?? '', accountName: machine.account_name,
+      locationId: machine.location_id ?? '', locationName: machine.location_name,
+      locationTimezone: machine.location_timezone ?? '',
+    } : null);
     if (!machine) {
       setForm({
         ...emptyMachineForm,
-        accountName: hiddenManualMachineAccountName,
+        accountId: '',
+        locationId: '',
+        addLocation: false,
         locationName: '',
       });
       return;
@@ -2762,9 +2793,11 @@ function MachineDialog({
 
     setForm({
       machineId: machine.id,
-      accountName: machine.account_name || hiddenManualMachineAccountName,
+      accountId: machine.account_id ?? '',
+      locationId: machine.location_id ?? '',
+      addLocation: false,
       locationName: machine.location_name,
-      locationTimezone: 'America/Los_Angeles',
+      locationTimezone: machine.location_timezone ?? '',
       machineLabel: machine.machine_label,
       machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
@@ -2820,15 +2853,11 @@ function MachineDialog({
       return;
     }
 
-    if (shouldSaveIdentity && !form.machineId && !form.locationName.trim()) {
-      toast.error('Location is required for a new machine.');
-      return;
+    if (shouldSaveIdentity) {
+      const assignmentError = validateCompanyAssignment(form, companyChoices.data?.companies ?? [], savedAssignment);
+      if (assignmentError) { toast.error(assignmentError); return; }
     }
 
-    const accountName =
-      form.accountName.trim() || machine?.account_name || hiddenManualMachineAccountName;
-    const locationName =
-      form.locationName.trim() || machine?.location_name || hiddenFallbackLocationName;
     const machineLabel = form.machineLabel.trim();
     const sunzeMachineId = form.sunzeMachineId.trim();
     const duplicateSunze = sunzeMachineId
@@ -2878,12 +2907,23 @@ function MachineDialog({
       if (shouldSaveIdentity) {
         await upsertReportingMachineAdmin({
           ...form,
-          accountName,
-          locationName,
+          accountId: form.accountId,
+          locationId: form.addLocation ? null : form.locationId,
+          newLocationName: form.addLocation ? form.locationName.trim() : null,
+          newLocationTimezone: form.addLocation ? form.locationTimezone : null,
+          expectedAccountId: savedAssignment?.accountId || null,
+          expectedLocationId: savedAssignment?.locationId || null,
           machineLabel,
           sunzeMachineId: sunzeMachineId || null,
           reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
         });
+        loadedIdentityKeyRef.current = '';
+        // Company changes affect derived access across reporting and refund views.
+        // Recheck active views and discard inactive cached scopes before revisiting them.
+        if (savedAssignment && savedAssignment.accountId !== form.accountId) {
+          queryClient.removeQueries({ type: 'inactive', predicate: (query) => !String(query.queryKey[0] ?? '').startsWith('admin-') });
+          await queryClient.invalidateQueries();
+        }
       }
       if (shouldSaveRefunds && refundReadinessDraft && refundReadinessHasChanges) {
         await persistRefundReadinessDraft(refundReadinessDraft);
@@ -3091,7 +3131,9 @@ function MachineDialog({
 
   const machineIdentityHasChanges = Boolean(machine) && (
     form.machineLabel.trim() !== machine.machine_label ||
-    form.accountName.trim() !== (machine.account_name || hiddenManualMachineAccountName) ||
+    form.accountId !== (machine.account_id ?? '') ||
+    form.locationId !== (machine.location_id ?? '') ||
+    form.addLocation ||
     form.machineType !== (normalizeMachineType(machine.machine_type) ?? '') ||
     form.sunzeMachineId.trim() !== (machine.sunze_machine_id ?? '') ||
     form.operationalPhase !== (machine.operational_phase ?? 'live')
@@ -3101,11 +3143,18 @@ function MachineDialog({
 
   const cancelMachineIdentityChanges = useCallback(() => {
     if (!machine) return;
+    setSavedAssignment({
+      accountId: machine.account_id ?? '', accountName: machine.account_name,
+      locationId: machine.location_id ?? '', locationName: machine.location_name,
+      locationTimezone: machine.location_timezone ?? '',
+    });
     setForm({
       machineId: machine.id,
-      accountName: machine.account_name || hiddenManualMachineAccountName,
+      accountId: machine.account_id ?? '',
+      locationId: machine.location_id ?? '',
+      addLocation: false,
       locationName: machine.location_name,
-      locationTimezone: 'America/Los_Angeles',
+      locationTimezone: machine.location_timezone ?? '',
       machineLabel: machine.machine_label,
       machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
@@ -3305,10 +3354,7 @@ function MachineDialog({
                     <Label htmlFor="page-machine-label">Machine label</Label>
                     <Input id="page-machine-label" value={form.machineLabel} onChange={(event) => setForm({ ...form, machineLabel: event.target.value })} />
                   </div>
-                  <div>
-                    <Label htmlFor="page-machine-account">Reporting account</Label>
-                    <Input id="page-machine-account" value={form.accountName} onChange={(event) => setForm({ ...form, accountName: event.target.value })} />
-                  </div>
+                  {assignmentFields('page-machine')}
                   <div>
                     <Label htmlFor="page-machine-type">Machine type</Label>
                     <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as CanonicalMachineType })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
@@ -3324,10 +3370,6 @@ function MachineDialog({
                     </select>
                     <p className="mt-1 text-xs text-muted-foreground">Setup machines can be assigned for Timekeeping before Nayax or Sunzee is connected.</p>
                   </div>
-                  <div>
-                    <Label htmlFor="page-machine-location">Location</Label>
-                    <Input id="page-machine-location" value={machine.location_name || 'Not set'} readOnly />
-                  </div>
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
                   <Button variant="outline" onClick={cancelMachineIdentityChanges} disabled={!machineIdentityHasChanges || isSavingMachineChanges}>Cancel</Button>
@@ -3340,7 +3382,7 @@ function MachineDialog({
             ) : (
               <dl className="max-w-3xl divide-y divide-border rounded-md border border-border text-sm">
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine label</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Reporting account</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Location</dt><dd className="text-right font-medium">{machine.location_name || 'Not set'}</dd></div>
@@ -3570,7 +3612,7 @@ function MachineDialog({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={(event) => { if (event.target instanceof HTMLElement && event.target.id.endsWith('-new-company')) event.preventDefault(); }}>
         <SheetHeader>
           <SheetTitle>
             {form.machineId
@@ -3581,7 +3623,7 @@ function MachineDialog({
           </SheetTitle>
           <SheetDescription>
             {canEditMachineIdentity
-              ? 'Manage machine identity and reporting account. Report membership is assigned from Partnerships, and imported machines with queued sales are set up from Reporting Operations.'
+              ? 'Manage machine identity and company. Report membership is assigned from Partnerships, and imported machines with queued sales are set up from Reporting Operations.'
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
@@ -3595,47 +3637,7 @@ function MachineDialog({
               disabled={!canEditMachineIdentity}
             />
           </div>
-          <div>
-            <Label htmlFor="machine-account">Reporting account</Label>
-            <Input
-              id="machine-account"
-              value={form.accountName}
-              onChange={(event) => setForm({ ...form, accountName: event.target.value })}
-              disabled={!canEditMachineIdentity}
-            />
-          </div>
-          {!form.machineId && (
-            <>
-              <div>
-                <Label htmlFor="machine-location">Location</Label>
-                <Input
-                  id="machine-location"
-                  value={form.locationName}
-                  onChange={(event) => setForm({ ...form, locationName: event.target.value })}
-                  disabled={!canEditMachineIdentity}
-                  placeholder="Mall or event location"
-                />
-              </div>
-              <div>
-                <Label htmlFor="machine-timezone">Location time zone</Label>
-                <select
-                  id="machine-timezone"
-                  value={form.locationTimezone}
-                  onChange={(event) => setForm({ ...form, locationTimezone: event.target.value })}
-                  disabled={!canEditMachineIdentity}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="America/New_York">Eastern</option>
-                  <option value="America/Chicago">Central</option>
-                  <option value="America/Denver">Mountain</option>
-                  <option value="America/Phoenix">Arizona</option>
-                  <option value="America/Los_Angeles">Pacific</option>
-                  <option value="America/Anchorage">Alaska</option>
-                  <option value="Pacific/Honolulu">Hawaii</option>
-                </select>
-              </div>
-            </>
-          )}
+          {assignmentFields('machine')}
           <div>
             <Label htmlFor="machine-type">Machine type</Label>
             <select

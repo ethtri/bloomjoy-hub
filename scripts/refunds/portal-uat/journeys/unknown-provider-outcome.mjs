@@ -26,6 +26,7 @@ export const createUnknownProviderOutcomeChecks = ({
   harness: {
     getUatPageFailures,
     installMockSupabaseRoutes,
+    openQueueCase,
     queueCase,
     signInRefundUser,
     waitForQueueCount,
@@ -369,7 +370,7 @@ export const createUnknownProviderOutcomeChecks = ({
         await page.getByRole('button', { name: 'All active 1', exact: true })
           .waitFor({ timeout: 10000 });
         await page.getByRole('button', { name: 'All active 1', exact: true }).click();
-        await queueCase(page, 'RF-UAT-CARD').click();
+        await openQueueCase(page, 'RF-UAT-CARD');
         recorder.assert(
           'System continuation leaves no second Manager approval after no-refund evidence',
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
@@ -528,10 +529,16 @@ export const createUnknownProviderOutcomeChecks = ({
     );
 
     await reloadRefundPortalPage(page);
+    await page.getByRole('heading', { name: 'RF-UAT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Reload restores the exact selected case from its URL on mobile',
+      new URL(page.url()).searchParams.get('case') === 'case-card-1' &&
+        await page.getByRole('heading', { name: 'RF-UAT-CARD', exact: true }).isVisible()
+    );
     await page.getByRole('button', { name: 'All active 1', exact: true })
       .waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: 'All active 1', exact: true }).click();
-    await queueCase(page, 'RF-UAT-CARD').click();
+    await openQueueCase(page, 'RF-UAT-CARD');
     recorder.assert(
       'Reload preserves one pending System attempt with no Ready or Refund action',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
@@ -1000,11 +1007,10 @@ export const createUnknownProviderOutcomeChecks = ({
           }).first();
           await heldQueue.waitFor({ timeout: 10000 });
           await heldQueue.click();
-          const heldCaseRow = queueCase(page, 'RF-UAT-CARD');
-          await heldCaseRow.click();
+          await openQueueCase(page, 'RF-UAT-CARD');
           recorder.assert(
             'Synthetic browser rejected-looking result survives reload as a System-held attempt',
-            (await heldCaseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
+            (await page.getByText('Ready to approve', { exact: true }).count()) === 0 &&
               (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
               await page.getByTestId('refund-manager-state')
                 .getByText(heldPaymentResultLabel, { exact: true }).isVisible() &&
@@ -1077,8 +1083,7 @@ export const createUnknownProviderOutcomeChecks = ({
           await page.getByRole('button', { name: 'All active 1', exact: true })
             .waitFor({ timeout: 10000 });
           await page.getByRole('button', { name: 'All active 1', exact: true }).click();
-          const reloadedCaseRow = queueCase(page, 'RF-UAT-CARD');
-          await reloadedCaseRow.click();
+          await openQueueCase(page, 'RF-UAT-CARD');
           recorder.assert(
             `Synthetic browser ${scenario.name} remains frozen after a full reload`,
             await page.getByTestId('refund-manager-state')

@@ -869,6 +869,7 @@ const requireRefundGmailCaseLinkReview = (
 };
 
 export type RefundCaseRecord = {
+  accountId?: string | null; accountName?: string | null;
   resolutionMethod?: RefundResolutionMethod;
   payoutDestinationRequest?: {
     state: 'not_started' | 'waiting' | 'reminder_claimed' | 'reminder_sent' | 'satisfied' | 'manual_review';
@@ -2215,6 +2216,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
     cases: [
       {
         id: 'demo-nayax-setup',
+        accountId: '17190000-0000-4000-8000-000000000002', accountName: 'Sample South Company with a long reporting name',
         publicReference: 'RF-UAT-SETUP',
         ...(correctionDemo ? {
           customerCorrectionFields: [] as RefundMissingField[],
@@ -2358,6 +2360,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       },
       {
         id: 'demo-card-match',
+        accountId: '17190000-0000-4000-8000-000000000001', accountName: 'Sample North Company',
         publicReference: 'RF-UAT-CARD',
         canPerformOfficialAction: true,
         officialActionVersion: 1,
@@ -2570,6 +2573,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       },
       {
         id: 'demo-cash-waiting',
+        accountId: '17190000-0000-4000-8000-000000000002', accountName: 'Sample South Company with a long reporting name',
         publicReference: 'RF-UAT-WAIT',
         canPerformOfficialAction: true,
         officialActionVersion: 1,

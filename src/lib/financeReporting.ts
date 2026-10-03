@@ -1,11 +1,13 @@
+import type { CompanyDimension } from './companyReporting.ts';
 import { validateRefundAnalyticsScope } from './refundAnalytics.ts';
 
 export type FinanceReportingScope = {
+  companyId?: string; companyName?: string;
   dateFrom: string; dateTo: string; machineIds?: string[]; locationIds?: string[];
 };
 export type FinanceReportingAccess = {
   hasAccess: boolean;
-  dimensions: { machineId: string; machineLabel: string; locationId: string; locationName: string }[];
+  dimensions: { machineId: string; machineLabel: string; locationId: string; locationName: string; accountId?: string | null; accountName?: string | null }[];
 };
 export type FinanceReportingRow = {
   machineId: string; machineLabel: string; locationId: string; locationName: string;
@@ -22,7 +24,8 @@ export type FinanceReportingRow = {
   };
 };
 export type FinanceReporting = {
-  calculationVersion: 'finance-reporting-v1'; generatedAt: string; dateFrom: string; dateTo: string;
+  calculationVersion: 'finance-reporting-v1'; generatedAt: string; companyId?: string; companyName?: string;
+  dateFrom: string; dateTo: string;
   dateBasis: string; rows: FinanceReportingRow[];
 };
 
@@ -91,7 +94,8 @@ export async function fetchFinanceReportingAccess(): Promise<FinanceReportingAcc
 export async function fetchFinanceReporting(scope: FinanceReportingScope): Promise<FinanceReporting> {
   validateRefundAnalyticsScope(scope);
   const { supabaseClient } = await import('@/lib/supabaseClient');
-  const { data, error } = await supabaseClient.rpc('get_finance_reporting', {
+  const { data, error } = await supabaseClient.rpc(scope.companyId && scope.companyId !== 'all' ? 'get_company_finance_reporting' : 'get_finance_reporting', {
+    ...(scope.companyId && scope.companyId !== 'all' ? { p_company_id: scope.companyId } : {}),
     p_date_from: scope.dateFrom, p_date_to: scope.dateTo,
     p_machine_ids: scope.machineIds ?? null, p_location_ids: scope.locationIds ?? null,
   });
@@ -105,9 +109,10 @@ function csvCell(value: string | number | null): string {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
-export function financeReportingCsv(report: FinanceReporting, scope: FinanceReportingScope): string {
+export function financeReportingCsv(report: FinanceReporting, scope: FinanceReportingScope, dimensions: CompanyDimension[] = []): string {
   const rows: (string | number | null)[][] = [
     ['Finance reporting', report.calculationVersion], ['Generated at', report.generatedAt],
+    ['Company', scope.companyName ?? 'All companies'], ['Company ID', scope.companyId ?? 'all'], ['Company basis', 'Current reporting company; historical locations and dates preserved'],
     ['Date from', report.dateFrom], ['Date through', report.dateTo], ['Date basis', report.dateBasis],
     ['Machine filters', (scope.machineIds ?? []).join(' | ') || 'All authorized'],
     ['Location filters', (scope.locationIds ?? []).join(' | ') || 'All authorized'],
@@ -116,9 +121,9 @@ export function financeReportingCsv(report: FinanceReporting, scope: FinanceRepo
     ['Reporting tax removed', 'Calculation adjustment; not proof of tax collected or legally owed.'],
     ['Money paid', 'Recorded refund payment activity; not bank settlement. Gift issuance is not gift redemption.'],
     ['Net formula', 'Sales excluding reporting tax - requested deduction + reversal - legacy paid deduction; later payment or gift does not deduct again.'],
-    [], ['Machine ID', 'Machine', 'Location ID', 'Location', ...moneyKeys.map(key => columnLabels[key]),
+    [], ['Company ID', 'Current company', 'Machine ID', 'Machine', 'Location ID', 'Location', ...moneyKeys.map(key => columnLabels[key]),
       ...accountingKeys.map(key => columnLabels[key]), 'Request cohort count', 'Known open request count', ...coverageKeys.map(key => columnLabels[key])],
-    ...report.rows.map(row => [
+    ...report.rows.map(row => [dimensions.find(machine => machine.machineId === row.machineId)?.accountId ?? '', dimensions.find(machine => machine.machineId === row.machineId)?.accountName ?? 'Unassigned company',
       row.machineId, row.machineLabel, row.locationId, row.locationName,
       ...moneyKeys.map(key => row[key]), ...accountingKeys.map(key => row[key]), row.requestCount, row.openRequestCount,
       ...coverageKeys.map(key => row.coverage[key]),

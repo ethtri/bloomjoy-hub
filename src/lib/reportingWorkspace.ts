@@ -4,7 +4,7 @@ export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'la
 export type ComparisonMode = 'previous_period' | 'previous_month' | 'previous_year' | 'none';
 export type WorkspaceState = {
   view: WorkspaceView; dateFrom: string; dateTo: string;
-  locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
+  companyId: string; locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
   comparison: ComparisonMode;
 };
 export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'finance', 'locations', 'partners'];
@@ -16,7 +16,7 @@ export function defaultWorkspaceState(now = new Date()): WorkspaceState {
   const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const end = new Date(today.getTime() - day);
   const start = new Date(today.getTime() - 7 * day);
-  return { view: 'overview', dateFrom: dateString(start), dateTo: dateString(end), locationId: 'all', machineId: 'all', paymentMethod: 'all', comparison: 'previous_period' };
+  return { view: 'overview', dateFrom: dateString(start), dateTo: dateString(end), companyId: 'all', locationId: 'all', machineId: 'all', paymentMethod: 'all', comparison: 'previous_period' };
 }
 export function reportingPeriods(now = new Date()) {
   const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -45,13 +45,13 @@ export function readWorkspaceState(params: URLSearchParams, defaults = defaultWo
   const compare = params.get('compare'); const tender = params.get('tender');
   return { ...defaults, view: [...workspaceViews, 'labor', 'refunds'].includes(view as WorkspaceView) ? view as WorkspaceView : defaults.view,
     ...(datesValid ? { dateFrom: from, dateTo: to } : {}),
-    locationId: params.get('location') || 'all', machineId: params.get('machine') || 'all',
+    companyId: params.get('company') || 'all', locationId: params.get('location') || 'all', machineId: params.get('machine') || 'all',
     paymentMethod: ['cash', 'credit', 'other', 'unknown'].includes(tender ?? '') ? tender as PaymentMethod : 'all',
     comparison: ['previous_period', 'previous_month', 'previous_year', 'none'].includes(compare ?? '') ? compare as ComparisonMode : defaults.comparison };
 }
 export function writeWorkspaceState(state: WorkspaceState, existing = new URLSearchParams()): URLSearchParams {
   const params = new URLSearchParams(existing);
-  for (const [key, value] of Object.entries({ view: state.view, from: state.dateFrom, to: state.dateTo, location: state.locationId, machine: state.machineId, tender: state.paymentMethod, compare: state.comparison })) {
+  for (const [key, value] of Object.entries({ view: state.view, from: state.dateFrom, to: state.dateTo, company: state.companyId ?? 'all', location: state.locationId, machine: state.machineId, tender: state.paymentMethod, compare: state.comparison })) {
     if (value === 'all') params.delete(key); else params.set(key, value);
   }
   return params;
@@ -122,11 +122,11 @@ export function parseSavedViews(value: string | null): SavedReportingView[] {
 }
 
 /** Carry operational scope to the owning app. Destination access checks stay authoritative. */
-export function operationalReportHref(domain: 'labor' | 'refunds', scope: Pick<WorkspaceState, 'dateFrom' | 'dateTo' | 'locationId' | 'machineId'> | URLSearchParams) {
+export function operationalReportHref(domain: 'labor' | 'refunds', scope: Pick<WorkspaceState, 'dateFrom' | 'dateTo' | 'locationId' | 'machineId'> & { companyId?: string } | URLSearchParams) {
   const params = new URLSearchParams({ view: 'reports' });
   const values = scope instanceof URLSearchParams
-    ? { from: scope.get('from'), to: scope.get('to'), location: scope.get('location'), machine: scope.get('machine') }
-    : { from: scope.dateFrom, to: scope.dateTo, location: scope.locationId, machine: scope.machineId };
+    ? { company: domain === 'refunds' ? scope.get('company') : null, from: scope.get('from'), to: scope.get('to'), location: scope.get('location'), machine: scope.get('machine') }
+    : { company: domain === 'refunds' ? scope.companyId : null, from: scope.dateFrom, to: scope.dateTo, location: scope.locationId, machine: scope.machineId };
   for (const [key, value] of Object.entries(values)) if (value && value !== 'all') params.set(key, value);
   return `${domain === 'labor' ? '/portal/time-review' : '/refunds'}?${params.toString()}`;
 }
