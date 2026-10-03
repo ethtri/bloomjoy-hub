@@ -392,15 +392,18 @@ export const createOrdinarySuccessChecks = ({
       JSON.stringify(boundedWorkspace)
     );
     recorder.assert(
-      'Compact request details and recommended transaction share one decision workspace on a laptop viewport',
+      'Customer evidence precedes the refund decision in the same bounded workspace',
       Boolean(requestBox && actionBox) &&
-        actionBox.y < requestBox.y,
+        requestBox.y < actionBox.y,
       JSON.stringify({ requestBox, actionBox, primaryButtonBox })
     );
+    await page.getByTestId('refund-run-nayax-refund').scrollIntoViewIfNeeded();
+    const reachablePrimaryButtonBox = await page.getByTestId('refund-run-nayax-refund').boundingBox();
     recorder.assert(
-      'Primary refund action is visible without scrolling the selected case',
-      Boolean(primaryButtonBox) && primaryButtonBox.y >= 0 && primaryButtonBox.y + primaryButtonBox.height <= 1000,
-      JSON.stringify(primaryButtonBox)
+      'Primary refund action is reachable inside the selected-case scroll area',
+      Boolean(reachablePrimaryButtonBox) && reachablePrimaryButtonBox.y >= 0 &&
+        reachablePrimaryButtonBox.y + reachablePrimaryButtonBox.height <= 1000,
+      JSON.stringify(reachablePrimaryButtonBox)
     );
     recorder.assert(
       'Normal card path has one visible dominant action',
@@ -412,30 +415,28 @@ export const createOrdinarySuccessChecks = ({
       'Normal card path hides manual status and decision selectors',
       (await page.locator('[data-testid="refund-status-select"]:visible').count()) === 0
     );
-    await page.getByText('Purchase details and search history', { exact: true }).click();
     recorder.assert(
-      'Machine transaction comparison is visible and explicit',
+      'Selected purchase comparison is visible and explicit',
       await page.getByTestId('nayax-result-card').isVisible() &&
-        await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-manager-state').getByText('Selected purchase: $7.00 USD', { exact: true }).isVisible() &&
-        await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
-        await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
+        await page.getByTestId('nayax-decision-heading').getByText('Selected for review', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-manager-state').getByText('Refund decision', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-purchase-comparison').getByText('$7.00', { exact: true }).last().isVisible()
     );
-    const selectedTransactionEvidence = page.getByTestId('selected-nayax-transaction-evidence');
+    const selectedTransactionEvidence = page.getByTestId('nayax-result-card');
     const purchaseComparison = page.getByTestId('refund-purchase-comparison');
     const transactionEvidenceDetails = page.getByTestId('selected-nayax-transaction-evidence-details');
     const copyTransactionButton = page.getByTestId('copy-selected-nayax-transaction-id');
-    const transactionEvidenceDisclosure = transactionEvidenceDetails.getByText('Transaction evidence', { exact: true });
-    const selectedPurchaseBox = await selectedTransactionEvidence.boundingBox();
+    const transactionEvidenceDisclosure = transactionEvidenceDetails.locator('summary');
+    const selectedPurchaseBox = await page.getByTestId('nayax-decision-heading').boundingBox();
     const purchaseComparisonBox = await purchaseComparison.boundingBox();
     const transactionEvidenceDetailsBox = await transactionEvidenceDetails.boundingBox();
     recorder.assert(
       'Selected purchase summary and comparison follow case evidence and stay before technical evidence',
         await selectedTransactionEvidence.isVisible() &&
-        await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
+        await purchaseComparison.getByText('$7.00', { exact: true }).last().isVisible() &&
         await purchaseComparison.isVisible() &&
         await transactionEvidenceDisclosure.isVisible() &&
-        !(await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible()) &&
+        !(await page.getByTestId('selected-nayax-transaction-id').isVisible()) &&
         !(await page.getByText('Provider machine clock', { exact: true }).isVisible()) &&
         Boolean(
           selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
@@ -450,31 +451,32 @@ export const createOrdinarySuccessChecks = ({
       'Technical transaction evidence remains available from the disclosure',
         await transactionEvidenceDetails.getByText('Selected Nayax transaction ID', { exact: true }).isVisible() &&
         await transactionEvidenceDetails.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
-        await transactionEvidenceDetails.getByText('Customer-reported time', { exact: true }).isVisible() &&
-        await transactionEvidenceDetails.getByText('Nayax authorization time', { exact: true }).isVisible() &&
+        await transactionEvidenceDetails.getByText('Provider time', { exact: true }).isVisible() &&
         await transactionEvidenceDetails.getByText('Provider machine clock', { exact: true }).isVisible() &&
-        (await transactionEvidenceDetails.getByText('America/New_York', { exact: false }).count()) >= 2 &&
+        (await transactionEvidenceDetails.getByText('America/New_York', { exact: false }).count()) >= 1 &&
         (await transactionEvidenceDetails.getByText('America/Los_Angeles', { exact: false }).count()) >= 1 &&
-        await transactionEvidenceDetails.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
+        await transactionEvidenceDetails.getByText('Selection details', { exact: true }).isVisible() &&
         Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44)
     );
     const purchaseComparisonText = await purchaseComparison.innerText();
     recorder.assert(
       'Customer, venue, and provider-machine times are labeled without browser-local ambiguity',
-      purchaseComparisonText.includes('Customer report · America/New_York') &&
-        purchaseComparisonText.includes('Nayax authorization time · shown in venue time') &&
-        purchaseComparisonText.includes('Provider machine clock:') &&
-        purchaseComparisonText.includes('America/Los_Angeles') &&
-        purchaseComparisonText.includes('does not prove when the purchase happened')
+      purchaseComparisonText.includes('Customer request') &&
+        purchaseComparisonText.includes('Nayax authorization time') &&
+        purchaseComparisonText.includes('EDT') &&
+        (await transactionEvidenceDetails.innerText()).includes('Displayed in venue time: America/New_York') &&
+        (await transactionEvidenceDetails.innerText()).includes('America/Los_Angeles')
     );
     const providerClockDiagnostic = page.getByTestId('refund-provider-clock-diagnostic');
-    await providerClockDiagnostic.locator('summary').click();
+    recorder.assert(
+      'Saved purchase source details do not manufacture empty machine context',
+      (await transactionEvidenceDetails.getByText('Machine context', { exact: true }).count()) === 0
+    );
     recorder.assert(
       'Provider clock mismatch remains a System diagnostic rather than customer homework',
       await providerClockDiagnostic.isVisible() &&
-        (await providerClockDiagnostic.innerText()).includes('America/New_York') &&
         (await providerClockDiagnostic.innerText()).includes('America/Los_Angeles') &&
-        (await providerClockDiagnostic.innerText()).includes('not information the customer needs to repeat')
+        (await providerClockDiagnostic.innerText()).includes('does not establish a time error')
     );
     await copyTransactionButton.click();
     recorder.assert(
@@ -506,13 +508,13 @@ export const createOrdinarySuccessChecks = ({
     await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
     recorder.assert(
       'Customer and Nayax card types are compared in plain language',
-      /Card type\s+Visa\s+Visa\s+Same card type/.test(
+      /Card type\s+Visa\s+Visa/.test(
         await page
           .getByTestId('nayax-result-card')
           .getByText('Card type', { exact: true })
           .locator('..')
           .innerText()
-      )
+      ) && await page.getByTestId('refund-purchase-evidence').getByText('Card network matches (Visa).', { exact: true }).isVisible()
     );
     recorder.assert(
       'Selected card match keeps candidate chooser out of the normal path',
@@ -538,7 +540,7 @@ export const createOrdinarySuccessChecks = ({
     );
     recorder.assert(
       'Case header keeps one current state and one next step',
-      await page.getByTestId('refund-manager-state').getByText('Selected purchase: $7.00 USD', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-manager-state').getByText('Refund decision', { exact: true }).isVisible() &&
         (await page.getByTestId('refund-primary-action').innerText()).includes('Approve $7.00 USD refund') &&
         await page.getByTestId('refund-manager-next-step').isVisible()
     );
@@ -580,7 +582,7 @@ export const createOrdinarySuccessChecks = ({
           diagnostics.actionLabel === 'Approve $7.00 USD refund' &&
           diagnostics.actionVisible &&
           diagnostics.actionDisabled === false &&
-          diagnostics.managerState === 'Selected purchase: $7.00 USD' &&
+          diagnostics.managerState === 'Refund decision' &&
           diagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
           diagnostics.forbiddenCopyMatches.length === 0
         ? diagnostics
@@ -592,7 +594,7 @@ export const createOrdinarySuccessChecks = ({
         inAppExecutionDiagnostics.actionLabel === 'Approve $7.00 USD refund' &&
         inAppExecutionDiagnostics.actionVisible &&
         inAppExecutionDiagnostics.actionDisabled === false &&
-        inAppExecutionDiagnostics.managerState === 'Selected purchase: $7.00 USD' &&
+        inAppExecutionDiagnostics.managerState === 'Refund decision' &&
         inAppExecutionDiagnostics.primaryActionText.includes('Approve $7.00 USD refund') &&
         inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
       JSON.stringify(inAppExecutionDiagnostics)
@@ -1781,15 +1783,15 @@ export const createOrdinarySuccessChecks = ({
       await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
       const demoRefundAction = page.getByTestId('refund-run-nayax-refund');
       const demoPrimaryActionText = await page.getByTestId('refund-primary-action').innerText();
-      const purchaseDetails = page.getByText('Purchase details and search history', { exact: true });
+      const purchaseDetails = page.getByTestId('selected-nayax-transaction-evidence-details').locator('summary');
       recorder.assert(
         'The recommendation shows concise saved-purchase proof with Approve and Deny',
         (await demoRefundAction.count()) === 1 &&
           await demoRefundAction.isDisabled() &&
           (await demoRefundAction.innerText()).includes('Approve $7.00 USD refund') &&
-          (await page.getByTestId('refund-manager-state').innerText()) === 'Selected purchase: $7.00 USD' &&
-          demoPrimaryActionText.includes('Transaction time') &&
-          demoPrimaryActionText.includes('Nayax card') &&
+          (await page.getByTestId('refund-manager-state').innerText()) === 'Refund decision' &&
+          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Time') &&
+          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Ending 4242') &&
           await page.getByTestId('refund-deny-instead').isVisible(),
         JSON.stringify({
           buttonCount: await demoRefundAction.count(),
@@ -1804,7 +1806,9 @@ export const createOrdinarySuccessChecks = ({
         await page.getByTestId('refund-request-summary').getByText('Customer request', { exact: true }).isVisible() &&
           await page.getByTestId('refund-customer-comments').isVisible() &&
           (await page.getByTestId('nayax-result-card').count()) === 1 &&
-          !(await page.getByTestId('nayax-result-card').isVisible()) &&
+          await page.getByTestId('nayax-result-card').isVisible() &&
+          await page.getByTestId('refund-purchase-comparison').isVisible() &&
+          !(await page.getByTestId('selected-nayax-transaction-id').isVisible()) &&
           await purchaseDetails.isVisible() &&
           (await page.getByText('Website form', { exact: true }).count()) === 0 &&
           (await page.getByText('Current state', { exact: true }).count()) === 0

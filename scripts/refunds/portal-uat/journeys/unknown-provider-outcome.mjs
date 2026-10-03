@@ -589,15 +589,23 @@ export const createUnknownProviderOutcomeChecks = ({
     const disputeCalls = rpcBodies.filter((entry) =>
       entry.name === 'admin_dispute_refund_nayax_preselection_current_user_v1'
     );
-    const alternativeReviewVisible = await page
-      .getByTestId('refund-review-other-transactions')
-      .isVisible();
+    const alternativeReview = page.getByTestId('refund-compare-other-transactions');
+    const alternativeReviewVisible = await alternativeReview.isVisible();
+    const selectedReferenceBefore = await page.getByTestId('selected-nayax-transaction-id').textContent();
+    const actionLabelBefore = await page.getByTestId('refund-run-nayax-refund').innerText();
+    await alternativeReview.click();
+    const selectedReferenceAfter = await page.getByTestId('selected-nayax-transaction-id').textContent();
     const candidateCount = await page.getByTestId('nayax-candidate-option').count();
     const refundActionCount = await page.getByTestId('refund-run-nayax-refund').count();
     recorder.assert(
-      'A clear recommendation keeps alternative transaction inventory out of the Manager decision',
-      alternativeReviewVisible === false &&
-        candidateCount === 0 &&
+      'Browsing returned alternatives retains the exact saved transaction and refund action without mutation',
+      alternativeReviewVisible === true &&
+        candidateCount === buildSystemPreparedCardRefundOverview().cases[0].nayaxLookupCandidates.length &&
+        await page.getByTestId('nayax-candidate-option').first().isVisible() &&
+        selectedReferenceBefore === 'RF423906B2-SALE' &&
+        selectedReferenceAfter === selectedReferenceBefore &&
+        (await page.getByTestId('refund-run-nayax-refund').innerText()) === actionLabelBefore &&
+        actionLabelBefore === 'Approve $10.90 USD refund' &&
         refundActionCount === 1 &&
         disputeCalls.length === 0 &&
         rpcCalls.filter((name) => name === 'admin_dispute_refund_nayax_preselection_current_user_v1').length === 0 &&
@@ -607,6 +615,8 @@ export const createUnknownProviderOutcomeChecks = ({
         ].includes(name)),
       JSON.stringify({
         alternativeReviewVisible,
+        selectedReferenceBefore,
+        selectedReferenceAfter,
         candidateCount,
         refundActionCount,
         functionCalls,
@@ -751,7 +761,7 @@ export const createUnknownProviderOutcomeChecks = ({
             await page.getByRole('status', { name: 'Checking refund availability', exact: true }).isVisible() &&
             (await page.getByText('Card refunds unavailable', { exact: true }).count()) === 0 &&
             (await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).count()) === 0 &&
-            (await page.getByTestId('refund-manager-state').innerText()).startsWith('Selected purchase: $') &&
+            (await page.getByTestId('refund-manager-state').innerText()) === 'Refund decision' &&
             await page.getByText(/Payment: Not issued\./).first().isVisible()
           )),
         JSON.stringify({ functionCalls, availabilityBodies })
