@@ -78,7 +78,7 @@ select throws_ok($$select public.admin_map_snapcase_machine('cc173005-0000-4000-
 select throws_ok($$select public.admin_map_snapcase_machine('cc173005-0000-4000-8000-000000000001','management-new-source',null,'cc173001-0000-4000-8000-000000000001','cc173002-0000-4000-8000-000000000001',null,'New archived SnapCase','cc173004-0000-4000-8000-000000000001','2020-01-01',null,'Fixture')$$,'22023',null,'Legacy SnapCase overload cannot bypass archive');
 select lives_ok($$select public.admin_map_snapcase_machine('cc173005-0000-4000-8000-000000000001','management-current-source','cc173003-0000-4000-8000-000000000003',null,null,null,null,'cc173004-0000-4000-8000-000000000001','2020-01-01',null,'Fixture',null)$$,'Mapping existing archived-company SnapCase preserves assignment');
 select is((select reporting_location_id from public.machine_sales_facts where source_row_hash=repeat('a',64)),'cc173002-0000-4000-8000-000000000001'::uuid,'Management preserves recorded venue identity');
-select is((select net_sales_cents from public.machine_sales_facts where source_row_hash=repeat('a',64)),1250::bigint,'Management preserves recorded money');
+select is((select net_sales_cents from public.machine_sales_facts where source_row_hash=repeat('a',64)),1250,'Management preserves recorded money');
 select is((select count(*)::int from public.reporting_machine_entitlements where user_id='cc173000-0000-4000-8000-000000000002'),1,'Management never rewrites entitlements');
 select is((select count(*)::int from public.reporting_machine_refund_managers where reporting_machine_id='cc173003-0000-4000-8000-000000000003'),1,'Management never rewrites explicit refund managers');
 select set_config('request.jwt.claim.sub','cc173000-0000-4000-8000-000000000002',true);
