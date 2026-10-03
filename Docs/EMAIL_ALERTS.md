@@ -31,19 +31,26 @@ non-digest preferences, and the machine panel changes only its current machine.
 
 ## Reading a digest
 
-Sales and requested refund impact reuse Hub's canonical reporting calculations.
-Requested impact can include reversals and is distinct from a later confirmed
-refund payment or issued gift value. A confirmed payment must not deduct the same
-purchase twice. Missing or unverified data stays explicit; a recent import alone
-does not prove complete reporting coverage.
+Daily and weekly digests start with sales and new refund requests for the selected,
+currently authorized machines. Company subtotals use each machine's actual Hub
+account, followed by compact machine rows with sales, request count and requested
+dollars. The daily period is the previous completed machine-local day; weekly is
+the previous completed Monday–Sunday. A request received in the period remains
+included even if it has since been resolved. Older open cases do not enter these
+period totals or appear as a case backlog in the email.
 
-Request details are grouped by machine. Managers receive their authorized
-sanitized customer narrative and decision links. Technicians receive operational
-symptoms with a safe excerpt, without customer contact/payment details or access
-to the refund case. Daily briefs also include all assigned open manager work in
-a separate section, outside the selected performance-machine totals, so an older
-open case is not lost. Weekly reports include open work only for their selected
-machines.
+Sales use canonical tax-exclusive sales before refund deductions. Requested
+dollars describe what customers requested at intake, not accounting adjustments,
+approved amounts, payments or gift value. Missing amounts stay unknown; partial
+subtotals identify their incomplete coverage. Existing permissions still control
+access to financial amounts. A recent import alone does not prove complete sales
+coverage. Weekly comparisons use the same machines with comparable data in both
+periods; zero or missing baselines never produce a misleading growth percentage.
+
+Detailed reasons, comments and follow-up work remain in Hub. Optional immediate
+request emails retain their authorized operational details: managers can open
+their cases; technicians receive a safe operational excerpt without customer
+contact/payment details or case access. See [the digest design](DIGEST_REDESIGN.md).
 
 Conditional alerts are available only where the source is verified. Cash quiet
 alerts require complete Sunze cash-day coverage with a proved time basis, plus
