@@ -74,7 +74,8 @@ begin
     $new$        btrim(p_location_timezone),$new$);
   definition:=replace(definition,E'    if location_row.id is null then\n      insert into public.reporting_locations',
     $new$    if location_row.id is null then
-      if nullif(btrim(p_location_timezone),'') is null or not exists(
+      if nullif(btrim(p_location_timezone),'') is null
+        or (btrim(p_location_timezone)<>'UTC' and strpos(btrim(p_location_timezone),'/')=0) or not exists(
         select 1 from pg_catalog.pg_timezone_names where name=btrim(p_location_timezone)) then
         raise exception 'Choose a valid IANA location timezone' using errcode='22023';
       end if;

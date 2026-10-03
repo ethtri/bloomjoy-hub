@@ -120,7 +120,8 @@ begin
     end if;
   else
     if location_name='' then raise exception 'Choose a location or explicitly add one' using errcode='22023'; end if;
-    if zone='' or not exists(select 1 from pg_catalog.pg_timezone_names where name=zone) then
+    if zone='' or (zone<>'UTC' and strpos(zone,'/')=0)
+      or not exists(select 1 from pg_catalog.pg_timezone_names where name=zone) then
       raise exception 'Choose a valid IANA location timezone' using errcode='22023';
     end if;
     -- Explicit create never silently chooses a same-named existing location.

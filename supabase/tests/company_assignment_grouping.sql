@@ -52,11 +52,27 @@ select throws_ok($$select public.admin_upsert_reporting_machine(null,'Never impl
 select throws_ok($$select public.admin_upsert_reporting_machine_with_phase(null,'Never implicitly create fixture','Anywhere','Fixture','commercial',null,'live','Fixture setup','America/New_York')$$,'22023',null,'Unknown legacy phase company fails');
 select is((select count(*)::int from public.customer_accounts where name='Never implicitly create fixture'),0,'Legacy saves create no company');
 select throws_ok($$select public.admin_map_source_machine_to_partnership('Unmapped-fixture',null,'Fixture','Location','commercial',0,'2026-01-01',null,'2026-01-01','Fixture setup')$$,'22023','Choose an explicit company and location','Sunze legacy writer cannot infer company from settlement participant');
+insert into public.reporting_partnerships(id,name,partnership_type,effective_start_date,status)
+ values('cc171905-0000-4000-8000-000000000001','Independent source settlement fixture','internal','2026-01-01','active');
+insert into public.sunze_unmapped_sales(sunze_machine_id,source_order_hash,source_row_hash,sale_date,payment_method,net_sales_cents)
+ values('company-explicit-source',repeat('c',32),repeat('c',64),'2026-09-01','cash',1200);
+create temporary table source_company_count as select count(*)::int count from public.customer_accounts;
+create temporary table source_setup as select public.admin_map_source_machine_to_partnership_by_id(
+ 'company-explicit-source','cc171905-0000-4000-8000-000000000001','Independent source machine',null,'commercial',0,
+ '2026-01-01',null,'2026-01-01','Explicit company source setup','cc171901-0000-4000-8000-000000000002',
+ 'cc171902-0000-4000-8000-000000000002',null,null,null) result;
+select is((select result->>'accountId' from source_setup),'cc171901-0000-4000-8000-000000000002','Sunze uses explicit company independently of settlement participant');
+select is((select (result->>'promotedRowCount')::int from source_setup),1,'Explicit source setup preserves pending promotion count');
+select is((select count(*)::int from public.customer_accounts),(select count from source_company_count),'Source setup never creates participant-derived company');
+select is((select count(*)::int from public.machine_sales_facts where source_order_hash=repeat('c',32)),1,'Pending source sale promoted once');
+select is((select status from public.sunze_unmapped_sales where source_order_hash=repeat('c',32)),'mapped','Pending discovery marked mapped');
 select throws_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0000-4000-8000-000000000001','cc171901-0000-4000-8000-000000000002','cc171902-0000-4000-8000-000000000001','Wrong location','snapcase',null,'live','Fixture setup','cc171901-0000-4000-8000-000000000001','cc171902-0000-4000-8000-000000000001')$$,'22023','Location does not belong to the selected company','Cross-company location rejected atomically');
 select throws_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0000-4000-8000-000000000001','cc171901-0000-4000-8000-000000000002',null,'Invalid timezone','snapcase',null,'live','Fixture setup','cc171901-0000-4000-8000-000000000001','cc171902-0000-4000-8000-000000000001','Explicit Eastern','Not/A_Zone')$$,'22023','Choose a valid IANA location timezone','New location timezone validated on edit');
 select is((select account_id from public.reporting_machines where id='cc171903-0000-4000-8000-000000000001'),'cc171901-0000-4000-8000-000000000001'::uuid,'Invalid atomic save preserves assignment');
 select lives_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0000-4000-8000-000000000001','cc171901-0000-4000-8000-000000000002',null,'Moved machine','snapcase',null,'live','Fixture company change','cc171901-0000-4000-8000-000000000001','cc171902-0000-4000-8000-000000000001','Explicit Eastern','America/New_York')$$,'Company change explicitly creates destination venue');
 select is((select timezone from public.reporting_locations where account_id='cc171901-0000-4000-8000-000000000002' and name='Explicit Eastern'),'America/New_York','Edit-created location retains explicit timezone');
+select throws_ok($$select public.admin_upsert_reporting_machine_by_id(null,'cc171901-0000-4000-8000-000000000002',null,'Do not silently choose duplicate location','snapcase',null,'setup','Fixture setup',null,null,'Explicit Eastern','America/New_York')$$,'23505',null,'Explicit add-location never silently selects a same-named location');
+select throws_ok($$select public.admin_upsert_reporting_machine_by_id(null,'cc171901-0000-4000-8000-000000000002',null,'Abbreviation timezone','snapcase',null,'setup','Fixture setup',null,null,'Abbreviation venue','PST')$$,'22023','Choose a valid IANA location timezone','Ambiguous timezone abbreviations rejected for explicit new locations');
 select is((select account_id from public.reporting_locations where id='cc171902-0000-4000-8000-000000000001'),'cc171901-0000-4000-8000-000000000001'::uuid,'Shared old location is never moved');
 select is((select reporting_location_id from public.machine_sales_facts where source_row_hash=repeat('1',64)),'cc171902-0000-4000-8000-000000000001'::uuid,'Historical sales placement unchanged');
 select is((select reporting_location_id from public.refund_cases where id='cc171904-0000-4000-8000-000000000001'),'cc171902-0000-4000-8000-000000000001'::uuid,'Historical case placement unchanged');
