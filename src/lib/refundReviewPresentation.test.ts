@@ -103,6 +103,13 @@ Deno.test('a comparable purchase time supports an exact customer time, but estim
   includes(estimate.uncertainties.find((factor) => factor.key === 'incident_time')!.label, 'customer estimate');
 });
 
+Deno.test('an explicit provider brand supplies the comparison when its network field is absent', () => {
+  const input = { ...candidate(), cardNetwork: null, cardBrand: 'Visa' };
+  const model = getRefundReviewEvidence({ candidate: input, customer: { cardNetwork: 'visa' } });
+  equal(model.supporting.find((factor) => factor.key === 'card_network')?.label, 'Card network matches (Visa).');
+  equal(model.uncertainties.some((factor) => factor.key === 'card_network'), false);
+});
+
 Deno.test('saved selected evidence remains reviewable without a current candidate or processing-time delta', () => {
   const input = candidate();
   const model = getRefundReviewEvidence({

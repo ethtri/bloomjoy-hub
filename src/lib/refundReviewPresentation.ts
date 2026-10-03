@@ -1,4 +1,5 @@
 import type { RefundCandidateTimeEvidence } from './refundTimePresentation.ts';
+import { getRefundProviderCardNetwork } from './refundPurchaseReviewIdentity.ts';
 
 export type RefundReviewFactor = { key: string; outcome: string; label: string };
 export type RefundReviewCandidateEvidence = {
@@ -10,6 +11,7 @@ export type RefundReviewCandidateEvidence = {
   timeEvidence?: RefundCandidateTimeEvidence | null;
   cardLast4?: string | null;
   cardNetwork?: string | null;
+  cardBrand?: string | null;
   cardLast4Comparison?: string;
   machineStatus?: { state: string; label: string; checkedAt: string } | null;
   nearbyMachineAlerts?: Array<{ category: string; occurredAt: string }>;
@@ -55,6 +57,7 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
     supporting: [], conflicts: [], uncertainties: [],
   };
   if (!evidence) return groups;
+  const providerNetwork = getRefundProviderCardNetwork(evidence);
   const amount = candidate ? candidate.amountCents : selected?.saleAmountCents;
   const amountDelta = finite(amount) && finite(customer?.paymentAmountCents)
     ? Math.abs(amount - customer.paymentAmountCents)
@@ -101,15 +104,15 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
         label = customer?.cardNetwork === 'other_unknown'
           ? 'Customer card network unknown (Other / unsure).'
           : 'Customer card network not provided.';
-      } else if (!knownNetwork(evidence.cardNetwork)) {
+      } else if (!knownNetwork(providerNetwork)) {
         group = 'uncertainties';
         label = 'Nayax card network is unavailable.';
-      } else if (customer?.cardNetwork !== evidence.cardNetwork) {
+      } else if (customer?.cardNetwork !== providerNetwork) {
         group = 'conflicts';
-        label = `Card networks differ: customer ${getRefundCardNetworkLabel(customer?.cardNetwork)}, Nayax ${getRefundCardNetworkLabel(evidence.cardNetwork)}.`;
+        label = `Card networks differ: customer ${getRefundCardNetworkLabel(customer?.cardNetwork)}, Nayax ${getRefundCardNetworkLabel(providerNetwork)}.`;
       } else {
         group = 'supporting';
-        label = `Card network matches (${getRefundCardNetworkLabel(evidence.cardNetwork)}).`;
+        label = `Card network matches (${getRefundCardNetworkLabel(providerNetwork)}).`;
       }
     }
     if (factor.key === 'card' && customer?.cardLast4 && evidence.cardLast4) {
