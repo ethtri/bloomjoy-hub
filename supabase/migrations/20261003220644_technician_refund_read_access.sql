@@ -33,7 +33,7 @@ begin
  value:=regexp_replace(value,'[0-9]+[[:space:]]+([[:alnum:]#.-]+[[:space:]]+){1,6}(street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|court|ct)\M[^.!?;\n]*','[address redacted]','gi');
  value:=regexp_replace(value,'(address|zelle|venmo|paypal|cash[[:space:]]?app|routing|bank account|card number|card ending|last four|last 4)[[:space:]:=#-]+[^.!?;\n]+','[payment/contact redacted]','gi');
  value:=regexp_replace(value,'[0-9][0-9 ()+.-]{5,}[0-9]','[number redacted]','g');
- value:=regexp_replace(value,'((gift([[:space:]]+card)?|card|voucher|coupon|security|access)[[:space:]]+code|token|password|secret|pin|cvv|cvc)[[:space:]:=#-]+(is[[:space:]]+)?[[:alnum:]_-]+','[credential redacted]','gi');
+ value:=regexp_replace(value,'\m((gift([[:space:]]+card)?|card|voucher|coupon|security|access)[[:space:]]+code|token|password|secret|pin|cvv|cvc)\M[[:space:]:=#-]+(is[[:space:]]+)?[[:alnum:]_-]+','[credential redacted]','gi');
  return nullif(btrim(regexp_replace(value,'[[:cntrl:]]',' ','g')),'');
 end $$;
 revoke all on function private.refund_request_operational_comment(public.refund_cases) from public,anon,authenticated,service_role;

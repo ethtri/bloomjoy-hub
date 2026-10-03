@@ -31,7 +31,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  select ('e9760000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-READ-'||n,
  ('e9740000-0000-4000-8000-'||lpad((case when n=4 then 2 when n=5 then 3 else 1 end)::text,12,'0'))::uuid,
  'e9730000-0000-4000-8000-000000000001','person@example.invalid','Jane Smith','555-333-4444','@secret-pay','1234',
- 'The motor pauses after 12 seconds. 糖卡住了. Error code E05, spinner stopped. Contact jane smith person@example.invalid 555-333-4444. Card ending 1234. Gift code SECRET123. 123 Private Street. Zelle @secret-pay. CVV 987. Password is HIDDENPASSWORD. PIN is 456.',
+ 'The motor pauses after 12 seconds. 糖卡住了. Error code E05, spinner stopped. Could spin 12 seconds before the pinion gear stopped. Contact jane smith person@example.invalid 555-333-4444. Card ending 1234. Gift code SECRET123. 123 Private Street. Zelle @secret-pay. CVV 987. Password is HIDDENPASSWORD. PIN is 456.',
  'charged_no_product','2026-10-01T14:00Z','card',900,800,
  case when n=1 then 'completed' else 'needs_review' end,
  case when n=7 then null when n=8 then '2026-10-03T07:00Z'::timestamptz else '2026-10-02T07:00Z'::timestamptz end,
@@ -75,6 +75,7 @@ select throws_ok($$select public.get_refund_requests('2026-10-02','2026-10-02',n
 create temporary table safe_read as select public.get_refund_request('e9760000-0000-4000-8000-000000000001') p;
 select ok((select p->>'comment' like '%motor pauses after 12 seconds%' and p->>'comment' like '%糖卡住了%' from safe_read),'Diagnostic timing and Unicode survive sanitization');
 select ok((select p->>'comment' like '%Error code E05, spinner stopped%' from safe_read),'Machine error codes survive credential redaction');
+select ok((select p->>'comment' like '%spin 12 seconds%' and p->>'comment' like '%pinion gear%' from safe_read),'PIN redaction does not consume a substring of spin or pinion');
 select ok((select lower(p::text) not like '%jane%' and p::text not like '%person@example%' and p::text not like '%555-333%' and p::text not like '%1234%' and p::text not like '%SECRET123%' and p::text not like '%Private Street%' and p::text not like '%secret-pay%' from safe_read),'Known contacts redacted case-insensitively; addresses, card digits and tokens removed');
 select ok((select p::text not like '%987%' and p::text not like '%HIDDENPASSWORD%' and p::text not like '%456%' from safe_read),'CVV, password-is and PIN-is credentials are removed');
 select ok((select not(p ?| array['customerEmail','customerPhone','zellePaymentContact','paymentAmountCents','refundAmountCents','events','attachments','giftCardCode','providerPayload']) from safe_read),'Projection contains no dedicated private/payment/internal fields');
