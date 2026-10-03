@@ -14,7 +14,10 @@ const session = { access_token: 'synthetic-company-ui', refresh_token: 'syntheti
 const companyA = { accountId: 'company-a', accountName: 'Synthetic East Company', status: 'active', locations: [{ locationId: 'location-a', locationName: 'Synthetic Mall', timezone: 'America/New_York', status: 'active' }] };
 const companyB = { accountId: 'company-b', accountName: 'Synthetic company with no machines and a deliberately long name for readable mobile assignment', status: 'active', locations: [{ locationId: 'location-b', locationName: 'Synthetic Mall', timezone: 'America/Chicago', status: 'active' }] };
 const machine = { id: 'machine-1', account_id: companyA.accountId, account_name: companyA.accountName, location_id: 'location-a', location_name: 'Synthetic Mall', location_timezone: 'America/New_York', machine_label: 'Synthetic Cotton Candy 01', machine_type: 'commercial', sunze_machine_id: 'synthetic-source', nayax_machine_id: null, status: 'inactive', operational_phase: 'live', latest_sale_date: null, reporting_locations: { name: 'Synthetic Mall', timezone: 'America/New_York' }, customer_accounts: { name: companyA.accountName } };
-const state = { companies: [structuredClone(companyA), structuredClone(companyB)], machine: structuredClone(machine), saves: [], creates: [], imports: [], failChoices: false, failSave: false, scoped: false };
+Object.assign(companyA, { archivedAt: null, updatedAt: '2026-10-03T00:00:00.000Z', machineCount: 1 });
+Object.assign(companyB, { archivedAt: null, updatedAt: '2026-10-03T00:00:00.000Z', machineCount: 0 });
+const companyC = { ...companyA, accountId: 'company-archived', accountName: 'Synthetic Archived Company', locations: [], machineCount: 0, archivedAt: '2026-10-02T00:00:00.000Z' };
+const state = { companies: [structuredClone(companyA), structuredClone(companyB), structuredClone(companyC)], machine: structuredClone(machine), saves: [], creates: [], imports: [], manages: [], failChoices: false, failSave: false, failManage: false, staleManage: false, scoped: false };
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 await context.addInitScript((sessionValue) => {
   const original = Storage.prototype.getItem;
@@ -47,8 +50,22 @@ await context.route('**/*', async (route) => {
         state.creates.push(input);
         let existing = state.companies.find((item) => item.accountName.trim().toLowerCase() === input.p_name.trim().toLowerCase());
         const created = !existing;
-        if (!existing) { existing = { accountId: 'company-created', accountName: input.p_name.trim(), status: 'active', locations: [] }; state.companies.push(existing); }
+        if (!existing) { existing = { accountId: 'company-created', accountName: input.p_name.trim(), status: 'active', locations: [], archivedAt: null, updatedAt: '2026-10-03T00:00:00.000Z', machineCount: 0 }; state.companies.push(existing); }
         response = { ...existing, created }; break;
+      }
+      case 'admin_manage_reporting_company': {
+        state.manages.push(input);
+        const company = state.companies.find(row => row.accountId === input.p_account_id);
+        if (state.failManage) return route.fulfill(json({ message: 'Synthetic company save failed. Try again.', code: 'XX000' }, 503));
+        if (state.staleManage) { state.staleManage = false; company.updatedAt = new Date(Date.parse(company.updatedAt) + 1000).toISOString(); company.accountName = 'Synthetic latest company name'; }
+        if (input.p_expected_updated_at !== company.updatedAt) return route.fulfill(json({ message: 'Stale company', code: '40001' }, 409));
+        if (input.p_action === 'rename') {
+          if (state.companies.some(row => row.accountId !== company.accountId && row.accountName.trim().toLowerCase() === input.p_name.trim().toLowerCase())) return route.fulfill(json({ message: 'Company already exists', code: '23505' }, 409));
+          company.accountName = input.p_name.trim();
+        } else company.archivedAt = input.p_action === 'archive' ? new Date().toISOString() : null;
+        company.updatedAt = new Date(Date.parse(company.updatedAt) + 1000).toISOString();
+        if (state.machine.account_id === company.accountId) state.machine.account_name = company.accountName;
+        response = { ...company, changed: true }; break;
       }
       case 'admin_upsert_reporting_machine_by_id': {
         state.saves.push(input);
@@ -82,6 +99,115 @@ const value = (id) => page.locator(`#${id}`).inputValue();
 const screenshot = (name) => page.screenshot({ path: path.join(out, `${name}.png`), fullPage: false, animations: 'disabled' });
 const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 try {
+  await page.goto(`${appUrl}/admin/machines`);
+  await page.getByRole('button', { name: 'Manage companies', exact: true }).waitFor();
+  await screenshot('company-management-entry-desktop');
+  await page.getByRole('button', { name: 'Manage companies', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage companies', exact: true });
+  const companyRow = id => manager.locator(`[data-company-id="${id}"]`);
+  await companyRow(companyB.accountId).waitFor();
+  assert.equal(await companyRow(companyC.accountId).count(), 0, 'Archived companies hidden by default');
+  await manager.getByRole('switch', { name: 'Show archived' }).click();
+  await companyRow(companyC.accountId).waitFor();
+  await manager.screenshot({ path: path.resolve('output/company-management-guide.png'), animations: 'disabled' });
+  await screenshot('company-management-desktop');
+  await page.setViewportSize({ width: 320, height: 844 });
+  await check(noOverflow(), 'company management fits 320px without sideways scrolling');
+  await screenshot('company-management-320');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await check(noOverflow(), 'company management fits 390px');
+  await screenshot('company-management-390');
+  await page.setViewportSize({ width: 640, height: 844 });
+  await page.evaluate(() => { document.body.style.zoom = '2'; });
+  await check(noOverflow(), 'company management fits 200% zoom');
+  await screenshot('company-management-200-percent');
+  await page.evaluate(() => { document.body.style.zoom = ''; });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await companyRow(companyB.accountId).getByRole('button', { name: /^Rename/ }).click();
+  await check(manager.getByLabel('Company name').evaluate(el => el === document.activeElement), 'Rename focuses the name input');
+  await manager.getByLabel('Company name').fill(companyA.accountName.toUpperCase());
+  assert(await manager.getByRole('button', { name: 'Save', exact: true }).isDisabled(), 'Duplicate company name disables rename');
+  await manager.getByLabel('Company name').fill('Synthetic renamed company');
+  state.failManage = true;
+  await manager.getByRole('button', { name: 'Save', exact: true }).click();
+  await manager.getByText('Synthetic company save failed. Try again.', { exact: true }).waitFor();
+  assert.equal(await manager.getByLabel('Company name').inputValue(), 'Synthetic renamed company', 'Failure preserves rename draft');
+  state.failManage = false; state.staleManage = true;
+  await manager.getByRole('button', { name: 'Save', exact: true }).click();
+  await manager.getByText('This company changed. Reload companies and review your changes before trying again.', { exact: true }).waitFor();
+  await manager.getByRole('button', { name: 'Reload companies', exact: true }).click();
+  await manager.getByText('Current name: Synthetic latest company name', { exact: true }).waitFor();
+  assert.equal(await manager.getByLabel('Company name').inputValue(), 'Synthetic renamed company');
+  await manager.getByRole('button', { name: 'Save', exact: true }).click();
+  await manager.getByText('Company renamed to Synthetic renamed company.', { exact: true }).waitFor();
+  assert.equal(state.manages.at(-1).p_account_id, companyB.accountId);
+  assert.equal(state.manages.at(-1).p_expected_updated_at, '2026-10-03T00:00:01.000Z');
+  assert.equal(state.machine.account_id, companyA.accountId, 'Rename never moves machines');
+  assert.equal(state.companies.find(row => row.accountId === companyB.accountId).machineCount, 0, 'Zero-machine company remains manageable');
+  await manager.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage companies', exact: true }).click();
+  await companyRow(companyC.accountId).waitFor();
+  await page.waitForFunction(() => {
+    const bounds = document.querySelector('[role="dialog"]')?.getBoundingClientRect();
+    return bounds && bounds.left >= 0 && bounds.right <= innerWidth + 1;
+  });
+  const guideBounds = await manager.boundingBox();
+  await page.screenshot({ path: path.resolve('output/company-management-guide.png'), clip: { ...guideBounds, height: Math.min(guideBounds.height, 600) }, animations: 'disabled' });
+  await companyRow(companyB.accountId).getByRole('button', { name: /^Rename/ }).click();
+  await manager.getByLabel('Company name').fill(companyB.accountName);
+  await manager.getByLabel('Company name').press('Escape');
+  await page.waitForFunction(id => document.activeElement?.closest('[data-company-id]')?.getAttribute('data-company-id') === id && document.activeElement?.textContent === 'Rename', companyB.accountId);
+  assert(await companyRow(companyB.accountId).getByRole('button', { name: /^Rename/ }).evaluate(el => el === document.activeElement), 'Rename Cancel returns focus');
+  await companyRow(companyB.accountId).getByRole('button', { name: /^Rename/ }).click();
+  await manager.getByLabel('Company name').fill(companyB.accountName);
+  await manager.getByRole('button', { name: 'Save', exact: true }).click();
+  await companyRow(companyA.accountId).getByRole('button', { name: /^Archive/ }).click();
+  await manager.getByText(`${companyA.accountName} archived. Existing machines, reports and access stay available.`, { exact: true }).waitFor();
+  assert.equal(state.machine.account_id, companyA.accountId, 'Archive preserves current machine assignment');
+  await manager.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.goto(`${appUrl}/admin/machines/machine-1`);
+  await page.getByText(`${companyA.accountName} (archived, current assignment kept)`, { exact: true }).waitFor();
+  await page.locator('#page-machine-label').fill('Synthetic unchanged archived assignment');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.getByText('Machine updated.', { exact: true }).waitFor();
+  assert.equal(state.saves.at(-1).p_account_id, companyA.accountId);
+  await page.goto(`${appUrl}/admin/machines`);
+  await page.getByRole('button', { name: 'Add machine', exact: true }).click();
+  await page.locator('#machine-company').waitFor();
+  assert.equal(await page.locator('#machine-company option[value="company-a"]').count(), 0, 'Archived company excluded from new assignment choices');
+  await page.getByRole('button', { name: 'Add company', exact: true }).click();
+  await page.locator('#machine-new-company').fill(companyA.accountName);
+  assert(await page.getByRole('button', { name: 'Use existing company', exact: true }).isDisabled(), 'Archived duplicate cannot create, select or silently restore');
+  assert.equal(state.creates.length, 0);
+  await page.goto(`${appUrl}/admin/reporting`);
+  await page.getByRole('tab', { name: 'Sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Set up', exact: true }).last().click();
+  await page.locator('#imported-machine-company').waitFor();
+  assert.equal(await page.locator('#imported-machine-company option[value="company-a"]').count(), 0, 'New Sunze assignments exclude archived companies');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Set up', exact: true }).first().click();
+  await page.locator('#imported-machine-company').waitFor();
+  assert.equal(await page.locator('#imported-machine-company option[value="company-a"]').count(), 0, 'New SnapCase assignments exclude archived companies');
+  state.machine.sunze_machine_id = 'sunze-new';
+  await page.goto(`${appUrl}/admin/reporting`, { waitUntil: 'networkidle' });
+  await page.getByRole('tab', { name: 'Sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Set up', exact: true }).last().click();
+  await page.getByText(`${companyA.accountName} (archived, current assignment kept)`, { exact: true }).waitFor();
+  await page.locator('#imported-machine-partnership').selectOption('settlement-1');
+  await page.getByRole('button', { name: 'Finish Setup', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(state.imports.at(-1).input.p_account_id, companyA.accountId, 'Current archived Sunze assignment remains editable');
+  assert.equal(state.imports.at(-1).input.p_expected_account_id, companyA.accountId);
+  state.machine.sunze_machine_id = machine.sunze_machine_id;
+  await page.goto(`${appUrl}/admin/machines`);
+  await page.getByRole('button', { name: 'Manage companies', exact: true }).click();
+  await manager.getByRole('switch', { name: 'Show archived' }).click();
+  await companyRow(companyA.accountId).getByRole('button', { name: /^Restore/ }).click();
+  await manager.getByText(`${companyA.accountName} restored. Available for new assignments.`, { exact: true }).waitFor();
+  assert.equal(state.companies.find(row => row.accountId === companyA.accountId).archivedAt, null);
+  await manager.getByRole('button', { name: 'Close', exact: true }).click();
+  console.log('PASS company Rename/Archive/Restore, duplicates, stale-token reload, failure drafts, archived saved/new assignments, keyboard and responsive states');
+
   await page.goto(`${appUrl}/admin/machines/machine-1`);
   await page.locator('#page-machine-company').waitFor();
   await check(value('page-machine-company').then((v) => v === companyA.accountId), 'edit starts with saved company ID');
@@ -206,13 +332,15 @@ try {
   state.companies = [];
   await page.goto(`${appUrl}/admin/machines`);
   await page.getByRole('button', { name: 'Add machine', exact: true }).click();
-  await page.getByText('No available companies. Add a company to continue.', { exact: true }).waitFor();
+  await page.getByText('No available companies. Add a company, or restore one from Manage companies on Machines.', { exact: true }).waitFor();
   await check(value('machine-company').then((v) => v === ''), 'empty company choices preserve blank rather than Manual Reporting Machines');
   await screenshot('empty-company-choices');
   state.scoped = true;
   await page.goto(`${appUrl}/admin/machines/machine-1`);
   await page.getByRole('heading', { name: 'Machine details', exact: true }).waitFor();
   await check(page.locator('#page-machine-company').count().then((v) => v === 0), 'scoped admin does not receive company identity controls');
+  await page.goto(`${appUrl}/admin/machines`);
+  assert.equal(await page.getByRole('button', { name: 'Manage companies', exact: true }).count(), 0, 'Scoped admin has no company management action');
   assert.deepEqual(errors, [], 'No uncaught browser errors');
   console.log(`Company machine UI evidence: ${out}`);
 } catch (error) { await screenshot('failure'); console.log({url: page.url(), errors, body: await page.locator('body').innerText()}); throw error; } finally { await browser.close(); }

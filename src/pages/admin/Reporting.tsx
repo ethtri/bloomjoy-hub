@@ -60,7 +60,7 @@ import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi'
 import { getSnapCaseMappingEffectiveWindow } from '@/lib/snapcaseMappingWindow';
 import { AdminReportingServiceStatus } from '@/pages/admin/AdminReportingServiceStatus';
 import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
-import { validateCompanyAssignment } from '@/lib/companyAssignment';
+import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -85,6 +85,7 @@ type ImportedMachineSetupForm = {
   addLocation: boolean;
   expectedAccountId: string | null;
   expectedLocationId: string | null;
+  savedAssignment: SavedCompanyAssignment | null;
   machineType: CanonicalMachineType;
   taxRatePercent: string;
 };
@@ -101,6 +102,7 @@ const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
   addLocation: false,
   expectedAccountId: null,
   expectedLocationId: null,
+  savedAssignment: null,
   machineType: 'commercial',
   taxRatePercent: '0',
 };
@@ -328,7 +330,7 @@ export default function AdminReportingPage() {
     }
 
     if (setupMachine.provider === 'sunze' || form.mappingMode === 'new') {
-      const assignmentError = validateCompanyAssignment(form, companyChoices.data?.companies ?? [], null, setupMachine.provider === 'snapcase');
+      const assignmentError = validateCompanyAssignment(form, companyChoices.data?.companies ?? [], setupMachine.provider === 'sunze' ? form.savedAssignment : null, setupMachine.provider === 'snapcase');
       if (assignmentError) { toast.error(assignmentError); return; }
     }
 
@@ -1140,6 +1142,8 @@ function ImportedMachineSetupDialog({
   const loadedSourceKeyRef = useRef('');
   const sunzeMachine = machine?.provider === 'sunze' ? machine.machine : null;
   const snapcaseMachine = machine?.provider === 'snapcase' ? machine.machine : null;
+  const sourceKey = machine ? `${machine.provider}:${machine.provider === 'sunze' ? machine.machine.sunzeMachineId : machine.machine.sourceMachineId}` : '';
+  const formInitialized = Boolean(sourceKey && loadedSourceKeyRef.current === sourceKey);
   const recommendedPartnership = useMemo(
     () => getRecommendedPartnership(sunzeMachine, partnerships),
     [sunzeMachine, partnerships]
@@ -1168,6 +1172,13 @@ function ImportedMachineSetupDialog({
       locationId: mappedMachine?.location_id ?? '',
       expectedAccountId: mappedMachine?.account_id ?? null,
       expectedLocationId: mappedMachine?.location_id ?? null,
+      savedAssignment: mappedMachine?.account_id && mappedMachine.location_id ? {
+        accountId: mappedMachine.account_id,
+        accountName: mappedMachine.customer_accounts?.name ?? 'Saved company',
+        locationId: mappedMachine.location_id,
+        locationName: mappedMachine.reporting_locations?.name ?? 'Saved location',
+        locationTimezone: mappedMachine.reporting_locations?.timezone ?? '',
+      } : null,
       locationTimezone: mappedMachine?.reporting_locations?.timezone ?? '',
       machineLabel: currentSnapCaseMachine?.sourceLabel ?? currentSunzeMachine?.sunzeMachineName ?? '',
       locationName: inferImportedMachineLocationName(currentSunzeMachine),
@@ -1287,7 +1298,7 @@ function ImportedMachineSetupDialog({
                 </select>
               </div>
             )}
-            {(!snapcaseMachine || form.mappingMode === 'new') && <CompanyAssignmentFields id="imported-machine" value={form} enabled={Boolean(machine)} disabled={isSaving} activeTargetsOnly={Boolean(snapcaseMachine)} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />}
+            {formInitialized && (!snapcaseMachine || form.mappingMode === 'new') && <CompanyAssignmentFields id="imported-machine" value={form} saved={sunzeMachine ? form.savedAssignment : null} enabled={Boolean(machine)} disabled={isSaving} activeTargetsOnly={Boolean(snapcaseMachine)} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />}
             {(!snapcaseMachine || form.mappingMode === 'new') && <div>
               <Label htmlFor="imported-machine-label">Machine label</Label>
               <Input
