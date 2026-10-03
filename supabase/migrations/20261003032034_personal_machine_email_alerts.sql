@@ -71,7 +71,7 @@ language sql stable security definer set search_path='' as $$
     where r.manager_user_id=p_user_id and r.status='active' and r.revoked_at is null)
   select m.id,m.machine_label,l.name,coalesce(l.timezone,'America/Los_Angeles'),
     exists(select 1 from managers x where x.id=m.id),exists(select 1 from tech x where x.id=m.id),
-    public.has_reporting_machine_access(p_user_id,m.id)
+    coalesce(public.has_reporting_machine_access(p_user_id,m.id),false)
   from public.reporting_machines m join public.reporting_locations l on l.id=m.location_id
   where p_user_id is not null and (exists(select 1 from managers x where x.id=m.id) or exists(select 1 from tech x where x.id=m.id));
 $$;
