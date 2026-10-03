@@ -59,7 +59,8 @@ begin
   where m.status='active' and nullif(btrim(m.nayax_machine_id),'') is not null and nullif(btrim(m.nayax_account_key),'') is not null
     and exists(select 1 from auth.users u cross join lateral private.email_alert_machine_scope(u.id) s where s.machine_id=m.id and u.deleted_at is null)
  ), shortlisted as (select * from candidates where opted union all
-  (select * from candidates c where not opted and not exists(select 1 from private.email_alert_signal_capabilities cap where cap.machine_id=c.id and cap.alert_id='device-offline' and cap.verified_until>p_observed_at)
+  (select * from candidates c where not opted and not exists(select 1 from private.email_alert_signal_capabilities cap where cap.machine_id=c.id and cap.alert_id='device-offline' and cap.verified_until>p_observed_at
+    and private.email_alert_capability_is_current(cap.machine_id,cap.alert_id,p_observed_at))
    order by last_observed nulls first,id limit 12))
  select coalesce(jsonb_agg(jsonb_build_object('machineId',x.id,'nayaxMachineId',x.nayax_machine_id,'nayaxAccountKey',x.nayax_account_key,'subscribed',x.opted)
   order by x.opted desc,x.last_observed nulls first,x.id),'[]') into devices from shortlisted x;
@@ -82,14 +83,19 @@ end $$;
 revoke all on function public.service_get_email_alert_signal_inputs(timestamptz) from public,anon,authenticated;
 grant execute on function public.service_get_email_alert_signal_inputs(timestamptz) to service_role;
 
-create function public.service_record_email_alert_device_observation(p_machine_id uuid,p_observed_at timestamptz,p_provider_field text,p_is_online boolean)
+create function public.service_record_email_alert_device_observation(p_machine_id uuid,p_observed_at timestamptz,p_provider_field text,p_is_online boolean,
+ p_expected_account_key text,p_expected_nayax_machine_id text)
 returns jsonb language plpgsql volatile security definer set search_path='' as $$
-declare old private.email_alert_device_observations;current_mapping text;first_at timestamptz;n integer;signal_id uuid;payload jsonb;has_online boolean;online_at timestamptz;
+declare old private.email_alert_device_observations;current_mapping text;first_at timestamptz;n integer;signal_id uuid;payload jsonb;has_online boolean;online_at timestamptz;machine_row public.reporting_machines;
 begin
  if p_observed_at is null or p_observed_at>statement_timestamp()+interval '1 minute' or p_observed_at<statement_timestamp()-interval '6 minutes'
-   or p_provider_field is distinct from 'MachineMQTTStatus' or p_is_online is null then raise exception 'Fresh explicit MQTT boolean observation required' using errcode='22023';end if;
- select private.email_alert_hash(m.nayax_account_key||'|'||m.nayax_machine_id) into current_mapping from public.reporting_machines m
-  where m.id=p_machine_id and m.status='active' and nullif(btrim(m.nayax_machine_id),'') is not null and nullif(btrim(m.nayax_account_key),'') is not null;
+   or p_provider_field is distinct from 'MachineMQTTStatus' or p_is_online is null
+   or nullif(btrim(p_expected_account_key),'') is null or nullif(btrim(p_expected_nayax_machine_id),'') is null then raise exception 'Fresh explicit MQTT observation and captured mapping required' using errcode='22023';end if;
+ select * into machine_row from public.reporting_machines where id=p_machine_id and status='active' for share;
+ if machine_row.id is null or btrim(machine_row.nayax_account_key) is distinct from btrim(p_expected_account_key)
+   or btrim(machine_row.nayax_machine_id) is distinct from btrim(p_expected_nayax_machine_id) then
+  return jsonb_build_object('recorded',false,'reason','mapping_changed','payloadRedacted',true);end if;
+ current_mapping:=private.email_alert_hash(machine_row.nayax_account_key||'|'||machine_row.nayax_machine_id);
  if current_mapping is null then raise exception 'No verified device mapping' using errcode='22023';end if;
  perform pg_advisory_xact_lock(hashtextextended('email_alert_device:'||p_machine_id::text,0));
  select * into old from private.email_alert_device_observations where machine_id=p_machine_id for update;
@@ -117,8 +123,8 @@ begin
  end if;
  return jsonb_build_object('recorded',true,'signalId',signal_id,'observationCount',n,'payloadRedacted',true);
 end $$;
-revoke all on function public.service_record_email_alert_device_observation(uuid,timestamptz,text,boolean) from public,anon,authenticated;
-grant execute on function public.service_record_email_alert_device_observation(uuid,timestamptz,text,boolean) to service_role;
+revoke all on function public.service_record_email_alert_device_observation(uuid,timestamptz,text,boolean,text,text) from public,anon,authenticated;
+grant execute on function public.service_record_email_alert_device_observation(uuid,timestamptz,text,boolean,text,text) to service_role;
 
 create function public.service_record_email_alert_signal(p_signal jsonb)
 returns jsonb language plpgsql volatile security definer set search_path='' as $$
