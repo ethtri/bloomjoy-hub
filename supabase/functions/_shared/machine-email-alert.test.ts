@@ -609,12 +609,13 @@ Deno.test("excerpt redaction and truncation preserve complete Unicode characters
     "Unicode handling does not bypass redaction",
   );
   const operational = sanitizeOperationalExcerpt(
-    "Machine displayed error code E05; spinner stopped. Fault code E-09 followed. Access code ABC123; voucher code XYZ789; security code 123; password example-secret.",
+    "Machine displayed error code E05; spinner stopped. Fault code E-09 followed; a wire was pinched. Access code ABC123; voucher code XYZ789; CVV 123; PIN is 9876; password example-secret.",
   );
   assert(
     operational?.includes("error code E05; spinner stopped") &&
       operational.includes("Fault code E-09") &&
-      !/ABC123|XYZ789|code 123|example-secret/.test(operational),
+      operational.includes("wire was pinched") &&
+      !/ABC123|XYZ789|CVV 123|9876|example-secret/.test(operational),
     "diagnostic codes survive while explicitly sensitive credentials are removed",
   );
 });

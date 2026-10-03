@@ -206,7 +206,7 @@ export const sanitizeOperationalExcerpt = (
       "[card details removed]",
     )
     .replace(
-      /\b(?:(?:gift\s*(?:card)?|voucher|coupon|security|access)\s*code|token|password|secret|pin|cvv|cvc)\s*(?:is\s+|[:=#-]\s*)?[A-Z0-9][A-Z0-9_-]{2,}/gi,
+      /\b(?:(?:gift\s*(?:card)?|voucher|coupon|security|access)\s*code|token|password|secret|pin|cvv|cvc)\b\s*(?:is\s+|[:=#-]\s*)?[A-Z0-9][A-Z0-9_-]{2,}/gi,
       "[credential removed]",
     )
     .replace(
