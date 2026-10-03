@@ -2,6 +2,8 @@
 
 October 2, 2026 · [Issue #1711](https://github.com/ethtri/bloomjoy-hub/issues/1711) · [Draft PR #1712](https://github.com/ethtri/bloomjoy-hub/pull/1712)
 
+**Round 3:** [Explore the subscription UI](subscriptions.html) and [read its product brief](SUBSCRIPTIONS.md). It adds a shared per-alert preference model, machine panel, first-time setup and Reports/Account/profile entry points. The original settings sketch below is retained as a prior iteration; the round-three UI supersedes its global machine picker and presets.
+
 The owner selected original concepts **01, 02, 03, 04, 07 and 08**. This iteration refines those six only. Navigation, subscriptions, presets and print output share that scope. The first round remains in Git history. No alerts are activated or email sent.
 
 Open [the updated gallery](index.html). Four fictional machines illustrate decisions, older backlog, resolved requests, zero requests and missing sales data. All figures and customer comments are synthetic.
