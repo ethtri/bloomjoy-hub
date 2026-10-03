@@ -8,7 +8,9 @@ insert into auth.users(id,email) values
  ('cc171900-0000-4000-8000-000000000001','company-admin@example.invalid'),
  ('cc171900-0000-4000-8000-000000000002','company-manager@example.invalid'),
  ('cc171900-0000-4000-8000-000000000003','company-sales@example.invalid'),
- ('cc171900-0000-4000-8000-000000000004','company-outsider@example.invalid');
+ ('cc171900-0000-4000-8000-000000000004','company-outsider@example.invalid'),
+ ('cc171900-0000-4000-8000-000000000005','old-company-viewer@example.invalid'),
+ ('cc171900-0000-4000-8000-000000000006','new-company-viewer@example.invalid');
 insert into public.admin_roles(user_id,role,active) values('cc171900-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,status) values
  ('cc171901-0000-4000-8000-000000000001','Company fixture A','active'),
@@ -29,6 +31,9 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
 insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) values
  ('cc171900-0000-4000-8000-000000000002','cc171903-0000-4000-8000-000000000001','2020-01-01'),
  ('cc171900-0000-4000-8000-000000000003','cc171903-0000-4000-8000-000000000001','2020-01-01');
+insert into public.reporting_machine_entitlements(user_id,account_id,starts_at) values
+ ('cc171900-0000-4000-8000-000000000005','cc171901-0000-4000-8000-000000000001','2020-01-01'),
+ ('cc171900-0000-4000-8000-000000000006','cc171901-0000-4000-8000-000000000002','2020-01-01');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('cc171903-0000-4000-8000-000000000001',0,'2020-01-01','active');
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash)
@@ -90,6 +95,14 @@ select lives_ok($$select public.admin_upsert_reporting_machine_by_id('cc171903-0
 select is((select status from public.customer_accounts where id='cc171901-0000-4000-8000-000000000004'),'inactive','Reassignment never reactivates target company');
 select is((select status from public.reporting_locations where id='cc171902-0000-4000-8000-000000000003'),'inactive','Reassignment never reactivates target location');
 select is((select status from public.reporting_machines where id='cc171903-0000-4000-8000-000000000004'),'active','Reassignment preserves original inventory status');
+
+select set_config('request.jwt.claim.sub','cc171900-0000-4000-8000-000000000005',true);
+select ok(not exists(select 1 from public.get_reporting_dimensions() where machine_id='cc171903-0000-4000-8000-000000000001'),'Old company loses derived Sales scope after reassignment');
+select throws_ok($$select public.get_company_sales_report('cc171901-0000-4000-8000-000000000002','2026-09-01','2026-09-30')$$,'42501',null,'Old company viewer cannot use new company link to recover access');
+select set_config('request.jwt.claim.sub','cc171900-0000-4000-8000-000000000006',true);
+select ok(exists(select 1 from public.get_reporting_dimensions() where machine_id='cc171903-0000-4000-8000-000000000001'),'New company receives scope implied by existing account entitlement');
+select throws_ok($$select public.get_company_refund_analytics('cc171901-0000-4000-8000-000000000002','2026-09-01','2026-09-30')$$,'42501',null,'New company Sales entitlement does not transfer Refund-manager authority');
+select is((select count(*)::int from public.reporting_machine_entitlements where user_id in('cc171900-0000-4000-8000-000000000005','cc171900-0000-4000-8000-000000000006')),2,'Reassignment does not rewrite stored account entitlements');
 
 select set_config('request.jwt.claim.sub','cc171900-0000-4000-8000-000000000002',true);
 select throws_ok($$select public.admin_get_reporting_company_choices()$$,'42501','Admin access required','Manager cannot read global company directory');
