@@ -76,8 +76,14 @@ Deno.test("all subscribed devices retain cadence, bootstrap is bounded, reads ar
             args.p_is_online === false,
           "only documented explicit observation sent to persistence",
         );
+        assert(
+          args.p_expected_account_key === "TGPACI_USA_DB" &&
+            String(args.p_expected_nayax_machine_id) ===
+              String(Number(String(args.p_machine_id).slice(-12))),
+          "captured source identity submitted with observation",
+        );
         records++;
-        return Promise.resolve({ data: true, error: null });
+        return Promise.resolve({ data: { recorded: true }, error: null });
       },
     },
     tokenForAccount: (key) => {
@@ -155,6 +161,59 @@ Deno.test("failed, missing and mismatched provider reads never record disconnect
     );
   }
   assert(observations === 0, "no false disconnection observations");
+});
+
+Deno.test("in-flight remap rejection cannot be counted or retried as a recorded observation", async () => {
+  const captured = {
+    machineId: fixtureId(101),
+    nayaxMachineId: "123",
+    nayaxAccountKey: "TGPACI_USA_DB",
+    subscribed: true,
+  };
+  let observations = 0;
+  const result = await collectMachineEmailSignals({
+    observedAt: "2026-10-02T15:00:00Z",
+    client: {
+      rpc: (name, args) => {
+        if (name === "service_get_email_alert_signal_inputs") {
+          return Promise.resolve({
+            data: { devices: [captured], quietPeriods: [] },
+            error: null,
+          });
+        }
+        observations++;
+        assert(
+          args.p_expected_account_key === "TGPACI_USA_DB" &&
+            args.p_expected_nayax_machine_id === "123",
+          "persistence proof must be the identity actually queried, not the replacement mapping",
+        );
+        return Promise.resolve({
+          data: { recorded: false, reason: "mapping_changed" },
+          error: null,
+        });
+      },
+    },
+    tokenForAccount: (account) => {
+      assert(account === "TGPACI_USA_DB", "exact account token selected");
+      return "fake";
+    },
+    fetcher: async (url) => {
+      assert(
+        String(url).endsWith("/machines/123/status"),
+        "read uses captured provider machine",
+      );
+      // The database mapping changes during this GET. Its under-lock rejection
+      // is simulated above; no second read or rewritten identity may follow.
+      return new Response(
+        JSON.stringify({ MachineID: 123, MachineMQTTStatus: false }),
+      );
+    },
+  });
+  assert(
+    observations === 1 && result.recordedObservations === 0 &&
+      result.unavailableDevices === 1,
+    "mismatch stays unknown and gets no retry",
+  );
 });
 Deno.test("cash quiet signal requires known complete periods and a meaningful decline", async () => {
   const payload = fixtureVariants()["sales-quiet"].signal;

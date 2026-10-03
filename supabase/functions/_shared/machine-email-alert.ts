@@ -872,7 +872,7 @@ export function buildMachineEmail(
   } else {
     const signal = p.signal as OfflineDeviceSignal;
     paragraph(
-      `${machine.machineLabel} · ${machine.locationName}. Observation times: ${machine.timezone}.`,
+      `Observation times: ${machine.timezone}.`,
     );
     measures([["Component", signal.component], [
       "First observed disconnected",

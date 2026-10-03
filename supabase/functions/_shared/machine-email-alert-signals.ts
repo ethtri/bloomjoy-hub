@@ -136,12 +136,14 @@ export async function collectMachineEmailSignals(
           "service_record_email_alert_device_observation",
           {
             p_machine_id: device.machineId,
+            p_expected_account_key: device.nayaxAccountKey,
+            p_expected_nayax_machine_id: device.nayaxMachineId,
             p_observed_at: new Date().toISOString(),
             p_provider_field: observation.providerField,
             p_is_online: observation.connected,
           },
         );
-        if (stored.error) {
+        if (stored.error || record(stored.data)?.recorded !== true) {
           result.unavailableDevices++;
           continue;
         }
