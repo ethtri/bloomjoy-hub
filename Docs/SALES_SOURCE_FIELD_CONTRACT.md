@@ -228,6 +228,42 @@ original machine, location, account, sale tax basis and existing assignment
 terms. Do not infer a request or reversal date from payment completion or the
 case's current status.
 
+## Dated reporting treatment controls (`#1708`)
+
+Administrators can retain the existing source default or specify whether card
+and cash source amounts include tax, with an independently configured taxable
+portion from 0% to 100%. These are reporting assumptions, separate from the
+reader's tax settings. The existing statutory-rate history remains separate;
+saving a rate and changed treatments together is atomic and records the reason.
+No location, product or jurisdiction receives an automatic rule or backfill.
+
+Explicit amount-basis or separate-tax metadata on a source record remains
+authoritative. A dated card/cash setting replaces a source default; the
+`source_default` choice preserves the existing provider behavior. Tax-exclusive
+amounts have no further tax removed, and separately recorded tax is subtracted
+only once. For tax-inclusive amounts, let `p` be the taxable portion as a
+fraction and `r` the rate as a percentage. Embedded reporting tax is
+`round(gross_cents * (p * r) / (100 + p * r))`. A hypothetical $100 receipt at
+10% with a 33% taxable portion gives $3.19 reporting tax removed and $96.81
+sales excluding tax. A zero taxable portion is explicit; missing evidence is
+not silently converted to an exemption.
+
+Refund normalization retains the refund amount's own proved basis and the
+original purchase date's applicable taxable portion/rate. A source report that
+already excludes tax does not make an actual tax-inclusive customer refund
+tax-exclusive. Existing request-month recognition, later change-month reversals
+and issued-statement versioning remain unchanged.
+
+The Finance view combines authorized canonical sales/refund calculations per
+machine and location. Net sales are sales excluding reporting tax, less request
+deductions, plus reversals, less any eligible historical paid deduction. Recorded
+money refunds, gift purchase value, issued face value, goodwill and balances at
+period end are separate reconciliation context; they do not deduct again.
+Unknown accounting is unavailable, with partial activity/coverage identified.
+“Reporting tax removed” is not proof of tax collected, legally owed or remitted.
+This view is available only where existing sales and refund-analytics access
+intersect; it adds no refund decision or payment authority.
+
 ## Required fixture handoff
 
 | Fixture | Expected combined deduction |

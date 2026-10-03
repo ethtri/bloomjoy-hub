@@ -49,6 +49,8 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_time_report_access',
   'get_my_portal_access_context',
   'get_my_reporting_access_context',
+  'get_labor_analytics_access',
+  'get_refund_analytics_access',
   'get_refund_automation_health',
   'get_refund_gmail_health',
   'get_refund_nayax_reliability_health',

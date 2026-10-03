@@ -66,9 +66,9 @@ export const portalDestinations: PortalDestination[] = [
   },
   {
     href: '/portal/time-review',
-    label: 'Time Report',
+    label: 'Timekeeping',
     labelKey: 'portal.nav.timeReview',
-    description: 'View and correct completed time for managed machines.',
+    description: 'Review time and labor reports for your machines.',
     descriptionKey: 'portal.nav.timeReviewDescription',
     icon: ClipboardCheck,
     access: 'time-review',
@@ -232,7 +232,8 @@ export const canAccessPortalLevel = (
     case 'support':
       return accessTier === 'plus' || hasCapability('support.request');
     case 'reporting':
-      return hasReportingAccess || hasCapability('reports.partner.view');
+      return hasReportingAccess || hasCapability('reports.partner.view') ||
+        hasCapability('timekeeping.review') || hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'refunds':
       return hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'team':

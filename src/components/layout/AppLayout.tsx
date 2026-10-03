@@ -40,6 +40,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
+import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { markPortalShellHidden, markPortalShellVisible } from '@/lib/portalPerformance';
@@ -91,6 +92,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       : '';
   const { canUsePortalTeam } = usePortalTechnicianManagement();
   const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
+  const analyticsAccess = useReportingAnalyticsAccess(isAuthenticated);
   const navSections = isAuthenticated
     ? buildAuthenticatedNavSections({
         adminAccess,
@@ -101,6 +103,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         portalAccessTier,
         canUsePortalTeam,
         canUsePortalTimekeeping,
+        canUseLaborReports: analyticsAccess.canUseLabor,
+        canUseRefundReports: analyticsAccess.canUseRefunds,
         currentPathname: location.pathname,
         showAccountLink,
       })

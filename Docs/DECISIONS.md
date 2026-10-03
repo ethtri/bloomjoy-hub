@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-10-02 - Finance reconciliation and editable reporting tax treatment
+
+The owner authorized the engineering follow-up in #1708, extending the existing
+reporting workspace in #1696/#1702. Keep the routine machine tax rate/date/reason
+form simple; optional card/cash amount basis and taxable portion use dated,
+audited settings and an atomic save. Explicit source tax metadata takes
+precedence. Existing defaults remain until configured; engineering does not
+assign legal exemptions, alter card-reader rates or change production settings.
+
+Finance reporting keeps requested-refund deductions as the shared sales basis,
+with recorded money refunds, gift purchase/face/goodwill values and outstanding
+balances as separate context. “Reporting tax removed” describes a calculation,
+not a tax return or proof of tax collected. Reuse canonical accounting and
+existing authorized sales/refund scope; no new payment authority or ledger.
+Historical cash-filing decisions and pending Adam/Nayax access remain outside
+this implementation. This decision authorizes code, tests and a reviewable PR;
+it does not claim production deployment or change issued statement snapshots.
+
 ## 2026-10-01 - Partial refunds, cash-change courtesy review and English/Spanish
 
 The owner approved implementation of the presented exception plan and requested
@@ -1055,3 +1073,19 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
   thread keeps that thread eligible.
 - Ordinary Info, Support, technician, vendor, and account mail does not become a
   refund request merely because it shares the same Gmail account or label.
+
+## 2026-10-02 - Reporting review refinements (#1708, #1709)
+
+- New reporting visits use the last seven completed local calendar days. Explicit URL and saved-view dates remain authoritative. Prior-year comparison uses the same calendar dates; missing machine history is unavailable, and leap/unequal windows never fabricate percentage changes.
+- Sales opens the detailed sales report directly. Overview owns trends and the optional machine/payment breakdown; no Sales analysis sub-tabs remain. Entering Sales preserves visible machine/location scope, and Reset clears inherited location scope explicitly.
+- Unavailable optional reporting services cannot strand navigation on an empty hidden view. Fall back to an authorized view without broadening date/location/machine filters. Failed cached access is not continuing authorization.
+- Technical service diagnostics belong in Admin Reporting; partner setup diagnostics remain in Admin Partnerships Weekly Preview. Partner export/print guards remain enforced, with a concise unavailable export action and preliminary figures label instead of a report-wide setup alert.
+- Frontend preview readiness does not prove backend readiness. The local interactive preview is explicitly synthetic and cannot contact or modify production.
+
+## 2026-10-02 - Operational report homes and mobile navigation (#1708, #1709)
+
+- Central Reporting contains Overview, Sales, Finance, Locations and Partners. Detailed labor analytics lives at `/portal/time-review?view=reports`; detailed refund/recovery analytics lives at `/refunds?view=reports`. Existing operational work remains the default in each app.
+- Overview and Locations retain permitted operational headline metrics and links carrying dates, location and machine. Finance retains the financial refund reconciliation. Old labor/refund report links redirect to their owning app with the original linked filters; no saved link expands scope.
+- Mobile uses a labeled Report selector with vertically listed destinations and stacked report rows; desktop retains visible tabs and comparison tables. The report homes share Period, Location and More filters controls.
+- Report-only actors keep their existing analytics access independently of time-review or refund-case authority. Routing, sidebar links, data queries and workflow entry points respect that separation. Failed access checks stay closed and do not retry in a mount loop.
+- Refund report code loads separately from the case workflow. This reorganization changes no calculations, backend grants, source data, payments or production configuration.

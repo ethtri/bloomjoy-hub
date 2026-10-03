@@ -1,3 +1,5 @@
+import { useSearchParams } from 'react-router-dom';
+import LaborReportPage, { TimekeepingReportNavigation } from './LaborReport';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, CalendarPlus2, Clock3, Edit3, Loader2, RefreshCw, Users } from 'lucide-react';
@@ -123,6 +125,11 @@ const getDraftTiming = (draft: CorrectionDraft | null) => {
 };
 
 export default function PortalTimeReviewPage() {
+  const [params] = useSearchParams();
+  return params.get('view') === 'reports' ? <LaborReportPage /> : <TimeReviewEntriesPage />;
+}
+
+function TimeReviewEntriesPage() {
   const queryClient = useQueryClient();
   const [month, setMonth] = useState(currentMonthValue);
   const [technicianId, setTechnicianId] = useState('all');
@@ -412,6 +419,8 @@ export default function PortalTimeReviewPage() {
               </div>
             }
           />
+
+          <TimekeepingReportNavigation />
 
           {isLoading ? (
             <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">

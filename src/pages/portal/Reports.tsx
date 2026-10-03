@@ -9,7 +9,6 @@ import {
   useState,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -64,12 +63,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from '@/components/ui/chart';
+import type { ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -92,7 +86,10 @@ import {
 } from '@/components/ui/table';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { PartnerWaterfall } from '@/components/portal/reports/PartnerWaterfall';
+import { LaborAnalyticsPanel } from '@/components/portal/reports/LaborAnalyticsPanel';
+import { RefundAnalyticsPanel } from '@/components/portal/reports/RefundAnalyticsPanel';
+import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
@@ -130,7 +127,6 @@ import {
 } from '@/lib/signedExportWindow';
 import { cn } from '@/lib/utils';
 
-type ReportingView = 'operator' | 'partner';
 type OperatorPeriodPreset =
   | 'today'
   | 'last_7_days'
@@ -174,6 +170,8 @@ type PartnerMachineOption = {
   displayLabel: string;
 };
 
+const ReportingBarChart = lazy(() => import('@/components/portal/reports/ReportingBarChart'));
+const ReportingWorkspace = lazy(() => import('@/components/portal/reports/ReportingWorkspace').then(module => ({ default: module.ReportingWorkspace })));
 const PartnerPrintableReport = lazy(
   () => import('@/components/portal/reports/PartnerPrintableReport')
 );
@@ -188,9 +186,8 @@ const PARTNER_REPORT_UNAVAILABLE_REASONS = [
   'Refresh the page or try again later.',
   'If access was just updated, sign out and sign back in before retrying.',
 ];
-const PARTNER_REPORT_DATA_INCOMPLETE_TITLE = 'Report data incomplete';
 const PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE =
-  'Export is unavailable because required report data is incomplete. Try again later.';
+  'Export is not ready for this period.';
 const PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING = 'partnership_effective_window_excluded';
 const PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING = 'partnership_effective_window_trimmed';
 const PARTNER_REPORT_OUTSIDE_WINDOW_TITLE = 'No report for this period';
@@ -296,8 +293,8 @@ const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
 
   if (preset === 'last_7_days') {
     return {
-      dateFrom: toDateInput(addDays(today, -6)),
-      dateTo: toDateInput(today),
+      dateFrom: toDateInput(addDays(today, -7)),
+      dateTo: toDateInput(addDays(today, -1)),
       grain: 'day' as ReportGrain,
     };
   }
@@ -833,123 +830,40 @@ const formatSalesRefundCurrency = (value: number | null, usesSharedSalesBasis: b
   usesSharedSalesBasis ? formatRefundImpact(value, true) : formatSalesRowCurrency(value);
 
 export default function ReportsPage() {
-  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
-  const { t } = useLanguage();
-  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin || isCorporatePartner;
-  const [activeView, setActiveView] = useState<ReportingView>(
-    isCorporatePartner ? 'partner' : 'operator'
-  );
-  const hasAppliedCorporatePartnerDefault = useRef(isCorporatePartner);
-  const partnerDashboardLabel = isCorporatePartner ? 'Partner Dashboard' : t('reports.partnerDashboard');
-  const introDescription = canUsePartnerDashboard
-    ? t('reports.description')
-    : t('reports.operatorDescription');
-
-  const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
-    useQuery({
-      queryKey: ['reporting-access-context'],
-      queryFn: fetchReportingAccessContext,
-      staleTime: 1000 * 60,
+  const { user, isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const analyticsAccess = useReportingAnalyticsAccess();
+  const { data: accessContext = emptyReportingAccessContext, isLoading: accessLoading, isError: accessError } = useQuery({
+    queryKey: ['reporting-access-context', user?.id],
+    queryFn: fetchReportingAccessContext,
+    enabled: Boolean(user?.id),
+    staleTime: 60000,
   });
-
-  useEffect(() => {
-    if (!canUsePartnerDashboard && activeView === 'partner') {
-      setActiveView('operator');
-    }
-  }, [activeView, canUsePartnerDashboard]);
-
-  useEffect(() => {
-    if (!isCorporatePartner || !canUsePartnerDashboard || hasAppliedCorporatePartnerDefault.current) {
-      return;
-    }
-
-    hasAppliedCorporatePartnerDefault.current = true;
-    setActiveView('partner');
-  }, [canUsePartnerDashboard, isCorporatePartner]);
-
-  return (
-    <PortalLayout>
-      <section className="portal-section">
-        <div className="container-page">
-          <PortalPageIntro
-            title={t('reports.title')}
-            description={introDescription}
-            badges={[
-              {
-                label: t('reports.machinesAvailable', {
-                  count: accessContext.accessibleMachineCount,
-                }),
-                tone: 'muted',
-              },
-              {
-                label: t('reports.latestSale', {
-                  date: formatDate(accessContext.latestSaleDate),
-                }),
-                tone: 'muted',
-              },
-              {
-                label: t('reports.lastImport', {
-                  date: formatDateTime(accessContext.latestImportCompletedAt),
-                }),
-                tone: 'muted',
-              },
-              {
-                label: accessFetching
-                  ? t('reports.refreshing')
-                  : isSuperAdmin
-                    ? t('reports.superAdminReporting')
-                    : isCorporatePartner
-                      ? 'Corporate Partner reporting'
-                    : t('reports.operatorReporting'),
-                tone: isSuperAdmin || isCorporatePartner ? 'accent' : 'default',
-              },
-            ]}
-            actions={
-              canUsePartnerDashboard ? (
-                <ToggleGroup
-                  aria-label={t('reports.viewToggleLabel')}
-                  type="single"
-                  value={activeView}
-                  onValueChange={(value) => {
-                    if (value === 'operator' || value === 'partner') setActiveView(value);
-                  }}
-                  className="grid w-full grid-cols-2 rounded-lg border border-border bg-background p-1 sm:w-[340px]"
-                >
-                  <ToggleGroupItem value="operator" className="h-9 rounded-md text-sm">
-                    {t('reports.operatorView')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="partner" className="h-9 rounded-md text-sm">
-                    {partnerDashboardLabel}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              ) : undefined
-            }
-          />
-
-          <div className="mt-6">
-            {activeView === 'partner' && canUsePartnerDashboard ? (
-              <PartnerDashboardView />
-            ) : (
-              <OperatorReportingView
-                accessContext={accessContext}
-                accessContextFetching={accessFetching}
-              />
-            )}
-          </div>
-        </div>
-      </section>
-    </PortalLayout>
-  );
+  return <PortalLayout><section className="portal-section !py-5"><div className="container-page">
+    <Suspense fallback={<p role="status" className="py-8 text-muted-foreground">Loading reporting workspace…</p>}><ReportingWorkspace key={user?.id} accessContext={accessContext} accessLoading={accessLoading} accessError={accessError}
+      canUsePartners={isSuperAdmin || isScopedAdmin || isCorporatePartner}
+      domainAccessLoading={analyticsAccess.isLoading}
+      domainAccessError={analyticsAccess.labor.isError || analyticsAccess.refunds.isError}
+      laborDimensions={analyticsAccess.labor.data?.dimensions}
+      refundDimensions={analyticsAccess.refunds.data?.dimensions}
+      laborPanel={analyticsAccess.canUseLabor ? scope => <LaborAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
+      refundPanel={analyticsAccess.canUseRefunds ? scope => <RefundAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
+      partnerView={<PartnerDashboardView />}
+      detailedSales={(filters) => <OperatorReportingView key={JSON.stringify(filters)} accessContext={accessContext} accessContextFetching={accessLoading} workspaceFilters={filters} />}
+    /></Suspense>
+  </div></section></PortalLayout>;
 }
 
 function OperatorReportingView({
   accessContext,
   accessContextFetching,
+  workspaceFilters,
 }: {
   accessContext: ReportingAccessContext;
   accessContextFetching: boolean;
+  workspaceFilters?: SalesReportFilters;
 }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const operatorChartConfig = useMemo(
     () =>
       ({
@@ -958,12 +872,13 @@ function OperatorReportingView({
     [t]
   );
   const defaultRange = useMemo(() => getOperatorPresetRange('last_7_days'), []);
-  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_7_days');
-  const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
-  const [dateTo, setDateTo] = useState(defaultRange.dateTo);
+  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>(workspaceFilters && (workspaceFilters.dateFrom !== defaultRange.dateFrom || workspaceFilters.dateTo !== defaultRange.dateTo) ? 'custom' : 'last_7_days');
+  const [dateFrom, setDateFrom] = useState(workspaceFilters?.dateFrom ?? defaultRange.dateFrom);
+  const [dateTo, setDateTo] = useState(workspaceFilters?.dateTo ?? defaultRange.dateTo);
   const [grain, setGrain] = useState<ReportGrain>('day');
-  const [machineId, setMachineId] = useState('all');
-  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>([]);
+  const [machineId, setMachineId] = useState(workspaceFilters?.machineIds?.[0] ?? 'all');
+  const [locationIds, setLocationIds] = useState<string[]>(workspaceFilters?.locationIds ?? []);
+  const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>(workspaceFilters?.paymentMethods ?? []);
   const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
   const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -973,18 +888,13 @@ function OperatorReportingView({
     isLoading: dimensionsLoading,
     error: dimensionsError,
   } = useQuery({
-    queryKey: ['reporting-dimensions'],
+    queryKey: ['reporting-dimensions', user?.id],
     queryFn: fetchReportingDimensions,
     staleTime: 1000 * 60,
   });
 
-  const machineOptions = useMemo(() => dimensions, [dimensions]);
-
-  useEffect(() => {
-    if (machineId !== 'all' && !machineOptions.some((machine) => machine.machineId === machineId)) {
-      setMachineId('all');
-    }
-  }, [machineId, machineOptions]);
+  const machineOptions = useMemo(() => dimensions.filter(machine => !locationIds.length || locationIds.includes(machine.locationId)), [dimensions, locationIds]);
+  const machineUnavailable = !dimensionsLoading && !dimensionsError && machineId !== 'all' && !machineOptions.some(machine => machine.machineId === machineId);
 
   const filters: SalesReportFilters = useMemo(
     () => ({
@@ -993,8 +903,9 @@ function OperatorReportingView({
       grain,
       machineIds: machineId === 'all' ? [] : [machineId],
       paymentMethods: selectedPayments,
+      locationIds,
     }),
-    [dateFrom, dateTo, grain, machineId, selectedPayments]
+    [dateFrom, dateTo, grain, machineId, selectedPayments, locationIds]
   );
 
   const {
@@ -1003,9 +914,9 @@ function OperatorReportingView({
     isFetching,
     error,
   } = useQuery({
-    queryKey: ['sales-report', filters],
+    queryKey: ['sales-report', user?.id, filters],
     queryFn: () => fetchSalesReport(filters),
-    enabled: !dimensionsLoading,
+    enabled: !dimensionsLoading && !dimensionsError && !machineUnavailable,
     staleTime: 1000 * 30,
   });
 
@@ -1053,6 +964,7 @@ function OperatorReportingView({
     setDateTo(nextRange.dateTo);
     setGrain('day');
     setMachineId('all');
+    setLocationIds([]);
     setSelectedPayments([]);
     setAreMoreFiltersOpen(false);
   };
@@ -1074,6 +986,7 @@ function OperatorReportingView({
     periodPreset !== 'last_7_days' ||
     grain !== 'day' ||
     machineId !== 'all' ||
+    locationIds.length > 0 ||
     selectedPayments.length > 0;
 
   const exportPdf = async () => {
@@ -1095,6 +1008,8 @@ function OperatorReportingView({
   };
 
   const hasLoadError = Boolean(error || dimensionsError);
+  if (machineUnavailable) return <div className="space-y-3"><EmptyPanel title="Selected machine is unavailable" description="Choose a machine available in this report."/><Button variant="outline" onClick={() => setMachineId('all')}>Choose all available machines</Button></div>;
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -1249,6 +1164,7 @@ function OperatorReportingView({
                 <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{t(reportGrainLabelKeys[grain])}</span>
                 <span aria-hidden="true" className="text-border">•</span>
+                {locationIds.length > 0 && <span className="inline-flex flex-wrap items-center gap-1 text-muted-foreground" data-reporting-operator-location-scope>{locationIds.map(id => dimensions.find(item => item.locationId === id)?.locationName ?? 'Selected location').join(', ')}<Button variant="link" size="sm" className="h-auto px-1 py-0" onClick={() => setLocationIds([])}>Clear location</Button></span>}
                 <span className="text-muted-foreground">{selectedMachineLabel}</span>
                 <span aria-hidden="true" className="text-border">•</span>
                 <span className="text-muted-foreground">{selectedPaymentLabel}</span>
@@ -1558,23 +1474,7 @@ function OperatorReportingView({
             ) : chartRows.length === 0 ? (
               <EmptyPanel title={t('reports.noSalesFound')} description={t('reports.noSalesDescription')} />
             ) : (
-              <ChartContainer
-                config={operatorChartConfig}
-                className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
-              >
-                <BarChart data={chartRows}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="period" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={56} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="netSales"
-                    fill="var(--color-netSales)"
-                    radius={[5, 5, 0, 0]}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ChartContainer>
+              <Suspense fallback={<ChartSkeleton />}><ReportingBarChart config={operatorChartConfig} data={chartRows} dataKey="netSales" /></Suspense>
             )}
           </CardContent>
         </Card>
@@ -1758,7 +1658,7 @@ function PartnerDashboardUnavailableState({
 }
 
 function PartnerDashboardView() {
-  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const { user, isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const canSeeInternalPartnerWarnings = isSuperAdmin || isScopedAdmin;
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
@@ -1775,7 +1675,7 @@ function PartnerDashboardView() {
     isLoading: partnershipsLoading,
     error: partnershipsError,
   } = useQuery({
-    queryKey: ['partner-dashboard-partnerships'],
+    queryKey: ['partner-dashboard-partnerships', user?.id],
     queryFn: fetchPartnerDashboardPartnerships,
     staleTime: 1000 * 60,
   });
@@ -1823,6 +1723,7 @@ function PartnerDashboardView() {
   } = useQuery({
     queryKey: [
       'partner-dashboard-period-preview',
+      user?.id,
       'selected',
       selectedPartnershipId,
       selectedPeriod?.periodGrain,
@@ -1852,6 +1753,7 @@ function PartnerDashboardView() {
   } = useQuery({
     queryKey: [
       'partner-dashboard-period-preview',
+      user?.id,
       'trend',
       selectedPartnershipId,
       trendRange?.periodGrain,
@@ -2089,13 +1991,9 @@ function PartnerDashboardView() {
   const isOutsidePartnershipWindow = blockingWarnings.some(
     (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
   );
-  const reportSetupWarnings = blockingWarnings.filter(
-    (warning) => warning.warningType !== PARTNER_EFFECTIVE_WINDOW_EXCLUDED_WARNING
-  );
   const reportingPeriodNotes = nonBlockingWarnings.filter(
     (warning) => warning.warningType === PARTNER_EFFECTIVE_WINDOW_TRIMMED_WARNING
   );
-  const showPartnerWarnings = reportSetupWarnings.length > 0 || reportingPeriodNotes.length > 0;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -2116,7 +2014,7 @@ function PartnerDashboardView() {
       ? 'Preparing XLSX'
         : exportingPartnerFormat === 'csv'
           ? 'Preparing CSV'
-          : 'Export';
+          : hasBlockingWarnings ? 'Export unavailable' : 'Export';
   const showNoPartnerMachines = Boolean(preview && preview.machinePeriods.length === 0);
 
   const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
@@ -2328,6 +2226,7 @@ function PartnerDashboardView() {
                       disabled={partnerExportDisabled}
                       className="w-full justify-center sm:w-auto"
                       data-portal-report-export="partner"
+                      title={hasBlockingWarnings ? PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE : undefined}
                     >
                       {exportingPartnerFormat ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2461,6 +2360,7 @@ function PartnerDashboardView() {
             />
           ) : (
             <>
+          {hasBlockingWarnings && <p className="text-xs text-muted-foreground">Preliminary figures</p>}
           <PartnerAnswerBand
             preview={preview}
             currentPeriod={currentPeriod}
@@ -2471,29 +2371,7 @@ function PartnerDashboardView() {
             isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
           />
 
-          {showPartnerWarnings && (
-            <Alert className="border-amber/20 bg-amber/10 text-foreground">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>
-                {reportSetupWarnings.length > 0
-                  ? PARTNER_REPORT_DATA_INCOMPLETE_TITLE
-                  : 'Reporting period'}
-              </AlertTitle>
-              <AlertDescription>
-                <div className="mt-2 flex flex-col gap-2">
-                  {reportSetupWarnings.length > 0 ? (
-                    <div className="font-medium">{PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE}</div>
-                  ) : (
-                    reportingPeriodNotes.map((warning, index) => (
-                      <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
-                        {warning.message}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
+          {reportingPeriodNotes.length > 0 && <p className="text-xs text-muted-foreground">{reportingPeriodNotes.map(warning => warning.message).join(' ')}</p>}
 
           <div className="grid min-w-0 gap-6">
             <PartnerTrendCard
@@ -2827,40 +2705,7 @@ function PartnerTrendCard({
           <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
         ) : (
           <>
-            <ChartContainer
-              config={config}
-              className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
-            >
-              <BarChart data={data} margin={{ left: 8, right: 8 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="period" tickLine={false} axisLine={false} />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  width={64}
-                  tickFormatter={(tick) =>
-                    valueFormatter ? valueFormatter(Number(tick)) : numberFormatter.format(Number(tick))
-                  }
-                />
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      formatter={(tooltipValue) =>
-                        valueFormatter
-                          ? valueFormatter(Number(tooltipValue))
-                          : numberFormatter.format(Number(tooltipValue))
-                      }
-                    />
-                  }
-                />
-                <Bar
-                  dataKey={dataKey}
-                  fill={`var(--color-${dataKey})`}
-                  radius={[5, 5, 0, 0]}
-                  isAnimationActive={false}
-                />
-              </BarChart>
-            </ChartContainer>
+            <Suspense fallback={<ChartSkeleton />}><ReportingBarChart config={config} data={data} dataKey={dataKey} valueFormatter={valueFormatter ?? (value => numberFormatter.format(value))} /></Suspense>
             <div className="mt-4 grid gap-2 md:hidden">
               {data.map((point) => {
                 const rawValue = Number(point[dataKey] ?? 0);
@@ -3255,6 +3100,7 @@ function PartnerCalculationCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <PartnerWaterfall summary={summary} usesSharedSalesBasis={usesSharedSalesBasis} />
         <CalculationLine label={usesSharedSalesBasis ? 'Sales before refunds (excludes tax)' : 'Gross sales'} value={formatCurrency(summary.grossSalesCents, true)} />
         <CalculationLine label="Refund impact" value={formatRefundImpact(summary.refundAmountCents, true)} />
         <CalculationLine label={usesSharedSalesBasis ? 'Sales tax (separated)' : 'Tax impact'} value={`${usesSharedSalesBasis ? '' : '-'}${formatCurrency(summary.taxCents, true)}`} />
