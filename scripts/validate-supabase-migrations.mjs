@@ -648,7 +648,7 @@ async function main() {
       });
       log('Supabase database persona tests passed.');
       await verifyCompanyAssignmentConcurrency({ dbPort });
-      log('Company duplicate-create and stale-assignment concurrent transactions passed without access provisioning.');
+      log('Company duplicate-create, rename/create, archive/assignment and stale-save concurrent transactions passed without access provisioning.');
       if (options.portalSeedDir) {
         await writeRealRefundPreparationSeed({
           dbPort, outputDir: options.portalSeedDir,
