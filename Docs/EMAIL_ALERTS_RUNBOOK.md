@@ -59,13 +59,21 @@ This stores the two dedicated Vault values and creates the paused five-minute
 
 1. Confirm `service_email_alert_delivery_status` reports disabled. An authorized
    normal `{}` function request while disabled must return zero claims and sends.
-2. Call `service_preview_email_alerts` with the upcoming normal daily due time and
-   validate every returned projection with the deployed renderer. Projections can
-   contain authorized private narratives: do not print, persist or upload them.
-   Record only aggregate category/count/validation results. Preview reserves no
-   work and sends nothing.
-3. An authorized `{"dryRun":true}` request must return validation aggregates and
-   zero writes/provider calls. `{"observeOnly":true}` can collect real source
+2. Validate the upcoming daily due time through an authorized worker request
+   `{"dryRun":true,"previewObservedAt":"<ISO timestamp>"}`. Each request renders
+   one complete recipient. While `hasMore` is true, pass the returned `nextCursor`
+   unchanged in `{"dryRun":true,"previewCursor":<cursor>}`. Keep the same snapshot,
+   require every page to pass, and reconcile accumulated `projectionCount` with
+   `totalCandidates`. `page_validated` confirms that page only; `complete` means
+   traversal ended, not that an earlier page was validated. Do not log cursors.
+   Direct service-RPC diagnostics use `p_observed_at`, `p_limit: 1` and `p_cursor`;
+   those projections contain authorized private narratives, so do not print,
+   persist or upload them. Record aggregate counts, render sizes and timings only.
+3. Authorized dry-run requests must return zero writes/provider calls. Preview
+   time/cursor arguments are rejected in normal and observe-only modes. Check
+   the largest recipient comfortably fits the existing database time limit;
+   do not raise the global timeout to hide repeated queries. Preview reserves no
+   work and sends nothing. `{"observeOnly":true}` can collect real source
    evidence but must return zero email claims and sends. Unknown or missing source
    evidence must not become an available alert.
 4. Verify missing/invalid bearer requests are rejected, and anonymous or ordinary
