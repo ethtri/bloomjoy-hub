@@ -29,6 +29,10 @@ insert into public.technician_machine_assignments(technician_grant_id,machine_id
 -- Reporting access does not imply permission to view individual refund money.
 insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) values
  ('ed710000-0000-4000-8000-000000000002','ed740000-0000-4000-8000-000000000001','2020-01-01');
+insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,
+ eligible_machine_ids,eligible_locations,expires_at,redemption_instructions) values
+ ('ed770000-0000-4000-8000-000000000001','sunzee','digest-fixture',1500,
+ array['ed740000-0000-4000-8000-000000000001']::uuid[],array['West'],'2027-10-03T00:00Z','Synthetic fixture only');
 create temporary table digest_request_fixture(n integer,machine_n integer,received_at timestamptz,original_amount integer,provenance text);
 insert into digest_request_fixture values
  (1,1,'2026-10-02T12:00Z',600,'hosted_intake_customer_charge_estimate'),
@@ -55,7 +59,8 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  received_at,case when received_at is not null then 'hosted_refund_intake' end from digest_request_fixture;
 update public.refund_cases set status='completed' where id='ed760000-0000-4000-8000-000000000001';
 update public.refund_cases set issue_category='expected_cash_change',payment_method='cash',resolution_method='gift_card',
- cash_inserted_amount_cents=1000,expected_change_amount_cents=300,affected_amount_cents=900,gift_card_value_cents=1500
+ cash_inserted_amount_cents=1000,expected_change_amount_cents=300,affected_amount_cents=900,gift_card_value_cents=1500,
+ gift_card_pool_id='ed770000-0000-4000-8000-000000000001',gift_card_expires_at='2027-10-03T00:00Z',gift_card_state='manager_review'
  where id='ed760000-0000-4000-8000-000000000004';
 update public.refund_cases set duplicate_of_refund_case_id='ed760000-0000-4000-8000-000000000001'
  where id='ed760000-0000-4000-8000-000000000011';
