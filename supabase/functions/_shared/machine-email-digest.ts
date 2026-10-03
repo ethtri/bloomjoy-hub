@@ -169,7 +169,11 @@ function weeklyInsights(machines: DigestMachine[]): string[] {
       }`
       : `${money(Math.abs(difference))} ${difference > 0 ? "higher" : "lower"}`;
     insights.push(
-      `Sales ${movement} vs the previous week’s reported sales${
+      `Sales ${movement}${
+        previous > 0 && difference !== 0
+          ? ` (${difference > 0 ? "+" : "−"}${money(Math.abs(difference))})`
+          : ""
+      } vs the previous week’s reported sales${
         comparable.length < machines.length
           ? ` (${count(comparable.length, "comparable machine")})`
           : ""
@@ -228,6 +232,13 @@ export function buildMachineDigestEmail(
     total.salesCount < total.machineCount;
   const requested = requestAmount(total);
   const requestDetail = requestCaption(total).replace("request", "new request");
+  const requestedMetric = total.requestedCents === null
+    ? requested
+    : money(total.requestedCents);
+  const requestedMetricCaption =
+    (total.requestedCents !== null && total.unknownAmountCount > 0
+      ? "Known amount · "
+      : "") + requestDetail;
   const preheader = `Sales ${salesValue}${partialSales ? " known" : ""}. ` +
     `Refunds requested ${requested}. ${
       count(total.requestCount, "new request")
@@ -322,11 +333,28 @@ export function buildMachineDigestEmail(
       const location = machine.locationName !== machine.machineLabel
         ? machine.locationName
         : "";
+      const differentPeriod = machine.dateFrom !== p.dateFrom ||
+        machine.dateTo !== p.dateTo;
+      const localPeriod = differentPeriod
+        ? machine.dateFrom === machine.dateTo
+          ? date(machine.dateFrom, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+          : periodLabel(machine.dateFrom, machine.dateTo)
+        : "";
       rows.push(
         `<tr style="border-bottom:1px solid ${palette.line}"><th scope="row" style="padding:13px 10px;text-align:left;vertical-align:top;font-size:15px;font-weight:500;line-height:1.45;overflow-wrap:anywhere">${name}${
           location
             ? `<div class="caption" style="margin-top:3px;color:${palette.muted};font-size:12px;font-weight:400;line-height:1.5">${
               escape(location)
+            }</div>`
+            : ""
+        }${
+          localPeriod
+            ? `<div class="caption" style="margin-top:3px;color:${palette.muted};font-size:12px;font-weight:400;line-height:1.5">${
+              escape(localPeriod)
             }</div>`
             : ""
         }</th>${
@@ -340,7 +368,9 @@ export function buildMachineDigestEmail(
         }</tr>`,
       );
       plain.push(
-        `${machine.machineLabel}${location ? ` · ${location}` : ""}: ` +
+        `${machine.machineLabel}${location ? ` · ${location}` : ""}${
+          localPeriod ? ` · ${localPeriod}` : ""
+        }: ` +
           `Sales ${
             machine.reportingAllowed
               ? money(machine.grossSalesCents)
@@ -368,9 +398,13 @@ export function buildMachineDigestEmail(
   const metric = (label: string, value: string, caption: string, extra = "") =>
     `<td class="metric" width="50%" style="width:50%;vertical-align:top;padding:0 ${
       extra ? "0 0 16px" : "16px 0 0"
-    };${extra}"><p style="margin:0 0 8px;color:${palette.muted};font-size:14px;line-height:1.4;font-weight:600">${
+    };${extra}"><p class="metric-label" style="margin:0 0 8px;color:${palette.muted};font-size:14px;line-height:1.4;font-weight:600">${
       escape(label)
-    }</p><p class="metric-value" style="margin:0;color:${palette.ink};font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-0.6px;overflow-wrap:anywhere">${
+    }</p><p class="metric-value${
+      /^[A-Za-z]/.test(value) ? " metric-status" : ""
+    }" style="margin:0;color:${palette.ink};font-size:${
+      /^[A-Za-z]/.test(value) ? 22 : 30
+    }px;line-height:1.2;font-weight:700;letter-spacing:-0.6px;overflow-wrap:anywhere">${
       escape(value)
     }</p><p style="margin:8px 0 0;color:${palette.muted};font-size:13px;line-height:1.5">${
       escape(caption)
@@ -378,7 +412,7 @@ export function buildMachineDigestEmail(
   const html =
     `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${
       escape(subject)
-    }</title><style>@media only screen and (max-width:480px){.outer{padding:0!important}.content{padding:24px 16px!important}.metric-value{font-size:25px!important;letter-spacing:-.5px!important}.metric{padding-right:10px!important}.data-table .number{font-size:14px!important;padding:12px 6px!important}.data-table th{padding:12px 6px!important;font-size:14px!important}.data-table .caption{font-size:12px!important}.data-table .name-col{width:40%!important}.data-table .sales-col{width:27%!important}.data-table .requests-col{width:33%!important}.report-action{display:block!important;text-align:center!important}.email-title{font-size:25px!important}}</style></head><body style="margin:0;padding:0;background:${palette.page};color:${palette.ink};font-family:${font};-webkit-text-size-adjust:100%"><div lang="en" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0">${
+    }</title><style>@media only screen and (max-width:480px){.outer{padding:0!important}.content{padding:24px 16px!important}.metric-value{font-size:25px!important;letter-spacing:-.5px!important}.metric{padding-right:10px!important}.data-table .number{font-size:14px!important;padding:12px 6px!important}.data-table th{padding:12px 6px!important;font-size:14px!important}.data-table .caption{font-size:12px!important}.data-table .name-col{width:37%!important}.data-table .sales-col{width:30%!important}.data-table .requests-col{width:33%!important}.report-action{display:block!important;text-align:center!important}.email-title{font-size:25px!important}.metric-status{font-size:20px!important}}@media only screen and (max-width:360px){.metric-label{min-height:40px}}</style></head><body style="margin:0;padding:0;background:${palette.page};color:${palette.ink};font-family:${font};-webkit-text-size-adjust:100%"><div lang="en" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0">${
       escape(preheader)
     }</div><table role="presentation" lang="en" dir="ltr" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:${palette.page}"><tr><td class="outer" align="center" style="padding:28px 12px"><table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;border-collapse:collapse;background:${palette.paper}"><tr><td class="content" style="padding:32px"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px"><tr><td style="padding-right:10px"><img src="https://app.bloomjoyusa.com/bloomjoy-icon.png" width="36" height="36" alt="" style="display:block;border:0;width:36px;height:36px"></td><td style="font-size:17px;font-weight:700;letter-spacing:-.2px;color:${palette.rose}">Bloomjoy Hub</td></tr></table><h1 class="email-title" style="margin:0 0 8px;font-size:28px;line-height:1.25;letter-spacing:-.6px;font-weight:700">${
       escape(title)
@@ -389,8 +423,8 @@ export function buildMachineDigestEmail(
     }${
       metric(
         "Refunds requested",
-        requested,
-        requestDetail,
+        requestedMetric,
+        requestedMetricCaption,
         `border-left:1px solid ${palette.line}`,
       )
     }</tr></table>${
