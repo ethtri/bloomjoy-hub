@@ -8,12 +8,14 @@ type RouteErrorBoundaryProps = {
   children: ReactNode;
 };
 
+type RouteErrorBoundaryInnerProps = RouteErrorBoundaryProps & { resetKey: string };
+
 type RouteErrorBoundaryState = {
   error: unknown;
 };
 
 class RouteErrorBoundaryInner extends Component<
-  RouteErrorBoundaryProps,
+  RouteErrorBoundaryInnerProps,
   RouteErrorBoundaryState
 > {
   state: RouteErrorBoundaryState = {
@@ -22,6 +24,14 @@ class RouteErrorBoundaryInner extends Component<
 
   static getDerivedStateFromError(error: unknown): RouteErrorBoundaryState {
     return { error };
+  }
+
+  componentDidUpdate(previousProps: RouteErrorBoundaryInnerProps) {
+    // URL-backed filters must retain their DOM and focus on healthy renders.
+    // Navigation still gives a failed route a fresh attempt.
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
   }
 
   componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
@@ -66,7 +76,7 @@ export const RouteErrorBoundary = ({ children }: RouteErrorBoundaryProps) => {
   const location = useLocation();
 
   return (
-    <RouteErrorBoundaryInner key={`${location.pathname}${location.search}`}>
+    <RouteErrorBoundaryInner resetKey={`${location.pathname}${location.search}`}>
       {children}
     </RouteErrorBoundaryInner>
   );

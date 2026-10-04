@@ -1,5 +1,9 @@
 # QA Smoke Test Checklist
 
+## Machines search focus regression (#1744)
+- On `/admin/machines`, type a multi-character name continuously, then backspace; focus and caret stay in Search machines while results and URL update. Reload retains the query; clearing it restores all records. Verify imported Nayax and inventory searches similarly.
+- Local synthetic regression: `node scripts/validate-machine-search-focus.mjs` (Vite on port 8087, or `MACHINE_SEARCH_UAT_APP_URL`). Also verifies shared-boundary render errors recover on query and pathname navigation. No assignment saves occur.
+
 ## Refund purchase review (`#1733`, synthetic cases)
 
 - [ ] Open a selected card purchase with a reported no-product issue, approximate time, differing wallet digits, and an unknown card network. The problem, one comparison, supporting evidence and uncertainties appear together near the decision; no timing caveat is presented as positive match evidence.
