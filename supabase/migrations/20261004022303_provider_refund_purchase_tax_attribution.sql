@@ -2,7 +2,7 @@
 create index nayax_dtm_original_sale_identity_idx
   on public.nayax_dtm_export_rows(provider_actor_id, provider_machine_id, provider_transaction_id)
   where provider_type = 0 and settlement_amount_cents > 0
-    and original_transaction_id is null and disposition = 'fact_linked'
+    and original_transaction_id is null and disposition in ('fact_linked', 'fact_linked+refund_applied')
     and financial_disposition = 'eligible';
 
 -- Resolve only an exact imported original sale. The refund event date remains
@@ -27,7 +27,7 @@ as $$
    and original.settlement_amount_cents > 0
    and original.settlement_amount_cents >= event.amount_cents
    and original.original_transaction_id is null
-   and original.disposition = 'fact_linked'
+   and original.disposition in ('fact_linked', 'fact_linked+refund_applied')
    and original.financial_disposition = 'eligible'
   join public.machine_sales_facts fact
     on fact.id = original.fact_id
