@@ -68,26 +68,37 @@ values('aa174203-0000-4000-8000-000000000004','aa174201-0000-4000-8000-000000000
 insert into public.refund_nayax_machine_inventory(id,account_key,nayax_machine_id,machine_name,provider_is_active,refund_category,reporting_machine_id,reconciliation_state)
 values('aa174204-0000-4000-8000-000000000004','FIXTURE_TRANSITION','17420004','Withdrawal transitions',true,'cotton_candy','aa174203-0000-4000-8000-000000000004','published');
 set local session_replication_role=origin;
-create temporary table withdrawal_results(description text, boundary date);
-do $test$
-declare change_sql text; description text;
-begin
- for change_sql,description in select * from (values
- ('reconciliation_state=''needs_setup''','Published to pending'),
- ('reconciliation_state=''excluded''','Published to excluded'),
- ('reporting_machine_id=null','Explicit machine unlink'),
- ('nayax_machine_id=''17420005''','Exact provider identity change'),
- ('provider_is_active=false','Published active reader becomes inactive')
- ) transitions(change_sql,description) loop
-  perform set_config('session_replication_role','replica',true);
-  update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
-  update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
-  perform set_config('session_replication_role','origin',true);
-  execute 'update public.refund_nayax_machine_inventory set '||change_sql||' where id=''aa174204-0000-4000-8000-000000000004''';
-  insert into withdrawal_results select description,nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004';
- end loop;
-end $test$;
-select is(boundary,null::date,description||' retains existing authority withdrawal semantics') from withdrawal_results;
+reset role;
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
+update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
+set local session_replication_role=origin;
+update public.refund_nayax_machine_inventory set reconciliation_state='needs_setup' where id='aa174204-0000-4000-8000-000000000004';
+select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004'),null::date,'Published to pending retains existing authority withdrawal semantics');
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
+update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
+set local session_replication_role=origin;
+update public.refund_nayax_machine_inventory set reconciliation_state='excluded' where id='aa174204-0000-4000-8000-000000000004';
+select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004'),null::date,'Published to excluded retains existing authority withdrawal semantics');
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
+update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
+set local session_replication_role=origin;
+update public.refund_nayax_machine_inventory set reporting_machine_id=null where id='aa174204-0000-4000-8000-000000000004';
+select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004'),null::date,'Explicit machine unlink retains existing authority withdrawal semantics');
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
+update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
+set local session_replication_role=origin;
+update public.refund_nayax_machine_inventory set nayax_machine_id='17420005' where id='aa174204-0000-4000-8000-000000000004';
+select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004'),null::date,'Exact provider identity change retains existing authority withdrawal semantics');
+set local session_replication_role=replica;
+update public.reporting_machines set nayax_card_sales_started_on='2026-09-01' where id='aa174203-0000-4000-8000-000000000004';
+update public.refund_nayax_machine_inventory set reconciliation_state='published',reporting_machine_id='aa174203-0000-4000-8000-000000000004',nayax_machine_id='17420004',provider_is_active=true where id='aa174204-0000-4000-8000-000000000004';
+set local session_replication_role=origin;
+update public.refund_nayax_machine_inventory set provider_is_active=false where id='aa174204-0000-4000-8000-000000000004';
+select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174203-0000-4000-8000-000000000004'),null::date,'Published active reader becomes inactive retains existing authority withdrawal semantics');
 
 select set_config('request.jwt.claim.sub','aa174200-0000-4000-8000-000000000002',true);
 select throws_ok($$select public.admin_link_sunze_source_to_machine('aa174203-0000-4000-8000-000000000003','fixture-source-two')$$,'42501',null,'Unscoped outsider cannot connect Sunze source');
