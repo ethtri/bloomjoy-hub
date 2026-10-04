@@ -4498,7 +4498,13 @@ export default function AdminRefundsPage() {
       // Matching display fields cannot identify an alternate purchase. Only the
       // acknowledgement of this exact candidate token, at the current version,
       // can confirm that the requested selection was saved.
-      if (!prepared?.updateApplied || !prepared.selectionApplied || prepared.officialActionVersion <= 0) {
+      if (
+        !prepared?.updateApplied ||
+        !prepared.selectionApplied ||
+        prepared.officialActionVersion <= 0 ||
+        prepared.refundReadiness?.transactionConfirmed !== true ||
+        prepared.refundReadiness.caseVersion !== prepared.officialActionVersion
+      ) {
         throw new Error('Selection save was not acknowledged');
       }
       const reconciliation = await readFreshNayaxSelection(targetCaseId, candidate);

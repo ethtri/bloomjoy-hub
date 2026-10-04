@@ -346,7 +346,7 @@ test('selection-save confirmation requires acknowledgement of the submitted toke
  const candidateB={candidateToken:'candidate-B',amountCents:700,currencyCode:'USD',machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242'};
  // This is the failure boundary: two different transactions share every display field.
  assert.equal(managerModule.exports.persistedNayaxSelectionMatchesCandidate(savedA.selectedNayaxTransaction,candidateB),true);
- const receipt={updateApplied:true,selectionApplied:true,officialActionVersion:8};
+ const receipt={updateApplied:true,selectionApplied:true,officialActionVersion:8,refundReadiness:{transactionConfirmed:true,caseVersion:8}};
  for(const [label,prepared,freshVersion,confirmed,expectedSuccess] of [
   ['failed save with identical saved A',null,7,true,false],
   ['lost response after B committed',null,8,true,false],
@@ -354,6 +354,9 @@ test('selection-save confirmation requires acknowledgement of the submitted toke
   ['selection not acknowledged',{...receipt,selectionApplied:false},8,true,false],
   ['missing selection acknowledgement',{updateApplied:true,officialActionVersion:8},8,true,false],
   ['missing receipt version',{...receipt,officialActionVersion:0},8,true,false],
+  ['missing atomic selection receipt',{...receipt,refundReadiness:null},8,true,false],
+  ['unconfirmed atomic selection receipt',{...receipt,refundReadiness:{transactionConfirmed:false,caseVersion:8}},8,true,false],
+  ['concurrent identical selection between RPC and response',{...receipt,officialActionVersion:9},9,true,false],
   ['newer selection after acknowledged save',receipt,9,true,false],
   ['readiness not confirmed',receipt,8,false,false],
   ['exact submitted selection acknowledged and current',receipt,8,true,true],
