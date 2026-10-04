@@ -93,6 +93,10 @@ import {
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
+import { MachineIdentityMapping } from '@/components/admin/MachineIdentityMapping';
+import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
+import { transactionAge, transactionAgeLabel, importFreshnessLabel, transactionSourceLabel } from '@/lib/machineTransactionRecency';
+import AdminReportingPage from '@/pages/admin/Reporting';
 import { CompanyManagementSheet } from '@/components/admin/CompanyManagementSheet';
 import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
@@ -113,8 +117,8 @@ type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineTypeFilter = 'all' | CanonicalMachineType;
 type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
-type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
-type MachineSort = 'status' | 'machine' | 'latest_sale';
+type MachineActivityFilter = 'all' | 'recent' | 'no_sales' | 'idle';
+type MachineSort = 'status' | 'machine' | 'latest_sale' | 'oldest';
 type MachineView = 'all' | 'setup' | 'attention' | 'ready';
 type MachineDetailTab = 'overview' | 'refunds' | 'managers' | 'reporting' | 'activity';
 type MachineAttentionReason = {
@@ -339,12 +343,12 @@ const parseRefundFilter = (value: string | null): MachineRefundFilter => {
 };
 
 const parseActivityFilter = (value: string | null): MachineActivityFilter => {
-  if (value === 'recent' || value === 'no_sales') return value;
+  if (value === 'recent' || value === 'no_sales' || value === 'idle') return value;
   return 'all';
 };
 
 const parseMachineSort = (value: string | null): MachineSort => {
-  if (value === 'machine' || value === 'latest_sale') return value;
+  if (value === 'machine' || value === 'latest_sale' || value === 'oldest') return value;
   return 'status';
 };
 
@@ -478,6 +482,9 @@ export default function AdminMachinesPage() {
   const isInventoryRoute = location.pathname.endsWith('/inventory');
   const isDetailRoute = Boolean(routeMachineId) && !isInventoryRoute;
   const isLocalDemoMode = isLocalUatDemoForced();
+  const [showDiscovery, setShowDiscovery] = useState(false);
+  const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: !isLocalDemoMode, staleTime: 30000 });
+  const metadataById = useMemo(() => new Map((workspaceMetadata.data ?? []).map((item) => [item.machineId, item])), [workspaceMetadata.data]);
   const isMachineIdentityEditable = isSuperAdmin;
   const hasScopedMachineLimit = isScopedAdmin && !isSuperAdmin;
   const pendingSourceMachineId =
@@ -603,6 +610,7 @@ export default function AdminMachinesPage() {
       queryClient.invalidateQueries({ queryKey: setupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundNayaxInventoryQueryKey }),
+      queryClient.invalidateQueries({ queryKey: machineWorkspaceQueryKey }),
     ]);
   };
 
@@ -774,9 +782,6 @@ export default function AdminMachinesPage() {
 
   const machineRows = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-    const recentActivityCutoff = new Date();
-    recentActivityCutoff.setDate(recentActivityCutoff.getDate() - 30);
-    const recentActivityDate = recentActivityCutoff.toISOString().slice(0, 10);
 
     return allMachineRows
       .filter((row) => {
@@ -816,8 +821,12 @@ export default function AdminMachinesPage() {
       })
       .filter((row) => {
         if (activityFilter === 'all') return true;
-        if (activityFilter === 'no_sales') return !row.machine.latest_sale_date;
-        return Boolean(row.machine.latest_sale_date && row.machine.latest_sale_date >= recentActivityDate);
+        const metadata = metadataById.get(row.machine.id);
+        if (!metadata) return false;
+        if (activityFilter === 'no_sales') return !metadata.lastRecordedTransaction;
+        const age = transactionAge(metadata.lastRecordedTransaction);
+        if (activityFilter === 'idle') return age !== null && age >= 30;
+        return age !== null && age < 30;
       })
       .filter((row) => {
         if (!normalizedSearch) return true;
@@ -826,6 +835,10 @@ export default function AdminMachinesPage() {
           row.machine.location_name,
           row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
+          metadataById.get(row.machine.id)?.venueLabel ?? '',
+          metadataById.get(row.machine.id)?.nayaxMachineId ?? '',
+          metadataById.get(row.machine.id)?.nayaxAccountKey ?? '',
+          metadataById.get(row.machine.id)?.sources.map((source) => `${source.platform} ${source.name} ${source.id}`).join(' ') ?? '',
           row.machineManagerEmails.join(' '),
           row.activeAssignments.map((assignment) => assignment.partnership_name).join(' '),
         ]
@@ -836,13 +849,14 @@ export default function AdminMachinesPage() {
       .sort((left, right) => {
         if (sort === 'machine') return left.machine.machine_label.localeCompare(right.machine.machine_label);
         if (sort === 'latest_sale') {
-          return (right.machine.latest_sale_date ?? '').localeCompare(left.machine.latest_sale_date ?? '');
+          return (metadataById.get(right.machine.id)?.lastRecordedTransaction ?? '').localeCompare(metadataById.get(left.machine.id)?.lastRecordedTransaction ?? '');
         }
+        if (sort === 'oldest') return (metadataById.get(left.machine.id)?.lastRecordedTransaction ?? '9999').localeCompare(metadataById.get(right.machine.id)?.lastRecordedTransaction ?? '9999');
         const attentionDifference = Number(right.attentionReasons.length > 0) - Number(left.attentionReasons.length > 0);
         if (attentionDifference !== 0) return attentionDifference;
         return left.machine.machine_label.localeCompare(right.machine.machine_label);
       });
-  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter]);
+  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter, metadataById]);
 
   const visibleMachineRows = useMemo(
     () =>
@@ -959,6 +973,11 @@ export default function AdminMachinesPage() {
   };
 
   const openEditMachine = (machine: PartnershipSetupMachine, tab: MachineDetailTab = 'overview') => {
+    if (!isDetailRoute) {
+      setEditingMachine(machine);
+      setIsMachineDialogOpen(true);
+      return;
+    }
     const returnParams = new URLSearchParams(searchParams);
     returnParams.set('selected', machine.id);
     returnParams.set('scroll', String(Math.round(window.scrollY)));
@@ -1538,8 +1557,9 @@ export default function AdminMachinesPage() {
                       className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="all">All activity</option>
-                      <option value="recent">Sale in the last 30 days</option>
-                      <option value="no_sales">No sales recorded</option>
+                      <option value="recent">Recorded transaction in the last 30 days</option>
+                      <option value="idle">Last recorded transaction &gt;30 days</option>
+                      <option value="no_sales">No transactions recorded</option>
                     </select>
                   </div>
                   <div>
@@ -1553,6 +1573,7 @@ export default function AdminMachinesPage() {
                       <option value="status">Needs attention first</option>
                       <option value="machine">Machine name</option>
                       <option value="latest_sale">Latest activity</option>
+                      <option value="oldest">Oldest recorded transaction first</option>
                     </select>
                   </div>
                   <div className="flex items-end">
@@ -1632,13 +1653,13 @@ export default function AdminMachinesPage() {
               <div role="table" aria-label="Machines">
                 <div
                   role="row"
-                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:gap-4"
+                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:gap-4"
                 >
-                  <div role="columnheader">Machine</div>
-                  <div role="columnheader">Attention</div>
-                  <div role="columnheader">Refunds</div>
-                  <div role="columnheader">Reporting</div>
-                  <div role="columnheader">Activity</div>
+                  <div role="columnheader">Source machine</div>
+                  <div role="columnheader">Nayax match</div>
+                  <div role="columnheader">Company / venue</div>
+                  <div role="columnheader">Managers</div>
+                  <div role="columnheader">Last recorded transaction</div>
                   <div role="columnheader" className="text-right">Manage</div>
                 </div>
                 <div role="rowgroup" className="divide-y divide-border bg-background">
@@ -1646,6 +1667,7 @@ export default function AdminMachinesPage() {
                     <MachinePortfolioRow
                       key={row.machine.id}
                       row={row}
+                      metadata={metadataById.get(row.machine.id)}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(row.machine.id)}
                       onEdit={openEditMachine}
                       globalRefunds={refundManagerSetup.globalRefunds}
@@ -1668,6 +1690,7 @@ export default function AdminMachinesPage() {
         </div>
       </section>
 
+      {isSuperAdmin && <div className="container-page mb-8"><Button variant="outline" onClick={() => setShowDiscovery((value) => !value)} aria-expanded={showDiscovery}>{showDiscovery ? 'Close source discovery' : 'Discover source machines'}</Button>{showDiscovery && <AdminReportingPage discoveryOnly />}</div>}
       <MachineDialog
         open={isMachineEditorOpen}
         onOpenChange={closeMachineDialog}
@@ -1708,131 +1731,29 @@ export default function AdminMachinesPage() {
   );
 }
 
-function MachinePortfolioRow({
-  row,
-  isHighlighted,
-  globalRefunds,
-  onEdit,
-}: {
+function MachinePortfolioRow({ row, metadata, isHighlighted, globalRefunds, onEdit }: {
   row: MachineSetupRowViewModel;
+  metadata?: MachineWorkspaceMetadata;
   isHighlighted: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
 }) {
-  const { machine, taxRate, taxStatus, activeAssignments, attentionReasons } = row;
-  const primaryReason = attentionReasons[0];
+  const { machine } = row;
   const refundIsReady = row.refundReadinessState === 'ready_to_refund' && globalRefunds.available;
-  const refundIsDirectBlocked =
-    row.refundReadinessState === 'ready_to_refund' && !globalRefunds.available && !globalRefunds.paused;
-  const refundLabel = globalRefunds.paused
-    ? 'Paused globally'
-    : refundIsReady
-      ? 'Ready'
-      : refundIsDirectBlocked
-          ? 'Direct API blocked'
-      : refundReadinessLabel(row.refundReadinessState);
-  const refundDetail = refundIsDirectBlocked
-    ? 'Direct API is unavailable'
-    : row.refundBlockReason
-      ? refundReasonLabel(row.refundBlockReason)
-      : null;
-  const reportingLabel =
-    activeAssignments.length === 0
-      ? 'Not in partner reports'
-      : activeAssignments.length > 1
-        ? `${activeAssignments.length} report assignments`
-        : activeAssignments[0].partnership_name;
-  const taxLabel =
-    activeAssignments.length === 0
-      ? null
-      : taxStatus === 'configured' && taxRate
-        ? `${Number(taxRate.tax_rate_percent).toFixed(2)}% tax`
-        : taxStatus === 'no_tax'
-          ? 'No tax'
-          : 'Tax missing';
-
-  return (
-    <div
-      role="row"
-      className={cn(
-        'grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:items-center',
-        isHighlighted && 'bg-primary/5'
-      )}
-    >
-      <div role="cell" className="min-w-0 xl:col-span-1">
-        <CellLabel>Machine</CellLabel>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate font-semibold text-foreground">{machine.machine_label}</span>
-          {machine.operational_phase === 'setup' && (
-            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>
-          )}
-        </div>
-        <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{machine.location_name || machine.account_name || 'Location not set'}</span>
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">{formatMachineType(machine.machine_type)}</span>
-        </div>
-      </div>
-
-      <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
-        <CellLabel>Attention</CellLabel>
-        {primaryReason ? (
-          <div className="flex min-w-0 items-start gap-2">
-            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-            <div className="min-w-0">
-              <div className="font-medium text-amber-900">{primaryReason.label}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{primaryReason.nextStep}</div>
-              {attentionReasons.length > 1 && (
-                <div className="mt-1 text-xs font-medium text-amber-800">
-                  +{attentionReasons.length - 1} more {attentionReasons.length === 2 ? 'item' : 'items'}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <span className={cn('inline-flex items-center gap-1.5 font-medium', machine.operational_phase === 'setup' ? 'text-amber-800' : 'text-emerald-700')}>
-            {machine.operational_phase === 'setup' ? <CalendarClock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-            {machine.operational_phase === 'setup' ? 'Waiting for launch setup' : 'No setup issues'}
-          </span>
-        )}
-      </div>
-
-      <div role="cell" className="min-w-0 xl:col-span-1">
-        <CellLabel>Refunds</CellLabel>
-        <div className={cn('font-medium', refundIsReady && 'text-emerald-700')}>{refundLabel}</div>
-        {!refundIsReady && refundDetail && (
-          <div className="mt-0.5 text-xs text-muted-foreground">{refundDetail}</div>
-        )}
-      </div>
-
-      <div role="cell" className="hidden min-w-0 xl:block">
-        <CellLabel>Reporting</CellLabel>
-        <div className="truncate font-medium text-foreground">{reportingLabel}</div>
-        {taxLabel && (
-          <div className={cn('mt-0.5 text-xs text-muted-foreground', taxStatus === 'missing' && 'text-amber-700')}>
-            {taxLabel}
-          </div>
-        )}
-      </div>
-
-      <div role="cell" className="hidden min-w-0 xl:block">
-        <CellLabel>Activity</CellLabel>
-        <div className="font-medium text-foreground">
-          {machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales yet'}
-        </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">
-          {machine.operational_phase === 'setup' ? 'Setup — available for Timekeeping' : formatLabel(machine.operational_phase || machine.status || 'unknown')}
-        </div>
-      </div>
-
-      <div role="cell" className="flex items-end justify-end xl:justify-end">
-        <Button variant="outline" className="min-h-11" onClick={() => onEdit(machine, primaryReason?.tab)}>
-          Manage
-          <ChevronRight className="ml-1.5 h-4 w-4" />
-        </Button>
-      </div>
+  const refundStatus = globalRefunds.paused ? 'Paused globally' : refundIsReady ? 'Ready' : row.refundReadinessState === 'ready_to_refund' ? 'Direct API is unavailable' : refundReadinessLabel(row.refundReadinessState);
+  return <div role="row" className={cn('grid grid-cols-1 gap-4 px-4 py-5 text-sm hover:bg-muted/20 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-start', isHighlighted && 'bg-primary/5')}>
+    <div role="cell" className="min-w-0 break-words">
+      <CellLabel>Source machine</CellLabel>
+      {metadata?.sources.length ? metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mb-2"><p className="font-semibold">{source.name || 'Unnamed source machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="font-medium">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
+      <p className="mt-1 text-xs text-muted-foreground">Hub: {machine.machine_label} · {formatMachineType(machine.machine_type)}</p>
+      {machine.operational_phase === 'setup' && <Badge variant="outline" className="mt-2 border-amber-300 text-amber-900">Provisional</Badge>}
     </div>
-  );
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{metadata?.nayaxMachineId ? metadata.nayaxName || 'Unnamed Nayax record' : metadata ? 'Not matched' : 'Mapping data unavailable'}</p>{metadata?.nayaxMachineId && <p className="mt-1 text-xs text-muted-foreground">ID {metadata.nayaxMachineId}<br/>Account {metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Company / venue</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-1 text-xs text-muted-foreground">{metadata?.venueLabel || machine.location_name || 'Venue not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}</div>
+    <div role="cell" className="flex justify-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
+  </div>;
 }
 
 function CellLabel({
@@ -2599,6 +2520,7 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const [mappingHasChanges, setMappingHasChanges] = useState(false);
   const { user: assignmentUser } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, assignmentUser?.id], queryFn: fetchCompanyChoices, enabled: open && canEditMachineIdentity, staleTime: 30000 });
   const loadedIdentityKeyRef = useRef('');
@@ -3143,7 +3065,7 @@ function MachineDialog({
     form.operationalPhase !== (machine.operational_phase ?? 'live')
   );
 
-  const hasUnsavedChanges = machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
+  const hasUnsavedChanges = mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
 
   const cancelMachineIdentityChanges = useCallback(() => {
     if (!machine) return;
@@ -3186,6 +3108,7 @@ function MachineDialog({
   }, [refundManagerSetup]);
 
   const discardAllPendingChanges = useCallback(() => {
+    setMappingHasChanges(false);
     cancelMachineIdentityChanges();
     cancelMachineManagerChanges();
     cancelRefundReadinessChanges();
@@ -3351,6 +3274,7 @@ function MachineDialog({
               <h2 id="machine-overview-title" className="text-lg font-semibold text-foreground">Machine details</h2>
               <p className="mt-1 text-sm text-muted-foreground">The identity people use across reporting and support.</p>
             </div>
+            <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />
             {canEditMachineIdentity ? (
               <>
                 <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
@@ -3395,7 +3319,7 @@ function MachineDialog({
           </section>
         )}
 
-        {activeTab === 'managers' && (
+        {(activeTab === 'managers' || activeTab === 'overview') && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-managers-title">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -3527,11 +3451,11 @@ function MachineDialog({
               </div>
               <div>
                 <Label htmlFor="page-nayax-id">Nayax machine ID</Label>
-                <Input id="page-nayax-id" value={nayaxMachineId} onChange={(event) => setNayaxMachineId(event.target.value)} placeholder="Required for transaction lookup" />
+                <Input id="page-nayax-id" value={nayaxMachineId} readOnly aria-readonly="true" placeholder="Choose imported record in Source ↔ Nayax match" />
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="page-nayax-account">Nayax account key</Label>
-                <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Exact account from the reviewed Nayax mapping" />
+                <Input id="page-nayax-account" value={nayaxAccountKey} readOnly aria-readonly="true" placeholder="Account is selected automatically" />
                 <p className="mt-1 text-xs text-muted-foreground">Required with a machine ID. Use the provider account that actually contains this machine.</p>
               </div>
               {canEditMachineIdentity && refundManagerSetup?.nayaxMachineId && (
@@ -3615,7 +3539,7 @@ function MachineDialog({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen && !confirmDiscardPendingChanges()) return; if (!nextOpen) discardAllPendingChanges(); onOpenChange(nextOpen); }}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={(event) => { if (event.target instanceof HTMLElement && event.target.id.endsWith('-new-company')) event.preventDefault(); }}>
         <SheetHeader>
           <SheetTitle>
@@ -3627,10 +3551,11 @@ function MachineDialog({
           </SheetTitle>
           <SheetDescription>
             {canEditMachineIdentity
-              ? 'Manage machine identity and company. Report membership is assigned from Partnerships, and imported machines with queued sales are set up from Reporting Operations.'
+              ? 'Compare source and Nayax identities, set company and physical venue, and assign managers here. Discover imported sources on Machines.'
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
+        {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>
@@ -4021,7 +3946,7 @@ function MachineDialog({
                   <Input
                     id="nayax-machine-id"
                     value={nayaxMachineId}
-                    onChange={(event) => setNayaxMachineId(event.target.value)}
+                    readOnly aria-readonly="true"
                     placeholder="Required for card lookup"
                     disabled={isSavingMachineChanges}
                   />
@@ -4034,7 +3959,7 @@ function MachineDialog({
                   <Input
                     id="nayax-account-key"
                     value={nayaxAccountKey}
-                    onChange={(event) => setNayaxAccountKey(event.target.value)}
+                    readOnly aria-readonly="true"
                     placeholder="Exact provider account key"
                     disabled={isSavingMachineChanges || !nayaxMachineId.trim()}
                   />
@@ -4065,10 +3990,10 @@ function MachineDialog({
           </>
         )}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button onClick={() => void saveMachine('all')} disabled={mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -4077,6 +4002,7 @@ function MachineDialog({
             {canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
           </Button>
         </SheetFooter>
+        {mappingHasChanges && <p className="mt-2 text-sm text-muted-foreground">Save venue and Nayax match above before saving other machine changes.</p>}
       </SheetContent>
     </Sheet>
   );

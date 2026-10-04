@@ -63,6 +63,8 @@ import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFie
 import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 import { useAuth } from '@/contexts/auth-context';
+import { MachineIdentityMapping } from '@/components/admin/MachineIdentityMapping';
+import { linkSunzeSourceToMachine } from '@/lib/machineWorkspace';
 
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
@@ -231,7 +233,7 @@ const formatStatusVariant = (status: string): 'default' | 'destructive' | 'outli
   return 'outline';
 };
 
-export default function AdminReportingPage() {
+export default function AdminReportingPage({ discoveryOnly = false }: { discoveryOnly?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { user, isSuperAdmin } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: isSuperAdmin, staleTime: 30000 });
@@ -249,6 +251,7 @@ export default function AdminReportingPage() {
   const [isSettingUpMachine, setIsSettingUpMachine] = useState(false);
   const [lastSetupResult, setLastSetupResult] =
     useState<MapSourceMachineToPartnershipResult | null>(null);
+  const [lastMappedMachineId, setLastMappedMachineId] = useState<string | null>(null);
 
   const {
     data: overview,
@@ -315,8 +318,11 @@ export default function AdminReportingPage() {
       ? `${latestSunzeRun.status} / ${formatDate(latestSunzeRun.completed_at ?? latestSunzeRun.created_at)}`
       : 'No sales imports yet';
 
-  const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] }),
+    queryClient.invalidateQueries({ queryKey: ['admin-partnership-reporting-setup'] }),
+    queryClient.invalidateQueries({ queryKey: ['admin-machine-workspace-metadata'] }),
+  ]);
 
   const setupImportedMachine = async (form: ImportedMachineSetupForm) => {
     if (!setupMachine) return;
@@ -375,6 +381,7 @@ export default function AdminReportingPage() {
         });
         toast.success(`${result.machineLabel || 'SnapCase machine'} mapped to ${result.partnershipName}.`);
         setSetupMachine(null);
+        setLastMappedMachineId(result.machineId);
         await refresh();
       } catch (setupError) {
         toast.error(setupError instanceof Error ? setupError.message : 'Unable to map SnapCase machine.');
@@ -425,6 +432,7 @@ export default function AdminReportingPage() {
       });
       toast.success(getImportedMachineSetupSummary(result));
       setLastSetupResult(result);
+      setLastMappedMachineId(result.machineId);
       setSetupMachine(null);
       await Promise.all([
         refresh(),
@@ -517,6 +525,14 @@ export default function AdminReportingPage() {
       setIsCreatingSchedule(false);
     }
   };
+
+  if (discoveryOnly) return <section className="mt-5 space-y-4" aria-label="Imported source discovery">
+    <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Discover source machines</h2><p className="text-sm text-muted-foreground">Review original source identities and connect them to an existing Hub machine before creating another record.</p></div><Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>Refresh sources</Button></div>
+    {error ? <p role="alert">Unable to load source discovery. Refresh to retry.</p> : isLoading ? <LoadingCard/> : <SyncTab importRuns={importRuns} partnerships={partnerships} sunzeMachineQueue={sunzeMachineQueue} snapcaseMachineQueue={snapcaseMachineQueue} refundReviewRows={[]} pendingSunzeMachineCount={pendingSunzeMachineQueue.length} updatingSunzeMachineId={updatingSunzeMachineId} onSetupMachine={(machine) => setSetupMachine({ provider: 'sunze', machine })} onSetupSnapCaseMachine={(machine) => setSetupMachine({ provider: 'snapcase', machine })} setSunzeQueueStatus={setSunzeQueueStatus} discoveryOnly />}
+    {lastSetupResult && <ImportedMachineSetupReceipt result={lastSetupResult} onDismiss={() => setLastSetupResult(null)}/>}
+    {lastMappedMachineId && <MachineIdentityMapping machineId={lastMappedMachineId} canEdit={isSuperAdmin} onSaved={refresh}/>}
+    <ImportedMachineSetupDialog machine={setupMachine} partnerships={partnerships} machines={machines} isSaving={isSettingUpMachine} onOpenChange={(open) => { if (!open) setSetupMachine(null); }} onSave={setupImportedMachine}/>
+  </section>;
 
   return (
     <AppLayout>
@@ -946,6 +962,7 @@ function SyncTab({
   onSetupMachine,
   onSetupSnapCaseMachine,
   setSunzeQueueStatus,
+  discoveryOnly = false,
 }: {
   importRuns: AdminReportingImportRun[];
   partnerships: AdminReportingPartnershipOption[];
@@ -960,6 +977,7 @@ function SyncTab({
     machine: AdminSunzeMachineQueueItem,
     status: 'pending' | 'ignored'
   ) => void;
+  discoveryOnly?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -1072,6 +1090,7 @@ function SyncTab({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:justify-end">
+                  {discoveryOnly && <ExistingSunzeMachineLink sourceMachineId={machine.sunzeMachineId} />}
                   <Button
                     type="button"
                     size="sm"
@@ -1109,18 +1128,36 @@ function SyncTab({
         )}
       </div>
 
-      <RefundReviewPanel rows={refundReviewRows} />
+      {!discoveryOnly && <RefundReviewPanel rows={refundReviewRows} />}
 
-      <div className="rounded-lg border border-border bg-card">
+      {!discoveryOnly && <div className="rounded-lg border border-border bg-card">
         <ListHeader title="Recent Import Runs" count={importRuns.length} />
         {importRuns.length === 0 ? (
           <EmptyRow text="No sales import runs found." />
         ) : (
           importRuns.map((run) => <ImportRunRow key={run.id} run={run} />)
         )}
-      </div>
+      </div>}
     </div>
   );
+}
+
+function ExistingSunzeMachineLink({ sourceMachineId }: { sourceMachineId: string }) {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ['admin-reporting-overview'], queryFn: fetchAdminReportingOverview, staleTime: 30000 });
+  const [machineId, setMachineId] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function link() {
+    if (!machineId || saving) return;
+    setSaving(true);
+    try {
+      await linkSunzeSourceToMachine(machineId, sourceMachineId);
+      await Promise.all(['admin-reporting-overview','admin-partnership-reporting-setup','admin-machine-workspace-metadata'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })));
+      toast.success('Source connected to the existing Hub machine. Open Manage to choose its Nayax match.');
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to connect source.'); }
+    finally { setSaving(false); }
+  }
+  return <div className="max-w-full space-y-2"><Label htmlFor={`existing-sunze-${sourceMachineId}`}>Connect existing Hub machine</Label><select id={`existing-sunze-${sourceMachineId}`} value={machineId} onChange={(event) => setMachineId(event.target.value)} disabled={saving} className="min-h-11 w-full max-w-sm rounded-md border border-input bg-background px-2 text-sm"><option value="">Choose an existing machine</option>{data?.machines.filter((item) => !item.sunze_machine_id || item.sunze_machine_id === sourceMachineId).map((item) => <option key={item.id} value={item.id}>{item.machine_label} · {item.customer_accounts?.name || 'Company unavailable'}</option>)}</select><Button variant="outline" onClick={() => void link()} disabled={!machineId || saving}>{saving ? 'Connecting…' : 'Connect source'}</Button></div>;
 }
 
 function ImportedMachineSetupDialog({

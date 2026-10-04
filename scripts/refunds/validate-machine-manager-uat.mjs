@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ineligibleEmailAlertPreferences } from './fixtures/email-alert-preferences.mjs';
 
@@ -430,6 +431,17 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildMockRefundManagerSetup(state)));
     }
 
+    if (rpcName === 'admin_get_machine_workspace_metadata') {
+      return route.fulfill(jsonResponse(buildMockSetup(state).machines.map(machine => ({
+        machineId: machine.id, venueLabel: null,
+        nayaxMachineId: machine.id === machineId ? state.refundSetup.nayaxMachineId : null,
+        nayaxAccountKey: machine.id === machineId ? state.refundSetup.nayaxAccountKey : null,
+        nayaxName: machine.id === machineId && state.refundSetup.nayaxMachineId ? 'Imported UAT provider identity' : null,
+        lastRecordedTransaction: machine.latest_sale_date, transactionSource: 'sunze_browser',
+        lastSuccessfulSalesImport: now.toISOString(), sources: [],
+      }))));
+    }
+
     if (url.includes('/admin_get_refund_nayax_inventory')) {
       if (!state.nayaxInventory) state.nayaxInventory = {
         lastRun: {
@@ -705,6 +717,10 @@ const createRecorder = () => {
 };
 
 const pathname = (page) => new URL(page.url()).pathname;
+const openRetainedMachineDetail = (page, args, tab = 'overview') => {
+  const demo = new URL(page.url()).searchParams.get('demo') === 'on';
+  return navigateUatPageAfterDrain(page, `${args.appUrl}/admin/machines/${demo ? 'demo-machine-1' : machineId}?tab=${tab}${demo ? '&demo=on' : ''}`, { waitUntil: 'networkidle' });
+};
 
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
@@ -971,10 +987,10 @@ const run = async () => {
     await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
 
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args, 'refunds');
     await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
     recorder.assert(
-      'Manage opens the task named by the primary attention reason',
+      'Existing direct refund-detail URL opens its focused task',
       await page.getByRole('heading', { name: 'Customer refunds' }).isVisible()
     );
     await page.getByRole('button', { name: 'Overview', exact: true }).click();
@@ -1056,7 +1072,7 @@ const run = async () => {
     );
     await page.getByRole('button', { name: 'Remove Type: Snapcase filter' }).click();
     state.machineSavePayload = null;
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args);
     await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
@@ -1177,17 +1193,19 @@ const run = async () => {
       'An unmapped machine does not assume a Nayax provider account',
       await page.locator('#page-nayax-account').inputValue() === ''
     );
+    recorder.assert(
+      'Refund setup cannot bypass exact imported identity selection',
+      !await page.locator('#page-nayax-id').isEditable() && !await page.locator('#page-nayax-account').isEditable()
+    );
+    // The independent unified-workspace journey verifies the imported dropdown
+    // save. This retained refund scenario starts with that identity already saved.
+    state.refundSetup.nayaxMachineId = 'NAYAX-UAT-001';
+    state.refundSetup.nayaxAccountKey = 'TGPACI_USA_DB';
+    await openRetainedMachineDetail(page, args, 'refunds');
+    await page.locator('#page-nayax-id').waitFor();
+    await waitForCondition(async () => await page.locator('#page-nayax-id').inputValue() === 'NAYAX-UAT-001', 'imported identity hydration');
     await machineDialog.getByLabel('Transaction matching').click();
     await page.fill('#page-refund-label', 'Mall Atrium Cotton Candy');
-    await page.fill('#page-nayax-id', 'NAYAX-UAT-001');
-    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
-    await page.getByText('Add the exact Nayax account key for this machine.').waitFor({ timeout: 10000 });
-    recorder.assert(
-      'A new Nayax ID cannot silently inherit another provider account',
-      state.nayaxPayload === null && state.refundIntakePayload === null,
-      JSON.stringify({ nayaxPayload: state.nayaxPayload, refundIntakePayload: state.refundIntakePayload })
-    );
-    await page.fill('#page-nayax-account', 'TGPACI_USA_DB');
     recorder.assert(
       'Refund setup has one explicit section save action',
       (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
@@ -1208,27 +1226,25 @@ const run = async () => {
       JSON.stringify(state.refundIntakePayload)
     );
     recorder.assert(
-      'Nayax lookup setup save targets the edited machine without enabling live refunds',
-      state.nayaxPayload?.p_machine_id === machineId &&
-        state.nayaxPayload?.p_nayax_machine_id === 'NAYAX-UAT-001' &&
-        state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB',
+      'Refund setup retains the saved exact imported identity without activating card refunds',
+      state.nayaxPayload?.p_machine_id === machineId && state.nayaxPayload?.p_nayax_machine_id === 'NAYAX-UAT-001' && state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB' && state.refundSetup.nayaxMachineId === 'NAYAX-UAT-001' && state.refundSetup.nayaxAccountKey === 'TGPACI_USA_DB' && !state.refundSetup.cardRefundsEnabled,
       JSON.stringify(state.nayaxPayload)
     );
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    const readyToActivate = machineRow.getByText('Ready to activate', { exact: true });
+    const readyToActivate = machineRow.getByText('Refunds: Ready to activate', { exact: true });
     await readyToActivate.waitFor({ timeout: 10000 });
     recorder.assert(
-      'Manager emails stay out of the compact Machines list',
-      (await machineRow.getByText(secondManagerEmail).count()) === 0
+      'Saved manager emails appear in the unified Machines list',
+      (await machineRow.getByText(secondManagerEmail).count()) === 1
     );
     recorder.assert(
       'Saved refund readiness is truthful in the Machines list',
-      (await readyToActivate.isVisible()) && (await machineRow.getByText(/Awaiting reviewed activation/i).isVisible())
+      await readyToActivate.isVisible()
     );
 
-    await machineRow.getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const reopenedMachineDialog = page.locator('main');
@@ -1297,10 +1313,10 @@ const run = async () => {
 
     await page.getByRole('link', { name: 'Back to machines' }).click();
     const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    await guardedMachineRow.getByText('Direct API blocked', { exact: true }).waitFor({ timeout: 10000 });
+    await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Guarded Machines row is not labeled Ready',
-      await guardedMachineRow.getByText('Direct API blocked', { exact: true }).isVisible()
+      await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).isVisible()
         && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
     );
     await page.getByText('Filters', { exact: true }).click();
@@ -1314,7 +1330,7 @@ const run = async () => {
     await navigateUatPageAfterDrain(page, directBlockedFilterUrl.toString(), { waitUntil: 'networkidle' });
     recorder.assert(
       'Direct API blocked filter keeps the unavailable machine discoverable',
-      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Direct API blocked', { exact: true }).isVisible()
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Refunds: Direct API is unavailable', { exact: true }).isVisible()
     );
     const allRefundStatesUrl = new URL(page.url());
     allRefundStatesUrl.searchParams.delete('refund');
@@ -1322,7 +1338,7 @@ const run = async () => {
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Refresh' }).click();
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const pausedMachineDialog = page.locator('main');
     await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
@@ -1343,7 +1359,7 @@ const run = async () => {
     state.refundSetup.paymentDisabledReason = 'owner_pause';
     state.refundSetup.readinessState = 'ready_to_activate';
     await page.getByRole('button', { name: 'Refresh' }).click();
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const intentionallyPausedDialog = page.locator('main');
     await intentionallyPausedDialog.getByText(/Off — Paused by owner/i).waitFor({ timeout: 10000 });
@@ -1364,7 +1380,7 @@ const run = async () => {
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
     if (args.skipDemo) {
-      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+      await openRetainedMachineDetail(page, args);
       await page.getByRole('button', { name: /Managers/ }).click();
       await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
       recorder.assert(
@@ -1386,7 +1402,7 @@ const run = async () => {
     );
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
     const demoBannerVisible = await page.getByText(/Machine Manager changes save in this browser only/i).isVisible();
-    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const demoMachineDialog = page.locator('main');
@@ -1465,7 +1481,9 @@ const run = async () => {
   console.log(`Screenshot written to ${path.join(args.artifactDir, 'admin-machines-machine-managers.png')}`);
 };
 
-run().catch((error) => {
+export { installMockSupabaseRoutes, buildMockSetup, mockUser, machineId, valleyMachineId, companyId, mallLocationId, valleyLocationId, firstManagerEmail };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) run().catch((error) => {
   console.error(error);
   process.exit(1);
 });
