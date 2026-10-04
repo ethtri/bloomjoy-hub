@@ -231,7 +231,7 @@ const formatStatusVariant = (status: string): 'default' | 'destructive' | 'outli
   return 'outline';
 };
 
-export default function AdminReportingPage() {
+export default function AdminReportingPage({ discoveryOnly = false }: { discoveryOnly?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { user, isSuperAdmin } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: isSuperAdmin, staleTime: 30000 });
@@ -315,8 +315,11 @@ export default function AdminReportingPage() {
       ? `${latestSunzeRun.status} / ${formatDate(latestSunzeRun.completed_at ?? latestSunzeRun.created_at)}`
       : 'No sales imports yet';
 
-  const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] }),
+    queryClient.invalidateQueries({ queryKey: ['admin-partnership-reporting-setup'] }),
+    queryClient.invalidateQueries({ queryKey: ['admin-machine-workspace-metadata'] }),
+  ]);
 
   const setupImportedMachine = async (form: ImportedMachineSetupForm) => {
     if (!setupMachine) return;
@@ -517,6 +520,13 @@ export default function AdminReportingPage() {
       setIsCreatingSchedule(false);
     }
   };
+
+  if (discoveryOnly) return <section className="mt-5 space-y-4" aria-label="Imported source discovery">
+    <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Discover source machines</h2><p className="text-sm text-muted-foreground">Review original source identities and connect them to an existing Hub machine before creating another record.</p></div><Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>Refresh sources</Button></div>
+    {error ? <p role="alert">Unable to load source discovery. Refresh to retry.</p> : isLoading ? <LoadingCard/> : <SyncTab importRuns={importRuns} partnerships={partnerships} sunzeMachineQueue={sunzeMachineQueue} snapcaseMachineQueue={snapcaseMachineQueue} refundReviewRows={[]} pendingSunzeMachineCount={pendingSunzeMachineQueue.length} updatingSunzeMachineId={updatingSunzeMachineId} onSetupMachine={(machine) => setSetupMachine({ provider: 'sunze', machine })} onSetupSnapCaseMachine={(machine) => setSetupMachine({ provider: 'snapcase', machine })} setSunzeQueueStatus={setSunzeQueueStatus} discoveryOnly />}
+    {lastSetupResult && <ImportedMachineSetupReceipt result={lastSetupResult} onDismiss={() => setLastSetupResult(null)}/>}
+    <ImportedMachineSetupDialog machine={setupMachine} partnerships={partnerships} machines={machines} isSaving={isSettingUpMachine} onOpenChange={(open) => { if (!open) setSetupMachine(null); }} onSave={setupImportedMachine}/>
+  </section>;
 
   return (
     <AppLayout>
@@ -946,6 +956,7 @@ function SyncTab({
   onSetupMachine,
   onSetupSnapCaseMachine,
   setSunzeQueueStatus,
+  discoveryOnly = false,
 }: {
   importRuns: AdminReportingImportRun[];
   partnerships: AdminReportingPartnershipOption[];
@@ -960,6 +971,7 @@ function SyncTab({
     machine: AdminSunzeMachineQueueItem,
     status: 'pending' | 'ignored'
   ) => void;
+  discoveryOnly?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -1109,7 +1121,7 @@ function SyncTab({
         )}
       </div>
 
-      <RefundReviewPanel rows={refundReviewRows} />
+      {!discoveryOnly && <RefundReviewPanel rows={refundReviewRows} />}
 
       <div className="rounded-lg border border-border bg-card">
         <ListHeader title="Recent Import Runs" count={importRuns.length} />

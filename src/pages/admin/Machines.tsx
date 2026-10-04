@@ -93,6 +93,10 @@ import {
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
+import { MachineIdentityMapping, MachineIdentitySummary } from '@/components/admin/MachineIdentityMapping';
+import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
+import { transactionAge, transactionAgeLabel, importFreshnessLabel } from '@/lib/machineTransactionRecency';
+import AdminReportingPage from '@/pages/admin/Reporting';
 import { CompanyManagementSheet } from '@/components/admin/CompanyManagementSheet';
 import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
@@ -113,8 +117,8 @@ type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineTypeFilter = 'all' | CanonicalMachineType;
 type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
-type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
-type MachineSort = 'status' | 'machine' | 'latest_sale';
+type MachineActivityFilter = 'all' | 'recent' | 'no_sales' | 'idle';
+type MachineSort = 'status' | 'machine' | 'latest_sale' | 'oldest';
 type MachineView = 'all' | 'setup' | 'attention' | 'ready';
 type MachineDetailTab = 'overview' | 'refunds' | 'managers' | 'reporting' | 'activity';
 type MachineAttentionReason = {
@@ -339,12 +343,12 @@ const parseRefundFilter = (value: string | null): MachineRefundFilter => {
 };
 
 const parseActivityFilter = (value: string | null): MachineActivityFilter => {
-  if (value === 'recent' || value === 'no_sales') return value;
+  if (value === 'recent' || value === 'no_sales' || value === 'idle') return value;
   return 'all';
 };
 
 const parseMachineSort = (value: string | null): MachineSort => {
-  if (value === 'machine' || value === 'latest_sale') return value;
+  if (value === 'machine' || value === 'latest_sale' || value === 'oldest') return value;
   return 'status';
 };
 
@@ -478,6 +482,9 @@ export default function AdminMachinesPage() {
   const isInventoryRoute = location.pathname.endsWith('/inventory');
   const isDetailRoute = Boolean(routeMachineId) && !isInventoryRoute;
   const isLocalDemoMode = isLocalUatDemoForced();
+  const [showDiscovery, setShowDiscovery] = useState(false);
+  const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: !isLocalDemoMode, staleTime: 30000 });
+  const metadataById = useMemo(() => new Map((workspaceMetadata.data ?? []).map((item) => [item.machineId, item])), [workspaceMetadata.data]);
   const isMachineIdentityEditable = isSuperAdmin;
   const hasScopedMachineLimit = isScopedAdmin && !isSuperAdmin;
   const pendingSourceMachineId =
@@ -603,6 +610,7 @@ export default function AdminMachinesPage() {
       queryClient.invalidateQueries({ queryKey: setupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundNayaxInventoryQueryKey }),
+      queryClient.invalidateQueries({ queryKey: machineWorkspaceQueryKey }),
     ]);
   };
 
@@ -774,9 +782,6 @@ export default function AdminMachinesPage() {
 
   const machineRows = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-    const recentActivityCutoff = new Date();
-    recentActivityCutoff.setDate(recentActivityCutoff.getDate() - 30);
-    const recentActivityDate = recentActivityCutoff.toISOString().slice(0, 10);
 
     return allMachineRows
       .filter((row) => {
@@ -816,8 +821,12 @@ export default function AdminMachinesPage() {
       })
       .filter((row) => {
         if (activityFilter === 'all') return true;
-        if (activityFilter === 'no_sales') return !row.machine.latest_sale_date;
-        return Boolean(row.machine.latest_sale_date && row.machine.latest_sale_date >= recentActivityDate);
+        const metadata = metadataById.get(row.machine.id);
+        if (!metadata) return false;
+        if (activityFilter === 'no_sales') return !metadata.lastRecordedTransaction;
+        const age = transactionAge(metadata.lastRecordedTransaction);
+        if (activityFilter === 'idle') return age !== null && age >= 30;
+        return age !== null && age < 30;
       })
       .filter((row) => {
         if (!normalizedSearch) return true;
@@ -826,6 +835,10 @@ export default function AdminMachinesPage() {
           row.machine.location_name,
           row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
+          metadataById.get(row.machine.id)?.venueLabel ?? '',
+          metadataById.get(row.machine.id)?.nayaxMachineId ?? '',
+          metadataById.get(row.machine.id)?.nayaxAccountKey ?? '',
+          metadataById.get(row.machine.id)?.sources.map((source) => `${source.platform} ${source.name} ${source.id}`).join(' ') ?? '',
           row.machineManagerEmails.join(' '),
           row.activeAssignments.map((assignment) => assignment.partnership_name).join(' '),
         ]
@@ -836,13 +849,14 @@ export default function AdminMachinesPage() {
       .sort((left, right) => {
         if (sort === 'machine') return left.machine.machine_label.localeCompare(right.machine.machine_label);
         if (sort === 'latest_sale') {
-          return (right.machine.latest_sale_date ?? '').localeCompare(left.machine.latest_sale_date ?? '');
+          return (metadataById.get(right.machine.id)?.lastRecordedTransaction ?? '').localeCompare(metadataById.get(left.machine.id)?.lastRecordedTransaction ?? '');
         }
+        if (sort === 'oldest') return (metadataById.get(left.machine.id)?.lastRecordedTransaction ?? '9999').localeCompare(metadataById.get(right.machine.id)?.lastRecordedTransaction ?? '9999');
         const attentionDifference = Number(right.attentionReasons.length > 0) - Number(left.attentionReasons.length > 0);
         if (attentionDifference !== 0) return attentionDifference;
         return left.machine.machine_label.localeCompare(right.machine.machine_label);
       });
-  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter]);
+  }, [activityFilter, allMachineRows, assignmentFilter, machineTypeFilter, refundFilter, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, search, sort, taxFilter, metadataById]);
 
   const visibleMachineRows = useMemo(
     () =>
@@ -959,6 +973,11 @@ export default function AdminMachinesPage() {
   };
 
   const openEditMachine = (machine: PartnershipSetupMachine, tab: MachineDetailTab = 'overview') => {
+    if (!isDetailRoute) {
+      setEditingMachine(machine);
+      setIsMachineDialogOpen(true);
+      return;
+    }
     const returnParams = new URLSearchParams(searchParams);
     returnParams.set('selected', machine.id);
     returnParams.set('scroll', String(Math.round(window.scrollY)));
@@ -1538,8 +1557,9 @@ export default function AdminMachinesPage() {
                       className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="all">All activity</option>
-                      <option value="recent">Sale in the last 30 days</option>
-                      <option value="no_sales">No sales recorded</option>
+                      <option value="recent">Recorded transaction in the last 30 days</option>
+                      <option value="idle">Last recorded transaction &gt;30 days</option>
+                      <option value="no_sales">No transactions recorded</option>
                     </select>
                   </div>
                   <div>
@@ -1553,6 +1573,7 @@ export default function AdminMachinesPage() {
                       <option value="status">Needs attention first</option>
                       <option value="machine">Machine name</option>
                       <option value="latest_sale">Latest activity</option>
+                      <option value="oldest">Oldest recorded transaction first</option>
                     </select>
                   </div>
                   <div className="flex items-end">
@@ -1638,7 +1659,7 @@ export default function AdminMachinesPage() {
                   <div role="columnheader">Attention</div>
                   <div role="columnheader">Refunds</div>
                   <div role="columnheader">Reporting</div>
-                  <div role="columnheader">Activity</div>
+                  <div role="columnheader">Last recorded transaction</div>
                   <div role="columnheader" className="text-right">Manage</div>
                 </div>
                 <div role="rowgroup" className="divide-y divide-border bg-background">
@@ -1646,6 +1667,7 @@ export default function AdminMachinesPage() {
                     <MachinePortfolioRow
                       key={row.machine.id}
                       row={row}
+                      metadata={metadataById.get(row.machine.id)}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(row.machine.id)}
                       onEdit={openEditMachine}
                       globalRefunds={refundManagerSetup.globalRefunds}
@@ -1668,6 +1690,7 @@ export default function AdminMachinesPage() {
         </div>
       </section>
 
+      {isSuperAdmin && <div className="container-page mb-8"><Button variant="outline" onClick={() => setShowDiscovery((value) => !value)} aria-expanded={showDiscovery}>{showDiscovery ? 'Close source discovery' : 'Discover source machines'}</Button>{showDiscovery && <AdminReportingPage discoveryOnly />}</div>}
       <MachineDialog
         open={isMachineEditorOpen}
         onOpenChange={closeMachineDialog}
@@ -1710,11 +1733,13 @@ export default function AdminMachinesPage() {
 
 function MachinePortfolioRow({
   row,
+  metadata,
   isHighlighted,
   globalRefunds,
   onEdit,
 }: {
   row: MachineSetupRowViewModel;
+  metadata?: MachineWorkspaceMetadata;
   isHighlighted: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
@@ -1768,10 +1793,12 @@ function MachinePortfolioRow({
           )}
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{machine.location_name || machine.account_name || 'Location not set'}</span>
+          <span className="truncate">{metadata?.venueLabel || machine.location_name || 'Location not set'} · {machine.account_name}</span>
           <span aria-hidden="true">·</span>
           <span className="shrink-0">{formatMachineType(machine.machine_type)}</span>
         </div>
+        <MachineIdentitySummary metadata={metadata} />
+        <p className="mt-1 break-words text-xs text-muted-foreground">Managers: {row.machineManagerEmails.join(', ') || 'Unassigned'}</p>
       </div>
 
       <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
@@ -1815,11 +1842,12 @@ function MachinePortfolioRow({
         )}
       </div>
 
-      <div role="cell" className="hidden min-w-0 xl:block">
-        <CellLabel>Activity</CellLabel>
+      <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
+        <CellLabel>Last recorded transaction</CellLabel>
         <div className="font-medium text-foreground">
-          {machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales yet'}
+          {metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}
         </div>
+        {metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {metadata.transactionSource || 'Source unknown'}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}
         <div className="mt-0.5 text-xs text-muted-foreground">
           {machine.operational_phase === 'setup' ? 'Setup — available for Timekeeping' : formatLabel(machine.operational_phase || machine.status || 'unknown')}
         </div>
@@ -2599,6 +2627,7 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const [mappingHasChanges, setMappingHasChanges] = useState(false);
   const { user: assignmentUser } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, assignmentUser?.id], queryFn: fetchCompanyChoices, enabled: open && canEditMachineIdentity, staleTime: 30000 });
   const loadedIdentityKeyRef = useRef('');
@@ -3143,7 +3172,7 @@ function MachineDialog({
     form.operationalPhase !== (machine.operational_phase ?? 'live')
   );
 
-  const hasUnsavedChanges = machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
+  const hasUnsavedChanges = mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
 
   const cancelMachineIdentityChanges = useCallback(() => {
     if (!machine) return;
@@ -3351,6 +3380,7 @@ function MachineDialog({
               <h2 id="machine-overview-title" className="text-lg font-semibold text-foreground">Machine details</h2>
               <p className="mt-1 text-sm text-muted-foreground">The identity people use across reporting and support.</p>
             </div>
+            <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />
             {canEditMachineIdentity ? (
               <>
                 <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
@@ -3395,7 +3425,7 @@ function MachineDialog({
           </section>
         )}
 
-        {activeTab === 'managers' && (
+        {(activeTab === 'managers' || activeTab === 'overview') && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-managers-title">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -3631,6 +3661,7 @@ function MachineDialog({
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
+        {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>
