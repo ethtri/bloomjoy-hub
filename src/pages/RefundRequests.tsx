@@ -34,10 +34,12 @@ export default function RefundRequests() {
   const defaults = defaultPeriod();
   const from = params.get('from') ?? defaults.from; const to = params.get('to') ?? defaults.to;
   const machineId = params.get('machine') ?? ''; const caseId = params.get('case');
+  const companyId = params.get('company');
+  const unsupportedCompany = Boolean(companyId && companyId !== 'all');
   const parsedOffset = Number(params.get('offset'));
   const offset = Number.isSafeInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
   const valid = validRefundRequestPeriod(from, to);
-  const state = useRefundRequests({ from, to, machineId, offset }, caseId, valid);
+  const state = useRefundRequests({ from, to, machineId, offset }, caseId, valid, !unsupportedCompany);
   const change = (values: Record<string, string | null>) => setParams(previous => { const next = new URLSearchParams(previous); next.set('view', 'requests'); for (const [key, value] of Object.entries(values)) { if (value === null) next.delete(key); else next.set(key, value); } return next; });
   const busy = state.access.isPending || (state.verified && valid && state.machineAllowed && state.list.isPending);
   const detailHeading = useRef<HTMLSpanElement>(null);
@@ -46,6 +48,14 @@ export default function RefundRequests() {
   const noAccess = state.access.isSuccess && !state.access.data.hasAccess;
   const rows = state.requests;
   const canManage = state.access.data?.machines.some(machine => machine.canOpenManagerWorkspace) === true;
+  if (unsupportedCompany) return <AppLayout><section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <h1 className="text-2xl font-semibold tracking-tight">Refunds</h1>
+    <div className="space-y-3 rounded-lg border bg-card p-4 sm:p-6">
+      <h2 className="font-medium">Company filters aren’t available in Requests</h2>
+      <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">Continue without the company filter to view requests for your assigned machines. Your machine and date selections will be kept. You can choose a machine to narrow the list.</p>
+      <Button className="min-h-11 max-w-full whitespace-normal" onClick={() => change({ company: null, offset: null })}>Continue without company filter</Button>
+    </div>
+  </section></AppLayout>;
   return <AppLayout><section className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
     <header className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Refunds</h1><p className="mt-1 text-sm text-muted-foreground">Customer requests for your machines.</p></div><div className="flex flex-wrap gap-2">{state.verified && canManage && <Button asChild variant="outline" className="min-h-11"><Link to="/refunds">Manager queue</Link></Button>}<Button variant="outline" className="min-h-11" onClick={state.refresh} disabled={busy || state.access.isFetching}><RefreshCw className="mr-2 h-4 w-4" aria-hidden="true"/>Refresh</Button></div></header>
     <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]"><div className="col-span-2 min-w-0 sm:col-span-1"><Label htmlFor="refund-request-machine">Machine</Label><select id="refund-request-machine" className="mt-1 flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm" value={machineId} onChange={event => change({ machine: event.target.value || null, offset: null, case: null })}><option value="">All assigned machines</option>{!state.access.isError && state.access.data?.hasAccess && state.access.data.machines.map(machine => <option key={machine.machineId} value={machine.machineId}>{machine.machineLabel}{machine.locationName ? ` · ${machine.locationName}` : ''}</option>)}</select></div><div className="min-w-0"><Label htmlFor="refund-request-from">Received from</Label><Input id="refund-request-from" className="mt-1 min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" type="date" value={from} onChange={event => change({ from: event.target.value, offset: null, case: null })}/></div><div className="min-w-0"><Label htmlFor="refund-request-to">Through</Label><Input id="refund-request-to" className="mt-1 min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" type="date" value={to} onChange={event => change({ to: event.target.value, offset: null, case: null })}/></div></div>

@@ -27,6 +27,10 @@
   requests disclose no case details. Existing manager queue links still work.
 - A user who manages one machine and services another sees the correct per-machine
   view. Technician-only requests never mount the manager workflow or its controls.
+- Open Requests with `company=<synthetic-company-id>`, including a mixed-role
+  direct-case fallback. Explain the unsupported filter before showing requests.
+  Continue without it, preserving machine/date/case selections and current access;
+  reset pagination. Verify recovery with keyboard at desktop, 390px and 320px.
 - Exercise list/detail pagination, machine/date filters, unknown amounts, long
   comments, empty/no-assignment states, load errors/retry and assignment revocation.
   A failed permission recheck hides cached request data. Verify mobile and keyboard.
