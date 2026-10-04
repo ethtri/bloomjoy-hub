@@ -11,3 +11,6 @@ export function importFreshnessLabel(value: string | null, now = Date.now()) {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Import freshness unknown';
   return now - Date.parse(value) > 30 * 3600000 ? 'Import data is stale' : 'Recent import';
 }
+export function transactionSourceLabel(value: string | null) {
+  return ({ sunze_browser: 'Sunze', nayax_scheduled_report: 'Nayax', card_authority_daily: 'Reconciled card sales', manual_csv: 'CSV import', sample_seed: 'Sample data' } as Record<string, string>)[value ?? ''] ?? 'Source unknown';
+}

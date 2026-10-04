@@ -93,9 +93,9 @@ import {
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import { CompanyAssignmentFields } from '@/components/admin/CompanyAssignmentFields';
-import { MachineIdentityMapping, MachineIdentitySummary } from '@/components/admin/MachineIdentityMapping';
+import { MachineIdentityMapping } from '@/components/admin/MachineIdentityMapping';
 import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
-import { transactionAge, transactionAgeLabel, importFreshnessLabel } from '@/lib/machineTransactionRecency';
+import { transactionAge, transactionAgeLabel, importFreshnessLabel, transactionSourceLabel } from '@/lib/machineTransactionRecency';
 import AdminReportingPage from '@/pages/admin/Reporting';
 import { CompanyManagementSheet } from '@/components/admin/CompanyManagementSheet';
 import { validateCompanyAssignment, type SavedCompanyAssignment } from '@/lib/companyAssignment';
@@ -1653,12 +1653,12 @@ export default function AdminMachinesPage() {
               <div role="table" aria-label="Machines">
                 <div
                   role="row"
-                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto] xl:gap-4"
+                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:gap-4"
                 >
-                  <div role="columnheader">Machine</div>
-                  <div role="columnheader">Attention</div>
-                  <div role="columnheader">Refunds</div>
-                  <div role="columnheader">Reporting</div>
+                  <div role="columnheader">Source machine</div>
+                  <div role="columnheader">Nayax match</div>
+                  <div role="columnheader">Company / venue</div>
+                  <div role="columnheader">Managers</div>
                   <div role="columnheader">Last recorded transaction</div>
                   <div role="columnheader" className="text-right">Manage</div>
                 </div>
@@ -1731,136 +1731,28 @@ export default function AdminMachinesPage() {
   );
 }
 
-function MachinePortfolioRow({
-  row,
-  metadata,
-  isHighlighted,
-  globalRefunds,
-  onEdit,
-}: {
+function MachinePortfolioRow({ row, metadata, isHighlighted, globalRefunds, onEdit }: {
   row: MachineSetupRowViewModel;
   metadata?: MachineWorkspaceMetadata;
   isHighlighted: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
 }) {
-  const { machine, taxRate, taxStatus, activeAssignments, attentionReasons } = row;
-  const primaryReason = attentionReasons[0];
+  const { machine } = row;
   const refundIsReady = row.refundReadinessState === 'ready_to_refund' && globalRefunds.available;
-  const refundIsDirectBlocked =
-    row.refundReadinessState === 'ready_to_refund' && !globalRefunds.available && !globalRefunds.paused;
-  const refundLabel = globalRefunds.paused
-    ? 'Paused globally'
-    : refundIsReady
-      ? 'Ready'
-      : refundIsDirectBlocked
-          ? 'Direct API blocked'
-      : refundReadinessLabel(row.refundReadinessState);
-  const refundDetail = refundIsDirectBlocked
-    ? 'Direct API is unavailable'
-    : row.refundBlockReason
-      ? refundReasonLabel(row.refundBlockReason)
-      : null;
-  const reportingLabel =
-    activeAssignments.length === 0
-      ? 'Not in partner reports'
-      : activeAssignments.length > 1
-        ? `${activeAssignments.length} report assignments`
-        : activeAssignments[0].partnership_name;
-  const taxLabel =
-    activeAssignments.length === 0
-      ? null
-      : taxStatus === 'configured' && taxRate
-        ? `${Number(taxRate.tax_rate_percent).toFixed(2)}% tax`
-        : taxStatus === 'no_tax'
-          ? 'No tax'
-          : 'Tax missing';
-
-  return (
-    <div
-      role="row"
-      className={cn(
-        'grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto] xl:items-center',
-        isHighlighted && 'bg-primary/5'
-      )}
-    >
-      <div role="cell" className="min-w-0 xl:col-span-1">
-        <CellLabel>Machine</CellLabel>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="break-words font-semibold text-foreground">{machine.machine_label}</span>
-          {machine.operational_phase === 'setup' && (
-            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>
-          )}
-        </div>
-        <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="break-words">{metadata?.venueLabel || machine.location_name || 'Location not set'} · {machine.account_name}</span>
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">{formatMachineType(machine.machine_type)}</span>
-        </div>
-        <MachineIdentitySummary metadata={metadata} />
-        <p className="mt-1 break-words text-xs text-muted-foreground">Managers: {row.machineManagerEmails.join(', ') || 'Unassigned'}</p>
-      </div>
-
-      <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
-        <CellLabel>Attention</CellLabel>
-        {primaryReason ? (
-          <div className="flex min-w-0 items-start gap-2">
-            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-            <div className="min-w-0">
-              <div className="font-medium text-amber-900">{primaryReason.label}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{primaryReason.nextStep}</div>
-              {attentionReasons.length > 1 && (
-                <div className="mt-1 text-xs font-medium text-amber-800">
-                  +{attentionReasons.length - 1} more {attentionReasons.length === 2 ? 'item' : 'items'}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <span className={cn('inline-flex items-center gap-1.5 font-medium', machine.operational_phase === 'setup' ? 'text-amber-800' : 'text-emerald-700')}>
-            {machine.operational_phase === 'setup' ? <CalendarClock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-            {machine.operational_phase === 'setup' ? 'Waiting for launch setup' : 'No setup issues'}
-          </span>
-        )}
-      </div>
-
-      <div role="cell" className="min-w-0 xl:col-span-1">
-        <CellLabel>Refunds</CellLabel>
-        <div className={cn('font-medium', refundIsReady && 'text-emerald-700')}>{refundLabel}</div>
-        {!refundIsReady && refundDetail && (
-          <div className="mt-0.5 text-xs text-muted-foreground">{refundDetail}</div>
-        )}
-      </div>
-
-      <div role="cell" className="hidden min-w-0 xl:block">
-        <CellLabel>Reporting</CellLabel>
-        <div className="truncate font-medium text-foreground">{reportingLabel}</div>
-        {taxLabel && (
-          <div className={cn('mt-0.5 text-xs text-muted-foreground', taxStatus === 'missing' && 'text-amber-700')}>
-            {taxLabel}
-          </div>
-        )}
-      </div>
-
-      <div role="cell" className="col-span-2 min-w-0 xl:col-span-1">
-        <CellLabel>Last recorded transaction</CellLabel>
-        <div className="font-medium text-foreground">
-          {metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}
-        </div>
-        {metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {metadata.transactionSource || 'Source unknown'}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}
-        <div className="mt-0.5 text-xs text-muted-foreground">
-          {machine.operational_phase === 'setup' ? 'Setup — available for Timekeeping' : formatLabel(machine.operational_phase || machine.status || 'unknown')}
-        </div>
-      </div>
-
-      <div role="cell" className="flex items-end justify-end xl:justify-end">
-        <Button variant="outline" className="min-h-11" onClick={() => onEdit(machine, primaryReason?.tab)}>
-          Manage
-          <ChevronRight className="ml-1.5 h-4 w-4" />
-        </Button>
-      </div>
+  return <div role="row" className={cn('grid grid-cols-1 gap-4 px-4 py-5 text-sm hover:bg-muted/20 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-start', isHighlighted && 'bg-primary/5')}>
+    <div role="cell" className="min-w-0 break-words">
+      <CellLabel>Source machine</CellLabel>
+      {metadata?.sources.length ? metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mb-2"><p className="font-semibold">{source.name || 'Unnamed source machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="font-medium">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
+      <p className="mt-1 text-xs text-muted-foreground">Hub: {machine.machine_label} · {formatMachineType(machine.machine_type)}</p>
+      {machine.operational_phase === 'setup' && <Badge variant="outline" className="mt-2 border-amber-300 text-amber-900">Provisional</Badge>}
     </div>
-  );
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{metadata?.nayaxMachineId ? metadata.nayaxName || 'Unnamed Nayax record' : metadata ? 'Not matched' : 'Mapping data unavailable'}</p>{metadata?.nayaxMachineId && <p className="mt-1 text-xs text-muted-foreground">ID {metadata.nayaxMachineId}<br/>Account {metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundIsReady ? 'Ready' : refundReadinessLabel(row.refundReadinessState)}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Company / venue</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-1 text-xs text-muted-foreground">{metadata?.venueLabel || machine.location_name || 'Venue not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}</div>
+    <div role="cell" className="flex justify-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
+  </div>;
 }
 
 function CellLabel({
@@ -3658,7 +3550,7 @@ function MachineDialog({
           </SheetTitle>
           <SheetDescription>
             {canEditMachineIdentity
-              ? 'Manage machine identity and company. Report membership is assigned from Partnerships, and imported machines with queued sales are set up from Reporting Operations.'
+              ? 'Compare source and Nayax identities, set company and physical venue, and assign managers here. Discover imported sources on Machines.'
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>

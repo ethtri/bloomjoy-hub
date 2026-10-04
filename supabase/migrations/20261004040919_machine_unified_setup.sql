@@ -2,6 +2,22 @@
 alter table public.reporting_machines add column venue_label text
   check (venue_label is null or length(venue_label) <= 300);
 
+-- Refreshing an unchanged pending identity is not withdrawal of a published
+-- mapping. Preserve existing restoration for actual unpublish/exclusion,
+-- identity reassignment, deletion and active-to-inactive transitions.
+do $migration$
+declare definition text;
+begin
+  definition:=replace(pg_get_functiondef('private.sync_nayax_card_authority_from_inventory()'::regprocedure),E'\r\n',E'\n');
+  if strpos(definition, E'or new.reconciliation_state <> ''published''\n      or not new.provider_is_active')=0 then
+    raise exception 'Unexpected inventory authority withdrawal projection';
+  end if;
+  definition:=replace(definition,E'or new.reconciliation_state <> ''published''\n      or not new.provider_is_active',
+    E'or new.reconciliation_state is distinct from old.reconciliation_state\n      or (old.provider_is_active and not new.provider_is_active)');
+  execute definition;
+end;
+$migration$;
+
 create function public.admin_get_machine_workspace_metadata()
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 begin
