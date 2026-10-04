@@ -3,11 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MachineHelp } from '@/components/admin/MachineHelp';
 import { useAuth } from '@/contexts/auth-context';
 import { changeCompanyAssignment, normalizeCompanyName, singleEligibleCompanyId, type CompanyAssignmentDraft, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 
-const controlClass = 'min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
 export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false }: {
@@ -84,14 +85,13 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
 
   return <div className="min-w-0 space-y-4 sm:col-span-2">
     <div className="space-y-1.5">
-      <Label htmlFor={`${id}-company`}>Company</Label>
+      <div className="flex items-center justify-between"><Label htmlFor={`${id}-company`}>Company</Label><MachineHelp label="About company assignment">Used to group this machine in reports and refunds. Shared reporting location and time zone are preserved unless you explicitly change its company assignment.</MachineHelp></div>
       <select ref={companyRef} id={`${id}-company`} aria-describedby={`${id}-company-help`} value={value.accountId} onChange={(event) => chooseCompany(event.target.value)} disabled={disabled || choices.isPending || choices.isError} className={controlClass}>
         <option value="">{choices.isPending && enabled ? 'Loading companies…' : 'Choose company'}</option>
         {value.accountId && !company && <option value={value.accountId}>{saved?.accountName || 'Saved company'} (unavailable)</option>}
         {companies.filter((item) => !item.archivedAt || item.accountId === saved?.accountId || item.accountId === value.accountId).map((item) => <option key={item.accountId} value={item.accountId} disabled={Boolean(item.archivedAt && item.accountId !== saved?.accountId) || (activeTargetsOnly && item.status !== 'active' && item.accountId !== saved?.accountId)}>{item.accountName}{item.archivedAt ? ' (archived)' : item.status !== 'active' ? ' (inactive)' : ''}</option>)}
       </select>
-      <p id={`${id}-company-help`} className="text-xs text-muted-foreground">Used to group this machine in reports and refunds.</p>
-      {value.accountId && <p className="break-words text-sm text-foreground">{company?.accountName || saved?.accountName || 'Saved company'}{company?.archivedAt ? saved?.accountId === value.accountId ? ' (archived, current assignment kept)' : ' (archived, choose another company)' : company?.status !== 'active' && company ? ' (inactive)' : !company ? ' (unavailable)' : ''}</p>}
+      {company?.archivedAt && <p className="text-sm text-muted-foreground">Archived company · current assignment kept</p>}
       {choices.isError && <div role="alert" className="text-sm text-destructive">Unable to load companies. Your draft is preserved. <Button type="button" variant="link" className="min-h-11 px-1" onClick={() => void choices.refetch()}>Retry</Button></div>}
       {choices.isSuccess && !companies.some((item) => !item.archivedAt && (!activeTargetsOnly || item.status === 'active')) && <p className="text-sm text-muted-foreground">No available companies. {choices.data?.canCreateCompany ? 'Add a company, or restore one from Manage companies on Machines.' : 'Ask a Super Admin to set up a company.'}</p>}
       {!disabled && isSuperAdmin && choices.data?.canCreateCompany && !adding && <Button ref={addRef} type="button" variant="link" className="min-h-11 px-0" onClick={() => { setAdding(true); setCreationError(''); }}>Add company</Button>}

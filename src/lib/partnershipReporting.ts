@@ -39,6 +39,7 @@ export type ReportingPartnership = {
 export type PartnershipSetupMachine = {
   id: string;
   machine_label: string;
+  stored_machine_label?: string;
   machine_type: ReportingMachineType;
   sunze_machine_id: string | null;
   status: string;
