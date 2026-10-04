@@ -28,6 +28,40 @@ const session = async ({ width = 1440, manager = false, noAccess = false, empty 
 const fit = async page => assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'No horizontal overflow');
 const noManager = state => assert(!state.rpcCalls.some(call => /get_refund_operations|refund_queue|refund_case_reconciliation/.test(call.rpcName)), 'Read-only view must not fetch privileged workspace');
 try {
+ for (const width of [1440, 390, 320]) for (const manager of [false, true]) await run(`${width}px ${manager ? 'mixed-role case fallback' : 'direct Requests'} explains unsupported company scope before loading`, async () => {
+  const { page, context, state } = await session({ width, manager });
+  try {
+   const params = new URLSearchParams({ view: manager ? 'manage' : 'requests', company: 'synthetic-company', machine: machineId, from: '2026-07-01', to: '2026-07-22', offset: '50', ...(manager ? { case: caseId } : {}) });
+   await page.goto(`${origin}/refunds?${params}`);
+   await page.getByRole('heading', { name: 'Company filters aren’t available in Requests' }).waitFor();
+   assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_requests'), 'Unsupported company scope must not fetch a broader list');
+   assert.equal(await page.getByRole('button', { name: 'View request BJ-1042 for North Atrium' }).count(), 0);
+   noManager(state); await fit(page);
+   await page.screenshot({ path: path.join(output, `company-recovery-${manager ? 'mixed' : 'direct'}-${width}.png`), fullPage: true });
+   const recovery = page.getByRole('button', { name: 'Continue without company filter' });
+   await recovery.focus(); await page.keyboard.press('Enter');
+   await page.getByRole('button', { name: 'View request BJ-1042 for North Atrium' }).waitFor();
+   const recovered = new URL(page.url()).searchParams;
+   assert.equal(recovered.get('company'), null); assert.equal(recovered.get('offset'), null);
+   assert.equal(recovered.get('view'), 'requests'); assert.equal(recovered.get('machine'), machineId);
+   assert.equal(recovered.get('from'), '2026-07-01'); assert.equal(recovered.get('to'), '2026-07-22');
+   assert(state.rpcCalls.some(call => call.rpcName === 'get_refund_requests' && call.body.p_machine_id === machineId && call.body.p_offset === 0));
+   if (manager) { assert.equal(recovered.get('case'), caseId); await page.getByRole('heading', { name: 'Request BJ-1042' }).waitFor(); assert.equal(await page.getByRole('link', { name: 'Open manager workspace' }).count(), 0); }
+   await fit(page); noManager(state);
+   const listCalls = state.rpcCalls.filter(call => call.rpcName === 'get_refund_requests').length;
+   await page.goBack();
+   await page.getByRole('heading', { name: 'Company filters aren’t available in Requests' }).waitFor();
+   assert.equal(await page.getByRole('button', { name: 'View request BJ-1042 for North Atrium' }).count(), 0);
+   assert.equal(await page.getByTestId('refund-request-detail').count(), 0);
+   assert.equal(state.rpcCalls.filter(call => call.rpcName === 'get_refund_requests').length, listCalls, 'Back must not reload broader cached scope');
+  } finally { await context.close(); }
+ });
+ await run('Empty and all-company values preserve normal Requests entry', async () => {
+  for (const company of ['', 'all']) {
+   const { page, context } = await session();
+   try { await page.goto(`${origin}/refunds?view=requests&company=${company}`); await page.getByRole('button', { name: 'View request BJ-1042 for North Atrium' }).waitFor(); assert.equal(await page.getByRole('button', { name: 'Continue without company filter' }).count(), 0); } finally { await context.close(); }
+  }
+ });
  for (const width of [1440, 390, 320]) await run(`${width}px technician list, keyboard details, escaped comment and navigation`, async () => {
   const { page, context, state } = await session({ width });
   try {
