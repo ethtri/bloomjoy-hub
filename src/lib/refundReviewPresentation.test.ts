@@ -133,6 +133,67 @@ Deno.test('amount differences retain provider currency and never invent USD for 
   includes(unknown.uncertainties.find((factor) => factor.key === 'amount')!.label, 'currency unavailable');
 });
 
+Deno.test('partial factors retain known amount and timing caveats without inventing support', () => {
+  const input = candidate();
+  input.matchFactors = [{ key: 'machine', outcome: 'match', label: 'Same machine' }];
+  const model = getRefundReviewEvidence({ candidate: input, customer: {
+    paymentAmountCents: 1000, incidentTimeConfidence: 'rough',
+  } });
+  equal(model.supporting.map((factor) => factor.key), ['machine']);
+  includes(model.uncertainties.find((factor) => factor.key === 'amount')!.label, '$0.60');
+  includes(model.uncertainties.find((factor) => factor.key === 'customer_time_confidence')!.label, 'rough estimate');
+  includes(model.uncertainties.find((factor) => factor.key === 'provider_time')!.label, 'not proof of purchase time');
+  equal(model.conflicts, []);
+});
+
+Deno.test('saved purchase with no factor list still exposes its known amount difference', () => {
+  const model = getRefundReviewEvidence({ selected: { saleAmountCents: 1090, currencyCode: 'USD' },
+    customer: { paymentAmountCents: 1000 } });
+  equal(model.supporting, []);
+  includes(model.uncertainties.find((factor) => factor.key === 'amount')!.label, '$0.90');
+  equal(model.uncertainties.some((factor) => ['provider_time', 'customer_time_confidence'].includes(factor.key)), false);
+});
+
+Deno.test('existing amount and purchase-time explanations are not duplicated', () => {
+  const input = candidate();
+  input.matchFactors = [
+    { key: 'amount', outcome: 'mismatch', label: 'Different amount' },
+    { key: 'incident_time', outcome: 'manual', label: 'Timing cannot identify this purchase' },
+  ];
+  const model = getRefundReviewEvidence({ candidate: input, customer: {
+    paymentAmountCents: 1000, incidentTimeConfidence: 'rough',
+  } });
+  const factors = [...model.supporting, ...model.conflicts, ...model.uncertainties];
+  equal(factors.filter((factor) => factor.key === 'amount').length, 1);
+  equal(factors.filter((factor) => ['incident_time', 'provider_time', 'customer_time_confidence'].includes(factor.key)).length, 1);
+  equal(model.conflicts.map((factor) => factor.key), ['amount']);
+});
+
+Deno.test('known approximation and provider caveats remain distinct and are not duplicated', () => {
+  for (const confidence of ['within_15_minutes', 'within_1_hour']) {
+    const input = candidate();
+    input.matchFactors = [{ key: 'provider_time', outcome: 'manual', label: 'Provider timing is unverified' }];
+    const model = getRefundReviewEvidence({ candidate: input, customer: { incidentTimeConfidence: confidence } });
+    equal(model.uncertainties.filter((factor) => factor.key === 'provider_time').length, 1);
+    includes(model.uncertainties.find((factor) => factor.key === 'customer_time_confidence')!.label,
+      confidence === 'within_15_minutes' ? '15 minutes' : '1 hour');
+  }
+});
+
+Deno.test('equal amounts and missing or exact timing do not manufacture caveats or matches', () => {
+  for (const confidence of [undefined, 'exact', 'legacy_unknown']) {
+    const model = getRefundReviewEvidence({ candidate: { amountCents: 1000, currencyCode: 'USD', matchFactors: [] },
+      customer: { paymentAmountCents: 1000, incidentTimeConfidence: confidence } });
+    equal(model.supporting, []);
+    equal(model.uncertainties.map((factor) => factor.key), ['card_network']);
+  }
+  const comparable = getRefundReviewEvidence({ candidate: { amountDeltaCents: 0,
+    timeEvidence: { ...candidate().timeEvidence!, occurrenceComparable: true }, matchFactors: [] },
+    customer: { incidentTimeConfidence: 'exact' } });
+  equal(comparable.supporting, []);
+  equal(comparable.uncertainties.map((factor) => factor.key), ['card_network']);
+});
+
 Deno.test('selection events remain unbound history and never identify a current manager or rationale', () => {
   const model = getRefundSelectionPresentation({
     evidenceSource: 'nayax_last_sales', recommendationState: 'manager_confirmed', events: [

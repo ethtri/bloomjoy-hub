@@ -65,6 +65,23 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
   const comparableTime = evidence.timeEvidence?.occurrenceComparable === true;
   const approximateTime = customer?.incidentTimeConfidence !== 'exact';
   const factors = [...(evidence.matchFactors ?? [])];
+  // Partial or older factor lists must not hide differences established by the saved values.
+  if (finite(amountDelta) && amountDelta !== 0 && !factors.some((factor) => factor.key === 'amount')) {
+    factors.push({ key: 'amount', outcome: 'manual', label: 'Reported and provider amounts differ' });
+  }
+  const hasPurchaseTimeFactor = factors.some((factor) => ['time', 'incident_time'].includes(factor.key));
+  const customerTimeCaveat = {
+    rough: 'Customer says the purchase time is a rough estimate.',
+    within_15_minutes: 'Customer says the purchase time is within about 15 minutes.',
+    within_1_hour: 'Customer says the purchase time is within about 1 hour.',
+  }[customer?.incidentTimeConfidence ?? ''];
+  if (customerTimeCaveat && !hasPurchaseTimeFactor && !factors.some((factor) => factor.key === 'customer_time_confidence')) {
+    factors.push({ key: 'customer_time_confidence', outcome: 'manual', label: customerTimeCaveat });
+  }
+  if (evidence.timeEvidence?.occurrenceComparable === false && !hasPurchaseTimeFactor &&
+    !factors.some((factor) => ['provider_time', 'machine_time'].includes(factor.key))) {
+    factors.push({ key: 'provider_time', outcome: 'manual', label: 'The Nayax timestamp is supporting evidence, not proof of purchase time.' });
+  }
   // Older saved evidence can omit card-network and digit factors entirely.
   if (!factors.some((factor) => factor.key === 'card_network')) {
     factors.push({ key: 'card_network', outcome: 'missing', label: 'Card network comparison is unavailable' });
