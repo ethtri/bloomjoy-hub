@@ -1653,7 +1653,7 @@ export default function AdminMachinesPage() {
               <div role="table" aria-label="Machines">
                 <div
                   role="row"
-                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:gap-4"
+                  className="hidden border-b border-border bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto] xl:gap-4"
                 >
                   <div role="columnheader">Machine</div>
                   <div role="columnheader">Attention</div>
@@ -1780,20 +1780,20 @@ function MachinePortfolioRow({
     <div
       role="row"
       className={cn(
-        'grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(14rem,1.25fr)_minmax(13rem,1.2fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(8rem,0.7fr)_auto] xl:items-center',
+        'grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-4 text-sm transition-colors hover:bg-muted/20 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto] xl:items-center',
         isHighlighted && 'bg-primary/5'
       )}
     >
       <div role="cell" className="min-w-0 xl:col-span-1">
         <CellLabel>Machine</CellLabel>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate font-semibold text-foreground">{machine.machine_label}</span>
+          <span className="break-words font-semibold text-foreground">{machine.machine_label}</span>
           {machine.operational_phase === 'setup' && (
             <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>
           )}
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{metadata?.venueLabel || machine.location_name || 'Location not set'} · {machine.account_name}</span>
+          <span className="break-words">{metadata?.venueLabel || machine.location_name || 'Location not set'} · {machine.account_name}</span>
           <span aria-hidden="true">·</span>
           <span className="shrink-0">{formatMachineType(machine.machine_type)}</span>
         </div>
@@ -3215,6 +3215,7 @@ function MachineDialog({
   }, [refundManagerSetup]);
 
   const discardAllPendingChanges = useCallback(() => {
+    setMappingHasChanges(false);
     cancelMachineIdentityChanges();
     cancelMachineManagerChanges();
     cancelRefundReadinessChanges();
@@ -3557,11 +3558,11 @@ function MachineDialog({
               </div>
               <div>
                 <Label htmlFor="page-nayax-id">Nayax machine ID</Label>
-                <Input id="page-nayax-id" value={nayaxMachineId} onChange={(event) => setNayaxMachineId(event.target.value)} placeholder="Required for transaction lookup" />
+                <Input id="page-nayax-id" value={nayaxMachineId} readOnly aria-readonly="true" placeholder="Choose imported record in Source ↔ Nayax match" />
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="page-nayax-account">Nayax account key</Label>
-                <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Exact account from the reviewed Nayax mapping" />
+                <Input id="page-nayax-account" value={nayaxAccountKey} readOnly aria-readonly="true" placeholder="Account is selected automatically" />
                 <p className="mt-1 text-xs text-muted-foreground">Required with a machine ID. Use the provider account that actually contains this machine.</p>
               </div>
               {canEditMachineIdentity && refundManagerSetup?.nayaxMachineId && (
@@ -3645,7 +3646,7 @@ function MachineDialog({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen && !confirmDiscardPendingChanges()) return; if (!nextOpen) discardAllPendingChanges(); onOpenChange(nextOpen); }}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl" onEscapeKeyDown={(event) => { if (event.target instanceof HTMLElement && event.target.id.endsWith('-new-company')) event.preventDefault(); }}>
         <SheetHeader>
           <SheetTitle>
@@ -4052,7 +4053,7 @@ function MachineDialog({
                   <Input
                     id="nayax-machine-id"
                     value={nayaxMachineId}
-                    onChange={(event) => setNayaxMachineId(event.target.value)}
+                    readOnly aria-readonly="true"
                     placeholder="Required for card lookup"
                     disabled={isSavingMachineChanges}
                   />
@@ -4065,7 +4066,7 @@ function MachineDialog({
                   <Input
                     id="nayax-account-key"
                     value={nayaxAccountKey}
-                    onChange={(event) => setNayaxAccountKey(event.target.value)}
+                    readOnly aria-readonly="true"
                     placeholder="Exact provider account key"
                     disabled={isSavingMachineChanges || !nayaxMachineId.trim()}
                   />
@@ -4096,7 +4097,7 @@ function MachineDialog({
           </>
         )}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
           <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !form.machineType || isLocalDemoMode}>

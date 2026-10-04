@@ -26,3 +26,7 @@ export async function saveMachineWorkspaceMapping(metadata: MachineWorkspaceMeta
   });
   if (error) throw new Error(error.message);
 }
+export async function linkSunzeSourceToMachine(machineId: string, sourceMachineId: string) {
+  const { error } = await supabaseClient.rpc('admin_link_sunze_source_to_machine', { p_machine_id: machineId, p_source_machine_id: sourceMachineId });
+  if (error) throw new Error(error.message);
+}

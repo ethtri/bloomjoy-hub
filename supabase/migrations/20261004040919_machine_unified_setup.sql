@@ -139,8 +139,31 @@ begin
     'nayaxMachineId',updated.nayax_machine_id,'nayaxAccountKey',updated.nayax_account_key);
 end;
 $$;
-revoke all on function public.admin_get_machine_workspace_metadata(),
+create function public.admin_link_sunze_source_to_machine(p_machine_id uuid,p_source_machine_id text)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare m public.reporting_machines;
+begin
+  if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
+    raise exception 'Super Admin access required' using errcode='42501';
+  end if;
+  select * into m from public.reporting_machines where id=p_machine_id for update;
+  if m.id is null then raise exception 'Machine not found' using errcode='22023'; end if;
+  if nullif(btrim(m.sunze_machine_id),'') is not null and m.sunze_machine_id<>p_source_machine_id then
+    raise exception 'This Hub machine already has a different Sunze source' using errcode='23505';
+  end if;
+  if not exists(select 1 from public.sunze_machine_discoveries where sunze_machine_id=p_source_machine_id) then
+    raise exception 'Imported Sunze source not found' using errcode='22023';
+  end if;
+  if exists(select 1 from public.reporting_machines where sunze_machine_id=p_source_machine_id and id<>m.id) then
+    raise exception 'This Sunze source is already linked to another Hub machine' using errcode='23505';
+  end if;
+  perform public.admin_upsert_reporting_machine_by_id(m.id,m.account_id,m.location_id,m.machine_label,
+    m.machine_type,p_source_machine_id,m.operational_phase,'Explicit discovered Sunze source linked to existing Hub machine',m.account_id,m.location_id);
+  return m.id;
+end;
+$$;
+revoke all on function public.admin_link_sunze_source_to_machine(uuid,text), public.admin_get_machine_workspace_metadata(),
   public.admin_save_machine_workspace_mapping(uuid,text,uuid,text,text,text) from public,anon,authenticated,service_role;
-grant execute on function public.admin_get_machine_workspace_metadata(),
+grant execute on function public.admin_link_sunze_source_to_machine(uuid,text), public.admin_get_machine_workspace_metadata(),
   public.admin_save_machine_workspace_mapping(uuid,text,uuid,text,text,text) to authenticated;
 select pg_notify('pgrst','reload schema');
