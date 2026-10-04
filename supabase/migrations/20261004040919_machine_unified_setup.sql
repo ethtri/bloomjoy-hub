@@ -15,6 +15,9 @@ begin
     'nayaxName',(select machine_name from public.refund_nayax_machine_inventory
       where nayax_machine_id=m.nayax_machine_id
         and account_key=upper(coalesce(nullif(btrim(m.nayax_account_key),''),'TGPACI_USA_DB'))),
+    'nayaxLastTransaction',(select max(sale_date) from public.machine_sales_facts
+      where reporting_machine_id=m.id and source='nayax_scheduled_report'
+        and (transaction_count>0 or coalesce(raw_payload #>> '{_salesAuthorityOriginal,transactionCount}','0') ~ '^[1-9][0-9]*$')),
     'lastRecordedTransaction',last_fact.sale_date,'transactionSource',last_fact.source,
     'transactionImportedAt',last_fact.created_at,
     'lastSuccessfulSalesImport',(select max(completed_at) from public.sales_import_runs
@@ -146,6 +149,7 @@ begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
     raise exception 'Super Admin access required' using errcode='42501';
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('machine-workspace-sunze:'||p_source_machine_id,1742));
   select * into m from public.reporting_machines where id=p_machine_id for update;
   if m.id is null then raise exception 'Machine not found' using errcode='22023'; end if;
   if nullif(btrim(m.sunze_machine_id),'') is not null and m.sunze_machine_id<>p_source_machine_id then

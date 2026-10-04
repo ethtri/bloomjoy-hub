@@ -9,6 +9,7 @@ export type MachineWorkspaceMetadata = {
   machineId: string; venueLabel: string | null; nayaxMachineId: string | null;
   nayaxAccountKey: string | null; lastRecordedTransaction: string | null;
   nayaxName: string | null;
+  nayaxLastTransaction: string | null;
   transactionSource: string | null; transactionImportedAt: string | null;
   lastSuccessfulSalesImport: string | null; sources: MachineSourceIdentity[];
 };

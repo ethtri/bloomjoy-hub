@@ -4100,7 +4100,7 @@ function MachineDialog({
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button onClick={() => void saveMachine('all')} disabled={mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -4109,6 +4109,7 @@ function MachineDialog({
             {canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
           </Button>
         </SheetFooter>
+        {mappingHasChanges && <p className="mt-2 text-sm text-muted-foreground">Save venue and Nayax match above before saving other machine changes.</p>}
       </SheetContent>
     </Sheet>
   );
