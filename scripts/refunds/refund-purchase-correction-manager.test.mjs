@@ -6,9 +6,17 @@ import ts from 'typescript';
 import { webcrypto } from 'node:crypto';
 const source=ts.createSourceFile('Refunds.tsx',fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function load(name,dependencies,sourceFile=source){
- let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(sourceFile)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(sourceFile);
- assert.ok(initializer,`Actual handler ${name} exists`);
- const code=ts.transpile(`const handler=${initializer.getText(sourceFile)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
+ let declaration;
+ function visit(node){
+  if(ts.isVariableDeclaration(node) && (
+   node.name.getText(sourceFile)===name ||
+   (ts.isObjectBindingPattern(node.name) && node.name.elements.some(element=>element.name.getText(sourceFile)===name))
+  )) declaration=node;
+  ts.forEachChild(node,visit);
+ }
+ visit(sourceFile);
+ assert.ok(declaration?.initializer,`Actual handler ${name} exists`);
+ const code=ts.transpile(`const ${declaration.name.getText(sourceFile)}=${declaration.initializer.getText(sourceFile)};globalThis.handler=${name};`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
@@ -51,9 +59,14 @@ vm.runInNewContext(
 const dependencies={...managerModule.exports,...managerPresentationModule.exports,...queueModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`,formatProviderCurrency:(amount,currencyCode)=>`$${(amount/100).toFixed(2)} ${currencyCode}`};
 const freshPersistedSelection = {
  hasMatchedNayaxTransaction:true,officialActionVersion:7,
- selectedNayaxTransaction:{saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
+ selectedNayaxTransaction:{transactionId:'saved-A',saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
 };
 const freshAvailability = {transactionConfirmed:true,caseVersion:7,canIssueCardRefund:true,refundAmountCents:700};
+const purchaseIdentityModule={exports:{}};
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundPurchaseReviewIdentity.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ purchaseIdentityModule,
+);
 const preparedNextWork={schemaVersion:'refund_next_work_v1',isOpen:true,actor:'manager',actionCode:'approve_or_deny_request',actionLabel:'Review the exact saved purchase',lastProgressAt:null,dueAt:null,blocker:null,payloadRedacted:true};
 const preparedLifecycle={stage:'transaction_confirmed',paymentState:'not_requested',managerQueue:{bucket:'ready_to_pay'},nextWork:preparedNextWork};
 test('a late case-save response can update only the case that initiated it',()=>{
@@ -153,30 +166,33 @@ test('current card capability remains visible in the composed manager presentati
   matchedCardSaleAmountCents:1000,
  });
  assert.equal(cardAmountCents,700);
- const comparisonCandidate=load('comparisonCandidate',{
-  selectedCaseHasCurrentCardCapability:true,
+ const savedIdentityDependencies={
+  getRefundPurchaseReviewIdentity:purchaseIdentityModule.exports.getRefundPurchaseReviewIdentity,
   selectedCaseNeedsLegacyPaymentReview:false,
-  activeCandidate:{amountCents:1000,cardLast4:'9999'},
-  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
-  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+  selectedCase:staleOptionalCase,
+  editor:{matchedNayaxCandidateToken:''},
+  hasPersistedSelectedMatch:true,
   selectableComparisonCandidate:null,
-  effectiveCandidates:[],
- });
+  effectiveCandidates:[{candidateToken:'different-purchase',amountCents:1000,cardLast4:'9999'}],
+ };
+ const comparisonCandidate=load('comparisonCandidate',savedIdentityDependencies);
  assert.equal(comparisonCandidate,null);
+ assert.equal(load('selectedTransactionEvidence',savedIdentityDependencies),freshPersistedSelection.selectedNayaxTransaction);
  const exactCandidate={
+  candidateToken:'same-tuple-different-purchase',
   amountCents:700,currencyCode:'USD',authorizedAt:'2026-09-12T18:31:00Z',
   machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242',
  };
  const selectedComparisonCandidate=load('comparisonCandidate',{
-  selectedCaseHasCurrentCardCapability:true,
-  selectedCaseNeedsLegacyPaymentReview:false,
-  activeCandidate:exactCandidate,
-  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
-  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
-  selectableComparisonCandidate:null,
-  effectiveCandidates:[],
+  ...savedIdentityDependencies,effectiveCandidates:[exactCandidate],
  });
- assert.equal(selectedComparisonCandidate,exactCandidate);
+ assert.equal(selectedComparisonCandidate,null,'Matching amount, digits and time cannot bind returned evidence to the saved purchase');
+ const draftIdentityDependencies={
+  ...savedIdentityDependencies,effectiveCandidates:[exactCandidate],
+  editor:{matchedNayaxCandidateToken:exactCandidate.candidateToken},
+ };
+ assert.equal(load('comparisonCandidate',draftIdentityDependencies),exactCandidate);
+ assert.equal(load('selectedTransactionEvidence',draftIdentityDependencies),null,'Draft purchase evidence excludes the saved selection');
  const transactionDecisionPending=load('transactionDecisionPending',{
   selectedCaseHasCurrentCardCapability:true,
   hasSelectedMatch:false,
@@ -325,16 +341,60 @@ test('authoritative unavailable reasons stay disabled with their existing recove
   assert.ok(result.helper.length>10,blockReason);
  }
 });
-test('fresh reread drift makes zero provider execution calls',async()=>{
+test('selection-save confirmation requires acknowledgement of the submitted token at the current version',async()=>{
+ const savedA={id:'case-current',paymentMethod:'card',...freshPersistedSelection};
+ const candidateB={candidateToken:'candidate-B',amountCents:700,currencyCode:'USD',machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242'};
+ // This is the failure boundary: two different transactions share every display field.
+ assert.equal(managerModule.exports.persistedNayaxSelectionMatchesCandidate(savedA.selectedNayaxTransaction,candidateB),true);
+ const receipt={updateApplied:true,selectionApplied:true,officialActionVersion:8,refundReadiness:{transactionConfirmed:true,caseVersion:8}};
+ for(const [label,prepared,freshVersion,confirmed,expectedSuccess] of [
+  ['failed save with identical saved A',null,7,true,false],
+  ['lost response after B committed',null,8,true,false],
+  ['update not applied',{...receipt,updateApplied:false},8,true,false],
+  ['selection not acknowledged',{...receipt,selectionApplied:false},8,true,false],
+  ['missing selection acknowledgement',{updateApplied:true,officialActionVersion:8},8,true,false],
+  ['missing receipt version',{...receipt,officialActionVersion:0},8,true,false],
+  ['missing atomic selection receipt',{...receipt,refundReadiness:null},8,true,false],
+  ['unconfirmed atomic selection receipt',{...receipt,refundReadiness:{transactionConfirmed:false,caseVersion:8}},8,true,false],
+  ['concurrent identical selection between RPC and response',{...receipt,officialActionVersion:9},9,true,false],
+  ['newer selection after acknowledged save',receipt,9,true,false],
+  ['readiness not confirmed',receipt,8,false,false],
+  ['exact submitted selection acknowledged and current',receipt,8,true,true],
+ ]) {
+  const draft={matchedNayaxCandidateToken:'candidate-B'};
+  const freshCase={...savedA,officialActionVersion:freshVersion,selectedNayaxTransaction:{...savedA.selectedNayaxTransaction,transactionId:freshVersion===7?'saved-A':'saved-B'}};
+  let nextEditor=draft;let candidateResets=0;let saves=0;let reads=0;
+  const receipts=[];const successes=[];
+  const handler=load('handlePrepareNayaxSelection',{
+   selectedCase:savedA,editor:draft,nayaxCandidates:[candidateB],selectedNayaxCandidate:()=>candidateB,
+   handleSaveCase:async input=>{saves++;assert.equal(input.matchedNayaxCandidateToken,'candidate-B');return prepared;},
+   readFreshNayaxSelection:async()=>{reads++;return {freshCase,confirmed};},
+   selectedIdRef:{current:savedA.id},setRefundActionReceipt:value=>receipts.push(value),
+   setOfficialActionVersion:()=>{},toEditorState:value=>value,setEditor:value=>{nextEditor=value;},
+   setNayaxCandidates:()=>{candidateResets++;},formatCurrency:dependencies.formatCurrency,
+   toast:{success:value=>successes.push(value),error:()=>{}},
+  });
+  await handler();
+  assert.equal(saves,1,label);
+  assert.equal(successes.length,expectedSuccess?1:0,label);
+  assert.equal(candidateResets,expectedSuccess?1:0,label);
+  assert.equal(nextEditor,expectedSuccess?freshCase:draft,label);
+  assert.equal(receipts.at(-1).title,expectedSuccess?'Transaction saved for manager review':'Transaction save could not be confirmed',label);
+  if(!prepared) assert.equal(reads,0,`${label}: display-field reread cannot establish token identity`);
+ }
+});
+test('fresh reread binds provider execution to the exact saved purchase and version',async()=>{
  const selectedCase={
   id:'case-current',paymentMethod:'card',officialActionVersion:7,
   selectedNayaxTransaction:freshPersistedSelection.selectedNayaxTransaction,
  };
  const editor={clearNayaxMatch:false,matchedNayaxCandidateToken:''};
- for(const [label,freshCase,freshReadiness,confirmed] of [
+ for(const [label,freshCase,freshReadiness,confirmed,expectedExecutions=0] of [
   ['version drift',{...selectedCase,officialActionVersion:8},{...freshAvailability,caseVersion:8},true],
   ['capability revoked',selectedCase,{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'},true],
   ['selection drift',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,saleAmountCents:800}},freshAvailability,true],
+  ['different transaction with identical display fields',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,transactionId:'saved-B'}},freshAvailability,true],
+  ['unchanged exact saved purchase',selectedCase,freshAvailability,true,1],
  ]) {
   let executions=0;let reads=0;
   const handler=load('handleRunNayaxRefund',{
@@ -350,7 +410,7 @@ test('fresh reread drift makes zero provider execution calls',async()=>{
   });
   await handler();
   assert.equal(reads,1,label);
-  assert.equal(executions,0,label);
+  assert.equal(executions,expectedExecutions,label);
  }
 });
 test('RF-423906B2 shape keeps one visible refund action despite optional intake metadata',()=>{

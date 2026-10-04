@@ -28,7 +28,7 @@ test('all completion contact outcomes use one truthful presentation vocabulary',
   }
 });
 
-test('source surfaces do not retain the overstated customer-updated phrase', () => {
+test('completion surfaces do not overstate customer delivery; submitted corrections retain their factual heading', () => {
   for (const file of [
     '../../src/lib/refundManagerState.ts',
     '../../src/lib/refundLifecyclePresentation.ts',
@@ -36,7 +36,21 @@ test('source surfaces do not retain the overstated customer-updated phrase', () 
     '../../src/components/refunds/RefundCustomerDeliveryPanels.tsx',
     '../../src/components/refunds/RefundCustomerMessageHistory.tsx',
   ]) {
-    assert.doesNotMatch(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), /customer updated/i);
+    let source = fs.readFileSync(new URL(file, import.meta.url), 'utf8');
+    if (file.endsWith('/Refunds.tsx')) {
+      const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const correction = parsed.statements.find((statement) => ts.isVariableStatement(statement) &&
+        statement.declarationList.declarations.some((declaration) =>
+          ts.isIdentifier(declaration.name) && declaration.name.text === 'CustomerCorrectionSummary'));
+      assert(correction, 'The customer-origin update must have a distinct correction component');
+      const correctionSource = correction.getText(parsed);
+      assert.match(correctionSource, /const submitted = correction\.state === 'submitted'/);
+      assert.match(correctionSource, /submitted \? 'Customer updated this request'/);
+      // This reports an incoming customer update, not the outcome of Bloomjoy's
+      // outgoing completion email. Keep the delivery-copy ban everywhere else.
+      source = source.slice(0, correction.getFullStart()) + source.slice(correction.end);
+    }
+    assert.doesNotMatch(source, /customer updated/i);
   }
 });
 
