@@ -25,6 +25,8 @@ const sweep = await read('supabase/functions/refund-case-automation-sweep/index.
 const outcome = await read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const official = await read('supabase/functions/_shared/refund-official-action.ts');
 const portal = await read('src/pages/admin/Refunds.tsx');
+const purchaseReview = await read('src/components/refunds/RefundPurchaseReview.tsx');
+const reviewPresentation = await read('src/lib/refundReviewPresentation.ts');
 const outcomeResolutionPanel = await read(
   'src/components/refunds/RefundNayaxOutcomeResolutionPanel.tsx',
 );
@@ -280,7 +282,9 @@ test('routine clear matches are System-preselected while ambiguous selection rem
   assert.match(migration, /create or replace function public\.refund_case_nayax_manager_readiness[\s\S]*?nayax_match_preselected[\s\S]*?approvalContinuationReady',false/);
   assert.match(migration, /Clear System matches are read-only; choose only among ambiguous results/);
   assert.match(sweep, /nayax_clear_match_preselected[\s\S]*?continue;/);
-  assert.match(portal, /System found one clear transaction/);
+  assert.match(portal, /getRefundSelectionPresentation\(\{[\s\S]*?evidenceSource: selectedTransactionEvidence\?\.evidenceSource/);
+  assert.match(purchaseReview, /selection\.sourceLabel/);
+  assert.match(reviewPresentation, /nayax_match_preselected[\s\S]*?History records a System selection/);
   assert.match(migration, /admin_dispute_refund_nayax_preselection_current_user_v1/);
   assert.match(migration, /nayax_match_preselection_disputed[\s\S]*?provider_call_made',false[\s\S]*?approval_created',false/);
   assert.match(migration, /grant execute on function public\.admin_dispute_refund_nayax_preselection_current_user_v1\(uuid,bigint\)[\s\S]*?to authenticated/);

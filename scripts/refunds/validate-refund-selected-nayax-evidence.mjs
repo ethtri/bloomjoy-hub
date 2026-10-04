@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, timeMigration, optionalRationaleMigration, databaseTest, selectionTest, adminUpdate, operations, managerPage, candidateReview, status, workflow, procedure, qa, runbook] =
+const [migration, timeMigration, optionalRationaleMigration, databaseTest, selectionTest, adminUpdate, operations, managerPage, candidateReview, purchaseReview, purchaseTime, reviewPresentation, status, workflow, procedure, qa, runbook] =
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/migrations/20260914193919_refund_candidate_time_semantics.sql'),
@@ -14,6 +14,9 @@ const [migration, timeMigration, optionalRationaleMigration, databaseTest, selec
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
     read('src/components/refunds/RefundTransactionCandidateReview.tsx'),
+    read('src/components/refunds/RefundPurchaseReview.tsx'),
+    read('src/lib/refundPurchaseTimePresentation.ts'),
+    read('src/lib/refundReviewPresentation.ts'),
     read('Docs/CURRENT_STATUS.md'),
     read('Docs/REFUND_WORKFLOW.md'),
     read('Docs/REFUND_AGENT_OPERATIONS.md'),
@@ -21,7 +24,7 @@ const [migration, timeMigration, optionalRationaleMigration, databaseTest, selec
     read('Docs/PRODUCTION_RUNBOOK.md'),
   ]);
 
-const managerUi = `${managerPage}\n${candidateReview}`;
+const managerUi = `${managerPage}\n${candidateReview}\n${purchaseReview}`;
 
 for (const field of [
   'transactionId',
@@ -57,17 +60,19 @@ assert(
 for (const label of [
   'Selected Nayax transaction ID',
   'Copy ID',
-  'Provider-confirmed sale',
-  'Customer-reported time',
+  'Selected purchase',
+  'Customer request',
   'Provider machine clock',
-  'Card or wallet details',
-  'Why this transaction was selected',
+  'Card digits',
+  'Selection details',
 ]) {
   assert(managerUi.includes(label), `Manager evidence card must render ${label}`);
 }
 assert(
   managerUi.includes('navigator.clipboard.writeText') &&
-    managerUi.includes('Do not ask the customer to repeat purchase details.'),
+    managerPage.includes('selected-nayax-transaction-evidence-missing') &&
+    managerPage.includes('Saved purchase details are unavailable') &&
+    managerPage.includes('Review the existing transaction in Nayax'),
   'The manager must be able to copy the ID and missing evidence must remain an internal exception',
 );
 assert(
@@ -125,9 +130,23 @@ assert(
 assert(
   managerUi.includes('refundCandidateTimeSourceDetail') &&
     managerUi.includes('refundCustomerTimeDisplay') &&
-    managerUi.includes('candidate.providerTimestampAt ?? candidate.authorizedAt') &&
-    managerUi.includes('Customer-entered local time · no instant inferred'),
+    purchaseTime.includes('candidate?.providerTimestampAt ?? candidate?.authorizedAt ?? selected?.providerTimestampAt') &&
+    purchaseTime.includes('machineAuthorizationTime ?? selected?.providerAuthorizedAt') &&
+    purchaseTime.includes('Saved machine time; supporting context') &&
+    purchaseTime.includes("machineClockSource === 'native_machine_configuration'") &&
+    managerPage.includes("['ambiguous', 'nonexistent'].includes(refundCase.incidentTimeResolution") &&
+    managerPage.includes('formatRefundLocalDateTime(refundCase.incidentLocalDateTime)'),
   'The manager UI must show bounded source/resolution details, use the explicit provider timestamp, and preserve DST wall-clock input',
+);
+assert(
+  purchaseReview.includes('selected.transactionId') &&
+    purchaseReview.includes('selected?.saleAmountCents') &&
+    purchaseReview.includes('customerTime') &&
+    purchaseReview.includes('selected.machineLabel') &&
+    purchaseReview.includes('selected?.cardLast4') &&
+    purchaseReview.includes('getRefundReviewEvidence({ candidate, selected, customer: refundCase })') &&
+    reviewPresentation.includes('evidence.matchFactors'),
+  'The extracted review must retain the selected sale identity and all match factors beside the customer comparison',
 );
 for (const [name, document] of [
   ['current status', status],

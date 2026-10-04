@@ -107,7 +107,7 @@ export const isRefundCardActionDisabled = (
 ) => ui.busy || ui.demo || ui.hasUnsavedSelection ||
   !hasCurrentRefundCardCapability(refundCase, readiness);
 
-/** Confirm that a fresh server-selected transaction is the browser choice being saved. */
+/** Compare display details only; these fields do not establish transaction identity. */
 export const persistedNayaxSelectionMatchesCandidate = (
   selection: PersistedNayaxSelection | null | undefined,
   candidate: NayaxCandidateSelection | null | undefined,

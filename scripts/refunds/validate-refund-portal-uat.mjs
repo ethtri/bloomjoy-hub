@@ -4584,7 +4584,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       ? 'Current proof-backed projection restores the one Manager decision'
       : 'Old v2 RPC retains case with temporary unavailable action',
     withNextWork
-      ? stateText === 'Selected purchase: $7.00 USD' &&
+      ? stateText === 'Refund decision' &&
         (await page.getByTestId('refund-run-nayax-refund').count()) === 1
       : stateText.includes('Finding the purchase') &&
         (await page.getByTestId('refund-action-status').count()) === 0 &&
@@ -4890,7 +4890,7 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
   recorder.assert(
     'Persisted selection without transaction evidence stays internal and cannot become a Manager decision',
     (await missingEvidencePage.getByTestId('refund-manager-state').innerText()).includes('Finding the purchase') &&
-      (await missingEvidencePage.getByTestId('selected-nayax-transaction-evidence').count()) === 0 &&
+      (await missingEvidencePage.getByTestId('refund-purchase-comparison').count()) === 0 &&
       (await missingEvidencePage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       (await missingEvidencePage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1
   );

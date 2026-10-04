@@ -87,14 +87,11 @@ export function RefundNayaxTransactionRecoveryDetails({
   onClearSelection: () => void;
 }) {
   return (
-    <details className="rounded-md border border-border bg-background p-2">
-      <summary className="cursor-pointer text-xs font-medium text-foreground">
-        Transaction search details
+    <details className="border-t border-border pt-2">
+      <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Selection and search tools
       </summary>
       <div className="mt-3 space-y-2">
-        <p className="text-xs leading-5 text-muted-foreground">
-          Transaction research is read-only here. Bloomjoy runs one automatic check and one retry after a temporary failure.
-        </p>
         <div className="flex flex-wrap gap-2">
           {presentation.retry && (
             <Button

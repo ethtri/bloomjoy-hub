@@ -53,12 +53,12 @@ export function RefundCardManagerDecisionPanel({
       className="space-y-4 border-b border-border px-4 py-5"
     >
       <div>
-        <h3 data-testid="refund-manager-state" className="text-xl font-semibold">
+        <h3 data-testid="refund-manager-state" className="text-base font-semibold">
           {managerState.label}
         </h3>
-        <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
+        {managerState.explanation && <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
           {managerState.explanation}
-        </p>
+        </p>}
         <span data-testid="refund-manager-next-step" className="sr-only">{managerNextStep}</span>
       </div>
       {purchase && <dl data-testid="refund-recommended-purchase" className="grid gap-3 text-sm sm:grid-cols-3">
