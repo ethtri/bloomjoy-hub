@@ -476,6 +476,7 @@ type CustomerMessageResult = {
 type CaseSaveSuccess = {
   customerMessage: CustomerMessageResult;
   updateApplied: boolean;
+  selectionApplied: boolean;
   officialActionVersion: number;
   refundReadiness: RefundReadiness | null;
 };
@@ -4116,14 +4117,14 @@ export default function AdminRefundsPage() {
     const freshCase = freshOverview.cases.find((refundCase) => refundCase.id === caseId) ?? null;
     const freshReadiness = await fetchNayaxCardRefundAvailability(caseId);
     queryClient.setQueryData(['nayax-card-refund-availability', caseId], freshReadiness);
-    const exactCandidateSaved = candidate
+    const candidateDetailsConsistent = candidate
       ? persistedNayaxSelectionMatchesCandidate(freshCase?.selectedNayaxTransaction, candidate)
       : true;
     return {
       freshCase,
       freshReadiness,
       confirmed:
-        exactCandidateSaved &&
+        candidateDetailsConsistent &&
         hasFreshPersistedNayaxSelection(freshCase, freshReadiness),
     };
   };
@@ -4218,6 +4219,7 @@ export default function AdminRefundsPage() {
     return {
       customerMessage: result.customerMessage ?? null,
       updateApplied: result.updateApplied !== false,
+      selectionApplied: result.selectionApplied === true,
       officialActionVersion: nextOfficialActionVersion,
       refundReadiness: result.refundReadiness ?? null,
     };
@@ -4493,16 +4495,16 @@ export default function AdminRefundsPage() {
       }
     );
     try {
+      // Matching display fields cannot identify an alternate purchase. Only the
+      // acknowledgement of this exact candidate token, at the current version,
+      // can confirm that the requested selection was saved.
+      if (!prepared?.updateApplied || !prepared.selectionApplied || prepared.officialActionVersion <= 0) {
+        throw new Error('Selection save was not acknowledged');
+      }
       const reconciliation = await readFreshNayaxSelection(targetCaseId, candidate);
       if (selectedIdRef.current !== targetCaseId) return;
-      if (!reconciliation.confirmed) {
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Transaction was not saved',
-          message: 'No refund, approval, or customer message was submitted. Select the transaction and save it again.',
-        });
-        toast.error('Transaction was not saved. No refund was submitted.');
-        return;
+      if (!reconciliation.confirmed || reconciliation.freshCase?.officialActionVersion !== prepared.officialActionVersion) {
+        throw new Error('Saved selection no longer matches the acknowledged version');
       }
       if (reconciliation.freshCase) {
         setOfficialActionVersion(reconciliation.freshCase.officialActionVersion ?? 0);
@@ -4908,7 +4910,9 @@ export default function AdminRefundsPage() {
       const freshCase = freshSelection.freshCase;
       const freshReadiness = freshSelection.freshReadiness;
       const sameSelection = expectedSelection
-        ? persistedNayaxSelectionMatchesCandidate(
+        ? Boolean(expectedSelection.transactionId) &&
+          freshCase?.selectedNayaxTransaction?.transactionId === expectedSelection.transactionId &&
+          persistedNayaxSelectionMatchesCandidate(
             freshCase?.selectedNayaxTransaction,
             {
               amountCents: expectedSelection.saleAmountCents,

@@ -59,7 +59,7 @@ vm.runInNewContext(
 const dependencies={...managerModule.exports,...managerPresentationModule.exports,...queueModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`,formatProviderCurrency:(amount,currencyCode)=>`$${(amount/100).toFixed(2)} ${currencyCode}`};
 const freshPersistedSelection = {
  hasMatchedNayaxTransaction:true,officialActionVersion:7,
- selectedNayaxTransaction:{saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
+ selectedNayaxTransaction:{transactionId:'saved-A',saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
 };
 const freshAvailability = {transactionConfirmed:true,caseVersion:7,canIssueCardRefund:true,refundAmountCents:700};
 const purchaseIdentityModule={exports:{}};
@@ -341,16 +341,57 @@ test('authoritative unavailable reasons stay disabled with their existing recove
   assert.ok(result.helper.length>10,blockReason);
  }
 });
-test('fresh reread drift makes zero provider execution calls',async()=>{
+test('selection-save confirmation requires acknowledgement of the submitted token at the current version',async()=>{
+ const savedA={id:'case-current',paymentMethod:'card',...freshPersistedSelection};
+ const candidateB={candidateToken:'candidate-B',amountCents:700,currencyCode:'USD',machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242'};
+ // This is the failure boundary: two different transactions share every display field.
+ assert.equal(managerModule.exports.persistedNayaxSelectionMatchesCandidate(savedA.selectedNayaxTransaction,candidateB),true);
+ const receipt={updateApplied:true,selectionApplied:true,officialActionVersion:8};
+ for(const [label,prepared,freshVersion,confirmed,expectedSuccess] of [
+  ['failed save with identical saved A',null,7,true,false],
+  ['lost response after B committed',null,8,true,false],
+  ['update not applied',{...receipt,updateApplied:false},8,true,false],
+  ['selection not acknowledged',{...receipt,selectionApplied:false},8,true,false],
+  ['missing selection acknowledgement',{updateApplied:true,officialActionVersion:8},8,true,false],
+  ['missing receipt version',{...receipt,officialActionVersion:0},8,true,false],
+  ['newer selection after acknowledged save',receipt,9,true,false],
+  ['readiness not confirmed',receipt,8,false,false],
+  ['exact submitted selection acknowledged and current',receipt,8,true,true],
+ ]) {
+  const draft={matchedNayaxCandidateToken:'candidate-B'};
+  const freshCase={...savedA,officialActionVersion:freshVersion,selectedNayaxTransaction:{...savedA.selectedNayaxTransaction,transactionId:freshVersion===7?'saved-A':'saved-B'}};
+  let nextEditor=draft;let candidateResets=0;let saves=0;let reads=0;
+  const receipts=[];const successes=[];
+  const handler=load('handlePrepareNayaxSelection',{
+   selectedCase:savedA,editor:draft,nayaxCandidates:[candidateB],selectedNayaxCandidate:()=>candidateB,
+   handleSaveCase:async input=>{saves++;assert.equal(input.matchedNayaxCandidateToken,'candidate-B');return prepared;},
+   readFreshNayaxSelection:async()=>{reads++;return {freshCase,confirmed};},
+   selectedIdRef:{current:savedA.id},setRefundActionReceipt:value=>receipts.push(value),
+   setOfficialActionVersion:()=>{},toEditorState:value=>value,setEditor:value=>{nextEditor=value;},
+   setNayaxCandidates:()=>{candidateResets++;},formatCurrency:dependencies.formatCurrency,
+   toast:{success:value=>successes.push(value),error:()=>{}},
+  });
+  await handler();
+  assert.equal(saves,1,label);
+  assert.equal(successes.length,expectedSuccess?1:0,label);
+  assert.equal(candidateResets,expectedSuccess?1:0,label);
+  assert.equal(nextEditor,expectedSuccess?freshCase:draft,label);
+  assert.equal(receipts.at(-1).title,expectedSuccess?'Transaction saved for manager review':'Transaction save could not be confirmed',label);
+  if(!prepared) assert.equal(reads,0,`${label}: display-field reread cannot establish token identity`);
+ }
+});
+test('fresh reread binds provider execution to the exact saved purchase and version',async()=>{
  const selectedCase={
   id:'case-current',paymentMethod:'card',officialActionVersion:7,
   selectedNayaxTransaction:freshPersistedSelection.selectedNayaxTransaction,
  };
  const editor={clearNayaxMatch:false,matchedNayaxCandidateToken:''};
- for(const [label,freshCase,freshReadiness,confirmed] of [
+ for(const [label,freshCase,freshReadiness,confirmed,expectedExecutions=0] of [
   ['version drift',{...selectedCase,officialActionVersion:8},{...freshAvailability,caseVersion:8},true],
   ['capability revoked',selectedCase,{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'},true],
   ['selection drift',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,saleAmountCents:800}},freshAvailability,true],
+  ['different transaction with identical display fields',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,transactionId:'saved-B'}},freshAvailability,true],
+  ['unchanged exact saved purchase',selectedCase,freshAvailability,true,1],
  ]) {
   let executions=0;let reads=0;
   const handler=load('handleRunNayaxRefund',{
@@ -366,7 +407,7 @@ test('fresh reread drift makes zero provider execution calls',async()=>{
   });
   await handler();
   assert.equal(reads,1,label);
-  assert.equal(executions,0,label);
+  assert.equal(executions,expectedExecutions,label);
  }
 });
 test('RF-423906B2 shape keeps one visible refund action despite optional intake metadata',()=>{

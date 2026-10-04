@@ -2334,14 +2334,15 @@ const runNayaxLookupStatusMatrixChecks = async ({
       (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
     );
     await page.getByTestId('refund-save-transaction-for-review').click();
-    if (failure.expectedPersisted) {
-      // The transport result is deliberately unknowable. Do not infer success
-      // from this page; reopen the case and rely only on the next server read.
-      await page.waitForTimeout(500);
-    } else {
-      await page.getByTestId('refund-action-receipt')
-        .waitFor({ state: 'visible', timeout: 10000 });
-    }
+    // A missing acknowledgement cannot attest to the exact submitted candidate,
+    // including when the server committed before the response was lost.
+    await page.getByTestId('refund-action-receipt')
+      .getByText('Transaction save could not be confirmed', { exact: true })
+      .waitFor({ state: 'visible', timeout: 10000 });
+    recorder.assert(
+      `Selection save ${failure.name} never claims the exact selection was saved without acknowledgement`,
+      (await page.getByText('Transaction saved for manager review', { exact: true }).count()) === 0
+    );
     await navigateRefundPortalPage(
       page,
       `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
