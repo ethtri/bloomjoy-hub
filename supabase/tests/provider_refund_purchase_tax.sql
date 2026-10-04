@@ -37,6 +37,13 @@ select is((select sum(recorded_sales_cents) from private.machine_sales_daily_com
 update public.machine_sales_facts set net_sales_cents=1090 where id='fc760000-0000-4000-8000-000000000001';
 update public.nayax_dtm_export_rows set disposition='fact_linked+refund_applied';
 select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),'2026-08-08'::date,'Original annotation linked to sale and refund retains purchase evidence');
+update public.nayax_dtm_export_rows set provider_type=null,provider_status=62;
+select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),'2026-08-08'::date,'Canonical refunded original with blank Type retains proved purchase');
+update public.nayax_dtm_export_rows set provider_status=99;
+select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),null::date,'Blank Type with unproved sale status supplies no date');
+update public.nayax_dtm_export_rows set provider_type=1,provider_status=62;
+select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),null::date,'Native refund Type is not original sale evidence');
+update public.nayax_dtm_export_rows set provider_type=0;
 -- Partial refund keeps the original purchase date.
 update public.sales_adjustment_facts set amount_cents=545 where id='fc770000-0000-4000-8000-000000000001';
 update public.nayax_provider_refund_events set amount_cents=545 where refund_identity_hash=repeat('2',64);

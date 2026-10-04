@@ -1,7 +1,8 @@
 -- The exact-original lookup otherwise scans all historical DTM rows per refund.
 create index nayax_dtm_original_sale_identity_idx
   on public.nayax_dtm_export_rows(provider_actor_id, provider_machine_id, provider_transaction_id)
-  where provider_type = 0 and settlement_amount_cents > 0
+  where (provider_type = 0 or (provider_type is null and provider_status in (12, 62, 63)))
+    and settlement_amount_cents > 0
     and original_transaction_id is null and disposition in ('fact_linked', 'fact_linked+refund_applied')
     and financial_disposition = 'eligible';
 
@@ -23,7 +24,8 @@ as $$
     on original.provider_actor_id = event.provider_actor_id
    and original.provider_machine_id = event.provider_machine_id
    and original.provider_transaction_id = event.original_transaction_id
-   and original.provider_type = 0
+   and (original.provider_type = 0
+     or (original.provider_type is null and original.provider_status in (12, 62, 63)))
    and original.settlement_amount_cents > 0
    and original.settlement_amount_cents >= event.amount_cents
    and original.original_transaction_id is null
