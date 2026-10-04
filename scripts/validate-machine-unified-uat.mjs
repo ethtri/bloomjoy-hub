@@ -100,6 +100,8 @@ try {
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.getByRole('table', { name: 'Machines' }).waitFor();
   await page.getByText('SUNZE-CC-001', { exact: false }).first().waitFor();
+  check('Portfolio emphasizes source, exact Nayax match and assignment columns', JSON.stringify(await page.getByRole('columnheader').allTextContents()) === JSON.stringify(['Source machine', 'Nayax match', 'Company / venue', 'Managers', 'Last recorded transaction', 'Manage']));
+  check('Transaction source uses a readable provider label', !(await page.getByRole('table').innerText()).includes('sunze_browser'));
   check('Source name and exact ID visible in portfolio', (await page.getByRole('table').innerText()).includes(metadata[0].sources[0].name));
   check('Unknown source/provisional machine retained', (await page.getByRole('table').innerText()).includes('Valley Mall'));
   check('Stale and unknown import states distinguish missing data', (await page.getByRole('table').innerText()).includes('Import data is stale') && (await page.getByRole('table').innerText()).includes('Import freshness unknown'));
@@ -110,6 +112,7 @@ try {
   check('Editing remains on Machines URL', new URL(page.url()).pathname === '/admin/machines');
   await page.locator(`#nayax-search-${machineId}`).waitFor();
   check('Company and managers available beside mapping', (await sheet.innerText()).includes('Company') && (await sheet.innerText()).includes('Machine Managers'));
+  check('Legacy sheet Nayax ID input cannot bypass imported selection', !await page.locator('#nayax-machine-id').isEditable());
   const search = page.locator(`#nayax-search-${machineId}`);
   await search.fill('UAT-NAYAX-002');
   const picker = page.locator(`#nayax-match-${machineId}`);
@@ -203,6 +206,8 @@ try {
   await page.goto(`${appUrl}/admin/machines/${machineId}`);
   await page.getByRole('heading', { name: 'Machine details' }).waitFor();
   check('Existing direct machine URL retains identity editor', await page.locator(`#physical-venue-${machineId}`).isVisible());
+  await page.getByRole('button', { name: 'Refunds', exact: true }).click();
+  check('Existing refunds URL uses saved read-only provider identity', !await page.locator('#page-nayax-id').isEditable() && !await page.locator('#page-nayax-account').isEditable());
   check('No browser errors during synthetic journey', browserErrors.length === 0);
   await writeFile(path.join(artifacts, 'results.json'), JSON.stringify({ results, browserErrors, workspaceSaves, fixtureOnly: true }, null, 2));
 } finally { await context.close(); await browser.close(); }
