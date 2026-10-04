@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ineligibleEmailAlertPreferences } from './fixtures/email-alert-preferences.mjs';
 
@@ -1465,7 +1466,9 @@ const run = async () => {
   console.log(`Screenshot written to ${path.join(args.artifactDir, 'admin-machines-machine-managers.png')}`);
 };
 
-run().catch((error) => {
+export { installMockSupabaseRoutes, buildMockSetup, mockUser, machineId, valleyMachineId, companyId, mallLocationId, valleyLocationId, firstManagerEmail };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) run().catch((error) => {
   console.error(error);
   process.exit(1);
 });
