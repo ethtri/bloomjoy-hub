@@ -22,11 +22,16 @@ insert into public.refund_nayax_machine_inventory(id,account_key,nayax_machine_i
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash) values
  ('aa174203-0000-4000-8000-000000000001','aa174202-0000-4000-8000-000000000001','2026-08-01','cash',1000,1,'manual_csv','fixture-mapping-positive'),
  ('aa174203-0000-4000-8000-000000000001','aa174202-0000-4000-8000-000000000001','2026-10-01','cash',0,0,'manual_csv','fixture-mapping-zero');
+insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,source_order_hash,raw_payload) values
+ ('aa174203-0000-4000-8000-000000000001','aa174202-0000-4000-8000-000000000001','2026-09-01','credit',1200,2,'card_authority_daily','fixture-historical-card-projection','fixture-historical-card-projection','{"authorityStartedOn":"2026-09-01","providerMachineId":"17420001","accountKey":"FIXTURE_A"}'),
+ ('aa174203-0000-4000-8000-000000000001','aa174202-0000-4000-8000-000000000001','2026-09-01','credit',0,0,'nayax_scheduled_report','fixture-historical-nayax-row','fixture-historical-nayax-row','{"providerMachineId":"17420001","accountKey":"FIXTURE_A","_salesAuthorityOriginal":{"netSalesCents":1200,"transactionCount":2,"itemQuantity":2,"taxCents":0}}');
+create temporary table original_card_history as select id,to_jsonb(fact) value from public.machine_sales_facts fact
+ where source_row_hash in ('fixture-historical-card-projection','fixture-historical-nayax-row');
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','aa174200-0000-4000-8000-000000000001',true);
 select lives_ok($$select public.admin_get_machine_workspace_metadata()$$,'Scoped metadata RPC compiles and executes against all relations');
-select ok(public.admin_get_machine_workspace_metadata() @> '[{"machineId":"aa174203-0000-4000-8000-000000000001","lastRecordedTransaction":"2026-08-01","nayaxName":"Original published reader"}]'::jsonb,'Positive transaction recency ignores later zero-sales fact and includes exact imported name');
+select ok(public.admin_get_machine_workspace_metadata() @> '[{"machineId":"aa174203-0000-4000-8000-000000000001","lastRecordedTransaction":"2026-09-01","nayaxName":"Original published reader"}]'::jsonb,'Positive transaction recency ignores later zero-sales fact and includes exact imported name');
 select lives_ok($$select public.admin_save_machine_workspace_mapping('aa174203-0000-4000-8000-000000000001','Great Mall near food court',null,'17420001','FIXTURE_A',null)$$,'Label-only save preserves mapping');
 select is((select name from reporting_locations where id='aa174202-0000-4000-8000-000000000001'),'Shared reporting venue','Free-text placement never renames shared venue');
 select is((select venue_label from reporting_machines where id='aa174203-0000-4000-8000-000000000002'),null::text,'Other machine placement remains untouched');
@@ -44,6 +49,7 @@ select is((select reporting_machine_id from refund_nayax_machine_inventory where
 select is((select reconciliation_state from refund_nayax_machine_inventory where id='aa174204-0000-4000-8000-000000000002'),'needs_setup','Identity matching never publishes new refund eligibility');
 select lives_ok($$update public.refund_nayax_machine_inventory set provider_is_active=true,last_successful_sync_at=now(),missing_successful_snapshots=0 where id='aa174204-0000-4000-8000-000000000002'$$,'Ordinary provider inventory refresh remains allowed');
 select is((select nayax_card_sales_started_on from reporting_machines where id='aa174203-0000-4000-8000-000000000001'),'2026-09-01'::date,'Original accounting boundary survives later ordinary provider refresh');
+select is((select count(*)::int from original_card_history original join public.machine_sales_facts fact on fact.id=original.id where to_jsonb(fact)=original.value),2,'Card-authority projection and original Nayax card evidence remain byte-equivalent after matching and later refresh');
 select is((select refund_intake_enabled from reporting_machines where id='aa174203-0000-4000-8000-000000000001'),true,'Existing intake setting preserved');
 select is((select nayax_refunds_enabled from reporting_machines where id='aa174203-0000-4000-8000-000000000001'),false,'Matching never activates card refunds');
 select is((select reporting_location_id from machine_sales_facts where source_row_hash='fixture-mapping-positive'),'aa174202-0000-4000-8000-000000000001'::uuid,'Historical sale retains original reporting placement');
@@ -56,8 +62,15 @@ select is((select count(*)::int from reporting_machines where account_id='aa1742
 select throws_ok($$select public.admin_link_sunze_source_to_machine('aa174203-0000-4000-8000-000000000003','fixture-source-two')$$,'23505',null,'Same Sunze source cannot link to two physical records');
 select throws_ok($$select public.admin_save_machine_workspace_mapping('aa174203-0000-4000-8000-000000000001','Stale',null,'17420001','FIXTURE_A','Great Mall near food court')$$,'40001',null,'Stale exact account tuple rejected');
 select set_config('request.jwt.claim.sub','aa174200-0000-4000-8000-000000000002',true);
+select throws_ok($$select public.admin_link_sunze_source_to_machine('aa174203-0000-4000-8000-000000000003','fixture-source-two')$$,'42501',null,'Unscoped outsider cannot connect Sunze source');
 select throws_ok($$select public.admin_save_machine_workspace_mapping('aa174203-0000-4000-8000-000000000002','Unauthorized',null,null,null,null)$$,'42501',null,'Non-super-admin cannot save workspace identity');
 select throws_ok($$select public.admin_get_machine_workspace_metadata()$$,'42501',null,'Unscoped outsider cannot read machine workspace');
+insert into public.admin_scoped_access_grants(id,user_id,starts_at,grant_reason) values('aa174205-0000-4000-8000-000000000001','aa174200-0000-4000-8000-000000000002','2020-01-01','Synthetic exact machine scope');
+insert into public.admin_scoped_access_scopes(grant_id,scope_type,machine_id,grant_reason) values('aa174205-0000-4000-8000-000000000001','machine','aa174203-0000-4000-8000-000000000002','Synthetic exact machine scope');
+select ok(public.admin_get_machine_workspace_metadata() @> '[{"machineId":"aa174203-0000-4000-8000-000000000002"}]'::jsonb,'Scoped admin reads granted machine metadata');
+select ok(not (public.admin_get_machine_workspace_metadata() @> '[{"machineId":"aa174203-0000-4000-8000-000000000001"}]'::jsonb),'Scoped metadata cannot disclose another machine source identity');
+select throws_ok($$select public.admin_link_sunze_source_to_machine('aa174203-0000-4000-8000-000000000002','fixture-source-two')$$,'42501',null,'Scoped identity read authority does not authorize source mapping write');
+select throws_ok($$select public.admin_save_machine_workspace_mapping('aa174203-0000-4000-8000-000000000002','Scoped edit',null,null,null,null)$$,'42501',null,'Scoped identity read authority does not authorize exact matching write');
 select set_config('request.jwt.claim.sub','',true);
 select throws_ok($$select public.admin_save_machine_workspace_mapping('aa174203-0000-4000-8000-000000000002','Anonymous',null,null,null,null)$$,'42501',null,'Anonymous cannot save');
 select ok(not has_function_privilege('anon','public.admin_get_machine_workspace_metadata()','EXECUTE'),'Anonymous RPC execution revoked');
