@@ -117,6 +117,8 @@ try {
   check('Search filters imported identities', await picker.locator('option').count() === 2);
   await picker.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
   check('Imported dropdown works by keyboard', await picker.inputValue() === '55555555-5555-4555-8555-555555555552');
+  await search.fill('A search that matches no other imported record');
+  check('Changing search preserves selected exact identity', await picker.inputValue() === '55555555-5555-4555-8555-555555555552');
   check('Exact account and selected provider name readable', (await sheet.innerText()).includes('Selected: SnapCase setup needed') && (await sheet.innerText()).includes('Account UAT_ACCOUNT'));
   const venue = page.locator(`#physical-venue-${machineId}`);
   await venue.fill('Food court beside east entrance');
