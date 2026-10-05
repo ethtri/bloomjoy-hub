@@ -349,7 +349,7 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
         form.mappingMode === 'new' &&
         (!form.accountId || !form.machineLabel.trim() || (!form.locationId && !form.locationName.trim()))
       ) {
-        toast.error('Choose an account and enter the new machine and location details.');
+        toast.error('Choose a company and enter the Machine name and time zone.');
         return;
       }
 
@@ -400,7 +400,7 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
       taxRatePercent < 0 ||
       taxRatePercent > 100
     ) {
-      toast.error('Enter a machine label, location, and reporting tax rate from 0 to 100.');
+      toast.error('Enter a Machine name, machine time zone, and reporting tax rate from 0 to 100.');
       return;
     }
 
@@ -1334,15 +1334,15 @@ function ImportedMachineSetupDialog({
                     .filter(isEligibleExistingSnapCaseMachine)
                     .map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'} — {formatMachineType(item.machine_type)}{item.machine_type !== 'snapcase' ? ' · Nayax linked' : ''}
+                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown company'} — {formatMachineType(item.machine_type)}{item.machine_type !== 'snapcase' ? ' · Nayax linked' : ''}
                     </option>
                   ))}
                 </select>
               </div>
             )}
-            {formInitialized && (!snapcaseMachine || form.mappingMode === 'new') && <CompanyAssignmentFields id="imported-machine" value={form} saved={sunzeMachine ? form.savedAssignment : null} enabled={Boolean(machine)} disabled={isSaving} activeTargetsOnly={Boolean(snapcaseMachine)} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />}
+            {formInitialized && (!snapcaseMachine || form.mappingMode === 'new') && <CompanyAssignmentFields id="imported-machine" internalLocationName={`Unmapped Hub ${snapcaseMachine ? `Kexiaozhan ${snapcaseMachine.providerAccountId} ${snapcaseMachine.sourceMachineId}` : `Sunze ${sunzeMachine?.sunzeMachineId || 'new-machine'}`}`} value={form} saved={sunzeMachine ? form.savedAssignment : null} enabled={Boolean(machine)} disabled={isSaving} activeTargetsOnly={Boolean(snapcaseMachine)} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />}
             {(!snapcaseMachine || form.mappingMode === 'new') && <div>
-              <Label htmlFor="imported-machine-label">Machine label</Label>
+              <Label htmlFor="imported-machine-label">Machine name</Label>
               <Input
                 id="imported-machine-label"
                 value={form.machineLabel}

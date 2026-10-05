@@ -36,6 +36,14 @@ export const changeCompanyAssignment = (
   locationTimezone: saved?.locationTimezone ?? draft.locationTimezone,
 });
 
+// Internal associations are created explicitly; never guess among a company's shared venues.
+export const resolveInternalCompanyAssignment = (
+  draft: CompanyAssignmentDraft, internalName: string, saved?: SavedCompanyAssignment | null,
+): CompanyAssignmentDraft => draft.locationId ? draft : ({
+  ...draft, addLocation: Boolean(draft.accountId), locationName: internalName,
+  locationTimezone: saved?.locationTimezone || draft.locationTimezone,
+});
+
 export const validateCompanyAssignment = (
   draft: CompanyAssignmentDraft,
   companies: CompanyChoice[],
@@ -48,12 +56,12 @@ export const validateCompanyAssignment = (
   const company = companies.find((item) => item.accountId === draft.accountId);
   if (!company || (company.archivedAt && company.accountId !== saved?.accountId) || (activeTargetsOnly && company.status !== 'active')) return 'Choose an available company before saving.';
   if (draft.addLocation) {
-    if (!draft.locationName.trim()) return 'Enter the new location name.';
+    if (!draft.locationName.trim()) return 'Internal machine association unavailable. Reload and retry.';
     try {
-      if (!draft.locationTimezone.trim()) return 'Choose the location time zone.';
-      if (draft.locationTimezone !== 'UTC' && !draft.locationTimezone.includes('/')) return 'Enter a valid IANA location time zone.';
+      if (!draft.locationTimezone.trim()) return 'Choose the machine time zone.';
+      if (draft.locationTimezone !== 'UTC' && !draft.locationTimezone.includes('/')) return 'Choose a valid IANA machine time zone.';
       new Intl.DateTimeFormat('en', { timeZone: draft.locationTimezone });
-    } catch { return 'Enter a valid IANA location time zone.'; }
+    } catch { return 'Choose a valid IANA machine time zone.'; }
     return null;
   }
   const location = company.locations.find((item) => item.locationId === draft.locationId);
