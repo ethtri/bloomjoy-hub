@@ -1,5 +1,5 @@
 <!-- #1751: Machine name replaces redundant location setup -->
-- Machine Manage and detail Overview show Tax rate (or Not set), with existing authorized Set/Change and history actions. Verify the effective-date dialog and readonly scope; Location remains absent (#1753).
+- Machine Manage and detail Overview omit manual tax-rate controls. Admin source diagnostics show verified provenance or unavailable coverage; Location remains absent (#1763 supersedes #1753 tax controls).
 - Machines table, Manage sheet, direct machine detail and imported setup have no Location/Reporting details display or location picker/name input.
 - Unchanged company saves preserve exact internal location/timezone. Company transfer creates its own internal association, never reuses or renames a shared venue. New setup asks only Machine time zone when unknown.
 - Effective Machine name agrees in customer exact-machine choices, sales/finance/refund/partner report rows and exports. Internal association labels never expose generated UUID text; genuine venue aggregates and all IDs, amounts, selection membership and history remain intact.

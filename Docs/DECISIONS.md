@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-10-05 - Source-backed card tax and untaxed cash reporting
+
+- For reporting, cash receipts retain the amount collected without a tax
+  deduction: $10 cash is $10 sales. This is the owner's reporting instruction.
+- Card tax comes from verified Nayax source evidence, with the exact account,
+  machine and applicable date preserved. Transaction tax evidence takes
+  precedence over a rate estimate. Current reader observations do not establish
+  historical rates, and an unknown split must not be presented as zero tax.
+- Remove routine editable tax-rate controls from machine management. Keep source
+  provenance and synchronization diagnostics in an admin disclosure. This
+  supersedes the earlier manual reporting-rate configuration workflow.
+- Preserve requested-refund accounting for mall and income reports. Present
+  sales and refund deductions including tax, then remaining tax and net sales
+  excluding tax. Show completed refunds separately for Nayax reconciliation;
+  paying an already recognized request does not deduct it again.
+- Preserve raw imports and saved report snapshots. Corrections affect newly
+  calculated reports and retain dated evidence rather than rewriting source data.
+- Finance's supplied September 2026 confirmations are bounded to that month:
+  White Oaks 8%, Avenues 8%, and Merlin Chicago 7.25%. Other historical rates
+  require source evidence; do not copy a current setting into prior months.
+
 ## 2026-10-03 - Company management and Merlin ownership
 
 - Company setup uses the existing canonical account IDs. Admins can rename,
