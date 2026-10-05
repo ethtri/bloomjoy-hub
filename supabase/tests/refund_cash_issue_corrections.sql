@@ -27,6 +27,7 @@ end $$;
 create function pg_temp.cash_scope(n integer,fields text[]) returns jsonb language plpgsql as $$
 declare c public.refund_cases; queued jsonb; claim record;
 begin
+  fields:=public.canonical_refund_follow_up_fields(fields);
   select * into c from public.refund_cases where id=('ec000000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid;
   queued:=public.service_enqueue_refund_manual_message_intent(c.id,c.official_action_version,gen_random_uuid(),'ec000000-0000-4000-8000-000000000004',
     'more_info',c.customer_email,'Clarify this cash request','Please clarify what happened and your cash amounts. [Secure refund correction link included at delivery]',
@@ -34,7 +35,9 @@ begin
   perform public.service_issue_refund_purchase_correction((queued->>'messageId')::uuid,md5('cash-'||n)||md5('cash-'||n),c.deterministic_fact_version);
   select * into claim from public.service_claim_refund_manual_message_deliveries((queued->>'messageId')::uuid,1);
   perform public.service_mark_refund_manual_message_provider_attempt(claim.refund_case_message_id,claim.claim_token);
-  perform public.service_finish_refund_manual_message_delivery(claim.refund_case_message_id,claim.claim_token,'sent','fixture-thread',null,1,'mapped_manager');
+  perform public.service_mark_refund_transactional_delivery_attempt(claim.refund_case_message_id);
+  perform public.service_bind_refund_transactional_delivery(claim.refund_case_message_id,'cash-fixture-accepted-'||n,statement_timestamp());
+  perform public.service_finish_refund_manual_message_delivery(claim.refund_case_message_id,claim.claim_token,'sent','transactional_email',null,1,'mapped_manager');
   return public.service_get_refund_purchase_correction(md5('cash-'||n)||md5('cash-'||n));
 end $$;
 create function pg_temp.cash_submit(n integer,answers jsonb) returns jsonb language sql as $$
@@ -73,7 +76,10 @@ update public.refund_cases set decision='approved',status='cash_zelle_pending',d
 select is(public.refund_purchase_correction_request_fields('ec000000-0000-4000-8001-000000000006'),array['zelle_payment_contact'],'Approved cash requests only payout destination');
 update public.refund_cases set issue_category='other' where id='ec000000-0000-4000-8001-000000000007';
 select ok(not public.refund_purchase_correction_request_fields('ec000000-0000-4000-8001-000000000007') && array['issue_summary','cash_inserted_amount','expected_change_amount'],'Unrelated cash issue does not trigger change questions');
-update public.refund_cases set resolution_method='gift_card' where id='ec000000-0000-4000-8001-000000000008';
+insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
+values('ec000000-0000-4000-8000-000000000008','kemore','cash-fixture',4000,array['ec000000-0000-4000-8000-000000000003']::uuid[],array['Cash fixture'],now()+interval '30 days',true,'Enter the fixture code.');
+update public.refund_cases set resolution_method='gift_card',gift_card_pool_id='ec000000-0000-4000-8000-000000000008',
+  gift_card_value_cents=4000,gift_card_expires_at=now()+interval '30 days',gift_card_state='manager_review' where id='ec000000-0000-4000-8001-000000000008';
 select ok(not 'zelle_payment_contact'=any(public.refund_purchase_correction_request_fields('ec000000-0000-4000-8001-000000000008')),'Gift-card cash does not acquire Zelle');
 select is(pg_temp.cash_scope(8,array['issue_summary','cash_inserted_amount','expected_change_amount'])->>'state','ready','Gift-card cash clarification opens without payout contact');
 select * from finish();

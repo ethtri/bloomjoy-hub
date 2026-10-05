@@ -6,7 +6,7 @@ async (page) => {
   const evidence = [];
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
-    await page.goto(base);
+    await page.goto(`${base}&lang=en`);
     await page.getByRole('heading', { name: 'Update your refund request' }).waitFor();
     for (const field of ['issue_summary','cash_inserted_amount','expected_change_amount']) await page.locator(`#correction-${field}-answer`).selectOption('changed');
     await page.locator('#correction-zelle_payment_contact-answer').selectOption('cannot_provide');
