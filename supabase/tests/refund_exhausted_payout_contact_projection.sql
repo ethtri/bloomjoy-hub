@@ -30,6 +30,8 @@ values('e5800000-0000-4000-8001-000000000001','RF-EXHAUSTED-CONTACT',
 -- Supply the already-established historical question at the missing-fields
 -- seam; purchase matching and question creation are outside this read-model
 -- regression. This replacement and every synthetic row roll back together.
+create temp table original_missing_fields_definition as
+select pg_get_functiondef('public.refund_missing_follow_up_fields(uuid)'::regprocedure) body;
 create or replace function public.refund_missing_follow_up_fields(p_refund_case_id uuid)
 returns text[] language sql stable security definer set search_path='' as $$
   select array['zelle_payment_contact']::text[];
@@ -37,9 +39,9 @@ $$;
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
 
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
-  reason_code,requested_fields,template_version,case_fact_version,status)
+  reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours,status)
 select 'e5800000-0000-4000-8002-000000000001',id,1,repeat('a',64),'missing_information',
-  array['zelle_payment_contact']::text[],'refund_follow_up_v2',deterministic_fact_version,'claimed'
+  array['zelle_payment_contact']::text[],'refund_follow_up_v2',deterministic_fact_version,72,'claimed'
 from public.refund_cases where id='e5800000-0000-4000-8001-000000000001';
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,
   subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
@@ -72,6 +74,84 @@ update public.refund_payout_destination_follow_ups set status='manual_review',
   reminder_sent_at=statement_timestamp()-interval '4 days',escalation_due_at=statement_timestamp()-interval '1 day',
   manual_review_at=statement_timestamp()
 where id='e5800000-0000-4000-8004-000000000001';
+
+-- Restore the real missing-fields function before evaluating any production
+-- chain. The latest actual correction context is bound to the sent reminder,
+-- just as in the saved live symptom. It has no useful response.
+do $$ begin execute (select body from original_missing_fields_definition); end $$;
+insert into public.refund_wallet_correction_contexts(id,refund_case_id,token_hash,version,
+  status,issued_at,expires_at,correction_kind,correction_message_id,
+  correction_fact_version,correction_requested_fields,correction_snapshot)
+select 'e5800000-0000-4000-8005-000000000001',id,repeat('c',64),1,'pending',
+  statement_timestamp()+interval '1 second',statement_timestamp()+interval '1 day',
+  'purchase','e5800000-0000-4000-8003-000000000002',deterministic_fact_version,
+  array['zelle_payment_contact']::text[],'{"zelle_payment_contact":null}'::jsonb
+from public.refund_cases where id='e5800000-0000-4000-8001-000000000001';
+do $prior_projection$
+declare body text; first_anchor integer; second_anchor integer;
+begin
+  body:=replace(pg_get_functiondef('public.refund_customer_outreach_contract(uuid)'::regprocedure),E'\r\n',E'\n');
+  first_anchor:=strpos(body,$a$  if result ->> 'state' = 'waiting_for_customer'$a$);
+  second_anchor:=strpos(body,'  select context.* into context_row');
+  if first_anchor=0 or second_anchor<=first_anchor then raise exception 'Missing exact exhaustion block'; end if;
+  execute replace(left(body,first_anchor-1)||substr(body,second_anchor),
+    'public.refund_customer_outreach_contract(', 'pg_temp.prior_outreach(');
+end;
+$prior_projection$;
+create function pg_temp.actual_chain_probe(mutation text) returns jsonb language plpgsql as $$
+declare observed jsonb;
+begin
+  begin
+    execute mutation;
+    observed:=public.refund_customer_outreach_contract('e5800000-0000-4000-8001-000000000001');
+    raise exception using errcode='P9999',message='Rollback actual-chain input';
+  exception when sqlstate 'P9999' then return observed;
+  end;
+end; $$;
+create temp table integrated_before as select
+  (select jsonb_agg(to_jsonb(c) order by id) from public.refund_cases c) cases,
+  (select jsonb_agg(to_jsonb(m) order by id) from public.refund_case_messages m) messages,
+  (select jsonb_agg(to_jsonb(f) order by id) from public.refund_payout_destination_follow_ups f) followups;
+select pg_temp.require_ok(is(pg_temp.prior_outreach('e5800000-0000-4000-8001-000000000001')->>'state',
+  'waiting_for_customer','Real prior outreach chain reproduces exhausted reminder Customer wait'));
+select pg_temp.require_ok(is(public.refund_customer_outreach_contract('e5800000-0000-4000-8001-000000000001')->>'state',
+  'clarification_exhausted','Actual current missing-fields/outreach chain consumes exact exhaustion'));
+select pg_temp.require_ok(is(public.refund_lifecycle_contract('e5800000-0000-4000-8001-000000000001')#>>'{nextWork,actor}',
+  'agent','Real canonical lifecycle routes exhausted contact to Agent'));
+select pg_temp.require_ok(is(public.refund_lifecycle_contract('e5800000-0000-4000-8001-000000000001')#>>'{nextWork,actionCode}',
+  'research_purchase','Real canonical nextWork does not ask customer to answer'));
+select pg_temp.require_ok(is((select jsonb_agg(to_jsonb(c) order by id) from public.refund_cases c),
+  (select cases from integrated_before),'Real-chain projection changes no business facts'));
+select pg_temp.require_ok(is((select jsonb_agg(to_jsonb(m) order by id) from public.refund_case_messages m),
+  (select messages from integrated_before),'Real-chain projection changes no message or delivery'));
+select pg_temp.require_ok(is((select jsonb_agg(to_jsonb(f) order by id) from public.refund_payout_destination_follow_ups f),
+  (select followups from integrated_before),'Real-chain projection changes no consumed contact budget'));
+select pg_temp.require_ok(isnt(pg_temp.actual_chain_probe($q$
+  update public.refund_wallet_correction_contexts set status='submitted',consumed_at=statement_timestamp(),
+    correction_next_action='review',correction_response='{"zelle_payment_contact":{"disposition":"cannot_provide"}}'
+  where id='e5800000-0000-4000-8005-000000000001'
+$q$)->>'reasonCode','payout_follow_up_exhausted','Real current submitted limitation retains existing reply review'));
+select pg_temp.require_ok(is(pg_temp.actual_chain_probe($q$
+  update public.refund_cases set zelle_payment_contact='saved-destination@example.invalid'
+  where id='e5800000-0000-4000-8001-000000000001';
+  update public.refund_wallet_correction_contexts set status='submitted',consumed_at=statement_timestamp(),
+    correction_resulting_fact_version=(select deterministic_fact_version from public.refund_cases
+      where id='e5800000-0000-4000-8001-000000000001'),
+    correction_response='{"zelle_payment_contact":{"disposition":"changed","value":"saved-destination@example.invalid"}}'
+  where id='e5800000-0000-4000-8005-000000000001'
+$q$)->>'reasonCode','verified_form_response_applied','Real valid submitted destination wins over historical exhaustion'));
+
+insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,
+  eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
+values('e5800000-0000-4000-8006-000000000001','kemore','fixture',1000,
+  array['e5800000-0000-4000-8000-000000000003']::uuid[],array['Exhausted contact fixture'],
+  statement_timestamp()+interval '30 days',false,'Synthetic redemption instructions');
+select pg_temp.require_ok(isnt(pg_temp.actual_chain_probe($q$
+  update public.refund_cases set resolution_method='gift_card',
+    gift_card_pool_id='e5800000-0000-4000-8006-000000000001',gift_card_value_cents=1000,
+    gift_card_expires_at=statement_timestamp()+interval '30 days',gift_card_state='pending_inventory'
+  where id='e5800000-0000-4000-8001-000000000001'
+$q$)->>'reasonCode','payout_follow_up_exhausted','Accepted new gift resolution does not inherit the old payout exhaustion'));
 
 -- Isolate the current outer projection from prior workflow precedence. The
 -- production symptom is this exact delivered-reminder result from that seam;
@@ -159,16 +239,10 @@ select pg_temp.require_ok(is(pg_temp.probe($q$update earlier_outreach set result
   '{state}','"customer_replied"')$q$)->>'state','customer_replied','Existing reply review state is preserved'));
 select pg_temp.require_ok(is(pg_temp.probe($q$update earlier_outreach set result=jsonb_set(result,
   '{state}','"rechecking"')$q$)->>'state','rechecking','Existing structured recheck state is preserved'));
-select pg_temp.require_ok(isnt(pg_temp.probe($q$insert into public.refund_wallet_correction_contexts(
-  refund_case_id,token_hash,version,status,issued_at,expires_at,consumed_at,
-  correction_kind,correction_message_id,correction_fact_version,correction_requested_fields,
-  correction_snapshot,correction_response)
-select id,repeat('b',64),1,'submitted',statement_timestamp()-interval '1 hour',
-  statement_timestamp()+interval '1 hour',statement_timestamp(),
-  'purchase','e5800000-0000-4000-8003-000000000002',deterministic_fact_version,
-  array['zelle_payment_contact']::text[],'{}'::jsonb,
-  '{"zelle_payment_contact":{"disposition":"cannot_provide"}}'::jsonb
-from public.refund_cases where id='e5800000-0000-4000-8001-000000000001'$q$)->>'reasonCode',
+select pg_temp.require_ok(isnt(pg_temp.probe($q$update public.refund_wallet_correction_contexts
+set status='submitted',consumed_at=statement_timestamp(),
+  correction_response='{"zelle_payment_contact":{"disposition":"cannot_provide"}}'
+where id='e5800000-0000-4000-8005-000000000001'$q$)->>'reasonCode',
   'payout_follow_up_exhausted','Current submitted limitation is useful input, not unanswered exhaustion'));
 select pg_temp.require_ok(is(pg_temp.probe($q$update earlier_outreach set result=jsonb_set(result,
   '{requestedFields}','["amount"]')$q$)->>'state','waiting_for_customer','Other correction fields retain original projection'));
