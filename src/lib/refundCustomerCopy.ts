@@ -61,7 +61,6 @@ export const refundSpanishCopy = {
   'Request a refund': 'Solicitar un reembolso',
   'Purchase': 'Compra',
   'Where and when did you make the purchase?': '¿Dónde y cuándo hizo la compra?',
-  'Machine': 'Máquina',
   'Choose a machine': 'Elija una máquina',
   'Loading machines...': 'Cargando máquinas…',
   'Refund form is not open yet': 'El formulario de reembolso aún no está disponible',
