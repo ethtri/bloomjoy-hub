@@ -339,9 +339,6 @@ export function buildMachineDigestEmail(
           )
         }" style="color:${palette.ink};text-decoration:underline;text-decoration-color:${palette.line};text-underline-offset:3px">${label}</a>`
         : label;
-      const location = machine.locationName !== machine.machineLabel
-        ? machine.locationName
-        : "";
       const differentPeriod = machine.dateFrom !== p.dateFrom ||
         machine.dateTo !== p.dateTo;
       const localPeriod = differentPeriod
@@ -355,12 +352,6 @@ export function buildMachineDigestEmail(
         : "";
       rows.push(
         `<tr style="border-bottom:1px solid ${palette.line}"><th scope="row" style="padding:13px 10px;text-align:left;vertical-align:top;font-size:15px;font-weight:500;line-height:1.45;overflow-wrap:anywhere">${name}${
-          location
-            ? `<div class="caption" style="margin-top:3px;color:${palette.muted};font-size:12px;font-weight:400;line-height:1.5">${
-              escape(location)
-            }</div>`
-            : ""
-        }${
           localPeriod
             ? `<div class="caption" style="margin-top:3px;color:${palette.muted};font-size:12px;font-weight:400;line-height:1.5">${
               escape(localPeriod)
