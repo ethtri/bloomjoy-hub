@@ -8,6 +8,13 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Oct5 RF-DC634ED8 exhausted its single delivered legacy payout follow-up, but
+  outreach still projected a customer answer. A narrow exact-message/fact-bound
+  projection repair is in review under #1429; no contact budget or message history
+  changes. RF-5277F2C1 remains an unbound paired-machine request with an oversized
+  read-only response (#1375); the saved failure does not distinguish byte versus
+  record limit, so no machine selection or repeated provider query is justified.
+
 - Personal machine email subscriptions are implemented in #1717: daily briefs
   default on for assigned managers and technicians at 08:00 Pacific; the other
   five alerts default off. #1721 bounds optional ready preparation to subscribed
