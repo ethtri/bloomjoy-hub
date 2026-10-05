@@ -31,6 +31,9 @@ try {
       assert((await main.innerText()).includes('$160.00'));
       assert((await main.innerText()).includes('$17.10'));
       assert((await main.innerText()).includes('$134.00'));
+      const reconciliation = main.locator('section[aria-labelledby="finance-reconciliation-heading"]');
+      assert((await reconciliation.innerText()).includes('$152.00'), 'Inclusive receipts deduct completed money refunds once');
+      assert((await reconciliation.innerText()).includes('$8.00'), 'Completed refunds retain their tax-inclusive amount');
       assert(!await main.getByText('Reporting tax removed', { exact: true }).isVisible(), 'Breakdown starts collapsed');
       assert.equal(await page.locator('#reporting-tender').count(), 0);
       assert.equal(await page.locator('#reporting-comparison').count(), 0);

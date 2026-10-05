@@ -36,6 +36,9 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
   const uncertainAccounting = count('unresolvedSalesCount') + count('unresolvedRefundCount');
   const uncertainPayments = count('unknownPaymentDateCount');
   const uncertainBalance = count('unknownBalanceCount');
+  const grossSales = sourceTotal(rows, 'grossSalesIncludingTaxCents');
+  const completedRefunds = sourceTotal(rows, 'completedRefundIncludingTaxCents');
+  const receiptsAfterRefunds = grossSales == null || completedRefunds == null ? null : grossSales - completedRefunds;
   const download = async () => {
     try {
     const access = await fetchFinanceReportingAccess(); if (!access.hasAccess) throw new Error('Finance report access is unavailable.');
@@ -81,9 +84,9 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
       </details>
       <section aria-labelledby="finance-reconciliation-heading" className="border-b border-border pb-5">
         <h3 id="finance-reconciliation-heading" className="text-lg font-semibold">Completed refund reconciliation</h3>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Use completed refunds to compare with Nayax. This separate view does not change the request deductions used above.</p>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">These totals include card and cash. Nayax reports card activity; compare cash separately. Completed refunds do not change the request deductions above.</p>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-          {[{ label: 'Completed refunds excluding tax', value: sourceTotal(rows, 'completedRefundExTaxCents') }, { label: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') == null ? 'Sales after completed refunds, tax unresolved' : 'Sales after completed refunds, excluding tax', value: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') }].map(item => <div key={item.label} className="flex items-baseline justify-between gap-4"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-right font-medium"><Amount value={item.value}/></dd></div>)}
+          {[{ label: 'Completed refunds including tax', value: completedRefunds }, { label: 'Sales after completed refunds, including tax', value: receiptsAfterRefunds }, { label: 'Completed refunds excluding tax', value: sourceTotal(rows, 'completedRefundExTaxCents') }, { label: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') == null ? 'Sales after completed refunds, tax unresolved' : 'Sales after completed refunds, excluding tax', value: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') }].map(item => <div key={item.label} className="flex items-baseline justify-between gap-4"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-right font-medium"><Amount value={item.value}/></dd></div>)}
         </dl>
       </section>
       <section aria-labelledby="finance-machines-heading"><h3 id="finance-machines-heading" className="text-lg font-semibold">By machine</h3><p className="mt-1 text-sm text-muted-foreground">Select a machine to see its breakdown using the same period.</p>
