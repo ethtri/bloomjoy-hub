@@ -42,6 +42,9 @@ select is(public.service_get_refund_gmail_delivery_health()->>'status','failing'
 select is(public.service_get_refund_workflow_health(true,true,true,false,false,
   array['info@bloomjoysweets.com'])->>'workflowStatus','degraded',
   'The existing coalesced alert pipeline sees Gmail delivery degradation');
+select ok(public.service_get_refund_workflow_health(true,true,true,false,false,
+  array['info@bloomjoysweets.com']) ?& array['customerClarificationDelivery','customerStatusDelivery','customerDelivery'],
+  'Gmail health preserves the current clarification, status, and completion obligations');
 insert into cron.job_run_details (jobid,status,start_time,end_time)
 select jobid,'succeeded',now()-interval '1 minute',now()-interval '1 minute'
 from cron.job where jobname='refund-gmail-sync-primary-v1';
