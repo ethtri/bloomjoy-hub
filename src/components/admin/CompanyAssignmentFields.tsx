@@ -3,14 +3,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MachineHelp } from '@/components/admin/MachineHelp';
 import { useAuth } from '@/contexts/auth-context';
 import { changeCompanyAssignment, normalizeCompanyName, singleEligibleCompanyId, type CompanyAssignmentDraft, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 
-const controlClass = 'min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
-export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false }: {
+export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true }: {
   id: string;
   value: CompanyAssignmentDraft;
   onChange: (value: CompanyAssignmentDraft) => void;
@@ -18,6 +19,7 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
   disabled?: boolean;
   enabled?: boolean;
   activeTargetsOnly?: boolean;
+  autoSelectSingleCompany?: boolean;
 }) {
   // Emit only assignment fields; the containing form owns its other draft and stale-write fields.
   const value = useMemo<CompanyAssignmentDraft>(() => ({ accountId: draft.accountId, locationId: draft.locationId, locationName: draft.locationName, locationTimezone: draft.locationTimezone, addLocation: draft.addLocation }), [draft.accountId, draft.locationId, draft.locationName, draft.locationTimezone, draft.addLocation]);
@@ -47,10 +49,10 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
     if (!enabled) { setAdding(false); setName(''); setMessage(''); setCreationError(''); }
   }, [enabled]);
   useEffect(() => {
-    if (!enabled || saved || value.accountId || !choices.isSuccess || choices.isError) return;
+    if (!autoSelectSingleCompany || !enabled || saved || value.accountId || !choices.isSuccess || choices.isError) return;
     const onlyId = singleEligibleCompanyId(companies, activeTargetsOnly);
     if (onlyId) onChange(changeCompanyAssignment(value, onlyId));
-  }, [enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly]);
+  }, [autoSelectSingleCompany, enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly]);
 
   const chooseCompany = (accountId: string) => onChange(changeCompanyAssignment(value, accountId, saved));
   const selectExisting = () => {
@@ -84,14 +86,13 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
 
   return <div className="min-w-0 space-y-4 sm:col-span-2">
     <div className="space-y-1.5">
-      <Label htmlFor={`${id}-company`}>Company</Label>
+      <div className="flex items-center justify-between"><Label htmlFor={`${id}-company`}>Company</Label><MachineHelp label="About company assignment">Used to group this machine in reports and refunds. Shared reporting location and time zone are preserved unless you explicitly change its company assignment.</MachineHelp></div>
       <select ref={companyRef} id={`${id}-company`} aria-describedby={`${id}-company-help`} value={value.accountId} onChange={(event) => chooseCompany(event.target.value)} disabled={disabled || choices.isPending || choices.isError} className={controlClass}>
         <option value="">{choices.isPending && enabled ? 'Loading companies…' : 'Choose company'}</option>
         {value.accountId && !company && <option value={value.accountId}>{saved?.accountName || 'Saved company'} (unavailable)</option>}
         {companies.filter((item) => !item.archivedAt || item.accountId === saved?.accountId || item.accountId === value.accountId).map((item) => <option key={item.accountId} value={item.accountId} disabled={Boolean(item.archivedAt && item.accountId !== saved?.accountId) || (activeTargetsOnly && item.status !== 'active' && item.accountId !== saved?.accountId)}>{item.accountName}{item.archivedAt ? ' (archived)' : item.status !== 'active' ? ' (inactive)' : ''}</option>)}
       </select>
-      <p id={`${id}-company-help`} className="text-xs text-muted-foreground">Used to group this machine in reports and refunds.</p>
-      {value.accountId && <p className="break-words text-sm text-foreground">{company?.accountName || saved?.accountName || 'Saved company'}{company?.archivedAt ? saved?.accountId === value.accountId ? ' (archived, current assignment kept)' : ' (archived, choose another company)' : company?.status !== 'active' && company ? ' (inactive)' : !company ? ' (unavailable)' : ''}</p>}
+      {company?.archivedAt && <p className="text-sm text-muted-foreground">Archived company · current assignment kept</p>}
       {choices.isError && <div role="alert" className="text-sm text-destructive">Unable to load companies. Your draft is preserved. <Button type="button" variant="link" className="min-h-11 px-1" onClick={() => void choices.refetch()}>Retry</Button></div>}
       {choices.isSuccess && !companies.some((item) => !item.archivedAt && (!activeTargetsOnly || item.status === 'active')) && <p className="text-sm text-muted-foreground">No available companies. {choices.data?.canCreateCompany ? 'Add a company, or restore one from Manage companies on Machines.' : 'Ask a Super Admin to set up a company.'}</p>}
       {!disabled && isSuperAdmin && choices.data?.canCreateCompany && !adding && <Button ref={addRef} type="button" variant="link" className="min-h-11 px-0" onClick={() => { setAdding(true); setCreationError(''); }}>Add company</Button>}
@@ -108,8 +109,10 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
       </div>}
       <p role="status" aria-live="polite" className="break-words text-sm text-muted-foreground">{message}</p>
     </div>
-    {showLocations ? <div className="space-y-2">
-      <Label htmlFor={`${id}-location`}>Location</Label>
+    <details open={showLocations ? true : undefined} className="rounded-md border border-border px-3">
+      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Reporting details</summary>
+    {showLocations ? <div className="space-y-2 pb-3">
+      <Label htmlFor={`${id}-location`}>Reporting location</Label>
       <select id={`${id}-location`} value={value.addLocation ? '__add__' : value.locationId} disabled={disabled || !company || choices.isError || choices.isPending} className={controlClass} onChange={(event) => {
         const location = company?.locations.find((item) => item.locationId === event.target.value);
         onChange({ ...value, addLocation: event.target.value === '__add__', locationId: location?.locationId ?? '', locationTimezone: location?.timezone ?? value.locationTimezone });
@@ -124,7 +127,8 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
         <div><Label htmlFor={`${id}-timezone`}>Location time zone</Label><Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="min-h-11" disabled={disabled} /><datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist></div>
         <p className="text-xs text-muted-foreground sm:col-span-2">This location is created when you save the machine. Use the venue's IANA time zone.</p>
       </div>}
-    </div> : <div><Label htmlFor={`${id}-saved-location`}>Location</Label><Input id={`${id}-saved-location`} value={saved?.locationName || 'Not set'} readOnly aria-readonly="true" className="min-h-11" /></div>}
+    </div> : <dl className="space-y-2 pb-3 text-sm"><div><dt className="text-muted-foreground">Reporting location</dt><dd>{saved?.locationName || 'Not set'}</dd></div><div><dt className="text-muted-foreground">Time zone</dt><dd>{saved?.locationTimezone || 'Not set'}</dd></div></dl>}
+    </details>
     {changed && <p className="text-sm text-muted-foreground">Company-level report access follows the selected company. Machine manager assignments stay the same.</p>}
   </div>;
 }

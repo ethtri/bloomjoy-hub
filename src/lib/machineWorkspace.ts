@@ -31,3 +31,16 @@ export async function linkSunzeSourceToMachine(machineId: string, sourceMachineI
   const { error } = await supabaseClient.rpc('admin_link_sunze_source_to_machine', { p_machine_id: machineId, p_source_machine_id: sourceMachineId });
   if (error) throw new Error(error.message);
 }
+export async function saveMachineDisplayName(machineId: string, name: string, expectedName: string) {
+  const { error } = await supabaseClient.rpc('admin_set_machine_display_name', {
+    p_machine_id: machineId, p_display_name: name, p_expected_display_name: expectedName,
+  });
+  if (error) throw new Error(error.message);
+}
+export async function saveMachineRefundSettings(machineId: string, intakeEnabled: boolean) {
+  const { error } = await supabaseClient.rpc('admin_save_machine_refund_settings', {
+    p_machine_id: machineId, p_refund_intake_enabled: intakeEnabled,
+    p_reason: 'Transaction matching settings updated from Admin Machines',
+  });
+  if (error) throw new Error(error.message);
+}

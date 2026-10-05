@@ -1210,3 +1210,11 @@ npm run refunds:validate-portal-uat-lifecycle
 - Review “Last recorded transaction >30 days”, “No transactions recorded”, and oldest-first sorting. Unknown/stale import status stays visible; these filters do not establish genuine inactivity.
 - Open Discover source machines on Machines. Connect Sunze to an existing Hub machine, or review the existing source setup dialog for a deliberate new record. SnapCase can link an existing Hub machine. Ignore/reopen controls stay available; source setup refreshes the portfolio.
 - Existing `/admin/machines/:machineId`, `/admin/machines/inventory`, and Reporting > Sync routes remain usable. Run `deno test --no-lock src/lib/machineTransactionRecency.test.ts` and disposable database test `supabase/tests/machine_unified_setup.sql`.
+# Simplified machine setup — issue1746
+
+- [ ] Machines shows one editable Machine name; existing customer wording is retained until an explicit edit. Admin, customer options and reader replacement agree after save.
+- [ ] Company, Type, State and combined Nayax picker measure at least44px high with16px text on mobile; opening the picker exposes searchable exact name/ID/account results.
+- [ ] Refunds contains no provider/name mapping controls or links. Saving refund settings never submits a provider identity or stale name draft.
+- [ ] Sunze/Kexiaozhan identities appear as original plain text. Source-connected records and imported discoveries are in the normal workflow; Needs review count, search and direct URLs retain unconnected records.
+- [ ] Help is keyboard/touch accessible, draft close protection works, and readiness/recency/import uncertainty remain visible.
+- [ ] Name/company failures roll back together; label-only changes preserve shared venue/timezone, reader/source identity, history and refund permissions. No automatic archive occurs.

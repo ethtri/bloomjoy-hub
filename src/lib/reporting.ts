@@ -569,6 +569,7 @@ type UpsertReportingMachineInput = {
   newLocationName?: string | null;
   newLocationTimezone?: string | null;
   machineLabel: string;
+  expectedDisplayName?: string | null;
   machineType: ReportingMachineType;
   sunzeMachineId?: string | null;
   operationalPhase: ReportingMachineOperationalPhase;
@@ -1235,7 +1236,7 @@ export const lookupReportingUserByEmailAdmin = async (
 export const upsertReportingMachineAdmin = async (
   input: UpsertReportingMachineInput
 ): Promise<AdminReportingMachine> => {
-  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_by_id', {
+  const { data, error } = await supabaseClient.rpc(input.expectedDisplayName !== undefined ? 'admin_save_named_machine' : 'admin_upsert_reporting_machine_by_id', {
     p_machine_id: input.machineId ?? null,
     p_account_id: input.accountId,
     p_location_id: input.locationId,
@@ -1248,6 +1249,7 @@ export const upsertReportingMachineAdmin = async (
     p_sunze_machine_id: input.sunzeMachineId ?? null,
     p_operational_phase: input.operationalPhase,
     p_reason: input.reason,
+    ...(input.expectedDisplayName !== undefined ? { p_expected_display_name: input.expectedDisplayName } : {}),
   });
 
   if (error || !data) {
