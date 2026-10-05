@@ -317,7 +317,10 @@
     "20261002232736_refund_assisted_structured_correction.sql",
     "20261003024848_finance_reporting_materialized_refund_projection.sql",
     "20261003062009_bound_subscribed_refund_ready_work.sql",
-    "20261003171036_refund_daily_health_open_presence.sql"
+    "20261003171036_refund_daily_health_open_presence.sql",
+    "20261003220644_technician_refund_read_access.sql",
+    "20261004022303_provider_refund_purchase_tax_attribution.sql",
+    "20261005161430_refund_reviewed_cash_payout_followup_currentness.sql"
   ],
   "migrationFilesSha256": "42986313df04af1de80622134dcd9c82c8e39f45d353b983c682f31a8c0d4995",
   "migrationVersionSetSha256": "0f56ab995f4d6b68fc67ca5c93376751a875bf01a72bb6244416bca0e131e321",
