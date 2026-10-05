@@ -1,5 +1,21 @@
 -- #1763: cash is the collected sale value; card normalization uses dated source
 -- evidence. Existing request events and issued snapshots remain immutable.
+create function private.refund_original_source_tax_cents(p_case_id uuid,p_amount_cents bigint)
+returns bigint language sql stable security definer set search_path='' as $$
+  select round(p_amount_cents::numeric*fact.tax_cents/fact.net_sales_cents)::bigint
+  from public.refund_cases refund_case
+  join public.machine_sales_facts fact on fact.id=refund_case.matched_sales_fact_id
+    and fact.reporting_machine_id=refund_case.reporting_machine_id
+  where refund_case.id=p_case_id and refund_case.payment_method='card'
+    and fact.payment_method='credit' and fact.net_sales_cents>0
+    and p_amount_cents between 0 and fact.net_sales_cents
+    and fact.tax_cents between 0 and fact.net_sales_cents
+    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
+      in ('separate_tax','separately_imported_tax'));
+$$;
+revoke all on function private.refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
+grant execute on function private.refund_original_source_tax_cents(uuid,bigint) to service_role;
+
 create or replace function private.normalize_reporting_treated_amount_cents(
   p_machine_id uuid, p_tender text, p_purchase_date date,
   p_amount_cents bigint, p_amount_basis text, p_tax_rate_percent numeric,
@@ -30,6 +46,7 @@ $$;
 
 do $actual_tax$
 declare definition text:=replace(pg_get_functiondef('private.machine_sales_daily_components(uuid,date,date)'::regprocedure),E'\r\n',E'\n');
+  patch record;
 begin
   if position('fact.tax_cents::bigint as separate_tax_cents,' in definition)=0 then
     raise exception 'Actual transaction tax adapter seam changed';
@@ -42,6 +59,20 @@ begin
         when lower(coalesce(fact.raw_payload ->> 'amountBasis', ''))$new$);
   definition:=replace(definition,$old$        when treatment.amount_basis <> 'source_default' then treatment.amount_basis
 $old$,'');
+  for patch in select * from (values
+    ('before_amount','private.refund_original_source_tax_cents(event.refund_case_id,event.recognized_target_before_cents)'),
+    ('after_amount','private.refund_original_source_tax_cents(event.refund_case_id,event.recognized_target_after_cents)'),
+    ('paid_amount','private.refund_original_source_tax_cents(event.refund_case_id,event.paid_cumulative_cents)'),
+    ('gift_card_amount','private.refund_original_source_tax_cents(event.refund_case_id,private.refund_gift_card_resolved_purchase_cents(event.refund_case_id,p_date_to))')
+  ) patches(alias_name,tax_expression) loop
+    if cardinality(string_to_array(definition,E'event.tax_rate_percent,\n      null, true\n    ) '||patch.alias_name))<>2 then
+      raise exception 'Original refund tax normalization seam changed: %',patch.alias_name;
+    end if;
+    definition:=replace(definition,E'event.tax_rate_percent,\n      null, true\n    ) '||patch.alias_name,
+      E'event.tax_rate_percent,\n      '||patch.tax_expression||E', true\n    ) '||patch.alias_name);
+  end loop;
+  definition:=replace(definition,E'tax_rate.tax_rate_percent,\n      null, true\n    ) normalized',
+    E'tax_rate.tax_rate_percent,\n      private.refund_original_source_tax_cents(linked_case.id,adjustment.amount_cents), true\n    ) normalized');
   execute definition;
 end;
 $actual_tax$;
