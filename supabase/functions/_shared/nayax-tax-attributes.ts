@@ -8,9 +8,9 @@ export function taxAttributeEvidence(payload: unknown): ObjectRow[] {
     if (depth > 4 || result.length >= 20 || !value || typeof value !== 'object') return;
     if (Array.isArray(value)) { value.slice(0,500).forEach(row => visit(row,depth+1)); return; }
     const row = value as ObjectRow;
-    const name = String(row.AttributeName ?? row.Name ?? row.name ?? row.attributeName ?? '');
+    const name = String(row.DeviceAttributeName ?? row.AttributeName ?? row.Name ?? row.name ?? row.attributeName ?? '');
     if (/tax|vat|extra.?charge|surcharge/i.test(name)) {
-      const scalar = row.AttributeValue ?? row.Value ?? row.value ?? row.attributeValue;
+      const scalar = row.DeviceAttributeValue ?? row.AttributeValue ?? row.Value ?? row.value ?? row.attributeValue;
       result.push({ fieldName:name.slice(0,120), value: typeof scalar === 'number' || typeof scalar === 'boolean'
         ? scalar : typeof scalar === 'string' && /^[\d.,%+\- ]{1,32}$/.test(scalar) ? scalar : null });
     }
