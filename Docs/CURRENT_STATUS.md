@@ -46,8 +46,10 @@ Machine name is the sole editable/display label for an individual machine. Locat
   deductions, remaining tax and net sales excluding tax, plus a separate completed
   refund reconciliation. Original transaction tax takes priority; historical rates
   require dated evidence and unresolved tax stays unavailable. Issued statements
-  and raw source records are preserved. September Atlanta, South Hills and Gilroy
-  reconciliation review remains open under #1763. PR #1767 is deployed; authenticated
+  and raw source records are preserved. Reviewed Nayax portal history now supplies
+  bounded September evidence for Atlanta (8%), South Hills (7%) and Gilroy (9.13%).
+  Atlanta settled receipts versus unpaid requests reconcile; Gilroy's Finance
+  worksheet amount remains a specific reconciliation question under #1763. PR #1767 is deployed; authenticated
   production Finance and machine tax diagnostics are verified on desktop and mobile. Shared UAT is separate, and `npm run reporting:preview`
   remains an isolated preview with labeled sample data.
 

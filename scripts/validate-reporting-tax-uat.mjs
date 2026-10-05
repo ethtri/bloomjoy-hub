@@ -66,6 +66,21 @@ try {
     assertNoManualTaxWrite(state);
     checks.push('Source load failure remains unavailable without inventing zero tax or exposing a manual override');
   } finally { await context.close(); }
+  const historical = await createPageForPersona(browser, personas.superAdmin, { width: 390, height: 844 }, { rpcHandler: (name, actor, body, freshness) => name === 'admin_reporting_machine_source_tax' ? {
+    coverageStatus: 'verified_tax', source: 'nayax_portal_history', observedAt: '2026-10-05T22:00:00Z',
+    ratePercent: 8, saleDate: '2026-09-30', latestProbeStatus: 'verified_tax',
+  } : response(name, actor, body, freshness) });
+  try {
+    await historical.page.goto(`${app}/admin/machines/${machine}?tab=reporting`, { waitUntil: 'networkidle' });
+    const disclosure = historical.page.locator('section[aria-labelledby="machine-reporting-title"] details');
+    await disclosure.locator('summary').click();
+    await disclosure.getByText('Verified source: Nayax portal history. Applies to 2026-09-30.', { exact: true }).waitFor();
+    assert.equal(await historical.page.getByLabel('Tax rate', { exact: true }).count(), 0);
+    assert(await historical.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    assertNoManualTaxWrite(historical.state);
+    await historical.page.screenshot({ path: path.join(out, 'tax-portal-history-mobile.png'), fullPage: true });
+    checks.push('Historical source is accurately labeled as Nayax portal history, with no manual tax input or mobile overflow');
+  } finally { await historical.context.close(); }
   fs.writeFileSync(path.join(out, 'tax-results.json'), JSON.stringify({ checks }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
 } finally { await browser.close(); }
