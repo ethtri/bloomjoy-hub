@@ -92,7 +92,7 @@ update public.refund_cases set matched_sales_fact_id=(select id from public.mach
 where id in ('fb750000-0000-4000-8000-000000000001','fb750000-0000-4000-8000-000000000002');
 select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,10360::bigint,'Actual original transaction tax normalizes partial refund requests without a configured rate');
 select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,completedRefundExTaxCents}')::bigint,618::bigint,'Completed partial refund uses proportional actual original tax');
-update public.machine_sales_facts set tax_cents=0 where source_row_hash=repeat('a',64);
+update public.machine_sales_facts set tax_cents=0,raw_payload='{"amountBasis":"tax_inclusive","taxBasis":"separate_tax"}' where source_row_hash=repeat('a',64);
 select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,10800::bigint,'Explicit actual zero tax supports sales and refunds even when the source rate is missing');
 update public.machine_sales_facts set raw_payload='{"amountBasis":"tax_inclusive"}' where source_row_hash=repeat('a',64);
 update public.refund_cases set matched_sales_fact_id=null
