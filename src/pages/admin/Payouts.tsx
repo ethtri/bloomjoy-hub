@@ -523,7 +523,7 @@ function TechnicianReport({
               <div key={assignment.assignmentId} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="min-w-0">
                   <p className="font-medium text-foreground">{assignment.machineLabel}</p>
-                  <p className="text-sm text-muted-foreground">{assignment.locationName}</p>
+                  
                 </div>
                 <div className="text-sm sm:text-right">
                   <p className="font-medium text-foreground">{formatAssignmentRange(assignment.effectiveStartDate, assignment.effectiveEndDate)}</p>
@@ -601,7 +601,7 @@ function TechnicianReport({
                 label={machine.machineLabel}
                 detail={
                   <>
-                    <span>{machine.locationName} · {formatDuration(machineActualMinutes)} worked · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
+                    <span>{formatDuration(machineActualMinutes)} worked · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
                     {machineSalesUnavailable ? (
                       <span className="mt-1 block">
                         Commissionable Sales unavailable{machine.commissionBasisPoints == null ? '' : ` × ${formatRate(machine.commissionBasisPoints)}`}
@@ -1532,7 +1532,7 @@ export default function AdminPayoutsPage() {
                                           {machine.machineLabel}
                                           {machine.operationalPhase === 'setup' && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>}
                                         </span>
-                                        {machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}
+                                        
                                       </span>
                                     </label>
                                   );
@@ -1592,7 +1592,7 @@ export default function AdminPayoutsPage() {
                                   <div className="flex flex-wrap items-start justify-between gap-2">
                                     <div>
                                       <p className="font-semibold text-foreground">{machine?.machineLabel ?? 'Selected machine'}</p>
-                                      <p className="mt-0.5 text-sm text-muted-foreground">{[machine?.locationName, machine?.accountName].filter(Boolean).join(' · ')}</p>
+                                      <p className="mt-0.5 text-sm text-muted-foreground">{machine?.accountName}</p>
                                     </div>
                                     {machinePay.shiftRate && (
                                       <Badge variant="outline" className="bg-muted/30">{formatCurrency(Math.round(Number(machinePay.shiftRate) * 100))} per started hour</Badge>

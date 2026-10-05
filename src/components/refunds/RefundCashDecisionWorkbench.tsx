@@ -209,10 +209,6 @@ export function RefundCashDecisionWorkbench({
               <summary className="cursor-pointer text-sm font-medium text-foreground">Customer purchase details</summary>
               <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
-                <p className="text-xs text-muted-foreground">Location</p>
-                <p className="mt-1 font-medium text-foreground">{refundCase.locationName}</p>
-              </div>
-              <div>
                 <p className="text-xs text-muted-foreground">Machine</p>
                 <p className="mt-1 font-medium text-foreground">{refundCase.machineLabel}</p>
               </div>

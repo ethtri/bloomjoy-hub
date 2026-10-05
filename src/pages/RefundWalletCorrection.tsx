@@ -249,10 +249,6 @@ export default function RefundWalletCorrectionPage() {
                   <dd className="mt-1 font-semibold text-white">{context.machineLabel}</dd>
                 </div>
                 <div>
-                  <dt className="text-slate-400">{t("Location")}</dt>
-                  <dd className="mt-1 font-semibold text-white">{context.locationName}</dd>
-                </div>
-                <div>
                   <dt className="text-slate-400">{t("Purchase amount")}</dt>
                   <dd className="mt-1 font-semibold text-white">
                     {formatCurrency(context.paymentAmountCents)}

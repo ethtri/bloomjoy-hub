@@ -748,7 +748,7 @@ export function buildMachineEmail(
   const subject = `${title} · ${machine.machineLabel}`;
   const plain: string[] = [
     title,
-    `${machine.machineLabel} · ${machine.locationName}`,
+    machine.machineLabel,
     "",
   ];
   const parts: string[] = [];
@@ -842,7 +842,7 @@ export function buildMachineEmail(
     renderCase(machine.refundCases[0], machine);
   } else if (p.category === "sales-quiet") {
     const signal = p.signal as QuietSalesSignal;
-    paragraph(`${machine.machineLabel} · ${machine.locationName}`);
+    paragraph(machine.machineLabel);
     paragraph(
       `${
         signal.paymentScope === "all"
@@ -907,7 +907,7 @@ export function buildMachineEmail(
       esc(title)
     }</h1><p style="color:#555660;margin:0 0 24px">${
       esc(
-        `${machine.machineLabel} · ${machine.locationName}`,
+        machine.machineLabel,
       )
     }</p>${parts.join("")}</main></body></html>`;
   return {
