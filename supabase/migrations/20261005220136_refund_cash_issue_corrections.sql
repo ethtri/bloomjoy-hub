@@ -135,7 +135,8 @@ select pg_temp.refund_cash_patch('public.service_submit_refund_purchase_correcti
 select pg_temp.refund_cash_patch('public.guard_refund_deterministic_fact_version()',
   $$or new.zelle_payment_contact is distinct from old.zelle_payment_contact then$$,
   $$or new.zelle_payment_contact is distinct from old.zelle_payment_contact
-    or new.issue_summary is distinct from old.issue_summary
+    or (new.issue_summary is distinct from old.issue_summary
+      and (public.refund_cash_clarification_eligible(old) or public.refund_cash_clarification_eligible(new)))
     or new.cash_inserted_amount_cents is distinct from old.cash_inserted_amount_cents
     or new.expected_change_amount_cents is distinct from old.expected_change_amount_cents then$$);
 drop trigger if exists refund_cases_guard_deterministic_fact_version on public.refund_cases;

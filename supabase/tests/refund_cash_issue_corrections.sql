@@ -71,6 +71,9 @@ update public.refund_cases set issue_summary='Staff recorded a newer explanation
 select is(public.service_get_refund_purchase_correction(md5('cash-4')||md5('cash-4'))->>'state','unavailable','New explanation invalidates old capability');
 select throws_like($$select pg_temp.cash_submit(4,'{"issue_summary":{"disposition":"cannot_provide"},"cash_inserted_amount":{"disposition":"cannot_provide"},"expected_change_amount":{"disposition":"cannot_provide"}}')$$,'%stale or unavailable%','Stale cash submit cannot overwrite facts');
 update public.refund_cases set payment_method='card',payment_interaction='tap_card',card_last4='1234',card_last4_source='physical_card',card_last4_provenance='physical_card',card_network='visa' where id='ec000000-0000-4000-8001-000000000005';
+create temp table card_before as select deterministic_fact_version as version from public.refund_cases where id='ec000000-0000-4000-8001-000000000005';
+update public.refund_cases set issue_summary='Staff wording update' where id='ec000000-0000-4000-8001-000000000005';
+select is((select deterministic_fact_version from public.refund_cases where id='ec000000-0000-4000-8001-000000000005'),(select version from card_before),'Card description edits retain existing matching version behavior');
 select ok(not public.refund_purchase_correction_request_fields('ec000000-0000-4000-8001-000000000005') && array['issue_summary','cash_inserted_amount','expected_change_amount'],'Card case does not acquire cash facts');
 update public.refund_cases set decision='approved',status='cash_zelle_pending',decided_by='ec000000-0000-4000-8000-000000000004',decided_at=statement_timestamp() where id='ec000000-0000-4000-8001-000000000006';
 select is(public.refund_purchase_correction_request_fields('ec000000-0000-4000-8001-000000000006'),array['zelle_payment_contact'],'Approved cash requests only payout destination');
