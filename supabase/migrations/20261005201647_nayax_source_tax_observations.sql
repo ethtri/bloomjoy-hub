@@ -66,6 +66,21 @@ $$;
 revoke all on function public.service_record_nayax_tax_observation(jsonb) from public,anon,authenticated;
 grant execute on function public.service_record_nayax_tax_observation(jsonb) to service_role;
 
+create function public.service_list_nayax_tax_sync_machines(p_account_key text)
+returns table(machine_id text) language sql stable security definer set search_path='' as $$
+  select machine.nayax_machine_id from public.reporting_machines machine
+  left join lateral (select max(evidence.observed_at) latest_at
+    from private.nayax_machine_tax_observations evidence
+    where evidence.account_key=p_account_key and evidence.nayax_machine_id=machine.nayax_machine_id
+      and evidence.source='nayax_api') observed on true
+  where upper(coalesce(machine.nayax_account_key,'TGPACI_USA_DB'))=p_account_key
+    and machine.nayax_machine_id ~ '^[0-9]+$'
+    and (observed.latest_at is null or observed.latest_at < now()-interval '6 hours')
+  order by observed.latest_at nulls first,machine.nayax_machine_id limit 10;
+$$;
+revoke all on function public.service_list_nayax_tax_sync_machines(text) from public,anon,authenticated;
+grant execute on function public.service_list_nayax_tax_sync_machines(text) to service_role;
+
 create function public.admin_reporting_machine_source_tax(p_machine_id uuid,p_sale_date date default current_date)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare result jsonb;
