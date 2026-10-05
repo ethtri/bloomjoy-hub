@@ -66,7 +66,13 @@ Deno.test("the three missed customer messages receive the intake form regardless
     { subject: "Question", body: "This machine took my 20$ I want my 20$ it does not work.!! Gonzales tanger outlet" },
     { subject: "Refund", body: "" },
     { subject: "Question", body: "The machine took my money" },
+    { subject: "Machine issue", body: "The machine did not dispense the case." },
+    { subject: "Machine issue", body: "Payment went through but the machine doesn't work." },
   ]) assertRoute(message(inquiry), "new_refund_inquiry");
+});
+
+Deno.test("plausible product complaints remain visible without requiring a pronoun", () => {
+  assertRoute(message({ subject: "Machine issue", body: "The machine is broken." }), "needs_review");
 });
 
 Deno.test("direct Info refund request is eligible for the form-link path", () => {
