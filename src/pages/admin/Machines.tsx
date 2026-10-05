@@ -3134,6 +3134,30 @@ function MachineDialog({
         refundManagerSetup?.readinessBlockReason ?? refundManagerSetup?.paymentDisabledReason ?? null
       )}`;
 
+  const taxRateSetup = (
+    <section className="mt-6 rounded-lg border border-border p-4" aria-label="Tax rate">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-foreground">Tax rate</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {machineRow?.taxRate
+              ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}% · Applies from ${formatDate(machineRow.taxRate.effective_start_date)}`
+              : 'Not set'}
+          </p>
+        </div>
+        {machine && canManageReportingTax && (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}>
+              {machineRow?.taxRate ? 'Change tax rate' : 'Set tax rate'}
+            </Button>
+            {taxHistoryCount > 0 && <Button type="button" variant="ghost" className="min-h-11" onClick={() => onShowTaxHistory?.(machine)}>Rate history ({taxHistoryCount})</Button>}
+          </div>
+        )}
+      </div>
+      {!machine && <p className="mt-2 text-sm text-muted-foreground">Save the machine to configure its tax rate.</p>}
+    </section>
+  );
+
   if (mode === 'page' && machine) {
     const detailTabs: Array<{ value: MachineDetailTab; label: string }> = [
       { value: 'overview', label: 'Overview' },
@@ -3270,6 +3294,7 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
               </dl>
             )}
+            {taxRateSetup}
           </section>
         )}
 
@@ -3526,6 +3551,7 @@ function MachineDialog({
             </select>
           </div>
         </div>
+        {taxRateSetup}
         {form.machineId && (
           <>
           <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
