@@ -63,5 +63,3 @@ select is((select effective_start_date from private.nayax_machine_tax_observatio
 
 select * from finish();
 rollback;
-
-
