@@ -11,6 +11,7 @@ import {
   evaluateUatSuiteFailures,
   getUatPageFailures,
   navigateUatPageAfterDrain,
+  waitForUatPageRequestDrain,
 } from './refund-browser-uat-network.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
@@ -966,6 +967,7 @@ const run = async () => {
         && state.readerReplacementPayload?.p_replacement_inventory_id === '55555555-5555-4555-8555-555555555554'
         && await page.getByText('Synthetic provider test', { exact: true }).isVisible()
     );
+    await waitForUatPageRequestDrain(page);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: /Published/ }).click();
@@ -1045,6 +1047,7 @@ const run = async () => {
       JSON.stringify(state.machineSavePayload)
     );
 
+    await waitForUatPageRequestDrain(page);
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
     recorder.assert(
@@ -1073,6 +1076,7 @@ const run = async () => {
     });
     await page.setViewportSize({ width: 1440, height: 1000 });
 
+    await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.getByText('Filters', { exact: true }).click();
     await page.locator('#machine-type-filter').selectOption('snapcase');
@@ -1243,6 +1247,7 @@ const run = async () => {
         && Object.keys(state.refundIntakePayload).sort().join(',') === 'p_machine_id,p_reason,p_refund_intake_enabled',
       JSON.stringify(state.refundIntakePayload)
     );
+    await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
@@ -1324,6 +1329,7 @@ const run = async () => {
       fullPage: true,
     });
 
+    await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).waitFor({ timeout: 10000 });
@@ -1365,6 +1371,7 @@ const run = async () => {
       fullPage: true,
     });
 
+    await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     state.globalRefundsPaused = false;
     state.refundSetup.cardRefundsEnabled = false;
@@ -1390,6 +1397,7 @@ const run = async () => {
       networkFailures.slice(0, 3).join(' | ')
     );
 
+    await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
     if (args.skipDemo) {
