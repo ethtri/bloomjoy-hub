@@ -14,6 +14,7 @@ declare
     and case_row.status not in ('approved', 'denied', 'completed', 'closed')
     and case_row.decision is null
     and case_row.payment_method = 'cash'
+    and case_row.resolution_method = 'original_payment'
     and case_row.refund_completed_at is null
     and case_row.reporting_adjustment_id is null
     and nullif(btrim(coalesce(case_row.zelle_payment_contact, '')), '') is null
@@ -50,6 +51,7 @@ declare
         and reminder.template_key = 'refund_payout_destination_reminder_v1'
         and reminder.status = 'sent'
         and reminder.sent_at is not null
+        and reminder.requested_fields_satisfied_at is null
         and result ->> 'deliveryState' = 'delivered'
         and not public.is_refund_message_recorded_delivery_failure(to_jsonb(original))
         and not public.is_refund_message_recorded_delivery_failure(to_jsonb(reminder))
