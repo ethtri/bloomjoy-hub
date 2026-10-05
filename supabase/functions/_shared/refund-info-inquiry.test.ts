@@ -55,8 +55,18 @@ const message = ({
       { name: "Subject", value: subject },
       ...extraHeaders,
     ],
-    body: { data: btoa(body).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "") },
+    body: { data: btoa(String.fromCharCode(...new TextEncoder().encode(body))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "") },
   },
+});
+
+Deno.test("the three missed customer messages receive the intake form regardless of phrasing", () => {
+  for (const inquiry of [
+    { subject: "Refund", body: "Yep machine took my money" },
+    { subject: "Question", body: "I’d like a refund. I used your SnapCase machine and it never dispensed the case." },
+    { subject: "Question", body: "This machine took my 20$ I want my 20$ it does not work.!! Gonzales tanger outlet" },
+    { subject: "Refund", body: "" },
+    { subject: "Question", body: "The machine took my money" },
+  ]) assertRoute(message(inquiry), "new_refund_inquiry");
 });
 
 Deno.test("direct Info refund request is eligible for the form-link path", () => {

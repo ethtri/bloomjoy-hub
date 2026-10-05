@@ -80,12 +80,14 @@ const currentMessageText = (value: string) => value
   .filter((line) => !/^\s*>/.test(line))
   .join("\n")
   .slice(0, 8000)
+  .replace(/[’‘]/g, "'")
   .toLowerCase();
 
 const personalExperience = /\b(?:i|me|my|we|our)\b/i;
-const directRefundAsk = /\b(?:refund\s+(?:me|my|us|our)|(?:i|we)\s+(?:want|need|would\s+like|request|asked\s+for)\s+(?:a\s+)?refund|would\s+like\s+(?:a\s+)?refund|(?:can|could|will)\s+(?:i|we)\s+(?:get|have|request)\s+(?:a\s+)?refund|(?:give|send)\s+(?:me|us)\s+(?:a\s+)?refund|money\s+back|charged\s+(?:me|us)\s+twice)\b/i;
-const purchaseExperience = /\b(?:bought|purchased|paid|was\s+charged|got\s+charged|charged\s+(?:me|us)|tried\s+(?:to\s+)?(?:buy|use)|used\s+(?:your|the)\s+machine|my\s+(?:order|purchase))\b/i;
-const productContext = /\b(?:bloomjoy|cotton\s+candy|vending\s+machine|your\s+machine|your\s+product|candy\s+machine)\b/i;
+// Sending the intake form requires no particular sentence structure.
+const directRefundAsk = /\b(?:refund|money\s+back|charged\s+(?:me|us)\s+twice)\b/i;
+const purchaseExperience = /\b(?:bought|purchased|paid|was\s+charged|got\s+charged|charged\s+(?:me|us)|took\s+(?:my|our)\s+money|tried\s+(?:to\s+)?(?:buy|use)|used\s+(?:your|the)\s+machine|my\s+(?:order|purchase))\b/i;
+const productContext = /\b(?:bloomjoy|cotton\s+candy|machine|snapcase|your\s+product)\b/i;
 const productFailure = /\b(?:did\s+not|didn't|never|failed|broken|stale|bad|wrong|missing|damaged|empty|not\s+working|did\s+not\s+dispense|didn't\s+dispense|no\s+candy|ran\s+out\s+of\s+sticks|double\s+charg(?:e|ed))\b/i;
 const statusQuestion = /\b(?:where\s+is\s+my\s+refund|status\s+of\s+my\s+(?:refund|case|request)|already\s+(?:submitted|filled\s+out|completed)\s+(?:the\s+)?(?:refund\s+)?form|following\s+up\s+on\s+my\s+(?:refund|case|request))\b/i;
 const publicReference = /\bRF-[A-Z0-9]{6,20}\b/i;
@@ -133,7 +135,8 @@ export function classifyRefundInfoInquiry({
       continue;
     }
     const personal = personalExperience.test(text);
-    if (personal && directRefundAsk.test(text)) {
+    if (directRefundAsk.test(text) ||
+      (personal && productContext.test(text) && /\btook\s+(?:my|our)\b/i.test(text))) {
       latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
       continue;
     }
