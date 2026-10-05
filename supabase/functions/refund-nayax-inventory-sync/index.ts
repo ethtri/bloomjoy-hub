@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { taxAttributeEvidence, taxChangeEvidence, taxSettingObservation } from "../_shared/nayax-tax-attributes.ts";
+import { taxChangeEvidence } from "../_shared/nayax-tax-history.ts";
+import { paymentMethodTaxObservation } from "../_shared/nayax-tax-payment-methods.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -83,12 +84,12 @@ const syncTaxSettings = async (accountKey: string,token: string) => {
   if(error) return {status:'unavailable',observed:0,errorCode:'tax_scope_read_failed'};
   const outcomes = await Promise.all((machines ?? []).map(async (machine: {machine_id:string}) => {
     let setting: Record<string,unknown> = {classification:'unavailable',ratePercent:null,fieldName:null,
-      provenance:'Nayax attribute endpoint unavailable; prior verified evidence retained'};
+      provenance:'Nayax payment methods endpoint unavailable; prior verified evidence retained'};
     try {
-      const response = await fetch(`${baseUrl}/machines/${machine.machine_id}/attributes`,{
+      const response = await fetch(`${baseUrl}/machines/${machine.machine_id}/paymentMethods`,{
         method:'GET',headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},
         signal:AbortSignal.timeout(20_000)});
-      if(response.ok) setting=taxSettingObservation(accountKey,await response.json());
+      if(response.ok) setting=paymentMethodTaxObservation(accountKey,machine.machine_id,await response.json());
     } catch { /* Persist bounded transport diagnostic without provider payload. */ }
     const {error:writeError} = await supabase.rpc('service_record_nayax_tax_observation',{
       p_observation:{...setting,accountKey,machineId:machine.machine_id,source:'nayax_api',observedAt:new Date().toISOString()}});
@@ -143,24 +144,25 @@ serve(async (request) => {
   const results: JsonObject[] = [];
 
   // Scheduler-authorized, provider read-only probe for one exact machine.
-  // It does not sync inventory or persist/interpret a tax rate.
-  if (body.operation === "tax_attribute_probe") {
+  // It reports only the allowlisted tax classification and optional history;
+  // it does not sync inventory, persist settings, or write to Nayax.
+  if (body.operation === "tax_attribute_probe" || body.operation === "tax_settings_probe") {
     const machineId = text(body.machineId, 40);
     if (!/^\d+$/.test(machineId) || accounts.length !== 1) {
       return jsonResponse({ error: "One configured account and numeric machine ID required." }, 400);
     }
     const token = tokenForAccount(accounts[0]);
     if (!token) return jsonResponse({ errorCode: "token_missing" }, 503);
-    let attributes: JsonObject[] = [];
-    let attributeStatus = 0;
+    let taxSetting: JsonObject | null = null;
+    let paymentMethodsStatus = 0;
     try {
-      const response = await fetch(`${baseUrl}/machines/${machineId}/attributes`, {
+      const response = await fetch(`${baseUrl}/machines/${machineId}/paymentMethods`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         signal: AbortSignal.timeout(30_000),
       });
-      attributeStatus = response.status;
-      if (response.ok) attributes = taxAttributeEvidence(await response.json());
-    } catch { attributeStatus = 0; }
+      paymentMethodsStatus = response.status;
+      if (response.ok) taxSetting = paymentMethodTaxObservation(accounts[0],machineId,await response.json());
+    } catch { paymentMethodsStatus = 0; }
       // Fixed requested September reconciliation window; no undocumented limit
       // parameter or assertion of completeness from an empty response.
       const query = new URLSearchParams({MachineID:machineId,StartDate:"2026-09-01T00:00:00Z",EndDate:"2026-10-05T23:59:59Z"});
@@ -173,8 +175,8 @@ serve(async (request) => {
         historyStatus = history.status;
         if(history.ok) changes = taxChangeEvidence(await history.json());
       } catch { historyStatus = 0; }
-      return jsonResponse({status:attributeStatus===200 || historyStatus===200 ? "observed":"unavailable",
-        observedAt:new Date().toISOString(),attributeStatus,attributes,historyStatus,changes});
+      return jsonResponse({status:paymentMethodsStatus===200 ? "observed":"unavailable",
+        observedAt:new Date().toISOString(),paymentMethodsStatus,taxSetting,historyStatus,changes});
   }
 
   for (const accountKey of accounts) {

@@ -9,7 +9,7 @@ on:
         description: 'Optional configured Nayax account key'
         required: false
       tax_probe_machine_id:
-        description: 'Optional exact machine ID for read-only tax attributes probe'
+        description: 'Optional exact machine ID for read-only payment-method tax settings probe'
         required: false
 
 permissions:
@@ -45,14 +45,14 @@ jobs:
           RUN_KEY="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           RESPONSE_FILE="$(mktemp)"
           OPERATION="sync"
-          if [[ -n "$TAX_PROBE_MACHINE_ID" ]]; then OPERATION="tax_attribute_probe"; fi
+          if [[ -n "$TAX_PROBE_MACHINE_ID" ]]; then OPERATION="tax_settings_probe"; fi
           HTTP_STATUS=$(curl --silent --show-error --output "$RESPONSE_FILE" --write-out '%{http_code}' \
             --request POST "$SYNC_URL" \
             --header "Authorization: Bearer $SYNC_TOKEN" \
             --header 'Content-Type: application/json' \
             --data "$(jq -n --arg runKey "$RUN_KEY" --arg accountKey "$ACCOUNT_KEY" --arg operation "$OPERATION" --arg machineId "$TAX_PROBE_MACHINE_ID" '{runKey:$runKey,accountKey:$accountKey,operation:$operation,machineId:$machineId}')")
-          if [[ "$OPERATION" == "tax_attribute_probe" ]]; then
-            jq '{status,observedAt,providerStatus,attributeStatus,errorCode,attributes,historyStatus,changes}' "$RESPONSE_FILE"
+          if [[ "$OPERATION" == "tax_settings_probe" ]]; then
+            jq '{status,observedAt,paymentMethodsStatus,errorCode,taxSetting,historyStatus,changes}' "$RESPONSE_FILE"
             if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then exit 1; fi
             exit 0
           fi
