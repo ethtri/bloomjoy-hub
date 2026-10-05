@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "94756e04669ee090464bd01e1b085387072b3929",
+  "sourceGitCommit": "af75e2a891b18969fb18493cd0f000e096a7ed24",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -444,9 +444,9 @@
       "verifyJwt": false,
       "sourceSha256": "52330b5c403355d3edfe00cbec71085d2a3470049d40a936b4f314a46ecc38f5",
       "production": {
-        "version": 172,
-        "ezbrSha256": "e27adc62b9167c1e95067976283189afa3718c78f4878179dbbcdfae65b95715",
-        "sourceSha256": "bce9e3c52e25aa2675de1df753ea6ffaa11123b6b7ba918610df62daeec11962",
+        "version": 177,
+        "ezbrSha256": "4dbdef0fe141399c4b884db3c087f7e25f71779534f6392e65cf76a09f3fab91",
+        "sourceSha256": "52330b5c403355d3edfe00cbec71085d2a3470049d40a936b4f314a46ecc38f5",
         "entrypointIdentity": "supabase/functions/refund-gmail-sync/index.ts"
       }
     },
