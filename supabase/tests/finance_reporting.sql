@@ -62,6 +62,7 @@ insert into public.refund_gift_card_issuances(refund_case_id,code_id,pool_id,nor
  'USD',array['Finance fixture'],'2027-01-01','Private instructions',gen_random_uuid(),repeat('f',64),'2026-03-02T12:00Z');
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000001',true);
+select is(public.get_finance_reporting('2026-02-01','2026-02-28')->>'calculationPolicyVersion','nayax-source-tax-untaxed-cash-v1','Corrected Finance output identifies its calculation policy without rewriting legacy snapshots');
 create temporary table finance_reports as select
  public.get_finance_reporting('2026-02-01','2026-02-28')#>'{rows,0}' as feb,
  public.get_finance_reporting('2026-03-01','2026-03-31')#>'{rows,0}' as march;

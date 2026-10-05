@@ -196,6 +196,8 @@ begin
   if position('a.net_sales end as "netSalesExTaxCents"' in definition)=0
     or position('as estimated_count' in definition)=0 then raise exception 'Finance source tax projection seam changed'; end if;
   definition:=replace(definition,'private.machine_sales_daily_components(','private.machine_sales_daily_waterfall_components(');
+  definition:=replace(definition,$old$'finance-reporting-v1','generatedAt'$old$,
+    $new$'finance-reporting-v1','calculationPolicyVersion','nayax-source-tax-untaxed-cash-v1','generatedAt'$new$);
   definition:=replace(definition,'a.net_sales end as "netSalesExTaxCents",',
     $new$a.net_sales end as "netSalesExTaxCents",
       a.gross_sales as "grossSalesIncludingTaxCents",
