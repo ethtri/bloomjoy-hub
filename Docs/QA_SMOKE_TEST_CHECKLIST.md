@@ -1234,3 +1234,9 @@ npm run refunds:validate-portal-uat-lifecycle
   business mail, automated mail and quoted complaints receive no new intake reply.
 - Verify the existing Gmail health view and coalesced health alert report repeated
   primary scheduler failures even when the watchdog or another scanner succeeds.
+
+### Source tax and Finance reconciliation
+- Open `/portal/reports?view=finance` as a Finance-authorized user. Confirm sales including tax, refund deductions including tax, remaining tax, and net sales agree with the source-backed calculation.
+- Expand the breakdown and confirm cash retains its full collected value. Compare the separate completed-refund reconciliation with Nayax without changing request-based deductions.
+- Check an unresolved tax split: affected totals show Unavailable rather than zero or an inferred gross amount. Confirm desktop and 390px mobile layouts remain readable.
+- Open `/admin/machines/:machineId?tab=reporting`. Normal machine forms have no editable tax rates; admin source diagnostics show verified, unclassified, missing, or unavailable source coverage.
