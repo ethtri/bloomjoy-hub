@@ -878,9 +878,9 @@ export default function AdminMachinesPage() {
     () => ({
       all: machineRows.filter((row) => isLocalDemoMode || (!workspaceMetadata.isError && Boolean(metadataById.get(row.machine.id)?.sources.length))).length,
       review: machineRows.filter((row) => workspaceMetadata.isError || !metadataById.get(row.machine.id)?.sources.length).length,
-      setup: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase === 'setup').length,
-      attention: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.attentionReasons.length > 0).length,
-      ready: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
+      setup: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase === 'setup').length,
+      attention: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.attentionReasons.length > 0).length,
+      ready: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
     }),
     [machineRows, metadataById, isLocalDemoMode, workspaceMetadata.isError]
   );
