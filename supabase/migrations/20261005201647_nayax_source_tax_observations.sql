@@ -36,7 +36,7 @@ language sql stable security definer set search_path = '' as $$
       and evidence.nayax_machine_id = btrim(machine.nayax_machine_id)
       and evidence.effective_start_date <= p_sale_date
       and coalesce(evidence.effective_end_date,'infinity'::date) >= p_sale_date
-    order by (evidence.classification in ('verified_tax','unclassified_extra_charge')) desc,
+    order by (evidence.classification <> 'unavailable') desc,
       evidence.effective_start_date desc,evidence.observed_at desc,evidence.id
     limit 1
   ) observation on true

@@ -53,6 +53,13 @@ begin
   select * into resolved from private.resolve_reporting_machine_source_tax(machine.id,'2099-10-11');
   if resolved.rate_percent is not null or resolved.coverage_status <> 'unclassified_extra_charge' then
     raise exception 'Changed unclassified setting failed to invalidate old tax'; end if;
+  perform public.service_record_nayax_tax_observation(jsonb_build_object(
+    'accountKey',upper(coalesce(machine.nayax_account_key,'TGPACI_USA_DB')),'machineId',machine.nayax_machine_id,
+    'observedAt','2099-10-12T00:00:00Z','source','nayax_api','classification','missing',
+    'ratePercent',null,'fieldName',null,'provenance','test successful response missing field'));
+  select * into resolved from private.resolve_reporting_machine_source_tax(machine.id,'2099-10-13');
+  if resolved.rate_percent is not null or resolved.coverage_status <> 'missing' then
+    raise exception 'Successful missing field failed to invalidate prior coverage'; end if;
   if has_table_privilege('authenticated','private.nayax_machine_tax_observations','SELECT')
     or has_table_privilege('anon','private.nayax_machine_tax_observations','INSERT')
     or has_function_privilege('authenticated','public.service_record_nayax_tax_observation(jsonb)','EXECUTE')
