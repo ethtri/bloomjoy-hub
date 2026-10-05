@@ -86,7 +86,7 @@ returns jsonb language plpgsql stable security definer set search_path = '' as $
 declare result jsonb;
 begin
   if auth.uid() is null or not (public.is_super_admin(auth.uid())
-    or p_machine_id = any(public.scoped_admin_machine_ids(auth.uid()))) then
+    or coalesce(p_machine_id = any(public.scoped_admin_machine_ids(auth.uid())),false)) then
     raise exception 'Machine reporting access required' using errcode='42501';
   end if;
   select jsonb_build_object('ratePercent',rate_percent,'source',source,
