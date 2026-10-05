@@ -1701,6 +1701,7 @@ export default function AdminMachinesPage() {
         open={isMachineEditorOpen}
         onOpenChange={closeMachineDialog}
         machine={selectedMachineForEditor}
+        machineRow={allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)}
         machines={setup.machines}
         refundManagerSetup={
           selectedMachineForEditor
@@ -1710,11 +1711,15 @@ export default function AdminMachinesPage() {
         isRefundManagerSetupLoading={isRefundManagerSetupLoading}
         isLocalDemoMode={isLocalDemoMode}
         canEditMachineIdentity={isMachineIdentityEditable}
+        canManageReportingTax={isSuperAdmin || isScopedAdmin}
         canActivateCardRefunds={!isLocalDemoMode && isSuperAdmin}
         globalRefunds={refundManagerSetup.globalRefunds}
         demoManagerAccounts={demoMachineManagerAccounts}
         onDemoMachineManagersSaved={saveDemoMachineManagers}
         onDemoRefundReadinessSaved={saveDemoRefundReadiness}
+        onOpenTaxChange={openTaxChangeDialog}
+        onShowTaxHistory={setHistoryMachine}
+        taxHistoryCount={setup.taxRates.filter((rate) => rate.machine_id === selectedMachineForEditor?.id).length}
         onSaved={refresh}
       />
       <TaxChangeDialog
