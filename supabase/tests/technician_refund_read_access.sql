@@ -27,7 +27,7 @@ insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) 
  ('e9710000-0000-4000-8000-000000000003','e9740000-0000-4000-8000-000000000001','2020-01-01');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  customer_name,customer_phone,zelle_payment_contact,card_last4,issue_summary,issue_category,incident_at,payment_method,
- payment_amount_cents,refund_amount_cents,status,customer_request_received_at,customer_request_received_source)
+ payment_amount_cents,refund_amount_cents,status,customer_request_received_at,customer_request_received_source,updated_at)
  select ('e9760000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-READ-'||n,
  ('e9740000-0000-4000-8000-'||lpad((case when n=4 then 2 when n=5 then 3 else 1 end)::text,12,'0'))::uuid,
  'e9730000-0000-4000-8000-000000000001','person@example.invalid','Jane Smith','555-333-4444','@secret-pay','1234',
@@ -35,7 +35,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  'charged_no_product','2026-10-01T14:00Z','card',900,800,
  case when n=1 then 'completed' else 'needs_review' end,
  case when n=7 then null when n=8 then '2026-10-03T07:00Z'::timestamptz else '2026-10-02T07:00Z'::timestamptz end,
- case when n=7 then null else 'hosted_refund_intake' end from generate_series(1,8) n;
+ case when n=7 then null else 'hosted_refund_intake' end,'2026-10-04T12:34:56.456987Z'::timestamptz from generate_series(1,8) n;
 update public.refund_cases set duplicate_of_refund_case_id='e9760000-0000-4000-8000-000000000001'
  where id='e9760000-0000-4000-8000-000000000003';
 update public.refund_cases set case_population='internal_test',internal_test_reason='employee_technician_test',
@@ -77,7 +77,9 @@ select ok((select p->>'comment' like '%motor pauses after 12 seconds%' and p->>'
 select ok((select p->>'comment' like '%Error code E05, spinner stopped%' from safe_read),'Machine error codes survive credential redaction');
 select ok((select p->>'comment' like '%spin 12 seconds%' and p->>'comment' like '%pinion gear%' from safe_read),'PIN redaction does not consume a substring of spin or pinion');
 select ok((select lower(p::text) not like '%jane%' and p::text not like '%person@example%' and p::text not like '%555-333%' and p::text not like '%1234%' and p::text not like '%SECRET123%' and p::text not like '%Private Street%' and p::text not like '%secret-pay%' from safe_read),'Known contacts redacted case-insensitively; addresses, card digits and tokens removed');
-select ok((select p::text not like '%987%' and p::text not like '%HIDDENPASSWORD%' and p::text not like '%456%' from safe_read),'CVV, password-is and PIN-is credentials are removed');
+-- Credential digits in the comment must be redacted; timestamps can legitimately contain the same digits.
+select is((select p->>'updatedAt' from safe_read),'2026-10-04T12:34:56.456987+00:00','Synthetic timestamp retains incidental credential-like digits');
+select ok((select p->>'comment' not like '%987%' and p->>'comment' not like '%HIDDENPASSWORD%' and p->>'comment' not like '%456%' from safe_read),'CVV, password-is and PIN-is credentials are removed from comment');
 select ok((select not(p ?| array['customerEmail','customerPhone','zellePaymentContact','paymentAmountCents','refundAmountCents','events','attachments','giftCardCode','providerPayload']) from safe_read),'Projection contains no dedicated private/payment/internal fields');
 select is(public.can_manage_refund_machine('e9710000-0000-4000-8000-000000000002','e9740000-0000-4000-8000-000000000001'),false,'Read grant leaves existing manage-machine policy unchanged');
 select is(public.can_manage_refund_case('e9710000-0000-4000-8000-000000000002','e9760000-0000-4000-8000-000000000001'),false,'Read grant leaves existing manage-case policy unchanged');
