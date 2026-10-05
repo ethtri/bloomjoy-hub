@@ -45,6 +45,12 @@ for (const [engine, browserType, width] of [['desktop', chromium, 1440], ['touch
   await page.getByRole('row').filter({ hasText: name }).getByRole('button', { name: /manage/i }).click();
   const sheet = page.getByRole('dialog').filter({ has: page.locator('#machine-label') }); await sheet.waitFor(); await page.waitForTimeout(350); await page.locator('[data-sonner-toast]').filter({hasText:'Signed in. Redirecting'}).waitFor({state:'hidden'});
   check(`${engine}: one legacy-public name preserved`, await page.locator('#machine-label').inputValue() === name);
+  check(`${engine}: no second location/name input`, await sheet.locator('#machine-saved-location,#machine-refund-public-display-label,input[id*="venue"]').count()===0);
+  const reporting = sheet.locator('details').filter({hasText:'Reporting details'});
+  check(`${engine}: reporting details initially collapsed`, !await reporting.evaluate(e=>e.open));
+  await reporting.locator('summary').focus(); await page.keyboard.press('Enter');
+  check(`${engine}: reporting details accessible read-only`, await reporting.evaluate(e=>e.open) && (await reporting.innerText()).includes('America/Los_Angeles') && await reporting.locator('input,select').count()===0);
+  await reporting.locator('summary').click();
   check(`${engine}: source ID text present; legacy inputs removed`, (await sheet.innerText()).includes('1000696') && await sheet.locator('#external-machine-id, #nayax-machine-id, #physical-venue').count() === 0);
   const picker = page.getByRole('combobox', { name: 'Nayax machine', exact: true });
   check(`${engine}: one combined picker`, await picker.count() === 1 && await sheet.locator('input[id^="nayax-search"]').count() === 0);
