@@ -1,19 +1,35 @@
 -- #1763: cash is the collected sale value; card normalization uses dated source
 -- evidence. Existing request events and issued snapshots remain immutable.
+create function private.reporting_retained_original_money(p_fact public.machine_sales_facts)
+returns table(original_amount_cents bigint,original_tax_cents bigint)
+language sql immutable set search_path='' as $$
+  select case when (p_fact).net_sales_cents=0
+      and (p_fact).raw_payload#>>'{_salesAuthorityOriginal,netSalesCents}' ~ '^[0-9]{1,18}$'
+    then ((p_fact).raw_payload#>>'{_salesAuthorityOriginal,netSalesCents}')::bigint else (p_fact).net_sales_cents::bigint end,
+    case when (p_fact).net_sales_cents=0
+      and (p_fact).raw_payload#>>'{_salesAuthorityOriginal,netSalesCents}' ~ '^[0-9]{1,18}$'
+    then case when (p_fact).raw_payload#>>'{_salesAuthorityOriginal,taxCents}' ~ '^[0-9]{1,18}$'
+      then ((p_fact).raw_payload#>>'{_salesAuthorityOriginal,taxCents}')::bigint end
+    else (p_fact).tax_cents::bigint end;
+$$;
+revoke all on function private.reporting_retained_original_money(public.machine_sales_facts) from public,anon,authenticated;
+grant execute on function private.reporting_retained_original_money(public.machine_sales_facts) to service_role;
+
 create function private.refund_original_source_tax_cents(p_case_id uuid,p_amount_cents bigint)
 returns bigint language sql stable security definer set search_path='' as $$
-  select round(p_amount_cents::numeric*fact.tax_cents/fact.net_sales_cents)::bigint
+  select round(p_amount_cents::numeric*money.original_tax_cents/money.original_amount_cents)::bigint
   from public.refund_cases refund_case
   join public.machine_sales_facts fact on fact.id=refund_case.matched_sales_fact_id
     and fact.reporting_machine_id=refund_case.reporting_machine_id
+  cross join lateral private.reporting_retained_original_money(fact) money
   where refund_case.id=p_case_id and refund_case.payment_method='card'
-    and fact.payment_method='credit' and fact.net_sales_cents>0
+    and fact.payment_method='credit' and money.original_amount_cents>0
     and lower(coalesce(fact.raw_payload->>'amountBasis','')) not in ('tax_exclusive','tax_exclusive_minor')
     and (fact.source<>'sunze_browser' or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
       in ('tax_inclusive','gross_customer_charge_minor','separate_tax','separately_imported_tax'))
-    and p_amount_cents between 0 and fact.net_sales_cents
-    and fact.tax_cents between 0 and fact.net_sales_cents
-    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
+    and p_amount_cents between 0 and money.original_amount_cents
+    and money.original_tax_cents between 0 and money.original_amount_cents
+    and (money.original_tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
       or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'));
 $$;
 revoke all on function private.refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
@@ -22,7 +38,7 @@ grant execute on function private.refund_original_source_tax_cents(uuid,bigint) 
 create function private.provider_refund_original_source_tax_cents(p_adjustment_id uuid,p_amount_cents bigint)
 returns bigint language sql stable security definer set search_path='' as $$
   select case when count(distinct fact.id)=1 then
-    min(round(p_amount_cents::numeric*fact.tax_cents/fact.net_sales_cents)::bigint) end
+    min(round(p_amount_cents::numeric*money.original_tax_cents/money.original_amount_cents)::bigint) end
   from public.nayax_provider_refund_events event
   join public.nayax_dtm_export_rows original
     on original.provider_actor_id=event.provider_actor_id
@@ -42,12 +58,13 @@ returns bigint language sql stable security definer set search_path='' as $$
     and fact.raw_payload->>'providerMachineId'=event.provider_machine_id
     and fact.raw_payload->>'transactionId'=event.original_transaction_id
     and fact.raw_payload->>'currencyCode'=event.currency_code
+  cross join lateral private.reporting_retained_original_money(fact) money
   where event.adjustment_id=p_adjustment_id and event.disposition='applied' and event.currency_code='USD'
-    and fact.payment_method='credit' and fact.net_sales_cents>0
+    and fact.payment_method='credit' and money.original_amount_cents>0
     and lower(coalesce(fact.raw_payload->>'amountBasis','')) not in ('tax_exclusive','tax_exclusive_minor')
-    and p_amount_cents between 0 and fact.net_sales_cents
-    and fact.tax_cents between 0 and fact.net_sales_cents
-    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
+    and p_amount_cents between 0 and money.original_amount_cents
+    and money.original_tax_cents between 0 and money.original_amount_cents
+    and (money.original_tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
       or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'));
 $$;
 revoke all on function private.provider_refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
