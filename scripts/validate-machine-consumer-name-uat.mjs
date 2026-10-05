@@ -103,15 +103,20 @@ try {
   const base = buildMockSetup(state);
   const seed = base.machines[0];
   const legacyId = '11111111-1111-4111-8111-111111111119', otherId = '11111111-1111-4111-8111-111111111118';
+  const arizonaId = '11111111-1111-4111-8111-111111111117', arizonaLegacyId = '11111111-1111-4111-8111-111111111116';
   base.machines = [
     { ...seed, id: hubId, machine_label: 'South Hills - Cotton Candy', location_name: 'Retired venue searchable phrase' },
     { ...seed, id: legacyId, machine_label: 'South Hills legacy duplicate', sunze_machine_id: null },
     { ...seed, id: otherId, machine_label: 'Southridge - Cotton Candy' },
+    { ...seed, id: arizonaId, machine_label: 'Arizona Mills - SnapCase', machine_type: 'snapcase' },
+    { ...seed, id: arizonaLegacyId, machine_label: 'SnapCase Arizona Mills', machine_type: 'snapcase', sunze_machine_id: null, nayax_machine_id: null, nayax_account_key: null },
   ];
   const metadata = [
     { machineId: hubId, sources: [{ platform: 'Sunze', name: 'Original South Hills source', id: 'SUNZE-EXACT-99' }], nayaxName: 'Reader South Hills', nayaxMachineId: 'NAYAX-EXACT-99', nayaxAccountKey: 'adam', venueLabel: 'Retired venue searchable phrase' },
     { machineId: legacyId, sources: [] },
     { machineId: otherId, sources: [{ platform: 'Sunze', name: 'Southridge source', id: 'SUNZE-OTHER' }] },
+    { machineId: arizonaId, sources: [{ platform: 'Kexiaozhan', name: 'Arizona Mills', id: '1001584', account: 'bloomjoy-production' }], nayaxName: 'Simon-1584ArizonaMills', nayaxMachineId: '798677690', nayaxAccountKey: 'TGPACI_USA_DB' },
+    { machineId: arizonaLegacyId, sources: [] },
   ];
   const json = value => ({ contentType: 'application/json', body: JSON.stringify(value) });
   await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup', route => route.fulfill(json(base)));
@@ -133,9 +138,15 @@ try {
     }
     await search.fill('Retired venue searchable phrase');
     pass('Retired venue does not match machine-name search', await page.getByRole('row').filter({ hasText: 'South Hills - Cotton Candy' }).count() === 0);
+    for (const identity of ['Arizona Mills', '1001584', '798677690']) {
+      await search.fill(identity);
+      pass(`Arizona canonical alone matches ${identity}`, await page.getByRole('row').filter({ hasText: 'Arizona Mills - SnapCase' }).count() === 1 && await page.getByRole('row').filter({ hasText: 'SnapCase Arizona Mills' }).count() === 0);
+    }
     await page.getByRole('button', { name: /Needs review/ }).first().click(); await search.fill('South Hills');
     pass('Needs review retains searchable unconnected legacy record', await page.getByRole('row').filter({ hasText: 'legacy duplicate' }).count() === 1);
     pass('Typing preserves Machines search focus', await search.evaluate(element => element === document.activeElement));
+    await search.fill('Arizona Mills');
+    pass('Arizona legacy record remains available in Needs review', await page.getByRole('row').filter({ hasText: 'SnapCase Arizona Mills' }).count() === 1);
     await page.screenshot({ path: `${dir}/machines-review-390.png`, fullPage: true });
     await page.waitForLoadState('networkidle');
   } finally { await context.close(); }
