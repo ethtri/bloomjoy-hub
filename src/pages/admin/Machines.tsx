@@ -832,11 +832,8 @@ export default function AdminMachinesPage() {
         if (!normalizedSearch) return true;
         return [
           row.machine.machine_label,
-          row.machine.stored_machine_label ?? '',
-          row.machine.location_name,
           row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
-          metadataById.get(row.machine.id)?.venueLabel ?? '',
           metadataById.get(row.machine.id)?.nayaxMachineId ?? '',
           metadataById.get(row.machine.id)?.nayaxAccountKey ?? '',
           metadataById.get(row.machine.id)?.sources.map((source) => `${source.platform} ${source.name} ${source.id}`).join(' ') ?? '',
@@ -864,13 +861,13 @@ export default function AdminMachinesPage() {
       machineRows.filter((row) => {
         const sourceKnown = metadataById.get(row.machine.id);
         if (view === 'review') return Boolean(sourceKnown && !sourceKnown.sources.length);
-        if (sourceKnown && !sourceKnown.sources.length && !search.trim()) return false;
+        if (sourceKnown && !sourceKnown.sources.length) return false;
         if (view === 'setup') return row.machine.operational_phase === 'setup';
         if (view === 'attention') return row.attentionReasons.length > 0;
         if (view === 'ready') return row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0;
         return true;
       }),
-    [machineRows, view, metadataById, search]
+    [machineRows, view, metadataById]
   );
 
   const renderedMachineRows = visibleMachineRows.slice(0, visibleMachineLimit);

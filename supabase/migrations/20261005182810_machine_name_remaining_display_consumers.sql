@@ -14,7 +14,7 @@ begin
     ('private.refund_request_read_projection(public.refund_cases,boolean)', '''machineLabel'',m.machine_label', '''machineLabel'',private.reporting_machine_display_name(m)'),
     ('public.get_refund_request_access()', 'm.machine_label as "machineLabel"', 'private.reporting_machine_display_name(m) as "machineLabel"'),
     ('private.email_alert_machine_scope(uuid)', 'select m.id,m.machine_label,l.name,', 'select m.id,private.reporting_machine_display_name(m),l.name,'),
-    ('private.admin_list_access_people(text,text,uuid,text,uuid,integer,integer)', 'select distinct machine.id as machine_id, machine.machine_label', 'select distinct machine.id as machine_id, private.reporting_machine_display_name(machine) as machine_label')
+    ('private.admin_list_access_people(text,text,uuid,text,uuid,integer,integer)', '''id'', machine_id, ''label'', machine_label', '''id'', machine_id, ''label'', (select private.reporting_machine_display_name(display_machine) from public.reporting_machines display_machine where display_machine.id=machine_id)')
   ) changes(signature,needle,replacement) loop
     definition:=pg_get_functiondef(item.signature::regprocedure);
     if strpos(definition,item.needle)=0 then raise exception 'Missing machine display projection in %',item.signature; end if;
