@@ -832,6 +832,7 @@ export default function AdminMachinesPage() {
         if (!normalizedSearch) return true;
         return [
           row.machine.machine_label,
+          row.machine.stored_machine_label ?? '',
           row.machine.location_name,
           row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
@@ -3244,7 +3245,7 @@ function MachineDialog({
                     {!form.machineType && <p className="mt-1 text-xs text-amber-700">This legacy record is unverified. Choose its correct type before saving.</p>}
                   </div>
                   <div>
-                    <Label htmlFor="page-machine-phase">Operational phase</Label>
+                    <div className="flex items-center justify-between"><Label htmlFor="page-machine-phase">State</Label><MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp></div>
                     <select id="page-machine-phase" value={form.operationalPhase} onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
                       <option value="setup">Setup — provisional</option>
                       <option value="live">Live</option>
@@ -3512,7 +3513,7 @@ function MachineDialog({
             </select>
           </div>
           <div>
-            <Label htmlFor="machine-phase">Operational phase</Label>
+            <div className="flex items-center justify-between"><Label htmlFor="machine-phase">State</Label><MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp></div>
             <select
               id="machine-phase"
               value={form.operationalPhase}
@@ -3523,7 +3524,6 @@ function MachineDialog({
               <option value="setup">Setup — provisional</option>
               <option value="live">Live</option>
             </select>
-            <MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp>
           </div>
         </div>
         {form.machineId && (
@@ -3531,8 +3531,7 @@ function MachineDialog({
           <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="font-semibold text-foreground">Machine Managers</h3>
-                <MachineHelp label="About Machine Managers">Select people responsible for customer inquiries, refund review and machine follow-up. Invitations provide a login link; access is assigned only when manager assignments are saved.</MachineHelp>
+                <div className="flex items-center justify-between"><h3 className="font-semibold text-foreground">Machine Managers</h3><MachineHelp label="About Machine Managers">Select people responsible for customer inquiries, refund review and machine follow-up. Invitations provide a login link; access is assigned only when manager assignments are saved.</MachineHelp></div>
               </div>
               <Badge variant="outline">
                 {machineManagerCount === 0
@@ -3563,10 +3562,7 @@ function MachineDialog({
               ) : isFetchingMachineManagerInviteDeliveries ? (
                 <span>Checking Machine Manager invite history...</span>
               ) : (
-                <span>
-                  Add or remove people, then save the assignment. Sending an invite only emails a
-                  login link; it does not assign machine access.
-                </span>
+null
               )}
             </div>
 

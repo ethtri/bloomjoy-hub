@@ -109,8 +109,10 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
       </div>}
       <p role="status" aria-live="polite" className="break-words text-sm text-muted-foreground">{message}</p>
     </div>
-    {showLocations ? <div className="space-y-2">
-      <Label htmlFor={`${id}-location`}>Location</Label>
+    <details open={showLocations ? true : undefined} className="rounded-md border border-border px-3">
+      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Reporting details</summary>
+    {showLocations ? <div className="space-y-2 pb-3">
+      <Label htmlFor={`${id}-location`}>Reporting location</Label>
       <select id={`${id}-location`} value={value.addLocation ? '__add__' : value.locationId} disabled={disabled || !company || choices.isError || choices.isPending} className={controlClass} onChange={(event) => {
         const location = company?.locations.find((item) => item.locationId === event.target.value);
         onChange({ ...value, addLocation: event.target.value === '__add__', locationId: location?.locationId ?? '', locationTimezone: location?.timezone ?? value.locationTimezone });
@@ -125,7 +127,8 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
         <div><Label htmlFor={`${id}-timezone`}>Location time zone</Label><Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="min-h-11" disabled={disabled} /><datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist></div>
         <p className="text-xs text-muted-foreground sm:col-span-2">This location is created when you save the machine. Use the venue's IANA time zone.</p>
       </div>}
-    </div> : <div><Label htmlFor={`${id}-saved-location`}>Location</Label><Input id={`${id}-saved-location`} value={saved?.locationName || 'Not set'} readOnly aria-readonly="true" className="min-h-11" /></div>}
+    </div> : <dl className="space-y-2 pb-3 text-sm"><div><dt className="text-muted-foreground">Reporting location</dt><dd>{saved?.locationName || 'Not set'}</dd></div><div><dt className="text-muted-foreground">Time zone</dt><dd>{saved?.locationTimezone || 'Not set'}</dd></div></dl>}
+    </details>
     {changed && <p className="text-sm text-muted-foreground">Company-level report access follows the selected company. Machine manager assignments stay the same.</p>}
   </div>;
 }
