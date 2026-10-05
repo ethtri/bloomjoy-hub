@@ -23,6 +23,12 @@ insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) 
  ('fb710000-0000-4000-8000-000000000002','fb740000-0000-4000-8000-000000000001','2020-01-01');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('fb740000-0000-4000-8000-000000000001',10,'2020-01-01','active');
+update public.reporting_machines set nayax_machine_id='1763002',nayax_account_key='TGPACI_USA_DB'
+where id='fb740000-0000-4000-8000-000000000001';
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,
+ classification,rate_percent,provenance,effective_start_date,effective_end_date)
+values('TGPACI_USA_DB','1763002',now(),'finance_verified','verified_tax',10,
+ 'Synthetic dated Finance evidence','2020-01-01','2026-12-31');
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
  values(true,'2026-01-01','Synthetic finance test');
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
@@ -56,6 +62,7 @@ insert into public.refund_gift_card_issuances(refund_case_id,code_id,pool_id,nor
  'USD',array['Finance fixture'],'2027-01-01','Private instructions',gen_random_uuid(),repeat('f',64),'2026-03-02T12:00Z');
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','fb710000-0000-4000-8000-000000000001',true);
+select is(public.get_finance_reporting('2026-02-01','2026-02-28')->>'calculationPolicyVersion','nayax-source-tax-untaxed-cash-v1','Corrected Finance output identifies its calculation policy without rewriting legacy snapshots');
 create temporary table finance_reports as select
  public.get_finance_reporting('2026-02-01','2026-02-28')#>'{rows,0}' as feb,
  public.get_finance_reporting('2026-03-01','2026-03-31')#>'{rows,0}' as march;
@@ -66,6 +73,33 @@ select is((select (feb->>'reportingTaxRemovedCents')::bigint from finance_report
 select is((select (feb->>'salesExTaxCents')::bigint from finance_reports),12000::bigint,'Canonical sales basis retained');
 select is((select (feb->>'requestedDeductionExTaxCents')::bigint from finance_reports),2000::bigint,'Requested basis books both affected portions in February');
 select is((select (feb->>'netSalesExTaxCents')::bigint from finance_reports),10000::bigint,'Finance net reconciles canonical equation');
+select is((select (feb->>'grossSalesIncludingTaxCents')::bigint from finance_reports),13000::bigint,'Gross includes full untaxed cash plus card charge');
+select is((select (feb->>'refundDeductionIncludingTaxCents')::bigint from finance_reports),2200::bigint,'Gross request deductions are retained before separating refund tax');
+select is((select (feb->>'remainingTaxCents')::bigint from finance_reports),800::bigint,'Remaining tax subtracts tax on requested refunds once');
+select is((select (feb->>'completedRefundExTaxCents')::bigint from finance_reports),0::bigint,'Unpaid requests are absent from completed-refund reconciliation');
+select is((select (feb->>'reconciliationNetSalesExTaxCents')::bigint from finance_reports),12000::bigint,'Reconciliation uses completed payments independently of request accounting');
+select is((select (march->>'completedRefundExTaxCents')::bigint from finance_reports),600::bigint,'Partial completed payment tax uses original purchase date and includes known exclusive legacy payment');
+-- Missing tax does not erase recorded gross or turn an unknown split into zero.
+update private.nayax_machine_tax_observations set classification='missing',rate_percent=null
+where nayax_machine_id='1763002';
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,grossSalesIncludingTaxCents}')::bigint,13000::bigint,'Known gross survives missing source tax');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,refundDeductionIncludingTaxCents}')::bigint,2200::bigint,'Known gross requests survive missing source tax');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,null::bigint,'Unknown card split prevents a confident excluding-tax net');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,remainingTaxCents}')::bigint,null::bigint,'Unknown tax is never presented as zero');
+select is((select gross_paid_cents from private.machine_sales_daily_waterfall_components('fb740000-0000-4000-8000-000000000001','2026-03-01','2026-03-01')),440::bigint,'Known gross paid refund survives missing original-date source tax');
+update public.machine_sales_facts set tax_cents=550,raw_payload='{"amountBasis":"separate_tax"}'
+where source_row_hash=repeat('a',64);
+update public.refund_cases set matched_sales_fact_id=(select id from public.machine_sales_facts where source_row_hash=repeat('a',64))
+where id in ('fb750000-0000-4000-8000-000000000001','fb750000-0000-4000-8000-000000000002');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,10360::bigint,'Actual original transaction tax normalizes partial refund requests without a configured rate');
+select is((public.get_finance_reporting('2026-03-01','2026-03-31')#>>'{rows,0,completedRefundExTaxCents}')::bigint,618::bigint,'Completed partial refund uses proportional actual original tax');
+update public.machine_sales_facts set tax_cents=0,raw_payload='{"amountBasis":"tax_inclusive","taxBasis":"separate_tax"}' where source_row_hash=repeat('a',64);
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,10800::bigint,'Explicit actual zero tax supports sales and refunds even when the source rate is missing');
+update public.machine_sales_facts set raw_payload='{"amountBasis":"tax_inclusive"}' where source_row_hash=repeat('a',64);
+update public.refund_cases set matched_sales_fact_id=null
+where id in ('fb750000-0000-4000-8000-000000000001','fb750000-0000-4000-8000-000000000002');
+update private.nayax_machine_tax_observations set classification='verified_tax',rate_percent=10
+where nayax_machine_id='1763002';
 select is((select (feb->>'asOfOutstandingCents')::bigint from finance_reports),2200::bigint,'February outstanding ignores later payment and gift');
 select is((select (march->>'moneyPaidCents')::bigint from finance_reports),640::bigint,'Recorded money includes partial and independent legacy paid facts');
 select is((select (march->>'giftPurchaseCents')::bigint from finance_reports),1100::bigint,'Gift affected value does not use full purchase');

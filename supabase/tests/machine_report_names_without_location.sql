@@ -34,6 +34,8 @@ insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at)
  select 'aa175100-0000-4000-8000-000000000001',id,'2020-01-01' from public.reporting_machines where id::text like 'aa175103-%';
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  select id,0,'2020-01-01','active' from public.reporting_machines where id::text like 'aa175103-%';
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,source_order_hash,raw_payload) values
  ('aa175103-0000-4000-8000-000000000001','aa175102-0000-4000-8000-000000000001','2026-02-01','cash',1200,2,'sunze_browser','report-name-one',repeat('d',32),'{}'),
  ('aa175103-0000-4000-8000-000000000002','aa175102-0000-4000-8000-000000000001','2026-02-01','cash',2300,3,'sunze_browser','report-name-two',repeat('e',32),'{}');

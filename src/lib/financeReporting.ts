@@ -15,6 +15,9 @@ export type FinanceReportingRow = {
   salesExTaxCents: number | null; reportingTaxRemovedCents: number | null;
   requestedDeductionExTaxCents: number | null; reversalExTaxCents: number | null;
   legacyPaidDeductionExTaxCents: number | null; netSalesExTaxCents: number | null;
+  grossSalesIncludingTaxCents?: number | null; refundDeductionIncludingTaxCents?: number | null;
+  remainingTaxCents?: number | null; completedRefundExTaxCents?: number | null;
+  completedRefundIncludingTaxCents?: number | null; reconciliationNetSalesExTaxCents?: number | null;
   moneyPaidCents: number; giftPurchaseCents: number; giftFaceCents: number; goodwillCents: number;
   requestedCents: number; requestCount: number; asOfOutstandingCents: number; openRequestCount: number;
   coverage: {
@@ -25,6 +28,7 @@ export type FinanceReportingRow = {
 };
 export type FinanceReporting = {
   calculationVersion: 'finance-reporting-v1'; generatedAt: string; companyId?: string; companyName?: string;
+  calculationPolicyVersion?: string;
   dateFrom: string; dateTo: string;
   dateBasis: string; rows: FinanceReportingRow[];
 };
@@ -41,6 +45,8 @@ const coverageKeys = [
   'unknownAmountCount', 'unknownBalanceCount', 'unknownRequestDateCount', 'unknownPaymentDateCount',
   'unresolvedSalesCount', 'unresolvedRefundCount', 'estimatedComponentCount',
 ] as const;
+const waterfallKeys = ['grossSalesIncludingTaxCents', 'refundDeductionIncludingTaxCents', 'remainingTaxCents',
+  'completedRefundExTaxCents', 'completedRefundIncludingTaxCents', 'reconciliationNetSalesExTaxCents'] as const;
 const columnLabels: Record<string, string> = {
   recordedSalesCents: 'Recorded sales (cents)', cardRecordedSalesCents: 'Recorded card sales (cents)',
   cashRecordedSalesCents: 'Recorded cash sales (cents)', otherRecordedSalesCents: 'Recorded other or unknown tender sales (cents)',
@@ -55,6 +61,12 @@ const columnLabels: Record<string, string> = {
   unknownRequestDateCount: 'Unknown request date count', unknownPaymentDateCount: 'Unknown payment date count',
   unresolvedSalesCount: 'Unresolved sale count', unresolvedRefundCount: 'Unresolved refund accounting count',
   estimatedComponentCount: 'Estimated calculation group count',
+  grossSalesIncludingTaxCents: 'Sales including tax (cents)',
+  refundDeductionIncludingTaxCents: 'Refund deductions including tax (cents)',
+  remainingTaxCents: 'Remaining tax after refund deductions (cents)',
+  completedRefundExTaxCents: 'Completed refunds excluding tax (cents)',
+  completedRefundIncludingTaxCents: 'Completed refunds including tax (cents)',
+  reconciliationNetSalesExTaxCents: 'Sales less completed refunds excluding tax (cents)',
 };
 
 // Reject missing/unsafe values instead of converting unavailable money to zero.
@@ -74,12 +86,14 @@ export function normalizeFinanceReporting(payload: unknown): FinanceReporting {
       machineId: text(row.machineId), machineLabel: text(row.machineLabel), locationId: text(row.locationId), locationName: text(row.locationName),
       ...Object.fromEntries(moneyKeys.map(key => [key, integer(row[key])])),
       ...Object.fromEntries(accountingKeys.map(key => [key, row[key] === null ? null : integer(row[key])])),
+      ...Object.fromEntries(waterfallKeys.map(key => [key, row[key] == null ? null : integer(row[key])])),
       requestCount: integer(row.requestCount), openRequestCount: integer(row.openRequestCount),
       coverage: Object.fromEntries(coverageKeys.map(key => [key, integer(coverage[key])])),
     } as FinanceReportingRow;
   });
   return {
     calculationVersion: 'finance-reporting-v1', generatedAt: text(root.generatedAt),
+    calculationPolicyVersion: root.calculationPolicyVersion == null ? 'legacy-unspecified' : text(root.calculationPolicyVersion),
     dateFrom: text(root.dateFrom), dateTo: text(root.dateTo), dateBasis: text(root.dateBasis), rows,
   };
 }
@@ -112,6 +126,7 @@ function csvCell(value: string | number | null): string {
 export function financeReportingCsv(report: FinanceReporting, scope: FinanceReportingScope, dimensions: CompanyDimension[] = []): string {
   const rows: (string | number | null)[][] = [
     ['Finance reporting', report.calculationVersion], ['Generated at', report.generatedAt],
+    ['Calculation policy', report.calculationPolicyVersion ?? 'legacy-unspecified'],
     ['Company', scope.companyName ?? 'All companies'], ['Company ID', scope.companyId ?? 'all'], ['Company basis', 'Current reporting company; historical locations and dates preserved'],
     ['Date from', report.dateFrom], ['Date through', report.dateTo], ['Date basis', report.dateBasis],
     ['Machine filters', (scope.machineIds ?? []).join(' | ') || 'All authorized'],
@@ -122,10 +137,10 @@ export function financeReportingCsv(report: FinanceReporting, scope: FinanceRepo
     ['Money paid', 'Recorded refund payment activity; not bank settlement. Gift issuance is not gift redemption.'],
     ['Net formula', 'Sales excluding reporting tax - requested deduction + reversal - legacy paid deduction; later payment or gift does not deduct again.'],
     [], ['Company ID', 'Current company', 'Machine ID', 'Machine', 'Location ID', ...moneyKeys.map(key => columnLabels[key]),
-      ...accountingKeys.map(key => columnLabels[key]), 'Request cohort count', 'Known open request count', ...coverageKeys.map(key => columnLabels[key])],
+      ...accountingKeys.map(key => columnLabels[key]), ...waterfallKeys.map(key => columnLabels[key]), 'Request cohort count', 'Known open request count', ...coverageKeys.map(key => columnLabels[key])],
     ...report.rows.map(row => [dimensions.find(machine => machine.machineId === row.machineId)?.accountId ?? '', dimensions.find(machine => machine.machineId === row.machineId)?.accountName ?? 'Unassigned company',
       row.machineId, row.machineLabel, row.locationId,
-      ...moneyKeys.map(key => row[key]), ...accountingKeys.map(key => row[key]), row.requestCount, row.openRequestCount,
+      ...moneyKeys.map(key => row[key]), ...accountingKeys.map(key => row[key]), ...waterfallKeys.map(key => row[key] ?? null), row.requestCount, row.openRequestCount,
       ...coverageKeys.map(key => row.coverage[key]),
     ]),
   ];

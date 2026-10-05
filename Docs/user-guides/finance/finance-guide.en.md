@@ -1,6 +1,6 @@
 # Bloomjoy Finance team guide
 
-Updated October 3, 2026. Screenshots show illustrative sample data, not company results. Sign in to follow the live links. English screen labels are preserved in both editions.
+Updated October 5, 2026. Screenshots show illustrative sample data, not company results. Sign in to follow the live links. English screen labels are preserved in both editions.
 
 ## 1. Start with Finance
 
@@ -9,7 +9,7 @@ Updated October 3, 2026. Screenshots show illustrative sample data, not company 
 ![Finance totals - illustrative sample data](assets/finance-core.png)
 
 - Choose **Company**, **Period** and **Location**. Open **More filters** for a machine. Sales use each machine's local business date. With no dates in the link, the initial period is the last seven completed days.
-- Read **Sales excluding tax**, **Refund deductions**, then **Net sales**. In this sample, $150.00 - $16.00 = $134.00. Net sales is a reporting amount; it is not profit or money deposited in the bank.
+- Read **Sales including tax**, **Refund deductions including tax**, **Remaining tax**, then **Net sales excluding tax**. In this sample, $160.00 - $17.10 - $8.90 = $134.00. Net sales is a reporting amount; it is not profit or money deposited in the bank.
 - Scroll to **By machine** and select a machine name to review it using the same period. **Save view** saves the filters for your account in this browser; it does not save a frozen report.
 - **Export CSV** downloads Finance for the selected period and scope. Money columns are integer **cents**: 12345 means $123.45. Divide by 100 when formatting dollars in a spreadsheet. Keep the date, scope and coverage rows.
 
@@ -25,10 +25,10 @@ In Finance, open **Sales, tax and refund breakdown**.
 
 ![Finance breakdown - illustrative sample data](assets/finance-breakdown.png)
 
-- **Refund deductions** = requested deductions - reversals + older refunds deducted when paid. Here, $15.00 - $2.00 + $3.00 = $16.00. Requests reduce sales once; reversals restore deductions. Later payments and gift cards do not deduct again.
+- **Refund deductions including tax** combines requests, reversals and older paid deductions in their original collected amounts. The expanded excluding-tax breakdown is $15.00 - $2.00 + $3.00 = $16.00; the top-line including-tax deduction is $17.10. Requests reduce sales once; reversals restore deductions. Later payments and gift cards do not deduct again.
 - **Money refunds paid in period** shows recorded money refunds. Gift-card **purchase value resolved**, **face value issued**, and **Bloomjoy-funded goodwill** are separate: in this sample a $10.00 gift resolves a $5.00 purchase with $5.00 goodwill.
 - **Outstanding at [date]** is the balance at the selected period's end. Payments use recorded accounting dates; gifts use issuance dates. These amounts do not establish bank settlement or gift redemption.
-- **Reporting tax removed** adjusts the reporting calculation; it does not establish tax collected or owed. Some calculations may be estimates. Dated tax treatment in Machine Reporting affects reporting only; reading these reports does not require changing it.
+- **Reporting tax removed** adjusts the reporting calculation; it does not establish tax collected or owed. Card tax comes automatically from the verified Nayax source setting for the purchase date, with actual original-transaction tax taking priority. Cash is untaxed: $10 collected counts as $10 of sales. Routine manual rate controls have been removed.
 
 ---
 
@@ -130,3 +130,18 @@ Before using an export: confirm the period, authorized scope, units and coverage
 - Turn on **Show archived**, then select **Restore** to make a company available for new assignments again. If you are consolidating duplicate companies, reassign their machines to the correct company before archiving the duplicate.
 - Merlin is a venue/partner grouping. Its machines belong under **Bloomjoy Enterprises**. Merlin venue names and partner agreements remain; company reporting groups those machines, including their historical activity, under Bloomjoy Enterprises.
 - Company management requires **Super Admin** access. If another administrator changes a company while you are editing it, review the latest details and try again.
+
+
+---
+
+## 10. Compare completed refunds and check tax coverage
+
+In Finance, scroll to **Completed refund reconciliation**.
+
+![Completed refund reconciliation - illustrative sample data](assets/finance-reconciliation.png)
+
+- **Completed refunds including tax** and **Sales after completed refunds, including tax** provide a separate comparison. Here, $160.00 - $8.00 = $152.00. The request-based accounting result above remains $134.00; completing a refund does not deduct it twice.
+- These totals include card and cash. Nayax reports card activity, so compare cash separately. Gift purchase value, gift face value and goodwill remain separate from money refunds.
+- Current Nayax reader settings apply from their observation date. Earlier sales require dated historical evidence; a current setting does not prove last month's rate. Verified Finance confirmations cover only their stated machines and dates.
+- If historical card tax is unknown, the inclusive sale or refund amount can remain known while **Remaining tax** and excluding-tax net sales show **Unavailable**. Unavailable is never zero. Existing issued snapshots keep their original calculation; fresh Finance CSVs identify the calculation policy.
+- Authorized admins can inspect **Machines > Reporting > Tax source diagnostics**. A successful response missing the verified field makes coverage unresolved. A temporary Nayax refresh failure can retain previously verified evidence; it does not extend a bounded historical confirmation.

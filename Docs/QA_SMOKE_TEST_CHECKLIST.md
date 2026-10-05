@@ -1,5 +1,5 @@
 <!-- #1751: Machine name replaces redundant location setup -->
-- Machine Manage and detail Overview show Tax rate (or Not set), with existing authorized Set/Change and history actions. Verify the effective-date dialog and readonly scope; Location remains absent (#1753).
+- Machine Manage and detail Overview omit manual tax-rate controls. Admin source diagnostics show verified provenance or unavailable coverage; Location remains absent (#1763 supersedes #1753 tax controls).
 - Machines table, Manage sheet, direct machine detail and imported setup have no Location/Reporting details display or location picker/name input.
 - Unchanged company saves preserve exact internal location/timezone. Company transfer creates its own internal association, never reuses or renames a shared venue. New setup asks only Machine time zone when unknown.
 - Effective Machine name agrees in customer exact-machine choices, sales/finance/refund/partner report rows and exports. Internal association labels never expose generated UUID text; genuine venue aggregates and all IDs, amounts, selection membership and history remain intact.
@@ -1012,16 +1012,16 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Admin Partnerships > Participants includes an `Add new partner record` dropdown option that opens a modal, saves minimum viable partner fields, and selects the new record
 - [ ] Admin Partnerships > Machines supports bulk searchable check/uncheck machine alignment and archives unchecked active assignments without exposing dates, status, role, or notes
 - [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
-- [ ] Admin Machines shows machine identity/source, partner report assignment, tax status/input, latest sale, and row actions without horizontal scrolling at desktop, narrower laptop, and mobile widths
+- [ ] Admin Machines shows machine identity/source, partner report assignment, latest sale, and row actions without horizontal scrolling at desktop, narrower laptop, and mobile widths; normal setup has no editable tax input
 - [ ] Admin Machines can edit machine label/alias, account, and machine type while hiding location and showing external machine ID as read-only system metadata
 - [ ] Admin Machines can create a machine with its actual location and time zone or edit it into **Setup — provisional** phase, shows it in the Provisional view with a clear badge, and does not treat missing Nayax/Sunze/refund setup as a live-machine alert.
 - [ ] A Setup-phase provisional machine remains active in the portal, appears with a Provisional badge in **Set up Technician**, accepts an open-ended assignment and pay rules, and allows the assigned Technician to record time before external provider IDs exist.
 - [ ] Admin Machines create/edit and Admin Reporting imported-machine setup offer exactly **Cotton Candy - Commercial**, **Cotton Candy - Mini**, **Cotton Candy Micro**, and **Snapcase**. Save Snapcase, reload the machine detail, and confirm the value remains selected and displayed; the Snapcase filter returns it. Existing commercial/mini/micro records use the approved labels, while an unverified legacy record remains **Product unverified** until an admin explicitly classifies it. Repeat at desktop and `390x844` mobile widths.
-- [ ] Admin Machines shows a sortable/filterable machine setup list with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
-- [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow, and newly documented rates apply from `2026-01-01`
-- [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
-- [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
-- [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
+- [ ] Admin Machines shows a sortable/filterable machine setup list with assignment readiness, assignment state filters, and latest sale
+- [ ] Admin Machines create/edit and imported-machine setup do not ask admins to enter tax percentages or effective dates
+- [ ] Card tax resolves from verified dated source evidence; cash has no tax deduction, and missing source tax information remains unresolved
+- [ ] Authorized admins can inspect read-only tax source diagnostics, including the observation date and unavailable refresh status, without editing source rates
+- [ ] A successful source response missing or changing the verified field invalidates earlier coverage; a transport outage retains prior verified evidence and shows the refresh failure separately
 - [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and archive cleanup action
 - [ ] Admin Partnerships flags records that remain Active after their reporting end date and directs admins to review agreement dates, Machines, and Payout Rules or archive the partnership
 - [ ] Admin Partnerships > Machines keeps date-ended active assignments selected, shows their saved end date, preserves each assignment's actual start date, and updates the existing assignment when clearing only its obsolete end date instead of creating an overlapping replacement
@@ -1085,8 +1085,8 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin Reporting > Sync lists imported machines needing setup with source name, read-only external machine ID, queued rows/revenue, latest sale, and last-seen time
 - [ ] SnapCase existing-machine setup lists non-Sunze Snapcase machines and legacy Nayax-linked machines with account, location, and type context; a legacy target saves through the normal mapping action, while Sunze-bound machines remain absent.
-- [ ] Admin can set up an imported machine from `/admin/reporting` by choosing the report/partnership, confirming machine label, location, machine type, and reporting tax rate without editing the external machine ID
-- [ ] Imported machine setup creates/updates the reporting machine, assigns it to the selected partnership, applies tax setup, promotes queued sales rows, and shows the promoted row count/revenue in the success message
+- [ ] Admin can set up an imported machine from `/admin/reporting` by choosing the report/partnership and confirming machine label, location, and machine type, without entering a tax rate or editing the external machine ID
+- [ ] Imported machine setup creates/updates the reporting machine, assigns it to the selected partnership, promotes queued sales rows, and shows the promoted row count/revenue in the success message; reporting uses verified source tax information
 - [ ] Admin can ignore an imported machine and reopen it later without changing already configured reporting machines
 - [ ] Failed, stale, or setup-needed sales ingest runs appear in `/admin/reporting` without changing existing configured sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
@@ -1234,3 +1234,9 @@ npm run refunds:validate-portal-uat-lifecycle
   business mail, automated mail and quoted complaints receive no new intake reply.
 - Verify the existing Gmail health view and coalesced health alert report repeated
   primary scheduler failures even when the watchdog or another scanner succeeds.
+
+### Source tax and Finance reconciliation
+- Open `/portal/reports?view=finance` as a Finance-authorized user. Confirm sales including tax, refund deductions including tax, remaining tax, and net sales agree with the source-backed calculation.
+- Expand the breakdown and confirm cash retains its full collected value. Compare the separate completed-refund reconciliation with Nayax without changing request-based deductions.
+- Check an unresolved tax split: affected totals show Unavailable rather than zero or an inferred gross amount. Confirm desktop and 390px mobile layouts remain readable.
+- Open `/admin/machines/:machineId?tab=reporting`. Normal machine forms have no editable tax rates; admin source diagnostics show verified, unclassified, missing, or unavailable source coverage.
