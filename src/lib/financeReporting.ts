@@ -28,6 +28,7 @@ export type FinanceReportingRow = {
 };
 export type FinanceReporting = {
   calculationVersion: 'finance-reporting-v1'; generatedAt: string; companyId?: string; companyName?: string;
+  calculationPolicyVersion?: string;
   dateFrom: string; dateTo: string;
   dateBasis: string; rows: FinanceReportingRow[];
 };
@@ -92,6 +93,7 @@ export function normalizeFinanceReporting(payload: unknown): FinanceReporting {
   });
   return {
     calculationVersion: 'finance-reporting-v1', generatedAt: text(root.generatedAt),
+    calculationPolicyVersion: root.calculationPolicyVersion == null ? 'legacy-unspecified' : text(root.calculationPolicyVersion),
     dateFrom: text(root.dateFrom), dateTo: text(root.dateTo), dateBasis: text(root.dateBasis), rows,
   };
 }
@@ -124,6 +126,7 @@ function csvCell(value: string | number | null): string {
 export function financeReportingCsv(report: FinanceReporting, scope: FinanceReportingScope, dimensions: CompanyDimension[] = []): string {
   const rows: (string | number | null)[][] = [
     ['Finance reporting', report.calculationVersion], ['Generated at', report.generatedAt],
+    ['Calculation policy', report.calculationPolicyVersion ?? 'legacy-unspecified'],
     ['Company', scope.companyName ?? 'All companies'], ['Company ID', scope.companyId ?? 'all'], ['Company basis', 'Current reporting company; historical locations and dates preserved'],
     ['Date from', report.dateFrom], ['Date through', report.dateTo], ['Date basis', report.dateBasis],
     ['Machine filters', (scope.machineIds ?? []).join(' | ') || 'All authorized'],

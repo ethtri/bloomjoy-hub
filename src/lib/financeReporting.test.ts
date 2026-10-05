@@ -32,6 +32,7 @@ Deno.test('Finance normalization preserves negative net, nullable accounting, kn
 
 Deno.test('Finance source waterfall preserves unknown gross and separates request accounting from completed payments', () => {
   const payload = structuredClone(report);
+  payload.calculationPolicyVersion = 'nayax-source-tax-untaxed-cash-v1';
   Object.assign(payload.rows[0], { grossSalesIncludingTaxCents: null, refundDeductionIncludingTaxCents: 1100,
     remainingTaxCents: null, completedRefundIncludingTaxCents: 0, completedRefundExTaxCents: 0,
     reconciliationNetSalesExTaxCents: 10000 });
@@ -42,6 +43,8 @@ Deno.test('Finance source waterfall preserves unknown gross and separates reques
     'Completed payment reconciliation overwrote request accounting');
   const csv = financeReportingCsv(parsed, { dateFrom: report.dateFrom, dateTo: report.dateTo });
   assert(csv.includes('Sales including tax (cents)') && csv.includes('Completed refunds excluding tax (cents)'), 'Waterfall is absent from CSV');
+  assert(parsed.calculationPolicyVersion === 'nayax-source-tax-untaxed-cash-v1' && csv.includes('nayax-source-tax-untaxed-cash-v1'), 'Corrected export policy is not traceable');
+  assert(normalizeFinanceReporting(report).calculationPolicyVersion === 'legacy-unspecified', 'Legacy payload was falsely labeled with the new tax policy');
 });
 
 Deno.test('Finance rejects missing, fractional, numeric-string and unsafe cents without silently filling zeros', () => {
