@@ -47,6 +47,8 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label) v
   (pg_temp.fixture_id(31),pg_temp.fixture_id(11),pg_temp.fixture_id(21),'Synthetic unrelated destination machine');
 insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
 values(pg_temp.fixture_id(32),pg_temp.fixture_id(30),0,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values
   (pg_temp.fixture_id(33),pg_temp.fixture_id(30),pg_temp.fixture_id(3),'payroll-company-3@example.test','Synthetic payroll manager'),

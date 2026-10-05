@@ -80,8 +80,12 @@ $n$,1),
       case when normalized.amount_basis in ('tax_inclusive','separate_tax') or normalized.normalization_reason='cash_not_taxed'
         then adjustment.amount_cents else null end::bigint as gross_paid_cents,
       adjustment.adjustment_date as booking_date,$n$,1),
-    ($o$    component.reporting_location_id,
-    component.booking_date,$o$, $n$    component.reporting_location_id,
+    ($o$  select
+    component.reporting_machine_id,
+    component.reporting_location_id,
+    component.booking_date,$o$, $n$  select
+    component.reporting_machine_id,
+    component.reporting_location_id,
     case when bool_or(component.gross_sales_cents is null) then null else sum(component.gross_sales_cents)::bigint end,
     case when bool_or(component.gross_deduction_cents is null) then null else sum(component.gross_deduction_cents)::bigint end,
     case when bool_or(component.gross_paid_cents is null) then null else sum(component.gross_paid_cents)::bigint end,
@@ -118,7 +122,7 @@ begin
         case when bool_or(c.gross_sales_cents is null) then null else coalesce(sum(c.gross_sales_cents),0)::bigint end as gross_sales,
         case when bool_or(c.gross_deduction_cents is null) then null else coalesce(sum(c.gross_deduction_cents),0)::bigint end as gross_deduction,
         case when bool_or(c.gross_paid_cents is null) then null else coalesce(sum(c.gross_paid_cents),0)::bigint end as gross_paid,
-        case when bool_or(c.unresolved_paid_context_count>0) or bool_or(c.paid_context_ex_tax_cents is null) then null
+        case when bool_or(c.unresolved_paid_context_count>0 or (c.source<>'refund_request' and c.unresolved_refund_count>0)) or bool_or(c.paid_context_ex_tax_cents is null) then null
           else coalesce(sum(c.paid_context_ex_tax_cents),0)::bigint end as completed_refund$new$);
   execute definition;
 end;

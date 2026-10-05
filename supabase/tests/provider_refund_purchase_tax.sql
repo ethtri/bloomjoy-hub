@@ -13,6 +13,8 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,st
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,effective_end_date,status) values
  ('fc740000-0000-4000-8000-000000000001',9.75,'2026-01-01','2026-08-31','active'),
  ('fc740000-0000-4000-8000-000000000001',20,'2026-09-01',null,'active');
+\ir fixtures/reporting_source_tax.inc
+
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
  values(true,'2026-09-29','Synthetic test') on conflict(singleton) do update set activated_at=excluded.activated_at;
 insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values

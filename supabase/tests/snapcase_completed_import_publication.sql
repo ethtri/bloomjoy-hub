@@ -39,6 +39,8 @@ values
   );
 insert into public.reporting_machine_tax_rates(id, machine_id, tax_rate_percent, effective_start_date, status)
 values ('15012500-0000-4000-8000-000000000001', '15012000-0000-4000-8000-000000000001', 0, '2025-01-01', 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into private.snapcase_provider_accounts(id, source_account_key)
 values ('15013000-0000-4000-8000-000000000001', 'completion-fixture');

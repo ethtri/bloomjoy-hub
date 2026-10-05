@@ -14,6 +14,8 @@ values ('fc630000-0000-4000-8000-000000000001','fc610000-0000-4000-8000-00000000
   'fc620000-0000-4000-8000-000000000001','Fixture machine','active');
 insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
 values ('fc631000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-000000000001',10,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 -- Seed an already-active synthetic rollout so yesterday's request is recognized
 -- on its real request date. No production row or immutable event is changed.
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
@@ -127,6 +129,8 @@ values ('fc630000-0000-4000-8000-000000000002','fc610000-0000-4000-8000-00000000
   'fc620000-0000-4000-8000-000000000001','Historical fixture machine','active');
 insert into public.reporting_machine_tax_rates(id,machine_id,tax_rate_percent,effective_start_date,status)
 values ('fc631000-0000-4000-8000-000000000002','fc630000-0000-4000-8000-000000000002',10,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 update public.refund_gift_card_pools set eligible_machine_ids=array[
   'fc630000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-000000000002']::uuid[]
 where id='fc650000-0000-4000-8000-000000000001';

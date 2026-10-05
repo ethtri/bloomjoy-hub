@@ -69,6 +69,8 @@ insert into public.reporting_machine_tax_rates (
 values
   ('a4050000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 10.0000, '2026-01-01', 'active'),
   ('a4050000-0000-0000-0000-000000000002', 'a4000000-0000-0000-0000-000000000002', 10.0000, '2026-01-01', 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, grant_reason
