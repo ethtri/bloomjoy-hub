@@ -90,6 +90,42 @@ $$;
 revoke all on function public.admin_save_named_machine(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,text) from public,anon;
 grant execute on function public.admin_save_named_machine(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,text) to authenticated;
 
+-- Refund saves resolve the current name on the server and have no provider
+-- identity argument. Missing legacy overrides use existing effective wording.
+create function public.admin_save_machine_refund_settings(
+  p_machine_id uuid,p_refund_intake_enabled boolean,p_reason text
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare machine public.reporting_machines; effective_name text;
+begin
+  if auth.uid() is null or not (coalesce(public.is_super_admin(auth.uid()),false)
+    or coalesce(public.is_scoped_admin(auth.uid()),false))
+    or not coalesce(public.can_manage_refund_machine(auth.uid(),p_machine_id),false) then
+    raise exception 'Machine admin access required' using errcode='42501';
+  end if;
+  select * into machine from public.reporting_machines where id=p_machine_id for update;
+  if not found then raise exception 'Machine not found' using errcode='22023'; end if;
+  effective_name:=coalesce(nullif(btrim(machine.display_name),''),nullif(btrim(machine.refund_public_display_label),''),machine.machine_label);
+  return public.admin_set_reporting_machine_refund_intake_config(p_machine_id,p_refund_intake_enabled,effective_name,p_reason);
+end;
+$$;
+revoke all on function public.admin_save_machine_refund_settings(uuid,boolean,text) from public,anon;
+grant execute on function public.admin_save_machine_refund_settings(uuid,boolean,text) to authenticated;
+
+-- Advanced reader replacement can materialize an absent legacy override with
+-- the SAME already-public fallback name. All other replacement gates/history
+-- remain unchanged, and a later failure rolls this projection back.
+do $migration$
+declare definition text; needle text;
+begin
+  definition:=replace(pg_get_functiondef('public.admin_replace_refund_nayax_machine(uuid,uuid,text)'::regprocedure),E'\r\n',E'\n');
+  needle:=E'  if nullif(btrim(coalesce(machine.refund_public_display_label, '''')), '''') is null then';
+  if strpos(definition,needle)=0 then raise exception 'Unexpected reader name validation'; end if;
+  definition:=replace(definition,needle,
+    E'  if nullif(btrim(machine.refund_public_display_label),'''') is null and length(btrim(machine.machine_label)) between 1 and 120 then\n    update public.reporting_machines set refund_public_display_label=coalesce(machine.display_name,machine.machine_label) where id=machine.id returning * into machine;\n  end if;\n'||needle);
+  execute definition;
+end;
+$migration$;
+
 comment on column public.reporting_machines.display_name is
   'Explicit canonical admin/customer machine name. NULL preserves legacy public wording, then internal alias. Source names and shared reporting location/timezone remain independent.';
 

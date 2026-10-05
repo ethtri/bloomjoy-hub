@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(16);
+select plan(18);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -38,7 +38,7 @@ insert into public.reporting_machines (
   '15490000-0000-4000-8000-000000000003',
   'Reader replacement fixture', 'commercial', 'active',
   'SUNZE-1549', 'NAYAX-OLD-1549', 'FIXTURE_ACCOUNT',
-  '2026-09-01', false, false, 'Replacement fixture — Cotton Candy'
+  '2026-09-01', false, false, null
 );
 
 insert into public.reporting_machine_refund_managers (
@@ -141,6 +141,17 @@ select is(
 );
 
 reset role;
+
+select is(
+  (select refund_public_display_label from public.reporting_machines where id='15490000-0000-4000-8000-000000000004'),
+  'Reader replacement fixture',
+  'A missing legacy override uses the effective machine name without a redundant rename'
+);
+select is(
+  (select display_name from public.reporting_machines where id='15490000-0000-4000-8000-000000000004'),
+  null::text,
+  'Advanced replacement does not create a separate name edit'
+);
 
 select is(
   (select nayax_machine_id from public.reporting_machines where id = '15490000-0000-4000-8000-000000000004'),

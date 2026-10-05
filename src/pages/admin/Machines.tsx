@@ -77,7 +77,6 @@ import {
   isLocalUatDemoForced,
   reconcileRefundNayaxMachineAdmin,
   replaceRefundNayaxMachineAdmin,
-  setMachineRefundIntakeConfigAdmin,
   setMachineRefundManagersAdmin,
   setRefundMachineCardActivationAdmin,
   type RefundManagerSetup,
@@ -879,9 +878,9 @@ export default function AdminMachinesPage() {
     () => ({
       all: machineRows.filter((row) => !metadataById.get(row.machine.id) || Boolean(metadataById.get(row.machine.id)?.sources.length)).length,
       review: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length === 0).length,
-      setup: machineRows.filter((row) => row.machine.operational_phase === 'setup').length,
-      attention: machineRows.filter((row) => row.attentionReasons.length > 0).length,
-      ready: machineRows.filter((row) => row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
+      setup: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase === 'setup').length,
+      attention: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.attentionReasons.length > 0).length,
+      ready: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
     }),
     [machineRows, metadataById]
   );
@@ -1506,7 +1505,7 @@ export default function AdminMachinesPage() {
                       id="machine-type-filter"
                       value={machineTypeFilter}
                       onChange={(event) => updateMachineTypeFilter(event.target.value as MachineTypeFilter)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="all">All machine types</option>
                       {machineTypes.map((type) => <option key={type} value={type}>{formatMachineType(type)}</option>)}
@@ -1518,7 +1517,7 @@ export default function AdminMachinesPage() {
                       id="refund-filter"
                       value={refundFilter}
                       onChange={(event) => updateRefundFilter(event.target.value as MachineRefundFilter)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="all">All refund states</option>
                       <option value="ready">Ready</option>
@@ -1533,7 +1532,7 @@ export default function AdminMachinesPage() {
                       id="tax-filter"
                       value={taxFilter}
                       onChange={(event) => updateTaxFilter(event.target.value as MachineTaxFilter)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="all">All tax states</option>
                       <option value="missing">Missing where required</option>
@@ -1547,7 +1546,7 @@ export default function AdminMachinesPage() {
                       id="assignment-filter"
                       value={assignmentFilter}
                       onChange={(event) => updateAssignmentFilter(event.target.value as MachineAssignmentFilter)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="all">All reporting states</option>
                       <option value="unassigned">Not in partner reports</option>
@@ -1560,7 +1559,7 @@ export default function AdminMachinesPage() {
                       id="activity-filter"
                       value={activityFilter}
                       onChange={(event) => updateActivityFilter(event.target.value as MachineActivityFilter)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="all">All activity</option>
                       <option value="recent">Recorded transaction in the last 30 days</option>
@@ -1574,7 +1573,7 @@ export default function AdminMachinesPage() {
                       id="machine-sort"
                       value={sort}
                       onChange={(event) => updateSort(event.target.value as MachineSort)}
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
                     >
                       <option value="status">Needs attention first</option>
                       <option value="machine">Machine name</option>
@@ -2444,7 +2443,7 @@ function TaxHistorySheet({
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>Reporting tax history</SheetTitle>
-          <SheetDescription>
+        <SheetDescription className="sr-only">
             {machine
               ? `${machine.machine_label} reporting tax rates used for historical partner reports.`
               : 'Machine reporting tax rates used for historical partner reports.'}
@@ -2548,9 +2547,6 @@ function MachineDialog({
   const [isSavingMachineManagers, setIsSavingMachineManagers] = useState(false);
   const [machineManagerSaveState, setMachineManagerSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const [refundIntakeEnabled, setRefundIntakeEnabled] = useState(false);
-  const [refundPublicDisplayLabel, setRefundPublicDisplayLabel] = useState('');
-  const [nayaxMachineId, setNayaxMachineId] = useState('');
-  const [nayaxAccountKey, setNayaxAccountKey] = useState('');
   const [isSavingRefundReadiness, setIsSavingRefundReadiness] = useState(false);
   const [refundReadinessSaveState, setRefundReadinessSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const [isActivatingCardRefunds, setIsActivatingCardRefunds] = useState(false);
@@ -2616,15 +2612,6 @@ function MachineDialog({
   const latestMachineManagerInvite = machineManagerInviteDeliveries[0] ?? null;
 
   const buildRefundReadinessDraft = (): RefundReadinessDraft | null => {
-    const displayLabel = refundPublicDisplayLabel.trim();
-    const normalizedNayaxMachineId = nayaxMachineId.trim();
-    const normalizedNayaxAccountKey = nayaxAccountKey.trim();
-
-    if (displayLabel.length > 120) {
-      toast.error('Refund display label must be 120 characters or fewer.');
-      return null;
-    }
-
     if (!emailListsEqual(selectedMachineManagerEmails, savedMachineManagerEmails)) {
       toast.error('Save or cancel the pending Machine Manager changes before saving refund setup.');
       return null;
@@ -2635,20 +2622,10 @@ function MachineDialog({
       return null;
     }
 
-    if (refundIntakeEnabled && !normalizedNayaxMachineId) {
-      toast.error('Add the Nayax machine ID before enabling transaction matching.');
-      return null;
-    }
-
-    if (normalizedNayaxMachineId && !normalizedNayaxAccountKey) {
-      toast.error('Add the exact Nayax account key for this machine.');
-      return null;
-    }
-
     return {
-      displayLabel,
-      normalizedNayaxMachineId,
-      normalizedNayaxAccountKey,
+      displayLabel: refundManagerSetup?.refundPublicDisplayLabel || machine?.machine_label || form.machineLabel,
+      normalizedNayaxMachineId: refundManagerSetup?.nayaxMachineId || '',
+      normalizedNayaxAccountKey: refundManagerSetup?.nayaxAccountKey || '',
     };
   };
 
@@ -2736,12 +2713,6 @@ function MachineDialog({
     if (!open || !form.machineId) return;
 
     setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
-    setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
-    setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
-    setNayaxAccountKey(
-      refundManagerSetup?.nayaxAccountKey ??
-        (refundManagerSetup?.nayaxMachineId ? 'TGPACI_USA_DB' : '')
-    );
     setRefundReadinessSaveState('idle');
   }, [
     form.machineId,
@@ -2757,7 +2728,7 @@ function MachineDialog({
     const shouldSaveRefunds = scope !== 'identity' && Boolean(form.machineId);
 
     if (shouldSaveIdentity && !form.machineLabel.trim()) {
-      toast.error('Machine label is required.');
+      toast.error('Machine name is required.');
       return;
     }
 
@@ -3086,12 +3057,6 @@ function MachineDialog({
 
   const cancelRefundReadinessChanges = useCallback(() => {
     setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
-    setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
-    setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
-    setNayaxAccountKey(
-      refundManagerSetup?.nayaxAccountKey ??
-        (refundManagerSetup?.nayaxMachineId ? 'TGPACI_USA_DB' : '')
-    );
     setRefundReadinessSaveState('idle');
   }, [refundManagerSetup]);
 
@@ -3130,7 +3095,7 @@ function MachineDialog({
   const isSavingMachineChanges = isSaving || isSavingRefundReadiness || isActivatingCardRefunds;
   const refundReadinessBlocks = [
     savedMachineManagerEmails.length > 0 ? null : 'Assign and save at least one Machine Manager.',
-    nayaxMachineId.trim() ? null : 'Add the Nayax machine ID for card lookup.',
+    refundManagerSetup?.nayaxMachineId ? null : 'An imported Nayax match is needed for card lookup.',
   ].filter(Boolean) as string[];
   const activateCardRefunds = async () => {
     if (!form.machineId) return;
@@ -3273,14 +3238,14 @@ function MachineDialog({
                   {assignmentFields('page-machine')}
                   <div>
                     <Label htmlFor="page-machine-type">Machine type</Label>
-                    <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as CanonicalMachineType })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as CanonicalMachineType })} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
                       {machineTypes.map((machineType) => <option key={machineType} value={machineType}>{formatMachineType(machineType)}</option>)}
                     </select>
                     {!form.machineType && <p className="mt-1 text-xs text-amber-700">This legacy record is unverified. Choose its correct type before saving.</p>}
                   </div>
                   <div>
                     <Label htmlFor="page-machine-phase">Operational phase</Label>
-                    <select id="page-machine-phase" value={form.operationalPhase} onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <select id="page-machine-phase" value={form.operationalPhase} onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
                       <option value="setup">Setup — provisional</option>
                       <option value="live">Live</option>
                     </select>
@@ -3297,7 +3262,7 @@ function MachineDialog({
               </>
             ) : (
               <dl className="max-w-3xl divide-y divide-border rounded-md border border-border text-sm">
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine label</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine name</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
@@ -3558,7 +3523,7 @@ function MachineDialog({
               <option value="setup">Setup — provisional</option>
               <option value="live">Live</option>
             </select>
-            <p className="mt-1 text-xs text-muted-foreground">Use Setup when technicians need Timekeeping before external machine setup is finished.</p>
+            <MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp>
           </div>
         </div>
         {form.machineId && (
@@ -3567,10 +3532,7 @@ function MachineDialog({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="font-semibold text-foreground">Machine Managers</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Select the people responsible for this machine. They can handle customer
-                  inquiries, refund review, and machine follow-up from Portal &gt; Refunds.
-                </p>
+                <MachineHelp label="About Machine Managers">Select people responsible for customer inquiries, refund review and machine follow-up. Invitations provide a login link; access is assigned only when manager assignments are saved.</MachineHelp>
               </div>
               <Badge variant="outline">
                 {machineManagerCount === 0

@@ -979,6 +979,11 @@ function SyncTab({
   ) => void;
   discoveryOnly?: boolean;
 }) {
+  if (discoveryOnly) {
+    sunzeMachineQueue = sunzeMachineQueue.filter((machine) => machine.status === 'pending');
+    snapcaseMachineQueue = snapcaseMachineQueue.filter((machine) => machine.mappingStatus === 'pending');
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-border bg-card">

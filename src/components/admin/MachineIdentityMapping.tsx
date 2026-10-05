@@ -4,18 +4,16 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { NayaxMachinePicker } from '@/components/admin/NayaxMachinePicker';
 import { MachineHelp } from '@/components/admin/MachineHelp';
-import { Label } from '@/components/ui/label';
 import { fetchRefundNayaxInventory } from '@/lib/refundOperations';
 import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, saveMachineWorkspaceMapping, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
 import { importFreshnessLabel, transactionAgeLabel, transactionSourceLabel } from '@/lib/machineTransactionRecency';
 
 const dateLabel = (value: string | null) => value ? new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleString() : 'Unknown';
-
 export function MachineIdentitySummary({ metadata }: { metadata?: MachineWorkspaceMetadata }) {
-  if (!metadata) return <p className="text-xs text-muted-foreground">Source and mapping data unavailable</p>;
+  if (!metadata) return <p className="text-xs text-muted-foreground">Source data unavailable</p>;
   return <div className="mt-2 space-y-1 break-words text-xs">
-    <p>{metadata.sources.length ? metadata.sources.map((source) => `${source.platform}: ${source.name || 'Unnamed'} · ${source.id}`).join(' / ') : 'Source not connected'}</p>
-    <p className="text-muted-foreground">↔ Nayax {metadata.nayaxMachineId ? `${metadata.nayaxName || 'Unnamed'} · ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}` : 'Not matched'}</p>
+    <p>{metadata.sources.length ? metadata.sources.map((source) => `${source.platform}: ${source.name || 'Unnamed'} · ID ${source.id}`).join(' / ') : 'Source not connected'}</p>
+    <p className="text-muted-foreground">Nayax {metadata.nayaxMachineId ? `${metadata.nayaxName || 'Unnamed'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>
   </div>;
 }
 
@@ -30,9 +28,8 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   const [saving, setSaving] = useState(false);
   const [draftMetadata, setDraftMetadata] = useState<MachineWorkspaceMetadata | undefined>();
   const inventory = inventoryQuery.data?.machines ?? [];
-  const current = inventory.find((item) => item.nayaxMachineId === metadata?.nayaxMachineId && item.accountKey === (metadata?.nayaxAccountKey || 'TGPACI_USA_DB'));
   const selected = inventory.find((item) => item.id === inventoryId);
-  const dirty = Boolean(draftMetadata) && (Boolean(inventoryId && (!selected || selected.nayaxMachineId !== draftMetadata?.nayaxMachineId || selected.accountKey !== (draftMetadata?.nayaxAccountKey || 'TGPACI_USA_DB'))));
+  const dirty = Boolean(draftMetadata && inventoryId && (!selected || selected.nayaxMachineId !== draftMetadata.nayaxMachineId || selected.accountKey !== (draftMetadata.nayaxAccountKey || 'TGPACI_USA_DB')));
   useEffect(() => { if (metadata && (!draftMetadata || draftMetadata.machineId !== machineId || !dirty)) { setDraftMetadata(metadata); setInventoryId(''); } }, [machineId, metadata, draftMetadata, dirty]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   async function save() {
@@ -46,20 +43,25 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.'); }
     finally { setSaving(false); }
   }
-  return <section className="my-6 space-y-4 border-y border-border py-5" aria-label="Source identity and Nayax matching">
-    <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Source ↔ Nayax match</h2><MachineHelp label="About machine matching">Imported names and IDs identify provider records. An exact Nayax match is separate from refund readiness. Use the inventory workflow for advanced reader history.</MachineHelp></div>
-    {demo ? <p className="text-sm text-muted-foreground">Source mapping is unavailable in visual demo mode.</p> : metadataQuery.isError ? <div role="alert">Unable to load source identities. <Button variant="link" onClick={() => void metadataQuery.refetch()}>Retry</Button></div> : !metadata ? <p role="status" className="text-sm text-muted-foreground">{metadataQuery.isPending ? 'Loading machine identities…' : 'No identity metadata available. Refresh before editing.'}</p> : <>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="min-w-0 space-y-3 rounded-md border border-border p-4"><h3 className="text-sm font-semibold">Original source</h3>
-          {!metadata.sources.length && <p className="text-sm text-muted-foreground">No source connection recorded. Provisional and Nayax-only machines remain available.</p>}
-          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="break-words text-sm"><p className="font-medium">{source.platform} · {source.name || 'Unnamed source machine'}</p><p className="text-xs text-muted-foreground">Machine ID {source.id}{source.account ? ` · Account ${source.account}` : ''}</p><p className="mt-2 text-xs">{source.platform === 'Kexiaozhan' ? 'Latest positive source observation' : 'Last source transaction'}: {source.lastTransaction ? `${dateLabel(source.lastTransaction)} · ${transactionAgeLabel(source.lastTransaction)}` : 'Not recorded'}</p><p className="mt-1 text-xs text-muted-foreground">Source last seen: {dateLabel(source.lastSeenAt)}<br/>Latest source import: {dateLabel(source.lastSuccessfulImport)} · {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
+  return <section className="space-y-3" aria-label="Source identity and Nayax matching">
+    {demo ? <p className="text-sm text-muted-foreground">Source mapping unavailable in demo.</p> : metadataQuery.isError ? <div role="alert">Unable to load source identities. <Button variant="link" onClick={() => void metadataQuery.refetch()}>Retry</Button></div> : !metadata ? <p role="status" className="text-sm text-muted-foreground">{metadataQuery.isPending ? 'Loading identities…' : 'Source data unavailable. Refresh to retry.'}</p> : <>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 break-words text-sm">
+          {metadata.sources.length ? metadata.sources.map((source) => <p key={`${source.platform}:${source.account}:${source.id}`}><span className="font-medium">{source.platform}</span>: {source.name || 'Unnamed'}<span className="block text-muted-foreground">ID {source.id}</span></p>) : <p className="text-muted-foreground">Source not connected</p>}
         </div>
-        <div className="min-w-0 space-y-3 rounded-md border border-border p-4"><h3 className="text-sm font-semibold">Nayax · {metadata.nayaxMachineId ? 'Matched' : 'Not matched'}</h3><p className="break-words text-sm">{metadata.nayaxName || current?.machineName || (metadata.nayaxMachineId ? 'Saved Nayax record' : 'Choose an imported record')}<br/><span className="text-xs text-muted-foreground">{metadata.nayaxMachineId ? `ID ${metadata.nayaxMachineId} · Account ${metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}` : 'No exact match saved'}</span></p>
-          <p className="text-xs text-muted-foreground">Last Nayax transaction: {metadata.nayaxLastTransaction ? `${dateLabel(metadata.nayaxLastTransaction)} · ${transactionAgeLabel(metadata.nayaxLastTransaction)}` : 'Not recorded'}</p>{canEdit && <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || current?.machineName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} />}{inventoryQuery.isError && <p role="alert" className="text-sm text-destructive">Unable to load imported Nayax records. Refresh to retry.</p>}</div>
+        <MachineHelp label="Source and import details">
+          <p>Original provider names and IDs are read-only. An exact match does not activate refunds.</p>
+          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-3 break-words"><p className="font-medium">{source.platform}{source.account ? ` · ${source.account}` : ''}</p><p>Last source transaction: {dateLabel(source.lastTransaction)}</p><p>Last seen: {dateLabel(source.lastSeenAt)}</p><p>Import: {dateLabel(source.lastSuccessfulImport)} · {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
+          <p className="mt-3">Import freshness does not prove complete coverage or genuine inactivity.</p>
+        </MachineHelp>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2"><div className="text-sm"><p className="font-medium">Last recorded transaction</p><p className="mt-1">{metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'No transactions recorded'}</p><p className="mt-1 text-xs text-muted-foreground">Source: {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}<br/>Latest successful sales import: {dateLabel(metadata.lastSuccessfulSalesImport)}</p></div></div>
-      <MachineHelp label="About transaction freshness">Import times show available source/account data and do not prove complete machine coverage. Missing or old transactions require review; they do not establish inactivity.</MachineHelp>
-      {canEdit && <div className="flex justify-end"><Button onClick={() => void save()} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save Nayax match'}</Button></div>}
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Nayax match</p>
+        {canEdit ? <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} /> : <p className="break-words text-sm">{metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>}
+        {inventoryQuery.isError && <p role="alert" className="text-sm text-destructive">Imported Nayax records unavailable. Refresh to retry.</p>}
+      </div>
+      <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} · {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
+      {dirty && canEdit && <div className="flex justify-end"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? 'Saving…' : 'Save Nayax match'}</Button></div>}
     </>}
   </section>;
 }

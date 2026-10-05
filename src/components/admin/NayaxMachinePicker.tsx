@@ -16,7 +16,7 @@ export function NayaxMachinePicker({ records, currentName, selectedId, machineId
       className="h-auto min-h-11 w-full justify-between whitespace-normal px-3 py-2 text-left text-base font-normal">
       <span className="min-w-0 break-words">{label || 'Select a Nayax machine'}</span><ChevronsUpDown className="ml-2 h-4 w-4 shrink-0" />
     </Button></PopoverTrigger>
-    <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+    <PopoverContent onEscapeKeyDown={(event) => { event.preventDefault(); event.stopPropagation(); setOpen(false); }} align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
       <Command><CommandInput placeholder="Search name, ID or account" aria-label="Search Nayax machines" className="min-h-11 text-base" />
         <CommandList><CommandEmpty>No imported Nayax machines found.</CommandEmpty><CommandGroup>
           {records.map((record) => <CommandItem key={record.id} value={`${record.machineName} ${record.nayaxMachineId} ${record.accountKey}`}
