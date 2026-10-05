@@ -358,9 +358,11 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   await page.goto(`${appUrl}/refunds/request?qr=${validQrCode}`, { waitUntil: 'networkidle' });
   await page.getByText('Machine confirmed', { exact: true }).waitFor();
 
-  assert.equal(await page.getByLabel('Machine location').count(), 0);
+  assert.equal(await page.getByLabel('Machine').count(), 0);
   assert.equal(await page.getByText('QR verified', { exact: true }).isVisible(), true);
-  assert.equal(await page.getByText('Mall Atrium - Cotton Candy 01').first().isVisible(), true);
+  assert.equal(await page.getByText('Cotton Candy 01', { exact: true }).isVisible(), true);
+  assert.equal(await page.getByText('Mall Atrium - Cotton Candy 01', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Mall Atrium', { exact: true }).count(), 0, 'QR identity must not display the retired venue label.');
   assert.equal(await page.getByText(/We saved the server time as/).isVisible(), true);
   assert.equal(
     await page.getByRole('radio', { name: /^Card/ }).isVisible(),
@@ -478,7 +480,7 @@ const runDirectJourney = async ({ browser, appUrl, artifactDir }) => {
   const page = await context.newPage();
 
   await page.goto(`${appUrl}/refunds/request`, { waitUntil: 'networkidle' });
-  const machineSelect = page.getByLabel('Machine location');
+  const machineSelect = page.getByLabel('Machine');
   await machineSelect.waitFor();
   await machineSelect.selectOption(eastridgeSelectionKey);
 
@@ -538,7 +540,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
   const nayaxRequests = trackNayaxFunctionRequests(page);
 
   await page.goto(`${appUrl}/refunds/request`, { waitUntil: 'networkidle' });
-  await page.getByLabel('Machine location').selectOption(livermoreSelectionKey);
+  await page.getByLabel('Machine').selectOption(livermoreSelectionKey);
   assert.equal(await page.getByRole('radio', { name: /^Card/ }).getAttribute('data-state'), 'checked');
 
   await fillRequiredRefundFields(page, { wallet: true });
@@ -613,7 +615,7 @@ const runMobileCashQrJourney = async ({ browser, appUrl, artifactDir }) => {
   await fillOrdinaryRefundFields(page);
   await page.getByRole('radio', { name: /^Cash/ }).click();
 
-  assert.equal(await page.getByLabel('Machine location').count(), 0);
+  assert.equal(await page.getByLabel('Machine').count(), 0);
   assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
   assert.equal(await page.getByText(/Zelle|Venmo/i).count(), 0);
   const layout = await page.evaluate(() => ({

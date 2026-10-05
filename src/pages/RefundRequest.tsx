@@ -636,7 +636,7 @@ export default function RefundRequestPage() {
                     </div>
                   ) : (
                     <div>
-                      <Label htmlFor="machine">{t("Machine location")}</Label>
+                      <Label htmlFor="machine">{t("Machine")}</Label>
                       <select
                         id="machine"
                         value={form.selectionKey}
@@ -648,10 +648,10 @@ export default function RefundRequestPage() {
                       >
                         <option value="">
                           {isLoadingMachines
-                            ? t("Loading locations...")
+                            ? t("Loading machines...")
                             : hasNoLiveMachineOptions
                               ? t("Refund form is not open yet")
-                              : t("Choose a location")}
+                              : t("Choose a machine")}
                         </option>
                         {machines.map((machine) => (
                           <option key={machine.selectionKey} value={machine.selectionKey}>
