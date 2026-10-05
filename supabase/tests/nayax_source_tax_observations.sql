@@ -1,9 +1,20 @@
 begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path=public,extensions;
+select plan(1);
+insert into public.customer_accounts(id,name,account_type)
+values('b1763000-0000-4000-8000-000000000001','Source tax fixture','internal');
+insert into public.reporting_locations(id,account_id,name,timezone)
+values('b1763000-0000-4000-8000-000000000002','b1763000-0000-4000-8000-000000000001','Source tax location','America/Los_Angeles');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key)
+values('b1763000-0000-4000-8000-000000000003','b1763000-0000-4000-8000-000000000001',
+  'b1763000-0000-4000-8000-000000000002','Source tax machine','1763000001','TGPACI_USA_DB');
+select lives_ok($test$
 do $$
 declare machine public.reporting_machines%rowtype; resolved record;
 begin
   select * into machine from public.reporting_machines
-    where nayax_machine_id is not null limit 1;
+    where id='b1763000-0000-4000-8000-000000000003';
   if machine.id is null then raise exception 'Mapped machine fixture required'; end if;
   insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,
     source,classification,rate_percent,field_name,provenance,effective_start_date,effective_end_date)
@@ -32,4 +43,6 @@ begin
     raise exception 'Source permission leak'; end if;
 end;
 $$;
+$test$,'Dated source classification, bounds, and permission checks');
+select * from finish();
 rollback;
