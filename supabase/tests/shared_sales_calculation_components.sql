@@ -148,6 +148,8 @@ insert into public.reporting_machine_tax_rates (
   '2026-01-01',
   'active'
 );
+\ir fixtures/reporting_source_tax.inc
+
 
 set local session_replication_role = replica;
 

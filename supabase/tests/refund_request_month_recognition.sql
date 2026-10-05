@@ -15,6 +15,8 @@ insert into public.reporting_machine_tax_rates
   (id, machine_id, tax_rate_percent, effective_start_date, status) values
   ('fd310000-0000-4000-8000-000000000001', 'fd300000-0000-4000-8000-000000000001', 10, '2020-01-01', 'active'),
   ('fd310000-0000-4000-8000-000000000002', 'fd300000-0000-4000-8000-000000000002', 10, '2020-01-01', 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
@@ -439,6 +441,8 @@ insert into public.reporting_machine_tax_rates (
   'fd310000-0000-4000-8000-000000000012',
   'fd300000-0000-4000-8000-000000000012', 10, '2020-01-01', 'active'
 );
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
   net_sales_cents, transaction_count, source, source_order_hash,

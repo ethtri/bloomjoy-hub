@@ -36,6 +36,8 @@ insert into public.reporting_machine_entitlements(user_id,account_id,starts_at) 
  ('cc171900-0000-4000-8000-000000000006','cc171901-0000-4000-8000-000000000002','2020-01-01');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('cc171903-0000-4000-8000-000000000001',0,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash)
  values('cc171903-0000-4000-8000-000000000001','cc171902-0000-4000-8000-000000000001','2026-09-01','cash',1000,1,'manual_csv',repeat('1',64));
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,status,customer_request_received_at,customer_request_received_source) values

@@ -43,6 +43,8 @@ insert into public.reporting_machine_tax_rates(id, machine_id, tax_rate_percent,
   ('ca310000-0000-4000-8000-000000000003', 'ca300000-0000-4000-8000-000000000003', 10, date_trunc('month', current_date)::date-60, 'active'),
   ('ca310000-0000-4000-8000-000000000004', 'ca300000-0000-4000-8000-000000000004', 10, current_date-30, 'active'),
   ('ca310000-0000-4000-8000-000000000005', 'ca300000-0000-4000-8000-000000000005', 10, date_trunc('month', current_date)::date-60, 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,

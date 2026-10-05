@@ -132,6 +132,8 @@ insert into public.reporting_machine_tax_rates(
   '14766000-0000-4000-8000-000000000001',
   '14763000-0000-4000-8000-000000000003', 8.25, '2025-01-01', 'active'
 );
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.reporting_machine_entitlements(
   id, user_id, machine_id, access_level, grant_reason
 ) values (

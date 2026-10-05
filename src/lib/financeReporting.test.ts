@@ -30,6 +30,20 @@ Deno.test('Finance normalization preserves negative net, nullable accounting, kn
   assert(parsed.rows[0].coverage.unknownBalanceCount === 1, 'Partial outstanding coverage lost');
 });
 
+Deno.test('Finance source waterfall preserves unknown gross and separates request accounting from completed payments', () => {
+  const payload = structuredClone(report);
+  Object.assign(payload.rows[0], { grossSalesIncludingTaxCents: null, refundDeductionIncludingTaxCents: 1100,
+    remainingTaxCents: null, completedRefundIncludingTaxCents: 0, completedRefundExTaxCents: 0,
+    reconciliationNetSalesExTaxCents: 10000 });
+  const parsed = normalizeFinanceReporting(payload);
+  assert(parsed.rows[0].grossSalesIncludingTaxCents === null, 'Unknown gross was invented from exclusive source totals');
+  assert(parsed.rows[0].completedRefundExTaxCents === 0, 'Unpaid request became a completed refund');
+  assert(parsed.rows[0].reconciliationNetSalesExTaxCents === 10000 && parsed.rows[0].netSalesExTaxCents === 9300,
+    'Completed payment reconciliation overwrote request accounting');
+  const csv = financeReportingCsv(parsed, { dateFrom: report.dateFrom, dateTo: report.dateTo });
+  assert(csv.includes('Sales including tax (cents)') && csv.includes('Completed refunds excluding tax (cents)'), 'Waterfall is absent from CSV');
+});
+
 Deno.test('Finance rejects missing, fractional, numeric-string and unsafe cents without silently filling zeros', () => {
   for (const value of [undefined, 1.5, '100', Number.MAX_SAFE_INTEGER + 1]) {
     const payload = structuredClone(report);
