@@ -77,5 +77,8 @@ Deno.test('Finance normalization and explicit export omit added private fields a
   const csv = financeReportingCsv(parsed, { dateFrom: report.dateFrom, dateTo: report.dateTo });
   assert(!JSON.stringify(parsed).includes('SECRET-GIFT'), 'Unexpected field retained in normalized API');
   assert(!csv.includes('private@example.invalid') && !csv.includes('Private free text'), 'Private fields leaked');
-  assert(csv.includes('"\'=HYPERLINK(""private"")"') && csv.includes('"Venue, A"'), 'Formula or quoting protection lost');
+  assert(csv.includes('"\'=HYPERLINK(""private"")"'), 'Formula protection lost');
+  payload.rows[0].machineLabel = 'Machine, A';
+  const quoted = financeReportingCsv(normalizeFinanceReporting(payload), { dateFrom: report.dateFrom, dateTo: report.dateTo });
+  assert(quoted.includes('"Machine, A"') && !quoted.includes('Venue, A'), 'Machine quoting or retired venue omission lost');
 });
