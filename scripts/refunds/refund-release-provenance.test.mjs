@@ -195,3 +195,28 @@ test('retrieval rejects wrong origin, malformed source, wrong project and unveri
     }), /Unable to retrieve the exact pinned reviewed source/);
   }
 });
+
+test('synthetic PR merge finds the exact seal on its reviewed second parent', (t) => {
+  const f = fixture(t);
+  f.git('reset', '--hard', f.base);
+  f.git('merge', '--no-ff', f.reviewedAnchor, '-m', 'synthetic PR merge');
+  const proof = validateSealedReleaseManifestGitAnchor(f.root, f.manifest);
+  assert.equal(proof.sealedAnchorGitCommit, f.reviewedAnchor);
+  assert.equal(proof.monitorGitCommit, f.git('rev-parse', 'HEAD'));
+  f.write('src/refund.ts', 'export const outcome = "unreviewed";\n');
+  f.commit('later unreviewed runtime');
+  const tampered = { ...f.manifest, releaseId: `${f.manifest.releaseId}-tampered` };
+  f.write(manifestRelativePath, JSON.stringify(tampered));
+  f.commit('unsealed manifest change');
+  assert.throws(() => validateSealedReleaseManifestGitAnchor(f.root, tampered),
+    /does not match an exact manifest-only sealed release anchor/);
+});
+
+test('seal on an unrelated branch is rejected even when its object exists', (t) => {
+  const f = fixture(t);
+  f.git('reset', '--hard', f.base);
+  f.write(manifestRelativePath, JSON.stringify(f.manifest));
+  f.commit('unreviewed manifest pointer on main');
+  assert.throws(() => validateSealedReleaseManifestGitAnchor(f.root, f.manifest),
+    /does not match an exact manifest-only sealed release anchor/);
+});
