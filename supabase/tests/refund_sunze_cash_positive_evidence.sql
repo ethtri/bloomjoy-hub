@@ -337,7 +337,7 @@ select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_co
  set case_fact_version=2 where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
  'Stale correlation fact version cannot authorize waiting followup');
 select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases
- set cash_match_evaluated_fact_version=2 where id='52950000-0000-4000-8000-000000000001'$m$),
+ set cash_match_evaluated_fact_version=null where id='52950000-0000-4000-8000-000000000001'$m$),
  'Stale case cash-match version cannot authorize waiting followup');
 select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_correlation_attempts
  set invalidated_at=statement_timestamp(),invalidation_reason='selected_sale_released'
