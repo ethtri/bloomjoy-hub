@@ -19,8 +19,8 @@ begin
   foreach key in array array['dimensions','rows','machines','machine_periods','warnings'] loop
     if jsonb_typeof(p_payload->key) is distinct from 'array' then continue; end if;
     select coalesce(jsonb_agg(d.item || case when m.id is null then '{}'::jsonb else
-      (case when d.item ? 'machineLabel' then jsonb_build_object('machineLabel',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||
-      (case when d.item ? 'machine_label' then jsonb_build_object('machine_label',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||
+      (case when jsonb_typeof(d.item->'machineLabel')='string' then jsonb_build_object('machineLabel',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||
+      (case when jsonb_typeof(d.item->'machine_label')='string' then jsonb_build_object('machine_label',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||
       (case when d.item ? 'locationName' then jsonb_build_object('locationName',private.reporting_location_display_name(d.item->>'locationName',m)) else '{}'::jsonb end) ||
       (case when d.item ? 'location_name' then jsonb_build_object('location_name',private.reporting_location_display_name(d.item->>'location_name',m)) else '{}'::jsonb end) ||
       (case when key='warnings' and nullif(d.item->>'machine_label','') is not null and d.item ? 'message'
@@ -74,6 +74,16 @@ begin
   needle:='current_machine.machine_display_name from public.reporting_machines current_machine';
   if strpos(definition,needle)=0 then raise exception 'Missing public name output projection'; end if;
   execute replace(definition,needle,'private.reporting_machine_display_name(current_machine) from public.reporting_machines current_machine');
+  definition:=replace(pg_get_functiondef('public.get_labor_analytics_access()'::regprocedure),E'\r\n',E'\n');
+  if strpos(definition,' select jsonb_build_object(')=0 or strpos(definition,' ) d),''[]''::jsonb));')=0 then
+    raise exception 'Missing labor access output projection';
+  end if;
+  definition:=replace(definition,' select jsonb_build_object(',' select private.project_machine_report_names(jsonb_build_object(');
+  execute replace(definition,' ) d),''[]''::jsonb));',' ) d),''[]''::jsonb)));');
+  definition:=replace(pg_get_functiondef('public.get_labor_analytics_report(date,date,uuid[],uuid[])'::regprocedure),E'\r\n',E'\n');
+  needle:=' return result || jsonb_build_object(''pay'',case when (result->''access''->>''canViewPay'')::boolean then pay_rows else null end);';
+  if strpos(definition,needle)=0 then raise exception 'Missing labor report output projection'; end if;
+  execute replace(definition,needle,' return private.project_machine_report_names(result || jsonb_build_object(''pay'',case when (result->''access''->>''canViewPay'')::boolean then pay_rows else null end));');
 end;
 $migration$;
 
@@ -102,6 +112,9 @@ begin
   needle:='  select * into a from public.customer_accounts';
   if strpos(definition,needle)=0 then raise exception 'Missing internal association validation'; end if;
   definition:=replace(definition,needle,E'  if before_row.id is not null then selections_before:=private.refund_selection_membership(); end if;\n'||needle);
+  needle:='  result:=public.admin_set_reporting_machine_operational_phase(result.id,p_operational_phase,p_reason);';
+  if strpos(definition,needle)=0 then raise exception 'Missing saved association result'; end if;
+  definition:=replace(definition,needle,needle||E'\n  if lower(location_name) like ''unmapped hub %'' and nullif(btrim(result.refund_public_display_label),'''') is null then\n    update public.reporting_machines set refund_public_display_label=private.reporting_machine_display_name(result)\n    where id=result.id returning * into result;\n  end if;');
   definition:=replace(definition,'  return result;',E'  if selections_before is not null and selections_before is distinct from private.refund_selection_membership() then\n    raise exception ''This assignment changes customer machine choices. Review the existing duplicate machine setup before moving the company.'' using errcode=''22023'';\n  end if;\n  return result;');
   execute definition;
   definition:=replace(pg_get_functiondef('public.admin_map_source_machine_to_partnership_by_id(text,uuid,text,text,text,numeric,date,date,date,text,uuid,uuid,text,uuid,uuid)'::regprocedure),E'\r\n',E'\n');
