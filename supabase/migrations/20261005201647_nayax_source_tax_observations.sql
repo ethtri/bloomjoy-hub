@@ -36,7 +36,7 @@ language sql stable security definer set search_path = '' as $$
       and evidence.nayax_machine_id = btrim(machine.nayax_machine_id)
       and evidence.effective_start_date <= p_sale_date
       and coalesce(evidence.effective_end_date,'infinity'::date) >= p_sale_date
-    order by (evidence.classification='verified_tax') desc,
+    order by (evidence.classification in ('verified_tax','unclassified_extra_charge')) desc,
       evidence.effective_start_date desc,evidence.observed_at desc,evidence.id
     limit 1
   ) observation on true
@@ -58,7 +58,7 @@ begin
     'nayax_api',p_observation->>'classification',(p_observation->>'ratePercent')::numeric,
     p_observation->>'fieldName',p_observation->>'provenance',
     ((p_observation->>'observedAt')::timestamptz at time zone 'UTC')::date,
-    ((p_observation->>'observedAt')::timestamptz at time zone 'UTC')::date)
+    null)
   on conflict(account_key,nayax_machine_id,observed_at,source) do nothing returning id into observation_id;
   return jsonb_build_object('recorded',observation_id is not null);
 end;
