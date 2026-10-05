@@ -57,16 +57,19 @@ select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-00
 update public.nayax_dtm_export_rows set provider_actor_id='111',provider_machine_id='999';
 select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),null::date,'Wrong provider machine cannot supply date');
 update public.nayax_dtm_export_rows set provider_machine_id='222',fact_id=null;
-select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),1090::numeric,'Missing original retains historical fallback without guessing date');
-select is((select min(normalization_status) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'estimated','Missing original remains explicitly estimated');
+select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),null::numeric,'Missing original leaves refund tax split unknown without guessing date');
+select is((select min(normalization_status) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'unresolved','Missing original remains explicitly unresolved');
 update public.nayax_dtm_export_rows set fact_id='fc760000-0000-4000-8000-000000000001';
 insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,import_run_id,raw_payload,created_at,updated_at,source_order_hash,source_trade_name,item_quantity,tax_cents,source_payment_status,payment_time) select 'fc760000-0000-4000-8000-000000000002',reporting_machine_id,reporting_location_id,'2026-08-09',payment_method,net_sales_cents,transaction_count,source,repeat('7',64),import_run_id,raw_payload,created_at,updated_at,source_order_hash,source_trade_name,item_quantity,tax_cents,source_payment_status,payment_time from public.machine_sales_facts where id='fc760000-0000-4000-8000-000000000001';
 update public.nayax_dtm_export_rows set fact_id='fc760000-0000-4000-8000-000000000002',machine_settled_at='2026-08-09 12:00' where file_digest=repeat('6',64);
 select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),null::date,'Conflicting original facts remain unproved');
-select is((select min(normalization_status) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'estimated','Conflicting originals remain explicitly estimated');
+select is((select min(normalization_status) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'unresolved','Conflicting originals remain explicitly unresolved');
 -- Restore unique evidence, then exercise the actual shared sales/refund adapter.
 update public.nayax_dtm_export_rows set fact_id='fc760000-0000-4000-8000-000000000001',machine_settled_at='2026-08-08 12:00';
 update public.reporting_machine_tax_rates set tax_rate_percent=9.75 where machine_id='fc740000-0000-4000-8000-000000000001' and effective_start_date='2026-09-01';
+update private.nayax_machine_tax_observations set rate_percent=9.75
+ where nayax_machine_id=(select nayax_machine_id from public.reporting_machines where id='fc740000-0000-4000-8000-000000000001')
+ and effective_start_date='2026-09-01';
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
  ('fc740000-0000-4000-8000-000000000001','fc730000-0000-4000-8000-000000000001','2026-09-01','credit',55590,51,'nayax_scheduled_report',repeat('8',64),'{}');
 select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),49658::numeric,'Actual shared adapter reconciles Gilroy gross sales and refund');
@@ -74,7 +77,7 @@ select is((select sum(sales_tax_cents) from private.machine_sales_daily_componen
 -- Original-date tender treatment reaches the fourth normalization seam.
 insert into public.reporting_machine_tax_treatments(machine_id,tender,amount_basis,taxable_portion_percent,effective_start_date,effective_end_date) values
  ('fc740000-0000-4000-8000-000000000001','card','source_default',0,'2026-08-01','2026-08-31');
-select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),1090::numeric,'Original purchase tender treatment preserves non-taxable portion');
+select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),993::numeric,'Manual taxable-portion override cannot replace verified original source tax');
 delete from public.reporting_machine_tax_treatments where machine_id='fc740000-0000-4000-8000-000000000001';
 -- Finance API reads the same corrected adapter.
 insert into auth.users(id,email) values('fc710000-0000-4000-8000-000000000001','tax@example.invalid');

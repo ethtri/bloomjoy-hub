@@ -63,8 +63,12 @@ $o$, $n$      grouped.reporting_location_id,
         then grouped.recorded_cents else null end::bigint as gross_sales_cents,
       0::bigint as gross_deduction_cents, 0::bigint as gross_paid_cents,
 $n$,1),
-    ($o$      ranked.reporting_location_id,
-      ranked.booking_date,$o$, $n$      ranked.reporting_location_id,
+    ($o$    select
+      ranked.reporting_machine_id,
+      ranked.reporting_location_id,
+      ranked.booking_date,$o$, $n$    select
+      ranked.reporting_machine_id,
+      ranked.reporting_location_id,
       0::bigint as gross_sales_cents,
       case when bool_or(ranked.tender<>'cash' and ranked.effective_amount_basis not in ('tax_inclusive','separate_tax'))
         or bool_or(ranked.recognized_target_after_cents is null or ranked.recognized_target_before_cents is null)
@@ -75,9 +79,9 @@ $n$,1),
       adjustment.adjustment_date as booking_date,$o$, $n$      adjustment.reporting_location_id,
       0::bigint as gross_sales_cents,
       case when adjustment.created_at>=rollout.activated_at then 0
-        when normalized.amount_basis in ('tax_inclusive','separate_tax') or normalized.normalization_reason='cash_not_taxed'
+        when paid_basis.amount_basis in ('tax_inclusive','separate_tax') or normalized.normalization_reason='cash_not_taxed'
         then adjustment.amount_cents else null end::bigint as gross_deduction_cents,
-      case when normalized.amount_basis in ('tax_inclusive','separate_tax') or normalized.normalization_reason='cash_not_taxed'
+      case when paid_basis.amount_basis in ('tax_inclusive','separate_tax') or normalized.normalization_reason='cash_not_taxed'
         then adjustment.amount_cents else null end::bigint as gross_paid_cents,
       adjustment.adjustment_date as booking_date,$n$,1),
     ($o$  select
