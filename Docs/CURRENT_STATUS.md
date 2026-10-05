@@ -41,8 +41,8 @@ orientation snapshot; it is not a backlog or release ledger.
   refund reconciliation. Original transaction tax takes priority; historical rates
   require dated evidence and unresolved tax stays unavailable. Issued statements
   and raw source records are preserved. September Atlanta, South Hills and Gilroy
-  reconciliation review remains open under #1763. PR #1767 is merged; production
-  frontend validation is pending. Shared UAT is separate, and `npm run reporting:preview`
+  reconciliation review remains open under #1763. PR #1767 is deployed; authenticated
+  production Finance and machine tax diagnostics are verified on desktop and mobile. Shared UAT is separate, and `npm run reporting:preview`
   remains an isolated preview with labeled sample data.
 
 - PR #1706 deployed a service-only assisted path for an already-supplied payout
