@@ -25,6 +25,9 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,ma
  ('aa175103-0000-4000-8000-000000000002','aa175101-0000-4000-8000-000000000001','aa175102-0000-4000-8000-000000000001','Shared sibling alias','commercial','Sibling machine name'),
  ('aa175103-0000-4000-8000-000000000003','aa175101-0000-4000-8000-000000000001','aa175102-0000-4000-8000-000000000005','Collision original alias','commercial','Collision name'),
  ('aa175103-0000-4000-8000-000000000004','aa175101-0000-4000-8000-000000000001','aa175102-0000-4000-8000-000000000006','Collision other alias','commercial','Collision name');
+-- Keep the shared sibling in reporting scope without creating a same-category
+-- public duplicate: positive transfer tests begin with an eligible exact choice.
+update public.reporting_machines set refund_intake_enabled=false where id='aa175103-0000-4000-8000-000000000002';
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status)
  select id,'aa175100-0000-4000-8000-000000000001','report-name-admin@example.invalid','active' from public.reporting_machines where id::text like 'aa175103-%';
 insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at)
@@ -58,6 +61,7 @@ create temporary table finance_before as select r-'machineLabel'-'locationName' 
 create temporary table refund_before as select r-'machineLabel'-'locationName' value from jsonb_array_elements(public.get_refund_analytics('2026-02-01','2026-02-28')->'machines') r;
 create temporary table partner_before as select r-'machine_label'-'location_name' value from jsonb_array_elements(public.admin_preview_partner_period_report('aa175104-0000-4000-8000-000000000001','2026-02-01','2026-02-28','calendar_month')->'machine_periods') r;
 create temporary table membership_before as select private.refund_selection_membership() value;
+select is((select count(*)::int from public.public_refund_selections_v2() where machine_id='aa175103-0000-4000-8000-000000000001'),1,'Positive transfer fixture begins with eligible exact public choice');
 select lives_ok($$select public.admin_set_machine_display_name('aa175103-0000-4000-8000-000000000001','Canonical machine name','Customer machine name')$$,'Explicit canonical name edit succeeds');
 select is((select machine_label from public.get_reporting_dimensions() where machine_id='aa175103-0000-4000-8000-000000000001'),'Canonical machine name','Sales dimensions use deliberate canonical name');
 select ok(not exists((select to_jsonb(r)-'machine_label'-'location_name' from public.get_sales_report('2026-02-01','2026-02-28','day',array['aa175103-0000-4000-8000-000000000001','aa175103-0000-4000-8000-000000000002']::uuid[]) r except select value from sales_before) union all (select value from sales_before except select to_jsonb(r)-'machine_label'-'location_name' from public.get_sales_report('2026-02-01','2026-02-28','day',array['aa175103-0000-4000-8000-000000000001','aa175103-0000-4000-8000-000000000002']::uuid[]) r)),'Name edit preserves all sales measures, dates, IDs and shared venue grouping');
