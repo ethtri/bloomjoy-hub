@@ -1164,6 +1164,7 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Never prefix/suffix that name with legacy `reporting_locations.name`. Location is retired from ordinary setup. Internal location IDs, known time zones, historical associations, authorization and financial matching remain intact. Separately named venue aggregate filters/grouping retain their existing semantics; they do not define machine identity.
 - Original imported Sunze/Kexiaozhan platform, name and external ID remain read-only beside exact Nayax identity. Imports do not authorize guessed physical matches, duplicate creation, automatic unlinking or archiving. Unresolved records remain accessible in Needs review.
 - This display policy does not rewrite immutable financial snapshots, historical facts, provider IDs, QR/selection keys, scopes, tax effective dates or financial measures. Tax rate configuration remains visible in setup through its existing authorized dated dialog.
+- Issued historical financial documents and stored/Sent messages preserve their recorded content. Current authorized operational views and newly rendered messages use effective Machine name. Individual-machine CSV sections omit redundant Location display columns; internal IDs and explicitly separate venue filter/grouping metadata remain where already part of the export contract.
 
 ## 2026-10-02 - Operational report homes and mobile navigation (#1708, #1709)
 
