@@ -229,11 +229,176 @@ select ok(public.refund_payout_destination_case_current((select c from public.re
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')#>>'{purchase,timeMeaning}','unknown','Reviewed unvalidated source time never becomes a proven purchase instant');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)#>>'{selectedSale,sourceTimeUnvalidated}','true','Explicit review preserves the source-time limitation');
 
+-- Exercise the existing same-case legacy request and due reminder consumer.
+-- The case remains undecided and must not become Manager decision-ready.
+create temporary table positive_pre_wait_case as
+select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.service_enqueue_refund_manual_message_intent(
+ '52950000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001'),
+ '52980000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',
+ 'more_info','positive@example.test','One protected payout detail',
+ 'Use the existing request to provide the Zelle email or phone number.',
+ 'refund_more_info_editable_v1','manager_authored','missing_information',
+ array['zelle_payment_contact']::text[],null,false,null)->>'enqueued','true',
+ 'Reviewed legacy cash purchase queues its existing destination request');
+create temporary table positive_payout_request_claim as
+select * from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages where manual_delivery_intent_id='52980000-0000-4000-8000-000000000001'),1);
+select public.service_mark_refund_manual_message_provider_attempt(
+ (select refund_case_message_id from positive_payout_request_claim),
+ (select claim_token from positive_payout_request_claim));
+select is(public.service_finish_refund_manual_message_delivery(
+ (select refund_case_message_id from positive_payout_request_claim),
+ (select claim_token from positive_payout_request_claim),
+ 'sent','gmail_thread',null,0,'customer_only')->>'outcome','sent',
+ 'Synthetic original delivery starts the existing customer wait');
+reset role;
+select is((select status from public.refund_cases where id='52950000-0000-4000-8000-000000000001'),
+ 'waiting_on_customer','Protected original delivery enters customer wait');
+select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',
+ (select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),
+ null::jsonb,'Customer wait remains outside Manager preparation status policy');
+select ok(public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),
+ 'Historical empty research cycle with exact reviewed current source remains eligible during customer wait');
+select ok(not public.refund_payout_destination_case_current((select c from positive_pre_wait_case)),
+ 'Stale action-version case snapshot cannot borrow the current reviewed proof');
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true;
+update public.refund_payout_destination_follow_ups set reminder_due_at=statement_timestamp()-interval '1 minute'
+where refund_case_id='52950000-0000-4000-8000-000000000001';
+set local role service_role;
+create temporary table positive_payout_reminder_claim as
+select public.service_claim_due_refund_payout_destination_follow_ups(1,true) result;
+select is((select result#>>'{reminders,0,refundCaseId}' from positive_payout_reminder_claim),
+ '52950000-0000-4000-8000-000000000001','Actual consumer claims the one due reviewed legacy destination followup');
+select is(jsonb_array_length(public.service_claim_due_refund_payout_destination_follow_ups(1,true)->'reminders'),
+ 0,'Repeated consumer claim cannot claim a second reminder');
+create temporary table positive_payout_reminder_message as
+select public.service_create_refund_payout_destination_reminder_message(
+ (result#>>'{reminders,0,followUpId}')::uuid,(result#>>'{reminders,0,claimToken}')::uuid,
+ 'One protected payout reminder','Use the existing same-case request for the payout destination.') result
+from positive_payout_reminder_claim;
+select is((select result->>'created' from positive_payout_reminder_message),'true',
+ 'Existing exact-token writer creates the same-case deterministic reminder');
+select is(public.service_create_refund_payout_destination_reminder_message(
+ (result#>>'{reminders,0,followUpId}')::uuid,(result#>>'{reminders,0,claimToken}')::uuid,
+ 'One protected payout reminder','Use the existing same-case request for the payout destination.')->>'replayed','true',
+ 'Exact-token replay retains one existing reminder') from positive_payout_reminder_claim;
+reset role;
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id='52950000-0000-4000-8000-000000000001'
+ and message_type='reminder'),1,'Single-followup contact budget remains one reminder');
+select ok((select decision is null and refund_completed_at is null and reporting_adjustment_id is null
+ from public.refund_cases where id='52950000-0000-4000-8000-000000000001'),
+ 'Followup preparation creates no decision, payment or completion');
+
+-- Negative source probes below also exercise the customer-wait branch while
+-- rolling back only their temporary status change, retaining original tests.
+create function pg_temp.waiting_payout_current() returns boolean language plpgsql as $$
+declare result boolean;
+begin
+ begin
+  update public.refund_cases set status='waiting_on_customer'
+  where id='52950000-0000-4000-8000-000000000001';
+  select public.refund_payout_destination_case_current(c) into result
+  from public.refund_cases c where id='52950000-0000-4000-8000-000000000001';
+  raise exception using errcode='P9999',message='Rollback isolated wait probe';
+ exception when sqlstate 'P9999' then return result;
+ end;
+end;
+$$;
+create function pg_temp.waiting_payout_probe(mutation text) returns boolean language plpgsql as $$
+declare result boolean;
+begin
+ begin
+  update public.refund_cases set status='waiting_on_customer'
+  where id='52950000-0000-4000-8000-000000000001';
+  execute mutation;
+  select public.refund_payout_destination_case_current(c) into result
+  from public.refund_cases c where id='52950000-0000-4000-8000-000000000001';
+  raise exception using errcode='P9999',message='Rollback isolated proof probe';
+ exception when sqlstate 'P9999' then return result;
+ end;
+end;
+$$;
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_sale_links
+ set released_at=statement_timestamp(),release_reason='wrong_sale',
+ released_by='52960000-0000-4000-8000-000000000001',released_case_fact_version=1
+ where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Released reviewed link cannot authorize waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_sale_links
+ set case_fact_version=2 where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Reviewed link for another fact version cannot authorize waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_sale_links
+ set sales_fact_id='52940000-0000-4000-8000-000000000002'
+ where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Different linked sale cannot borrow the current selected candidate');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_correlation_attempts
+ set case_fact_version=2 where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Stale correlation fact version cannot authorize waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases
+ set cash_match_evaluated_fact_version=null where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Stale case cash-match version cannot authorize waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_correlation_attempts
+ set invalidated_at=statement_timestamp(),invalidation_reason='selected_sale_released'
+ where refund_case_id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Invalidated correlation proof cannot authorize waiting followup');
+-- Current-key uniqueness permits one attempt per fact/policy/source. Update
+-- that current proof to model a later unavailable result while retaining its
+-- reviewed link; the old selected sale must not override the current verdict.
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_correlation_attempts
+ set match_state='sales_history_unavailable',evaluated_at=statement_timestamp()
+ where refund_case_id='52950000-0000-4000-8000-000000000001';
+ update public.refund_cases set cash_match_state='sales_history_unavailable'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Current unavailable proof cannot reuse the previous reviewed selection');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_sunze_cash_correlation_attempts
+ set match_state='no_sale_found_with_complete_coverage',evaluated_at=statement_timestamp()
+ where refund_case_id='52950000-0000-4000-8000-000000000001';
+ update public.refund_cases set cash_match_state='no_sale_found_with_complete_coverage'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Current no-sale proof cannot reuse the previous reviewed selection');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases
+ set nayax_refund_execution_status='manual_review'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Unresolved payment state stops waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases
+ set refund_completed_at=statement_timestamp()
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Completed refund stops waiting followup');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases
+ set duplicate_of_refund_case_id='52950000-0000-4000-8000-000000000002'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Duplicate case stops waiting followup');
+-- Historical receipts can predate present registration guards. Seed only the
+-- synthetic legacy evidence with triggers suppressed, then restore all guards
+-- before calling the real predicate. The isolated probe rolls it back.
+select ok(not pg_temp.waiting_payout_probe($m$set local session_replication_role=replica;
+ insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,
+ account_scope,provider_machine_id,original_transaction_id,original_amount_cents,
+ refunded_amount_cents,currency_code,provider_status,evidence_reference_digest,
+ recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+ values('52950000-0000-4000-8000-000000000001','52920000-0000-4000-8000-000000000001',
+ 'legacy-fixture','legacy-fixture','legacy-proof-only',1000,1000,'USD',62,repeat('a',64),
+ '52960000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true);
+ set local session_replication_role=origin$m$),
+ 'Existing authoritative receipt stops waiting followup without payment replay');
+select ok(pg_temp.waiting_payout_probe($m$update public.refund_cases set decision='approved'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Existing approved legacy shortcut remains unchanged');
+select ok(not pg_temp.waiting_payout_probe($m$update public.refund_cases set status='denied',decision='denied'
+ where id='52950000-0000-4000-8000-000000000001'$m$),
+ 'Denied case remains excluded from waiting followup');
+
+update public.refund_cases set status='needs_review'
+where id='52950000-0000-4000-8000-000000000001';
+
 update public.machine_sales_facts set source_row_hash='changed-positive-row' where id='52940000-0000-4000-8000-000000000001';
 select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Snapshot changes for source row mutation');
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale source row mutation cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale source row mutation cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale source row mutation cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale source row mutation also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after source row mutation');
 select throws_ok($call$select public.service_select_sunze_cash_candidate(
  '52950000-0000-4000-8000-000000000001',
@@ -249,6 +414,7 @@ select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale withdrawn import cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale withdrawn import cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale withdrawn import cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale withdrawn import also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after withdrawn import');
 update public.sales_import_runs set status='completed' where id in ('52930000-0000-4000-8000-000000000001','52930000-0000-4000-8000-000000000003');
 select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored withdrawn import restores exact snapshot identity');
@@ -258,6 +424,7 @@ select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale changed import clock proof cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale changed import clock proof cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale changed import clock proof cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale changed import clock proof also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after changed import clock proof');
 update public.sales_import_runs set meta=meta-'payment_time_timezone' where id='52930000-0000-4000-8000-000000000001';
 select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored changed import clock proof restores exact snapshot identity');
@@ -276,6 +443,7 @@ select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale wrong fact location cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale wrong fact location cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale wrong fact location cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale wrong fact location also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after wrong fact location');
 update public.machine_sales_facts set reporting_location_id='52910000-0000-4000-8000-000000000001' where id='52940000-0000-4000-8000-000000000001';
 select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored wrong fact location restores exact snapshot identity');
@@ -285,6 +453,7 @@ select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale changed provider machine cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale changed provider machine cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale changed provider machine cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale changed provider machine also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after changed provider machine');
 update public.reporting_machines set sunze_machine_id='SUNZE-POSITIVE-1' where id='52920000-0000-4000-8000-000000000001';
 select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored changed provider machine restores exact snapshot identity');
@@ -294,6 +463,7 @@ select isnt(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000
 select is(public.refund_manager_preparation_snapshot('52950000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='52950000-0000-4000-8000-000000000001')),null::jsonb,'Stale wrong source cannot retain preparation');
 select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-8000-000000000001')->'purchase',null::jsonb,'Stale wrong source cannot retain a prepared purchase');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),'Stale wrong source cannot authorize a payout request');
+select ok(not pg_temp.waiting_payout_current(),'Stale wrong source also blocks a waiting legacy followup');
 select is(public.service_get_sunze_cash_correlation('52950000-0000-4000-8000-000000000001','52960000-0000-4000-8000-000000000001',100)->'selectedSale','null'::jsonb,'Getter hides obsolete proof after wrong source');
 update public.machine_sales_facts set source='sunze_browser' where id='52940000-0000-4000-8000-000000000001';
 select is(public.refund_current_sunze_cash_source_key('52920000-0000-4000-8000-000000000001','2026-09-29T18:00:00Z'),(select source_key from positive_current_proof),'Restored wrong source restores exact snapshot identity');
@@ -306,6 +476,7 @@ select is(public.refund_decision_recommendation_for_case('52950000-0000-4000-800
  'A current selected-sale conflict still rejects recommendation');
 select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='52950000-0000-4000-8000-000000000001')),
  'A current selected-sale conflict still rejects payout-field eligibility');
+select ok(not pg_temp.waiting_payout_current(),'Current selected-sale conflict also blocks a waiting legacy followup');
 update public.refund_sunze_cash_correlation_candidates set selection_conflict=false
 where sales_fact_id='52940000-0000-4000-8000-000000000001';
 update public.reporting_machine_refund_managers set status='revoked'
