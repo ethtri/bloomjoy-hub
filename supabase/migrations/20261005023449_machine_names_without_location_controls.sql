@@ -17,7 +17,7 @@ returns jsonb language plpgsql stable set search_path='' as $$
 declare key text; items jsonb;
 begin
   foreach key in array array['dimensions','rows','machines','machine_periods','warnings'] loop
-    if jsonb_typeof(p_payload->key) <> 'array' then continue; end if;
+    if jsonb_typeof(p_payload->key) is distinct from 'array' then continue; end if;
     select coalesce(jsonb_agg(d.item || case when m.id is null then '{}'::jsonb else
       (case when d.item ? 'machineLabel' then jsonb_build_object('machineLabel',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||
       (case when d.item ? 'machine_label' then jsonb_build_object('machine_label',private.reporting_machine_display_name(m)) else '{}'::jsonb end) ||

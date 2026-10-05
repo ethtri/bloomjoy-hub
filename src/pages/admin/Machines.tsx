@@ -300,7 +300,7 @@ const emptyMachineForm = {
   locationId: '',
   addLocation: false,
   locationName: '',
-  locationTimezone: 'America/Los_Angeles',
+  locationTimezone: '',
   machineLabel: '',
   machineType: 'commercial' as CanonicalMachineType | '',
   sunzeMachineId: '',

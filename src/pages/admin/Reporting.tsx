@@ -754,12 +754,6 @@ function ImportedMachineSetupReceipt({
             </div>
             <div>
               <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Location
-              </dt>
-              <dd className="mt-1 text-foreground">{result.locationName}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Access
               </dt>
               <dd className="mt-1 text-foreground">Review scoped admins separately</dd>
