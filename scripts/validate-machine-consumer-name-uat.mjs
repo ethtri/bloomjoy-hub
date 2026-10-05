@@ -183,6 +183,13 @@ try {
     await page.getByRole('button', { name: /Needs review/ }).first().click();
     pass('Partial metadata exposes missing and unconnected rows only in Needs review', await page.getByRole('row').filter({ hasText: 'Arizona Mills' }).count() === 2);
     await page.screenshot({ path: `${dir}/machines-partial-review-390.png`, fullPage: true });
+    metadataMode = 'failure';
+    await page.getByRole('button', { name: 'Retry source connections', exact: true }).click();
+    await page.getByRole('button', { name: /^Machines\s+0$/ }).waitFor();
+    pass('Failed refresh also clears cached normal-view counts', await page.getByRole('button', { name: /^Provisional\s+0$/ }).count() === 1 && await page.getByRole('button', { name: /^Needs attention\s+0$/ }).count() === 1 && await page.getByRole('button', { name: /^Ready\s+0$/ }).count() === 1);
+    await page.getByRole('button', { name: /^Machines\s+0$/ }).click();
+    await page.getByText('Source verification incomplete', { exact: true }).waitFor();
+    pass('Failed refresh never exposes cached verified or legacy rows', await page.getByRole('row').filter({ hasText: /South Hills|Arizona Mills|Southridge/ }).count() === 0);
     metadataMode = 'good';
     await page.getByRole('button', { name: 'Retry source connections', exact: true }).click();
     await page.waitForLoadState('networkidle');
