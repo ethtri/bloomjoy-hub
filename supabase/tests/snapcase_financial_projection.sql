@@ -31,6 +31,8 @@ insert into public.reporting_machine_tax_rates(
 ) values
   ('14783500-0000-4000-8000-000000000001', '14783000-0000-4000-8000-000000000001', 0, '2025-01-01', 'active'),
   ('14783500-0000-4000-8000-000000000002', '14783000-0000-4000-8000-000000000002', 0, '2025-01-01', 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into private.snapcase_provider_accounts(id, source_account_key)
 values ('14784000-0000-4000-8000-000000000001', 'finance-fixture');

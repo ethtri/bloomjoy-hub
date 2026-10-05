@@ -7,76 +7,65 @@ const app = process.argv.includes('--app-url') ? process.argv[process.argv.index
 const out = path.resolve('output/playwright/reporting-tax');
 fs.mkdirSync(out, { recursive: true });
 const machine = 'machine-legacy-dates-uat';
-const browser = await chromium.launch({headless:true});
+const browser = await chromium.launch({ headless: true });
 const checks = [];
-const scoped = {...personas.operator,isScopedAdmin:true,id:'00000000-0000-4000-9000-000000001708'};
-const savedTreatments = new Map();
-const initialCash = {id:'cash-treatment',machine_id:machine,tender:'cash',amount_basis:'tax_exclusive',taxable_portion_percent:25,effective_start_date:'2026-01-01',effective_end_date:null,created_at:'2026-01-01T00:00:00Z',created_by:null};
-const response = (name,actor,body,freshness) => {
-  if(name==='get_my_admin_access_context' && actor.isScopedAdmin) return {isSuperAdmin:false,isScopedAdmin:true,canAccessAdmin:true,allowedSurfaces:['machines'],scopedMachineIds:[machine]};
-  if(name==='admin_get_reporting_machine_tax_treatments') return [initialCash,...(savedTreatments.get(actor.id) ?? [])];
-  if(name==='admin_set_reporting_machine_tax_configuration') {
-    const treatments = ['card','cash'].map(tender => ({id:`saved-${tender}`,machine_id:body.p_machine_id,tender,
-      amount_basis:body[`p_${tender}_amount_basis`],taxable_portion_percent:body[`p_${tender}_taxable_portion_percent`],
-      effective_start_date:body.p_effective_start_date,effective_end_date:null,created_at:'2026-07-22T12:00:00Z',created_by:actor.id}));
-    savedTreatments.set(actor.id,treatments);
-    return {taxRate:{machine_id:body.p_machine_id,tax_rate_percent:body.p_tax_rate_percent},treatments};
+const scoped = { ...personas.operator, isScopedAdmin: true, id: '00000000-0000-4000-9000-000000001708' };
+const response = (name, actor, body, freshness) => {
+  if (name === 'admin_get_machine_workspace_metadata') return [];
+  if (name === 'admin_get_reporting_machine_tax_treatments') return [];
+  if (name === 'admin_get_reporting_company_choices') return { canCreateCompany: false, companies: [] };
+  if (name === 'get_my_admin_access_context' && actor.isScopedAdmin) return { isSuperAdmin: false, isScopedAdmin: true, canAccessAdmin: true, allowedSurfaces: ['machines'], scopedMachineIds: [machine] };
+  if (name === 'admin_reporting_machine_source_tax') return {
+    coverageStatus: 'verified_tax', source: 'nayax_api', observedAt: '2026-07-21T12:00:00Z',
+    ratePercent: 8, saleDate: '2026-07-21', latestProbeStatus: 'unavailable',
+  };
+  if (name === 'admin_get_partnership_reporting_setup') {
+    const setup = rpcResponse(name, actor, body, freshness);
+    setup.machines.forEach(row => { row.operational_phase = 'live'; });
+    return setup;
   }
-  if(name==='admin_get_partnership_reporting_setup') { const setup=rpcResponse(name,actor,body,freshness); setup.machines.forEach(row=>row.operational_phase='live');setup.taxRates=[{id:'rate-1',machine_id:machine,machine_label:'Legacy Date Kiosk',tax_rate_percent:10,effective_start_date:'2026-01-01',effective_end_date:null,status:'active',notes:null}]; return setup; }
-  return rpcResponse(name,actor,body,freshness);
+  return rpcResponse(name, actor, body, freshness);
 };
+const assertNoManualTaxWrite = state => assert(!state.rpcCalls.some(call =>
+  ['admin_set_reporting_machine_tax_configuration', 'admin_set_reporting_machine_tax_rate'].includes(call.rpcName)));
 try {
-  for (const [actor,width] of [[personas.superAdmin,1440],[scoped,390]]) {
-    const {page,context,state}=await createPageForPersona(browser,actor,{width,height:900},{rpcHandler:response});
-    const pageErrors = []; page.on('pageerror',error=>pageErrors.push(error.message));
+  for (const [actor, width] of [[personas.superAdmin, 1440], [scoped, 390]]) {
+    const { page, context, state } = await createPageForPersona(browser, actor, { width, height: 900 }, { rpcHandler: response });
+    const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
+    const consoleErrors = []; page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     try {
-      await page.goto(`${app}/admin/machines/${machine}?tab=reporting`,{waitUntil:'networkidle'});
-      await page.getByRole('button',{name:'Change tax rate',exact:true}).click();
-      const dialog=page.getByRole('dialog',{name:'Change reporting tax rate'});
-      await dialog.waitFor();
-      assert(!await dialog.getByLabel('Card source amounts',{exact:true}).isVisible());
-      await dialog.locator('summary').first().focus();await page.keyboard.press('Enter');
-      assert.equal(await dialog.getByLabel('Cash source amounts',{exact:true}).inputValue(),'tax_exclusive');
-      await dialog.getByLabel('Card source amounts',{exact:true}).selectOption('tax_exclusive');
-      await dialog.getByText('Taxable portion',{exact:true}).click();
-      assert.equal(await dialog.getByLabel('Cash taxable %',{exact:true}).inputValue(),'25');
-      await dialog.getByLabel('Card taxable %',{exact:true}).fill('33');
-      await dialog.getByText('3.3% effective reporting rate',{exact:true}).waitFor();
-      await dialog.getByLabel('Reason',{exact:true}).fill('Documented source treatment');
-      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-      await page.screenshot({path:path.join(out,`tax-${actor.isScopedAdmin?'scoped-mobile':'desktop'}.png`),fullPage:true});
-      await dialog.getByLabel('Card taxable %',{exact:true}).fill('-1');
-      await dialog.getByRole('button',{name:'Save rate change',exact:true}).click();
-      assert(!state.rpcCalls.some(call=>call.rpcName==='admin_set_reporting_machine_tax_configuration'));
-      await dialog.getByLabel('Card taxable %',{exact:true}).fill('33');
-      await dialog.getByRole('button',{name:'Save rate change',exact:true}).click();
-      await dialog.waitFor({state:'hidden'});
-      const saved=state.rpcCalls.find(call=>call.rpcName==='admin_set_reporting_machine_tax_configuration');
-      assert(saved);assert.equal(saved.body.p_card_taxable_portion_percent,33);assert.equal(saved.body.p_card_amount_basis,'tax_exclusive');
-      assert.equal(saved.body.p_cash_taxable_portion_percent,25);assert.equal(saved.body.p_cash_amount_basis,'tax_exclusive');
-      await page.getByRole('button',{name:'Change tax rate',exact:true}).click();
-      await dialog.locator('summary').first().click();
-      assert.equal(await dialog.getByLabel('Card source amounts',{exact:true}).inputValue(),'tax_exclusive');
-      await dialog.getByText('Taxable portion',{exact:true}).click();
-      assert.equal(await dialog.getByLabel('Card taxable %',{exact:true}).inputValue(),'33');
-      if(actor.isScopedAdmin){await page.setViewportSize({width:320,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));}
-      assert.deepEqual(pageErrors,[]);
-      checks.push(`${actor.isScopedAdmin?'Scoped admin mobile':'Super admin desktop'}: collapsed defaults, keyboard disclosure, valid share, unchanged cash treatment, atomic save and reload`);
-    } finally {await context.close();}
+      await page.goto(`${app}/admin/machines/${machine}?tab=reporting`, { waitUntil: 'networkidle' });
+      const section = page.locator('section[aria-labelledby="machine-reporting-title"]');
+      await section.getByText('Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Change tax rate', exact: true }).count(), 0);
+      assert.equal(await page.getByLabel('Tax rate', { exact: true }).count(), 0);
+      const disclosure = section.locator('details');
+      assert.equal(await disclosure.getAttribute('open'), null);
+      await disclosure.locator('summary').focus(); await page.keyboard.press('Enter');
+      await disclosure.getByText('Verified source: Nayax API. Applies to 2026-07-21.', { exact: true }).waitFor();
+      await disclosure.getByText('The latest Nayax refresh was unavailable. Any previously verified setting remains in use.', { exact: true }).waitFor();
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.screenshot({ path: path.join(out, `tax-${actor.isScopedAdmin ? 'scoped-mobile' : 'desktop'}.png`), fullPage: true });
+      if (actor.isScopedAdmin) { await page.setViewportSize({ width: 320, height: 844 }); assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)); }
+      assertNoManualTaxWrite(state);
+      assert.deepEqual(pageErrors, []);
+      checks.push(`${actor.isScopedAdmin ? 'Scoped admin mobile' : 'Super admin desktop'}: source-only reporting, keyboard diagnostics, retained-source outage notice, no manual tax writes or horizontal overflow`);
+    } catch (error) {
+      console.error('Tax UAT page:', page.url(), (await page.locator('body').innerText()).slice(0, 1600), { pageErrors, consoleErrors });
+      await page.screenshot({ path: path.join(out, 'tax-failure.png'), fullPage: true });
+      throw error;
+    } finally { await context.close(); }
   }
-  const {page,context,state}=await createPageForPersona(browser,personas.superAdmin,{width:390,height:844},{rpcHandler:response});
-  try{
-    await context.route('**/rest/v1/rpc/admin_get_reporting_machine_tax_treatments',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Synthetic unavailable'})}));
-    await page.goto(`${app}/admin/machines/${machine}?tab=reporting`,{waitUntil:'networkidle'});
-    await page.getByRole('button',{name:'Change tax rate',exact:true}).click();
-    const dialog=page.getByRole('dialog',{name:'Change reporting tax rate'});await dialog.locator('summary').first().click();
-    await dialog.getByText('Saved treatment could not be loaded. You can still save the rate above.',{exact:true}).waitFor();
-    await dialog.getByLabel('Reason',{exact:true}).fill('Rate-only change after source outage');
-    await dialog.getByRole('button',{name:'Save rate change',exact:true}).click();await dialog.waitFor({state:'hidden'});
-    assert(state.rpcCalls.some(call=>call.rpcName==='admin_set_reporting_machine_tax_rate'));
-    assert(!state.rpcCalls.some(call=>call.rpcName==='admin_set_reporting_machine_tax_configuration'));
-    checks.push('Treatment load failure preserves usable rate-only save without resetting unknown rules');
-  }finally{await context.close();}
-  fs.writeFileSync(path.join(out,'tax-results.json'),JSON.stringify({checks},null,2));
-  console.log(JSON.stringify({passed:checks.length,checks},null,2));
-}finally{await browser.close();}
+  const { page, context, state } = await createPageForPersona(browser, personas.superAdmin, { width: 390, height: 844 }, { rpcHandler: response });
+  try {
+    await context.route('**/rest/v1/rpc/admin_reporting_machine_source_tax', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable' }) }));
+    await page.goto(`${app}/admin/machines/${machine}?tab=reporting`, { waitUntil: 'networkidle' });
+    const disclosure = page.locator('section[aria-labelledby="machine-reporting-title"] details');
+    await disclosure.locator('summary').click();
+    await disclosure.getByText('Source coverage is unavailable. Finance preserves unresolved amounts.', { exact: true }).waitFor();
+    assertNoManualTaxWrite(state);
+    checks.push('Source load failure remains unavailable without inventing zero tax or exposing a manual override');
+  } finally { await context.close(); }
+  fs.writeFileSync(path.join(out, 'tax-results.json'), JSON.stringify({ checks }, null, 2));
+  console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
+} finally { await browser.close(); }

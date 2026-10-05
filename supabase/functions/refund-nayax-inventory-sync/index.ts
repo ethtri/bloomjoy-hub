@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { taxChangeEvidence } from "../_shared/nayax-tax-history.ts";
+import { paymentMethodTaxObservation } from "../_shared/nayax-tax-payment-methods.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -76,6 +78,29 @@ const recordFailure = async (runKey: string, accountKey: string, errorCode: stri
   });
 };
 
+const syncTaxSettings = async (accountKey: string,token: string) => {
+  if(!supabase) return {status:'unavailable',observed:0};
+  const {data:machines,error} = await supabase.rpc('service_list_nayax_tax_sync_machines',{p_account_key:accountKey});
+  if(error) return {status:'unavailable',observed:0,errorCode:'tax_scope_read_failed'};
+  const outcomes = await Promise.all((machines ?? []).map(async (machine: {machine_id:string}) => {
+    let setting: Record<string,unknown> = {classification:'unavailable',ratePercent:null,fieldName:null,
+      provenance:'Nayax payment methods endpoint unavailable; prior verified evidence retained'};
+    try {
+      const response = await fetch(`${baseUrl}/machines/${machine.machine_id}/paymentMethods`,{
+        method:'GET',headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},
+        signal:AbortSignal.timeout(20_000)});
+      if(response.ok) setting=paymentMethodTaxObservation(accountKey,machine.machine_id,await response.json());
+    } catch { /* Persist bounded transport diagnostic without provider payload. */ }
+    const {error:writeError} = await supabase.rpc('service_record_nayax_tax_observation',{
+      p_observation:{...setting,accountKey,machineId:machine.machine_id,source:'nayax_api',observedAt:new Date().toISOString()}});
+    return writeError ? 'write_failed':String(setting.classification);
+  }));
+  return {status:outcomes.includes('write_failed') ? 'failed':'completed',observed:outcomes.length,
+    verified:outcomes.filter(value=>value==='verified_tax').length,
+    unavailable:outcomes.filter(value=>value==='unavailable').length,
+    unresolved:outcomes.filter(value=>value==='missing'||value==='unclassified_extra_charge').length};
+};
+
 serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
@@ -118,6 +143,42 @@ serve(async (request) => {
   const runPrefix = text(body.runKey, 120) || `scheduled-${new Date().toISOString().slice(0, 16)}`;
   const results: JsonObject[] = [];
 
+  // Scheduler-authorized, provider read-only probe for one exact machine.
+  // It reports only the allowlisted tax classification and optional history;
+  // it does not sync inventory, persist settings, or write to Nayax.
+  if (body.operation === "tax_attribute_probe" || body.operation === "tax_settings_probe") {
+    const machineId = text(body.machineId, 40);
+    if (!/^\d+$/.test(machineId) || accounts.length !== 1) {
+      return jsonResponse({ error: "One configured account and numeric machine ID required." }, 400);
+    }
+    const token = tokenForAccount(accounts[0]);
+    if (!token) return jsonResponse({ errorCode: "token_missing" }, 503);
+    let taxSetting: JsonObject | null = null;
+    let paymentMethodsStatus = 0;
+    try {
+      const response = await fetch(`${baseUrl}/machines/${machineId}/paymentMethods`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      paymentMethodsStatus = response.status;
+      if (response.ok) taxSetting = paymentMethodTaxObservation(accounts[0],machineId,await response.json());
+    } catch { paymentMethodsStatus = 0; }
+      // Fixed requested September reconciliation window; no undocumented limit
+      // parameter or assertion of completeness from an empty response.
+      const query = new URLSearchParams({MachineID:machineId,StartDate:"2026-09-01T00:00:00Z",EndDate:"2026-10-05T23:59:59Z"});
+      let changes: JsonObject[] = [];
+      let historyStatus = 0;
+      try {
+        const history = await fetch(`${baseUrl}/machines/changeLogs?${query}`, {
+          method:"GET",headers:{Authorization:`Bearer ${token}`,Accept:"application/json"},
+          signal:AbortSignal.timeout(30_000)});
+        historyStatus = history.status;
+        if(history.ok) changes = taxChangeEvidence(await history.json());
+      } catch { historyStatus = 0; }
+      return jsonResponse({status:paymentMethodsStatus===200 ? "observed":"unavailable",
+        observedAt:new Date().toISOString(),paymentMethodsStatus,taxSetting,historyStatus,changes});
+  }
+
   for (const accountKey of accounts) {
     const runKey = `${runPrefix}:${accountKey}`;
     const token = tokenForAccount(accountKey);
@@ -148,7 +209,7 @@ serve(async (request) => {
         p_error_code: null,
       });
       if (error) throw new Error("inventory_write_failed");
-      results.push(data as JsonObject);
+      results.push({...data as JsonObject,taxSettings:await syncTaxSettings(accountKey,token)});
     } catch (error) {
       const errorCode = error instanceof Error
         ? text(error.message, 120).toLowerCase().replace(/[^a-z0-9_]+/g, "_") || "sync_failed"

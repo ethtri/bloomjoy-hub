@@ -1,6 +1,6 @@
 # Finance team user guides
 
-Use the nine-page guide in the preferred language:
+Use the ten-page guide in the preferred language:
 
 - [English PDF](../../../output/pdf/bloomjoy-finance-guide.en.pdf) - [editable English source](finance-guide.en.md)
 - [简体中文 PDF](../../../output/pdf/bloomjoy-finance-guide.zh-CN.pdf) - [可编辑中文原文](finance-guide.zh-CN.md)
@@ -9,7 +9,7 @@ The guides cover Finance, the detailed Sales view, Overview/Locations filters an
 
 ## Screenshot provenance
 
-The original six workflow screenshots were captured October 2, 2026 from the actual React application at main commit `853c397270e2d84f44244418f14aaba24a7cd1b6`. The two company workflow screenshots were captured October 3 from the company grouping implementation in PR #1725, using the isolated company reporting preview and machine setup fixtures. Page 9 adds the company-management sheet from PR #1731, also using synthetic fixtures. The earlier images illustrate the unchanged calculations; Company controls are shown on pages 7–9. The existing user preview on port 8097 was untouched.
+The original six workflow screenshots were captured October 2, 2026 from the actual React application at main commit `853c397270e2d84f44244418f14aaba24a7cd1b6`. The two company workflow screenshots were captured October 3 from the company grouping implementation in PR #1725, using the isolated company reporting preview and machine setup fixtures. Page 9 adds the company-management sheet from PR #1731, also using synthetic fixtures. The Finance totals, breakdown and completed-refund screenshots were refreshed October 5 from integrated source-tax release `866948b7`, using the actual synthetic browser UAT capture in `output/playwright/finance-reporting/finance-desktop.png`. Company controls remain on pages 7–9; page 10 explains completed refunds and dated tax coverage. Other workflow images retain their earlier provenance.
 
 The preview uses the repository's synthetic reporting fixtures, a fixed sample date of July 22, 2026, a synthetic account and a loopback backend. It disables real credentials and external requests. These are illustrative examples, not company results or a dataset for reconciling totals across screens. No production data, customer/payment identifiers or private exports appear in the assets.
 
@@ -17,6 +17,7 @@ The preview uses the repository's synthetic reporting fixtures, a fixed sample d
 | --- | --- |
 | `finance-core.png` | `/portal/reports?view=finance`; complete Sales to net sales region |
 | `finance-breakdown.png` | Same screen; complete expanded Sales, tax and refund breakdown |
+| `finance-reconciliation.png` | Same screen; complete Completed refund reconciliation |
 | `filters.png` | `/portal/reports?view=overview`; top of main content with More filters open |
 | `sales.png` | `/portal/reports?view=sales`; top of main content through the complete detail-control card |
 | `refunds-core.png` | `/refunds?view=reports`; complete Requests received in this period section |
@@ -42,3 +43,5 @@ pdftoppm -r 95 -png output/pdf/bloomjoy-finance-guide.zh-CN.pdf tmp/pdfs/zh
 The builder accepts `--font-dir` and `--output-dir`. The default PDFs go to `output/pdf/`; only these two finished PDFs are committed from that ignored artifact directory. Font files are embedded in the PDF, not copied into the repository. Inspect all final pages after rebuilding, including clickable links, Chinese glyphs, screenshot readability and footer spacing.
 
 Definitions were checked against current reporting panels, export helpers and `CompanyAssignmentFields`. Company grouping follows the current canonical machine assignment while each domain retains its own permissions. This guide documents the implemented controls; reading it changes no report access, tax rate, machine assignment or refund policy.
+
+This release overlaps the still-open guide PR [#1735](https://github.com/ethtri/bloomjoy-hub/pull/1735), which also edits Finance guide sources and artifacts. Its manual-tax instructions must not supersede the source-managed card tax and untaxed cash policy documented here.

@@ -317,10 +317,7 @@ const emptyTaxChangeForm = {
   cashTreatment: null as TaxTreatmentDraft | null,
 };
 
-const parseTaxFilter = (value: string | null): MachineTaxFilter => {
-  if (value === 'missing' || value === 'no_tax' || value === 'configured') return value;
-  return 'all';
-};
+const parseTaxFilter = (_value: string | null): MachineTaxFilter => 'all';
 
 const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter => {
   if (value === 'unassigned' || value === 'overlap') return value;
@@ -748,15 +745,6 @@ export default function AdminMachinesPage() {
             code: 'report_overlap',
             label: 'Partner report assignments overlap',
             nextStep: 'Resolve the report overlap',
-            tab: 'reporting',
-          });
-        }
-
-        if (!isSetupPhase && activeAssignments.length > 0 && taxStatus === 'missing') {
-          attentionReasons.push({
-            code: 'tax_missing',
-            label: 'Reporting tax is missing',
-            nextStep: 'Add reporting tax',
             tab: 'reporting',
           });
         }
@@ -1527,20 +1515,7 @@ export default function AdminMachinesPage() {
                       <option value="paused">Paused</option>
                     </select>
                   </div>
-                  <div>
-                    <Label htmlFor="tax-filter">Reporting tax</Label>
-                    <select
-                      id="tax-filter"
-                      value={taxFilter}
-                      onChange={(event) => updateTaxFilter(event.target.value as MachineTaxFilter)}
-                      className="mt-1 h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
-                    >
-                      <option value="all">All tax states</option>
-                      <option value="missing">Missing where required</option>
-                      <option value="no_tax">Explicit no tax</option>
-                      <option value="configured">Configured tax</option>
-                    </select>
-                  </div>
+
                   <div>
                     <Label htmlFor="assignment-filter">Partner reporting</Label>
                     <select
@@ -2534,6 +2509,17 @@ function MachineDialog({
   const [form, setForm] = useState(emptyMachineForm);
   const [mappingHasChanges, setMappingHasChanges] = useState(false);
   const { user: assignmentUser } = useAuth();
+  const taxSource = useQuery({
+    queryKey: ['admin-machine-tax-source', assignmentUser?.id, machine?.id],
+    enabled: open && activeTab === 'reporting' && !!machine?.id && !isLocalDemoMode,
+    queryFn: async () => {
+      const { supabaseClient } = await import('@/lib/supabaseClient');
+      const { data, error } = await supabaseClient.rpc('admin_reporting_machine_source_tax', { p_machine_id: machine!.id });
+      if (error) throw error;
+      return data as { coverageStatus: string; source: string | null; observedAt: string | null; ratePercent: number | null; saleDate: string; latestProbeStatus?: string; latestProbeAt?: string };
+    },
+    staleTime: 30000,
+  });
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, assignmentUser?.id], queryFn: fetchCompanyChoices, enabled: open && canEditMachineIdentity, staleTime: 30000 });
   const loadedIdentityKeyRef = useRef('');
   const newAssociationKeyRef = useRef(crypto.randomUUID());
@@ -3139,29 +3125,7 @@ function MachineDialog({
         refundManagerSetup?.readinessBlockReason ?? refundManagerSetup?.paymentDisabledReason ?? null
       )}`;
 
-  const taxRateSetup = (
-    <section className="mt-6 rounded-lg border border-border p-4" aria-label="Tax rate">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-foreground">Tax rate</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {machineRow?.taxRate
-              ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}% · Applies from ${formatDate(machineRow.taxRate.effective_start_date)}`
-              : 'Not set'}
-          </p>
-        </div>
-        {machine && canManageReportingTax && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="min-h-11" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}>
-              {machineRow?.taxRate ? 'Change tax rate' : 'Set tax rate'}
-            </Button>
-            {taxHistoryCount > 0 && <Button type="button" variant="ghost" className="min-h-11" onClick={() => onShowTaxHistory?.(machine)}>Rate history ({taxHistoryCount})</Button>}
-          </div>
-        )}
-      </div>
-      {!machine && <p className="mt-2 text-sm text-muted-foreground">Save the machine to configure its tax rate.</p>}
-    </section>
-  );
+  const taxRateSetup = null;
 
   if (mode === 'page' && machine) {
     const detailTabs: Array<{ value: MachineDetailTab; label: string }> = [
@@ -3449,12 +3413,17 @@ function MachineDialog({
         {activeTab === 'reporting' && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-reporting-title">
             <h2 id="machine-reporting-title" className="text-lg font-semibold text-foreground">Reporting</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Partnership assignment and the tax treatment currently used in reports.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Partnership assignment and sales reporting coverage.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.</p>
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Partner reports</dt><dd className="text-right font-medium">{machineRow?.activeAssignments.map((assignment) => assignment.partnership_name).join(', ') || 'Not assigned'}</dd></div>
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Tax treatment</dt><dd className="font-medium">{machineRow ? getTaxStatusLabel(machineRow.taxStatus) : 'Not set'}</dd></div>
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Current rate</dt><dd className="font-medium">{machineRow?.taxRate ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}%` : 'None'}</dd></div>
             </dl>
+            <details className="mt-4 border-t border-border pt-3">
+              <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Tax source diagnostics</summary>
+              <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverage…' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source === 'finance_verified' ? 'Finance confirmation' : taxSource.data.source === 'nayax_portal' ? 'Nayax portal export' : 'Nayax API'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
+              {taxSource.data?.observedAt && <p className="mt-1 text-xs text-muted-foreground">Observed {new Date(taxSource.data.observedAt).toLocaleString()}.</p>}
+              {taxSource.data?.latestProbeStatus === 'unavailable' && <p className="mt-2 text-sm text-muted-foreground">The latest Nayax refresh was unavailable. Any previously verified setting remains in use.</p>}
+            </details>
             {machineRow?.attentionReasons.some((reason) => reason.tab === 'reporting') && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 <div className="font-medium">Reporting needs attention</div>
@@ -3464,12 +3433,6 @@ function MachineDialog({
               </div>
             )}
             <div className="mt-5 flex flex-wrap gap-2">
-              {canManageReportingTax && (
-                <>
-                  <Button variant="outline" onClick={() => onOpenTaxChange?.(machine, machineRow?.taxRate)}><CalendarClock className="mr-2 h-4 w-4" /> {machineRow?.taxRate ? 'Change tax rate' : 'Set tax rate'}</Button>
-                  <Button variant="outline" onClick={() => onShowTaxHistory?.(machine)} disabled={taxHistoryCount === 0}><History className="mr-2 h-4 w-4" /> Rate history ({taxHistoryCount})</Button>
-                </>
-              )}
               {canEditMachineIdentity ? (
                 <Button variant="ghost" asChild><Link to="/admin/partnerships">Manage partnerships <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
               ) : (
@@ -3487,7 +3450,6 @@ function MachineDialog({
               <div className="flex gap-3 px-4 py-4"><Activity className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Latest sale</div><div className="mt-0.5 text-sm text-muted-foreground">{machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales recorded yet'}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><ServerCog className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Machine status</div><div className="mt-0.5 text-sm text-muted-foreground">{formatLabel(machine.status || 'unknown')}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><Users className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Manager coverage</div><div className="mt-0.5 text-sm text-muted-foreground">{machineManagerCount} assigned</div></div></div>
-              <div className="flex gap-3 px-4 py-4"><CalendarClock className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Reporting tax</div><div className="mt-0.5 text-sm text-muted-foreground">{machineRow?.taxRate ? `${Number(machineRow.taxRate.tax_rate_percent).toFixed(2)}% effective ${formatDate(machineRow.taxRate.effective_start_date)}` : 'No rate recorded'}</div></div></div>
             </div>
             <Button variant="outline" asChild className="mt-4"><Link to={`/admin/audit?search=${encodeURIComponent(machine.id)}`}><History className="mr-2 h-4 w-4" /> View full audit history</Link></Button>
           </section>

@@ -12,17 +12,18 @@ import { fetchFinanceReportingAccess, fetchFinanceReporting, financeReportingCsv
 import { money } from '@/lib/reportingWorkspace';
 
 type Props = { dimensions?: CompanyDimension[]; onCompany?: (id: string) => void; scope: FinanceReportingScope; onMachine: (machineId: string, locationId: string) => void };
+type SourceFinanceRow = FinanceReportingRow & { grossSalesIncludingTaxCents?: number | null; refundDeductionIncludingTaxCents?: number | null; remainingTaxCents?: number | null; completedRefundExTaxCents?: number | null; reconciliationNetSalesExTaxCents?: number | null };
+const sourceTotal = (rows: FinanceReportingRow[], field: keyof SourceFinanceRow) => rows.length && rows.every(row => (row as SourceFinanceRow)[field] != null) ? rows.reduce((sum, row) => sum + ((row as SourceFinanceRow)[field] as number), 0) : null;
+
 type MoneyField = { [K in keyof FinanceReportingRow]: FinanceReportingRow[K] extends number | null ? K : never }[keyof FinanceReportingRow];
 
 const total = (rows: FinanceReportingRow[], field: MoneyField) => rows.length && rows.every(row => row[field] != null)
   ? rows.reduce((sum, row) => sum + (row[field] as number), 0) : null;
-const refundImpact = (row: FinanceReportingRow) => row.requestedDeductionExTaxCents == null || row.reversalExTaxCents == null || row.legacyPaidDeductionExTaxCents == null
-  ? null : row.requestedDeductionExTaxCents - row.reversalExTaxCents + row.legacyPaidDeductionExTaxCents;
-const totalImpact = (rows: FinanceReportingRow[]) => rows.length && rows.every(row => refundImpact(row) != null)
-  ? rows.reduce((sum, row) => sum + refundImpact(row)!, 0) : null;
+
+
 
 function Amount({ value, known }: { value: number | null; known?: number | null }) {
-  return <><span className="tabular-nums">{money(value)}</span>{value == null && known != null && <span className="mt-1 block text-xs font-normal text-muted-foreground">Known subtotal {money(known)}</span>}</>;
+  return <><span className="tabular-nums">{value == null ? 'Unavailable' : money(value)}</span>{value == null && known != null && <span className="mt-1 block text-xs font-normal text-muted-foreground">Known subtotal {money(known)}</span>}</>;
 }
 
 export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany }: Props) {
@@ -35,6 +36,9 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
   const uncertainAccounting = count('unresolvedSalesCount') + count('unresolvedRefundCount');
   const uncertainPayments = count('unknownPaymentDateCount');
   const uncertainBalance = count('unknownBalanceCount');
+  const grossSales = sourceTotal(rows, 'grossSalesIncludingTaxCents');
+  const completedRefunds = sourceTotal(rows, 'completedRefundIncludingTaxCents');
+  const receiptsAfterRefunds = grossSales == null || completedRefunds == null ? null : grossSales - completedRefunds;
   const download = async () => {
     try {
     const access = await fetchFinanceReportingAccess(); if (!access.hasAccess) throw new Error('Finance report access is unavailable.');
@@ -47,7 +51,7 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
   };
   const breakdown: { label: string; value: number | null; known?: number | null; note?: string }[] = [
     { label: 'Recorded card sales', value: total(rows, 'cardRecordedSalesCents') },
-    { label: 'Recorded cash sales', value: total(rows, 'cashRecordedSalesCents') },
+    { label: 'Cash sales, no tax deducted', value: total(rows, 'cashRecordedSalesCents'), note: '$10 collected in cash counts as $10 of sales.' },
     { label: 'Other recorded sales', value: total(rows, 'otherRecordedSalesCents') },
     { label: 'Reporting tax removed', value: total(rows, 'reportingTaxRemovedCents'), note: 'Tax removed from sales for reporting. This does not establish tax collected or owed.' },
     { label: 'Requested deductions excluding tax', value: total(rows, 'requestedDeductionExTaxCents') },
@@ -65,12 +69,12 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
     <section aria-labelledby="finance-heading">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="finance-heading" className="text-xl font-semibold">Sales to net sales</h2><Button variant="outline" className="min-h-11" onClick={download} disabled={!rows.length || report.isFetching}><Download className="mr-2 h-4 w-4"/>Export CSV</Button></div>
       {!rows.length ? <p className="mt-4 rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">No finance records loaded for this period and scope. Try another period or machine. Missing records do not prove zero sales or refunds.</p> : <>
-        <dl className="mt-4 grid gap-5 border-y border-border py-5 sm:grid-cols-3">
-          {[{ label: 'Sales excluding tax', value: total(rows, 'salesExTaxCents') }, { label: 'Refund deductions', value: totalImpact(rows) }, { label: 'Net sales', value: total(rows, 'netSalesExTaxCents') }].map(item => <div key={item.label} className="flex items-baseline justify-between gap-3 sm:block"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-xl font-semibold sm:mt-2 sm:text-2xl"><Amount value={item.value}/></dd></div>)}
+        <dl className="mt-4 grid gap-5 border-y border-border py-5 sm:grid-cols-2 lg:grid-cols-4">
+          {[{ label: 'Sales including tax', value: sourceTotal(rows, 'grossSalesIncludingTaxCents') }, { label: 'Refund deductions including tax', value: sourceTotal(rows, 'refundDeductionIncludingTaxCents') }, { label: 'Remaining tax', value: sourceTotal(rows, 'remainingTaxCents') }, { label: total(rows, 'netSalesExTaxCents') == null ? 'Net sales, tax unresolved' : 'Net sales excluding tax', value: total(rows, 'netSalesExTaxCents') }].map(item => <div key={item.label} className="flex items-baseline justify-between gap-3 sm:block"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-xl font-semibold sm:mt-2 sm:text-2xl"><Amount value={item.value}/></dd></div>)}
         </dl>
         <p className="mt-3 max-w-3xl text-xs leading-relaxed text-muted-foreground">Imported records; coverage unknown. Net sales is not profit or payment settlement.{count('estimatedComponentCount') > 0 ? ' Some calculations use reporting estimates.' : ''}{count('unknownRequestDateCount') > 0 ? ' Some request dates are unknown.' : ''}{count('unknownAmountCount') > 0 ? ' Some request amounts are unknown; refund activity totals may be incomplete.' : ''}{uncertainPayments > 0 ? ' Some payment or issuance dates are unknown.' : ''}{uncertainBalance > 0 ? ' Some outstanding balances are unknown.' : ''}</p>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">Refund requests reduce sales once. Reversals restore deductions; later payments and gift cards add no second deduction.</p>
-        {uncertainAccounting > 0 && <p role="status" className="mt-3 text-sm text-muted-foreground">Some sales or refund calculations are unresolved. Affected amounts are unavailable.</p>}
+        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">Refund requests reduce sales once. Reversals restore deductions; later payments and gift cards add no second deduction. Cash sales have no tax deduction.</p>
+        {(uncertainAccounting > 0 || sourceTotal(rows, 'grossSalesIncludingTaxCents') == null || sourceTotal(rows, 'remainingTaxCents') == null) && <p role="status" className="mt-3 text-sm text-muted-foreground">Some tax splits are unresolved. Affected amounts are unavailable until source information is verified.</p>}
       </>}
     </section>
     {rows.length > 0 && <>
@@ -78,9 +82,16 @@ export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany 
         <dl className="mt-3 grid gap-x-8 gap-y-4 sm:grid-cols-2">{breakdown.map(item => <div key={item.label} className="border-t border-border pt-3"><div className="flex items-baseline justify-between gap-4"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-right text-sm font-medium"><Amount value={item.value} known={item.known}/></dd></div>{item.note && <p className="mt-1 max-w-prose text-xs leading-relaxed text-muted-foreground">{item.note}</p>}</div>)}</dl>
         <p className="mt-4 max-w-3xl text-xs leading-relaxed text-muted-foreground">Money paid uses recorded accounting dates; gift cards use issuance dates. Outstanding balance uses the end of the period. Payment activity does not establish bank settlement. These describe refund activity, not additional reductions to net sales.{uncertainPayments > 0 ? ' Some accounting or issuance dates are unknown; only known subtotals are shown.' : ''}{uncertainBalance > 0 ? ' Some balances are unknown; only the known subtotal is shown.' : ''}</p>
       </details>
+      <section aria-labelledby="finance-reconciliation-heading" className="border-b border-border pb-5">
+        <h3 id="finance-reconciliation-heading" className="text-lg font-semibold">Completed refund reconciliation</h3>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">These totals include card and cash. Nayax reports card activity; compare cash separately. Completed refunds do not change the request deductions above.</p>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          {[{ label: 'Completed refunds including tax', value: completedRefunds }, { label: 'Sales after completed refunds, including tax', value: receiptsAfterRefunds }, { label: 'Completed refunds excluding tax', value: sourceTotal(rows, 'completedRefundExTaxCents') }, { label: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') == null ? 'Sales after completed refunds, tax unresolved' : 'Sales after completed refunds, excluding tax', value: sourceTotal(rows, 'reconciliationNetSalesExTaxCents') }].map(item => <div key={item.label} className="flex items-baseline justify-between gap-4"><dt className="text-sm text-muted-foreground">{item.label}</dt><dd className="text-right font-medium"><Amount value={item.value}/></dd></div>)}
+        </dl>
+      </section>
       <section aria-labelledby="finance-machines-heading"><h3 id="finance-machines-heading" className="text-lg font-semibold">By machine</h3><p className="mt-1 text-sm text-muted-foreground">Select a machine to see its breakdown using the same period.</p>
-        <div className="mt-3 hidden md:block"><Table><TableHeader><TableRow><TableHead>Machine / location</TableHead><TableHead className="text-right">Sales excluding tax</TableHead><TableHead className="text-right">Refund deductions</TableHead><TableHead className="text-right">Net sales</TableHead></TableRow></TableHeader><TableBody>{rows.map(row => <TableRow key={`${row.machineId}:${row.locationId}`}><TableCell><Button variant="link" className="h-auto min-h-11 max-w-full whitespace-normal px-0 py-2 text-left text-foreground underline underline-offset-4" onClick={() => onMachine(row.machineId, row.locationId)} aria-label={`View ${row.machineLabel} finance`}>{row.machineLabel}</Button><span className="block text-xs text-muted-foreground">{row.locationName}</span></TableCell><TableCell className="text-right tabular-nums">{money(row.salesExTaxCents)}</TableCell><TableCell className="text-right tabular-nums">{money(refundImpact(row))}</TableCell><TableCell className="text-right font-medium tabular-nums">{money(row.netSalesExTaxCents)}</TableCell></TableRow>)}</TableBody></Table></div>
-        <div className="mt-3 divide-y divide-border md:hidden">{rows.map(row => <article key={`${row.machineId}:${row.locationId}`} className="py-4"><Button variant="link" className="h-auto min-h-11 max-w-full whitespace-normal px-0 py-2 text-left font-medium text-foreground underline underline-offset-4" onClick={() => onMachine(row.machineId, row.locationId)} aria-label={`View ${row.machineLabel} finance`}>{row.machineLabel}</Button><p className="text-xs text-muted-foreground">{row.locationName}</p><dl className="mt-3 space-y-2 text-sm">{[['Sales excluding tax', row.salesExTaxCents], ['Refund deductions', refundImpact(row)], ['Net sales', row.netSalesExTaxCents]].map(([label, value]) => <div key={label as string} className="flex justify-between gap-4"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium tabular-nums">{money(value as number | null)}</dd></div>)}</dl></article>)}</div>
+        <div className="mt-3 hidden md:block"><Table><TableHeader><TableRow><TableHead>Machine / location</TableHead><TableHead className="text-right">Sales including tax</TableHead><TableHead className="text-right">Refund deductions including tax</TableHead><TableHead className="text-right">Remaining tax</TableHead><TableHead className="text-right">Net sales excluding tax</TableHead></TableRow></TableHeader><TableBody>{rows.map(row => <TableRow key={`${row.machineId}:${row.locationId}`}><TableCell><Button variant="link" className="h-auto min-h-11 max-w-full whitespace-normal px-0 py-2 text-left text-foreground underline underline-offset-4" onClick={() => onMachine(row.machineId, row.locationId)} aria-label={`View ${row.machineLabel} finance`}>{row.machineLabel}</Button><span className="block text-xs text-muted-foreground">{row.locationName}</span></TableCell><TableCell className="text-right tabular-nums"><Amount value={(row as SourceFinanceRow).grossSalesIncludingTaxCents ?? null}/></TableCell><TableCell className="text-right tabular-nums"><Amount value={(row as SourceFinanceRow).refundDeductionIncludingTaxCents ?? null}/></TableCell><TableCell className="text-right tabular-nums"><Amount value={(row as SourceFinanceRow).remainingTaxCents ?? null}/></TableCell><TableCell className="text-right font-medium tabular-nums">{money(row.netSalesExTaxCents)}</TableCell></TableRow>)}</TableBody></Table></div>
+        <div className="mt-3 divide-y divide-border md:hidden">{rows.map(row => <article key={`${row.machineId}:${row.locationId}`} className="py-4"><Button variant="link" className="h-auto min-h-11 max-w-full whitespace-normal px-0 py-2 text-left font-medium text-foreground underline underline-offset-4" onClick={() => onMachine(row.machineId, row.locationId)} aria-label={`View ${row.machineLabel} finance`}>{row.machineLabel}</Button><p className="text-xs text-muted-foreground">{row.locationName}</p><dl className="mt-3 space-y-2 text-sm">{[['Sales including tax', (row as SourceFinanceRow).grossSalesIncludingTaxCents ?? null], ['Refund deductions including tax', (row as SourceFinanceRow).refundDeductionIncludingTaxCents ?? null], ['Remaining tax', (row as SourceFinanceRow).remainingTaxCents ?? null], [row.netSalesExTaxCents == null ? 'Net sales, tax unresolved' : 'Net sales excluding tax', row.netSalesExTaxCents]].map(([label, value]) => <div key={label as string} className="flex justify-between gap-4"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium tabular-nums"><Amount value={value as number | null}/></dd></div>)}</dl></article>)}</div>
       </section>
     </>}
   </div>;

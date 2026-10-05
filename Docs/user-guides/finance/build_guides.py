@@ -66,7 +66,7 @@ def build(language, destination):
         doc.drawString(MARGIN, HEIGHT - 25, 'BLOOMJOY  /  财务使用指南' if chinese else 'BLOOMJOY  /  FINANCE TEAM GUIDE')
         doc.setFillColor(MUTED)
         doc.setFont(regular, 9)
-        doc.drawRightString(WIDTH - MARGIN, HEIGHT - 25, '2026-10-03')
+        doc.drawRightString(WIDTH - MARGIN, HEIGHT - 25, '2026-10-05')
         doc.setStrokeColor(HexColor('#e6dce0'))
         doc.line(MARGIN, HEIGHT - 35, WIDTH - MARGIN, HEIGHT - 35)
         y = HEIGHT - 49

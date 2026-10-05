@@ -19,6 +19,8 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
  values('fa740000-0000-4000-8000-000000000001','fa710000-0000-4000-8000-000000000001','refund-manager@example.invalid','active');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('fa740000-0000-4000-8000-000000000001',0,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
  values(true,'2026-01-01','Synthetic analytics test');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
@@ -134,6 +136,8 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
  values('fa740000-0000-4000-8000-000000000003','fa710000-0000-4000-8000-000000000001','refund-manager@example.invalid','active');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('fa740000-0000-4000-8000-000000000003',0,'2020-01-01','active');
+\ir fixtures/reporting_source_tax.inc
+
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
  status,customer_request_received_at,customer_request_received_source,issue_category,resolution_method,

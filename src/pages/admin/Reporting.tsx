@@ -89,7 +89,6 @@ type ImportedMachineSetupForm = {
   expectedLocationId: string | null;
   savedAssignment: SavedCompanyAssignment | null;
   machineType: CanonicalMachineType;
-  taxRatePercent: string;
 };
 
 const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
@@ -106,7 +105,6 @@ const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
   expectedLocationId: null,
   savedAssignment: null,
   machineType: 'commercial',
-  taxRatePercent: '0',
 };
 
 type ImportedSetupMachine =
@@ -391,16 +389,11 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
       return;
     }
 
-    const taxRatePercent = Number(form.taxRatePercent);
     if (
       !form.machineLabel.trim() ||
-      (!form.locationId && !form.addLocation) ||
-      !form.taxRatePercent.trim() ||
-      Number.isNaN(taxRatePercent) ||
-      taxRatePercent < 0 ||
-      taxRatePercent > 100
+      (!form.locationId && !form.addLocation)
     ) {
-      toast.error('Enter a Machine name, machine time zone, and reporting tax rate from 0 to 100.');
+      toast.error('Enter a Machine name and choose a location.');
       return;
     }
 
@@ -417,7 +410,9 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
         expectedAccountId: form.expectedAccountId,
         expectedLocationId: form.expectedLocationId,
         machineType: form.machineType,
-        taxRatePercent,
+        // Compatibility value for the existing setup RPC. Reporting resolves
+        // actual tax from verified source evidence; this never writes a reader.
+        taxRatePercent: 0,
         assignmentStartDate: selectedPartnership!.effective_start_date,
         assignmentEndDate: selectedPartnership!.effective_end_date,
         taxEffectiveStartDate: selectedPartnership!.effective_start_date,
@@ -1361,19 +1356,6 @@ function ImportedMachineSetupDialog({
                   </option>
                 ))}
               </select>
-            </div>}
-            {!snapcaseMachine && <div>
-              <Label htmlFor="imported-machine-tax">Reporting tax %</Label>
-              <Input
-                id="imported-machine-tax"
-                type="number"
-                min={0}
-                max={100}
-                step="0.01"
-                value={form.taxRatePercent}
-                onChange={(event) => setForm({ ...form, taxRatePercent: event.target.value })}
-                className="h-11"
-              />
             </div>}
           </div>
           <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">

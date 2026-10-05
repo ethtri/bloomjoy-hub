@@ -28,9 +28,12 @@ try {
     try {
       await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
       const main = page.locator('[data-reporting-finance]');
-      assert((await main.innerText()).includes('$150.00'));
-      assert((await main.innerText()).includes('$16.00'));
+      assert((await main.innerText()).includes('$160.00'));
+      assert((await main.innerText()).includes('$17.10'));
       assert((await main.innerText()).includes('$134.00'));
+      const reconciliation = main.locator('section[aria-labelledby="finance-reconciliation-heading"]');
+      assert((await reconciliation.innerText()).includes('$152.00'), 'Inclusive receipts deduct completed money refunds once');
+      assert((await reconciliation.innerText()).includes('$8.00'), 'Completed refunds retain their tax-inclusive amount');
       assert(!await main.getByText('Reporting tax removed', { exact: true }).isVisible(), 'Breakdown starts collapsed');
       assert.equal(await page.locator('#reporting-tender').count(), 0);
       assert.equal(await page.locator('#reporting-comparison').count(), 0);
@@ -92,7 +95,7 @@ try {
       await page.goto(url('&machine=operator-machine-garden'), { waitUntil: 'networkidle' });
       await page.getByText('Selected scope is unavailable', { exact: true }).waitFor();
       assert(!state.rpcCalls.some(call => call.rpcName === 'get_finance_reporting'));
-      await page.getByRole('button', { name: 'Choose all accessible locations', exact: true }).click(); await ready(page);
+      await page.getByRole('button', { name: 'Choose all companies', exact: true }).click(); await ready(page);
       assert(!(await page.locator('[data-reporting-finance]').innerText()).includes('Garden Annex'));
       checks.push('Finance dimensions constrain saved/direct-link scope independently from broader sales access');
     } finally { await context.close(); }
@@ -102,7 +105,7 @@ try {
     try {
       await page.goto(url(), { waitUntil: 'networkidle' }); await ready(page);
       assert((await page.locator('[data-reporting-finance]').innerText()).includes('unresolved'));
-      const summarySection = await page.locator('[data-reporting-finance] > section').first().innerText();
+      const summarySection = await page.locator('[data-reporting-finance] section').filter({ has: page.locator('#finance-heading') }).innerText();
       assert(summarySection.includes('Some request amounts are unknown'));
       assert(summarySection.includes('Some payment or issuance dates are unknown'));
       assert(summarySection.includes('Some outstanding balances are unknown'));

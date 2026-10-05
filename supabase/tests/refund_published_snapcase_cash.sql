@@ -48,6 +48,8 @@ values
   );
 insert into public.reporting_machine_tax_rates(id, machine_id, tax_rate_percent, effective_start_date, status)
 values ('16612500-0000-4000-8000-000000000001', '16612000-0000-4000-8000-000000000001', 0, '2025-01-01', 'active');
+\ir fixtures/reporting_source_tax.inc
+
 
 insert into public.reporting_machine_refund_managers(
   reporting_machine_id,manager_user_id,manager_email,grant_reason)
