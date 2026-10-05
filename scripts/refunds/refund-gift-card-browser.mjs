@@ -94,6 +94,8 @@ try {
       assert.equal(input.resolutionMethod, tender === 'original' ? 'original_payment' : 'gift_card');
       assert.equal(input.cardLast4, tender === 'original' ? '1234' : undefined);
       if (tender !== 'original') {
+        // URL navigation may precede the lazy thank-you screen's first render.
+        await page.getByText(/Gift cards are usually emailed within a few hours/).waitFor({ state: 'visible', timeout: 10000 });
         assert.match(await page.locator('main').innerText(), /Gift cards are usually emailed within a few hours/);
         assert.doesNotMatch(await page.locator('main').innerText(), /1[–-]2 minutes/);
         assert.deepEqual(input.giftCardOffer, { poolId: offer.pool_id, value: 1500, expiresAt: offer.expires_at });

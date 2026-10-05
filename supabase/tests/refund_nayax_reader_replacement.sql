@@ -148,7 +148,7 @@ select is(
   'A missing legacy override uses the effective machine name without a redundant rename'
 );
 select is(
-  (select display_name from public.reporting_machines where id='15490000-0000-4000-8000-000000000004'),
+  (select machine_display_name from public.reporting_machines where id='15490000-0000-4000-8000-000000000004'),
   null::text,
   'Advanced replacement does not create a separate name edit'
 );

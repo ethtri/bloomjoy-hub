@@ -12,10 +12,15 @@ insert into public.admin_roles(user_id,role,active) values
 insert into public.customer_accounts(id,name) values
  ('aa174601-0000-4000-8000-000000000001','Single name fixture company');
 insert into public.reporting_locations(id,account_id,name,timezone) values
- ('aa174602-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','Shared mall','America/Los_Angeles');
+ ('aa174602-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','Shared mall','America/Los_Angeles'),
+ ('aa174602-0000-4000-8000-000000000003','aa174601-0000-4000-8000-000000000001','Unique public mall','America/Los_Angeles');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,refund_public_display_label,sunze_machine_id,nayax_machine_id,nayax_account_key,nayax_card_sales_started_on) values
  ('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Opaque legacy alias','commercial','Preserved customer wording','source-fixture-one','17460001','FIXTURE_NAME','2026-09-01'),
- ('aa174603-0000-4000-8000-000000000002','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Legacy name without override','commercial',null,null,'17460002','FIXTURE_NAME',null);
+ ('aa174603-0000-4000-8000-000000000002','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Legacy name without override','commercial',null,null,'17460002','FIXTURE_NAME',null),
+ ('aa174603-0000-4000-8000-000000000003','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000003','Internal public fixture alias','commercial','Original public machine identity',null,null,null,null);
+insert into public.refund_machine_qr_codes(reporting_machine_id,public_code,version) values
+ ('aa174603-0000-4000-8000-000000000003',repeat('a',32),1);
+create temporary table name_qr_before as select to_jsonb(qr) value from public.refund_machine_qr_codes qr where reporting_machine_id='aa174603-0000-4000-8000-000000000003';
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
  ('aa174603-0000-4000-8000-000000000002','aa174600-0000-4000-8000-000000000001','name-admin@example.invalid','active');
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
@@ -24,12 +29,16 @@ create temporary table original_name_history as select to_jsonb(f) value from pu
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','aa174600-0000-4000-8000-000000000001',true);
-select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Migration does not backfill canonical names');
+create temporary table name_public_selection_before as select * from public.public_refund_selections()
+ where selection_key=public.refund_public_selection_key('machine|aa174603-0000-4000-8000-000000000003');
+select is((select display_label from name_public_selection_before),'Unique public mall','Before explicit edit, customer selection preserves existing venue wording');
+select is((select machine_label from public.public_refund_machine_options() where machine_id='aa174603-0000-4000-8000-000000000003'),'Original public machine identity','Before explicit edit, public machine identity preserves legacy wording');
+select is((select machine_display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Migration does not backfill canonical names');
 select ok(public.admin_get_partnership_reporting_setup() @> '{"machines":[{"id":"aa174603-0000-4000-8000-000000000001","machine_label":"Preserved customer wording","stored_machine_label":"Opaque legacy alias"}]}','Admin projection preserves customer wording and raw alias');
 select ok(public.admin_get_partnership_reporting_setup() @> '{"machines":[{"id":"aa174603-0000-4000-8000-000000000002","machine_label":"Legacy name without override"}]}','Missing legacy override falls back to machine name');
 select lives_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Preserved customer wording','commercial','source-fixture-one','live','Unrelated type/company save','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Preserved customer wording')$$,'Unchanged effective name saves without conversion');
 select is((select machine_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Opaque legacy alias','Unrelated save preserves differing raw legacy alias');
-select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Unrelated save does not create explicit canonical name');
+select is((select machine_display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Unrelated save does not create explicit canonical name');
 create temporary table name_audit_before as select count(*)::int value from public.admin_audit_log where entity_id='aa174603-0000-4000-8000-000000000001';
 select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Great Mall - Cotton Candy','commercial','source-fixture-one','setup','Stale name fixture','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Wrong old name')$$,'40001',null,'Stale name rejects whole setup save');
 select is((select operational_phase from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'live','Stale name does not change operating phase');
@@ -37,7 +46,7 @@ select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-80
 select is((select refund_public_display_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Preserved customer wording','Company failure preserves public wording');
 select is((select count(*)::int from public.admin_audit_log where entity_id='aa174603-0000-4000-8000-000000000001'),(select value from name_audit_before),'Stale name/company rejection creates no audit mutation');
 select lives_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Great Mall - Cotton Candy','commercial','source-fixture-one','live','Explicit name fixture','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Preserved customer wording')$$,'Explicit name edit succeeds with atomic projection');
-select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Canonical name saved');
+select is((select machine_display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Canonical name saved');
 select is((select refund_public_display_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Public name projection agrees');
 select is((select machine_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Internal name projection agrees');
 select lives_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000001','Great Mall - Cotton Candy','Great Mall - Cotton Candy')$$,'Repeated same-name save allowed');
@@ -50,12 +59,18 @@ select is((select refund_public_display_label from public.reporting_machines whe
 select is((select nayax_machine_id||':'||nayax_account_key from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'17460001:FIXTURE_NAME','Refund save preserves exact provider tuple');
 select lives_ok($$select public.admin_save_machine_refund_settings('aa174603-0000-4000-8000-000000000002',true,'Legacy no override fixture')$$,'Legacy record can save valid refund setup without redundant name edit');
 select is((select refund_public_display_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000002'),'Legacy name without override','Missing override materializes same effective wording');
-select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000002'),null::text,'Refund save does not create a separate canonical-name edit');
+select is((select machine_display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000002'),null::text,'Refund save does not create a separate canonical-name edit');
 select is((select name from public.reporting_locations where id='aa174602-0000-4000-8000-000000000001'),'Shared mall','Shared venue unchanged');
 select is((select timezone from public.reporting_locations where id='aa174602-0000-4000-8000-000000000001'),'America/Los_Angeles','Shared timezone unchanged');
 select is((select sunze_machine_id from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'source-fixture-one','Imported source identity unchanged');
 select is((select nayax_card_sales_started_on from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'2026-09-01'::date,'Authority boundary unchanged');
 select ok((select to_jsonb(f) from public.machine_sales_facts f where source_row_hash='name-history-card')=(select value from original_name_history),'Historical card fact remains byte-equivalent');
+select lives_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000003','Other Mall - Cotton Candy','Original public machine identity')$$,'Public fixture explicit name edit succeeds');
+select is((select machine_label from public.public_refund_machine_options() where machine_id='aa174603-0000-4000-8000-000000000003'),'Other Mall - Cotton Candy','Public machine identity uses explicit canonical name');
+select is((select display_label from public.public_refund_selections() where selection_key=(select selection_key from name_public_selection_before)),'Other Mall - Cotton Candy','Customer selection uses explicit canonical name');
+select ok(exists(select 1 from public.public_refund_selections() current_selection join name_public_selection_before original using(selection_key,selection_kind,location_timezone)),'Customer selection key, kind and timezone remain stable');
+select ok(exists(select 1 from public.public_refund_selections_v2() where selection_key=(select selection_key from name_public_selection_before) and machine_id='aa174603-0000-4000-8000-000000000003'),'Enriched customer selection retains exact Hub machine UUID');
+select ok((select to_jsonb(qr) from public.refund_machine_qr_codes qr where reporting_machine_id='aa174603-0000-4000-8000-000000000003')=(select value from name_qr_before),'Existing QR UUID, public code, version and status remain byte-equivalent');
 select throws_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000001','','Great Mall - Cotton Candy')$$,'22023',null,'Empty name rejected');
 select throws_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000001',repeat('x',121),'Great Mall - Cotton Candy')$$,'22023',null,'Overlong name rejected');
 select set_config('request.jwt.claim.sub','aa174600-0000-4000-8000-000000000002',true);
