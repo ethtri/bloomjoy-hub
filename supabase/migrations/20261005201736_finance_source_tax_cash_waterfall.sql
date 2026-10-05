@@ -121,6 +121,9 @@ $new$);
   end loop;
   definition:=replace(definition,E'tax_rate.tax_rate_percent,\n      null, true\n    ) normalized',
     E'tax_rate.tax_rate_percent,\n      case when adjustment.source=\'nayax_provider_refund\' then private.provider_refund_original_source_tax_cents(adjustment.id,adjustment.amount_cents) else private.refund_original_source_tax_cents(linked_case.id,adjustment.amount_cents) end, true\n    ) normalized');
+  definition:=replace(definition,$old$      when bool_or(component.normalization_status = 'unresolved') then 'unresolved'$old$,
+    $new$      when bool_or(component.unresolved_sales_count>0 or component.unresolved_refund_count>0) then 'unresolved'
+      when bool_or(component.normalization_status = 'unresolved') then 'unresolved'$new$);
   execute definition;
 end;
 $actual_tax$;

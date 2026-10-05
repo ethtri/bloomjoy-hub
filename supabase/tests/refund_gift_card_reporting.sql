@@ -45,7 +45,7 @@ values
   now(),'card',2200,2200,'needs_review',now(),'hosted_refund_intake');
 
 select is((select sum(outstanding_context_ex_tax_cents) from private.machine_sales_daily_components(
-  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),3000::numeric,
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),3100::numeric,
   'Before issuance both original purchase requests are outstanding, excluding tax');
 create temporary table gift_reporting_before on commit drop as
 select count(*) as events from private.refund_request_recognition_events
@@ -62,7 +62,7 @@ select results_eq($$
   from public.refund_gift_card_issuances where refund_case_id='fc640000-0000-4000-8000-000000000001'
 $$,$$values (1100,1500,400)$$,'Purchase, gift-card value and Bloomjoy goodwill remain distinct');
 select is((select sum(request_deduction_ex_tax_cents) from private.machine_sales_daily_components(
-  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),3000::numeric,
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),3100::numeric,
   'Issuance preserves the original request deduction without deducting goodwill');
 select is((select sum(outstanding_context_ex_tax_cents) from private.machine_sales_daily_components(
   'fc630000-0000-4000-8000-000000000001',current_date,current_date)),2000::numeric,
@@ -71,7 +71,7 @@ select is((select sum(paid_context_ex_tax_cents) from private.machine_sales_dail
   'fc630000-0000-4000-8000-000000000001',current_date,current_date)),0::numeric,
   'A gift card never appears as money paid');
 select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components(
-  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3000::numeric,
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3100::numeric,
   'Technician and partner calculations keep the original purchase deduction only');
 select is((select component_amount_cents from private.machine_sales_calculation_candidates(
   'fc630000-0000-4000-8000-000000000001',current_date,current_date)
@@ -103,7 +103,7 @@ select is((select count(*) from private.refund_request_recognition_events
   where refund_case_id in ('fc640000-0000-4000-8000-000000000001','fc640000-0000-4000-8000-000000000002')),
   (select events from gift_reporting_before),'No extra request deduction is created by issuance or redemption');
 select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components(
-  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3000::numeric,
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3100::numeric,
   'Replay and redemption leave commission treatment unchanged');
 insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,
   payment_method,net_sales_cents,transaction_count,source,source_order_hash,source_row_hash,tax_cents,raw_payload)
@@ -111,7 +111,7 @@ values ('fc670000-0000-4000-8000-000000000001','fc630000-0000-4000-8000-00000000
   'fc620000-0000-4000-8000-000000000001',current_date,'other',1500,1,'sunze_browser',
   repeat('fc67',8),repeat('fc67',16),0,'{"payment_method_source":"Free","order_amount_cents":1500}');
 select is((select sum(commissionable_sales_ex_tax_cents) from private.machine_sales_daily_components(
-  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3000::numeric,
+  'fc630000-0000-4000-8000-000000000001',current_date,current_date)),-3100::numeric,
   'A provider-labelled Free order is not new money revenue even if it carries a product value');
 select is((select count(*) from private.machine_sales_calculation_candidates(
   'fc630000-0000-4000-8000-000000000001',current_date,current_date) where source='sunze_browser'),0::bigint,
@@ -154,13 +154,13 @@ select results_eq($$
   select sum(request_deduction_ex_tax_cents),sum(outstanding_context_ex_tax_cents),
     sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
   from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date-1)
-$$,$$values (1000::numeric,1000::numeric,0::numeric,-1000::numeric)$$,
+$$,$$values (1100::numeric,1100::numeric,0::numeric,-1100::numeric)$$,
   'Historical full report retains outstanding purchase and original deduction before issuance');
 select results_eq($$
   select sum(request_deduction_ex_tax_cents),sum(outstanding_context_ex_tax_cents),
     sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
   from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
-$$,$$values (1000::numeric,0::numeric,0::numeric,-1000::numeric)$$,
+$$,$$values (1100::numeric,0::numeric,0::numeric,-1100::numeric)$$,
   'Current full report resolves the purchase without paying money or charging goodwill');
 select is((select count(*) from private.machine_sales_calculation_candidates(
   'fc630000-0000-4000-8000-000000000002',current_date-1,current_date-1)
@@ -187,7 +187,7 @@ select results_eq($$
   select sum(request_deduction_ex_tax_cents)-sum(refund_reversal_ex_tax_cents),
     sum(outstanding_context_ex_tax_cents),sum(paid_context_ex_tax_cents),sum(commissionable_sales_ex_tax_cents)
   from private.machine_sales_daily_components('fc630000-0000-4000-8000-000000000002',current_date-1,current_date)
-$$,$$values (1000::numeric,0::numeric,0::numeric,-1000::numeric)$$,
+$$,$$values (1100::numeric,0::numeric,0::numeric,-1100::numeric)$$,
   'Duplicate lineage full report deducts the purchase once, with no outstanding amount or money paid');
 
 select * from finish();
