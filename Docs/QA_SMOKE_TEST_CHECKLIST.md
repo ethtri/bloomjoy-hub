@@ -1224,3 +1224,13 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Sunze/Kexiaozhan identities appear as original plain text. Source-connected records and imported discoveries are in the normal workflow; Needs review count, search and direct URLs retain unconnected records.
 - [ ] Help is keyboard/touch accessible, draft close protection works, and readiness/recency/import uncertainty remain visible.
 - [ ] Name/company failures roll back together; label-only changes preserve shared venue/timezone, reader/source identity, history and refund permissions. No automatic archive occurs.
+# Info refund auto-response repair (#1455)
+
+- Send an owner-controlled non-manager inquiry to Info with subject `Refund`
+  or body `The machine took my money`. Confirm the normal ten-minute scheduler
+  produces one reply in the original thread with `/refunds/request`, leaves
+  the contact awaiting the form, and creates no refund case.
+- Confirm a later scan suppresses a second reply; existing-case status questions,
+  business mail, automated mail and quoted complaints receive no new intake reply.
+- Verify the existing Gmail health view and coalesced health alert report repeated
+  primary scheduler failures even when the watchdog or another scanner succeeds.

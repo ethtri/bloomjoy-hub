@@ -8,6 +8,12 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- P0 #1455: the October 5 repair broadens deterministic Info inquiry matching
+  to the three missed customer phrases, removes reused pg_net request-ID
+  uniqueness from both Gmail scheduler ledgers, and exposes cron failures and
+  overdue replies through the existing health alert. Production rollout and
+  same-thread Sent/replay acceptance remain tracked in the issue.
+
 - Personal machine email subscriptions are implemented in #1717: daily briefs
   default on for assigned managers and technicians at 08:00 Pacific; the other
   five alerts default off. #1721 bounds optional ready preparation to subscribed
