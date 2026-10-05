@@ -36,7 +36,8 @@ language sql stable security definer set search_path = '' as $$
       and evidence.nayax_machine_id = btrim(machine.nayax_machine_id)
       and evidence.effective_start_date <= p_sale_date
       and coalesce(evidence.effective_end_date,'infinity'::date) >= p_sale_date
-    order by evidence.effective_start_date desc,evidence.observed_at desc,evidence.id
+    order by (evidence.classification='verified_tax') desc,
+      evidence.effective_start_date desc,evidence.observed_at desc,evidence.id
     limit 1
   ) observation on true
   where machine.id = p_machine_id;
@@ -76,7 +77,12 @@ begin
   select jsonb_build_object('ratePercent',rate_percent,'source',source,
     'coverageStatus',coverage_status,'observedAt',observed_at,'saleDate',p_sale_date)
   into result from private.resolve_reporting_machine_source_tax(p_machine_id,p_sale_date);
-  return coalesce(result,jsonb_build_object('coverageStatus','missing','saleDate',p_sale_date));
+  return coalesce(result,jsonb_build_object('coverageStatus','missing','saleDate',p_sale_date)) ||
+    coalesce((select jsonb_build_object('latestProbeAt',evidence.observed_at,'latestProbeStatus',evidence.classification)
+      from private.nayax_machine_tax_observations evidence join public.reporting_machines machine
+        on evidence.account_key=upper(coalesce(machine.nayax_account_key,'TGPACI_USA_DB'))
+        and evidence.nayax_machine_id=btrim(machine.nayax_machine_id)
+      where machine.id=p_machine_id order by evidence.observed_at desc limit 1),'{}'::jsonb);
 end;
 $$;
 revoke all on function public.admin_reporting_machine_source_tax(uuid,date) from public,anon,authenticated;
