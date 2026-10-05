@@ -320,7 +320,8 @@
     "20261003171036_refund_daily_health_open_presence.sql",
     "20261003220644_technician_refund_read_access.sql",
     "20261004022303_provider_refund_purchase_tax_attribution.sql",
-    "20261005172717_refund_info_autoresponse_repair.sql"
+    "20261005172717_refund_info_autoresponse_repair.sql",
+    "20261005201647_nayax_source_tax_observations.sql"
   ],
   "migrationFilesSha256": "faee07b531d4588265743e3bad3328ffd923768532e30ff0b4039cd4dc015f68",
   "migrationVersionSetSha256": "92164b934efeb1778f37ce5093f29cd6bb414bd982f4870c0bb1f987a92c0532",
