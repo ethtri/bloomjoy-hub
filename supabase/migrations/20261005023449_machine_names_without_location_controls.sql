@@ -39,7 +39,7 @@ revoke all on function private.project_machine_report_names(jsonb) from public,a
 
 -- Modify only final display projections; leave scopes and label-based legacy matching unchanged.
 do $migration$
-declare signature text; definition text; needle text; pos integer;
+declare signature text; definition text; needle text; pos integer; display_machine text;
 begin
   foreach signature in array array[
     'public.get_reporting_dimensions()',
@@ -47,12 +47,15 @@ begin
     'private.sales_report_legacy_rows_for_actor(uuid,date,date,text,uuid[],uuid[],text[])'
   ] loop
     definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
+    display_machine:=case when signature='public.get_reporting_dimensions()' then 'machine'
+      when signature like 'private.sales_report_legacy%' then '(select display_machine from public.reporting_machines display_machine where display_machine.id=machine.machine_id)'
+      else '(select display_machine from public.reporting_machines display_machine where display_machine.id=machine.id)' end;
     needle:=E'    machine.machine_label,\n'; pos:=strpos(definition,needle);
     if pos=0 then raise exception 'Missing final machine display projection in %',signature; end if;
-    definition:=overlay(definition placing E'    private.reporting_machine_display_name(machine),\n' from pos for length(needle));
+    definition:=overlay(definition placing '    private.reporting_machine_display_name('||display_machine||E'),\n' from pos for length(needle));
     needle:=E'    location.name,\n'; pos:=strpos(definition,needle);
     if pos=0 then raise exception 'Missing final location display projection in %',signature; end if;
-    definition:=overlay(definition placing E'    private.reporting_location_display_name(location.name,machine),\n' from pos for length(needle));
+    definition:=overlay(definition placing '    private.reporting_location_display_name(location.name,'||display_machine||E'),\n' from pos for length(needle));
     execute definition;
   end loop;
   foreach signature in array array[
@@ -88,6 +91,25 @@ end;
 $migration$;
 
 -- Assignment moves may alter legacy duplicate suppression. Preserve public selection identity.
+-- Repair verification identifies physical routes by stable IDs, never mutable display wording.
+do $migration$
+declare definition text; verification text; start_pos integer; end_pos integer;
+begin
+  definition:=pg_get_functiondef('public.reconcile_refund_bubble_planet_locations()'::regprocedure);
+  start_pos:=strpos(definition,'  if manager_digest_after is distinct from manager_digest_before');
+  end_pos:=strpos(definition,'    raise exception ''Corrected Bubble Planet public route failed verification''');
+  if start_pos=0 or end_pos<=start_pos then raise exception 'Missing Bubble Planet route verification'; end if;
+  verification:=substr(definition,start_pos,end_pos-start_pos);
+  verification:=replace(verification,'selection.display_label in (','selection.machine_id in (');
+  verification:=replace(verification,'selection.display_label = ''Bubble Planet Seattle — Bellevue, WA''','selection.machine_id = ''7ae1695c-1394-4a11-843e-3bc594547fed''::uuid');
+  verification:=replace(verification,'''Bubble Planet Atlanta — Doraville, GA''','''9433f09f-9874-4904-b511-2fa55723e0d7''::uuid');
+  verification:=replace(verification,'''Bubble Planet DC — Washington, DC''','''20d475a0-ab75-4a0e-8fa7-14306b63fe29''::uuid');
+  -- The remaining Seattle literal occurs only in the exact membership list.
+  verification:=replace(verification,'''Bubble Planet Seattle — Bellevue, WA''','''7ae1695c-1394-4a11-843e-3bc594547fed''::uuid');
+  execute overlay(definition placing verification from start_pos for end_pos-start_pos);
+end;
+$migration$;
+
 create function private.refund_selection_membership()
 returns jsonb language sql stable set search_path='' as $$
  select coalesce(jsonb_agg(jsonb_build_array(selection_key,selection_kind,location_timezone,machine_id)

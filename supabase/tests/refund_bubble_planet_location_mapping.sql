@@ -142,9 +142,9 @@ select results_eq(
     order by selection.display_label
   $$,
   $$ values
-    ('Bubble Planet Atlanta — Doraville, GA'::text, 'America/New_York'::text),
-    ('Bubble Planet DC — Washington, DC'::text, 'America/New_York'::text),
-    ('Bubble Planet Seattle — Bellevue, WA'::text, 'America/Los_Angeles'::text)
+    ('Bubble Planet - Atlanta'::text, 'America/New_York'::text),
+    ('Bubble Planet DC'::text, 'America/New_York'::text),
+    ('Bubble Planet Seattle'::text, 'America/Los_Angeles'::text)
   $$,
   'Public intake exposes the reviewed physical city and venue timezone'
 );
