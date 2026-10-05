@@ -51,7 +51,7 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
         </div>
         <MachineHelp label="Source and import details">
           <p>Original provider names and IDs are read-only. An exact match does not activate refunds.</p>
-          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-3 break-words"><p className="font-medium">{source.platform}{source.account ? ` · ${source.account}` : ''}</p><p>Last source transaction: {dateLabel(source.lastTransaction)}</p><p>Last seen: {dateLabel(source.lastSeenAt)}</p><p>Import: {dateLabel(source.lastSuccessfulImport)} · {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
+          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-3 break-words"><p className="font-medium">{source.platform}{source.account ? ` · ${source.account}` : ''}</p><p>{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {dateLabel(source.lastTransaction)}</p><p>Last seen: {dateLabel(source.lastSeenAt)}</p><p>Import: {dateLabel(source.lastSuccessfulImport)} · {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
           <p className="mt-3">Import freshness does not prove complete coverage or genuine inactivity.</p>
         </MachineHelp>
       </div>
