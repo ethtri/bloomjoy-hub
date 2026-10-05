@@ -27,6 +27,11 @@ insert into public.nayax_dtm_export_rows(file_digest,source_row_hash,provider_ac
  (repeat('3',64),repeat('4',64),'111','222','555','333',1090,'2026-08-08 12:00',0,repeat('5',64),'canonical','eligible','in_scope','fact_linked','fc760000-0000-4000-8000-000000000001');
 select is(private.provider_refund_original_sale_date('fc770000-0000-4000-8000-000000000001'),'2026-08-08'::date,'Exact provider original determines purchase date');
 select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),993::numeric,'Refund uses original 9.75 rate instead of new booking-date 20 rate');
+update public.machine_sales_facts set tax_cents=88 where id='fc760000-0000-4000-8000-000000000001';
+select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),1002::numeric,'Direct provider refund uses actual original tax rather than a configured percentage');
+update public.machine_sales_facts set tax_cents=0,raw_payload=raw_payload||'{"taxBasis":"separate_tax"}' where id='fc760000-0000-4000-8000-000000000001';
+select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),1090::numeric,'Proved actual zero tax applies to a direct provider refund');
+update public.machine_sales_facts set raw_payload=raw_payload-'taxBasis' where id='fc760000-0000-4000-8000-000000000001';
 select is((select min(booking_date) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'2026-09-03'::date,'Refund booking date stays unchanged');
 select is((select min(purchase_attribution_date) from private.machine_sales_daily_components('fc740000-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'2026-08-08'::date,'Shared component exposes proved original purchase date');
 -- Repeat export of same original fact must never duplicate refund components.

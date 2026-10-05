@@ -16,6 +16,28 @@ $$;
 revoke all on function private.refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
 grant execute on function private.refund_original_source_tax_cents(uuid,bigint) to service_role;
 
+create function private.provider_refund_original_source_tax_cents(p_adjustment_id uuid,p_amount_cents bigint)
+returns bigint language sql stable security definer set search_path='' as $$
+  select case when count(distinct fact.id)=1 then
+    min(round(p_amount_cents::numeric*fact.tax_cents/fact.net_sales_cents)::bigint) end
+  from public.nayax_provider_refund_events event
+  join public.nayax_dtm_export_rows original
+    on original.provider_actor_id=event.provider_actor_id
+    and original.provider_machine_id=event.provider_machine_id
+    and original.provider_transaction_id=event.original_transaction_id
+  join public.machine_sales_facts fact on fact.id=original.fact_id
+    and fact.reporting_machine_id=event.reporting_machine_id
+    and fact.sale_date=private.provider_refund_original_sale_date(p_adjustment_id)
+  where event.adjustment_id=p_adjustment_id and event.disposition='applied'
+    and fact.payment_method='credit' and fact.net_sales_cents>0
+    and p_amount_cents between 0 and fact.net_sales_cents
+    and fact.tax_cents between 0 and fact.net_sales_cents
+    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
+      in ('separate_tax','separately_imported_tax'));
+$$;
+revoke all on function private.provider_refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
+grant execute on function private.provider_refund_original_source_tax_cents(uuid,bigint) to service_role;
+
 create or replace function private.normalize_reporting_treated_amount_cents(
   p_machine_id uuid, p_tender text, p_purchase_date date,
   p_amount_cents bigint, p_amount_basis text, p_tax_rate_percent numeric,
@@ -72,7 +94,7 @@ $old$,'');
       E'event.tax_rate_percent,\n      '||patch.tax_expression||E', true\n    ) '||patch.alias_name);
   end loop;
   definition:=replace(definition,E'tax_rate.tax_rate_percent,\n      null, true\n    ) normalized',
-    E'tax_rate.tax_rate_percent,\n      private.refund_original_source_tax_cents(linked_case.id,adjustment.amount_cents), true\n    ) normalized');
+    E'tax_rate.tax_rate_percent,\n      case when adjustment.source=\'nayax_provider_refund\' then private.provider_refund_original_source_tax_cents(adjustment.id,adjustment.amount_cents) else private.refund_original_source_tax_cents(linked_case.id,adjustment.amount_cents) end, true\n    ) normalized');
   execute definition;
 end;
 $actual_tax$;
