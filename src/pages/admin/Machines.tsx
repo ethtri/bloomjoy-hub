@@ -2536,7 +2536,7 @@ function MachineDialog({
     locationTimezone: machine.location_timezone ?? '',
   } : null;
   const [savedAssignment, setSavedAssignment] = useState<SavedCompanyAssignment | null>(currentAssignment);
-  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} value={form} saved={savedAssignment} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
+  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} value={form} saved={savedAssignment} autoSelectSingleCompany={!machine} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');

@@ -11,7 +11,7 @@ import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } f
 const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
-export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false }: {
+export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true }: {
   id: string;
   value: CompanyAssignmentDraft;
   onChange: (value: CompanyAssignmentDraft) => void;
@@ -19,6 +19,7 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
   disabled?: boolean;
   enabled?: boolean;
   activeTargetsOnly?: boolean;
+  autoSelectSingleCompany?: boolean;
 }) {
   // Emit only assignment fields; the containing form owns its other draft and stale-write fields.
   const value = useMemo<CompanyAssignmentDraft>(() => ({ accountId: draft.accountId, locationId: draft.locationId, locationName: draft.locationName, locationTimezone: draft.locationTimezone, addLocation: draft.addLocation }), [draft.accountId, draft.locationId, draft.locationName, draft.locationTimezone, draft.addLocation]);
@@ -48,10 +49,10 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
     if (!enabled) { setAdding(false); setName(''); setMessage(''); setCreationError(''); }
   }, [enabled]);
   useEffect(() => {
-    if (!enabled || saved || value.accountId || !choices.isSuccess || choices.isError) return;
+    if (!autoSelectSingleCompany || !enabled || saved || value.accountId || !choices.isSuccess || choices.isError) return;
     const onlyId = singleEligibleCompanyId(companies, activeTargetsOnly);
     if (onlyId) onChange(changeCompanyAssignment(value, onlyId));
-  }, [enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly]);
+  }, [autoSelectSingleCompany, enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly]);
 
   const chooseCompany = (accountId: string) => onChange(changeCompanyAssignment(value, accountId, saved));
   const selectExisting = () => {

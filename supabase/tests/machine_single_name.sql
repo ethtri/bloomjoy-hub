@@ -30,10 +30,12 @@ select ok(public.admin_get_partnership_reporting_setup() @> '{"machines":[{"id":
 select lives_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Preserved customer wording','commercial','source-fixture-one','live','Unrelated type/company save','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Preserved customer wording')$$,'Unchanged effective name saves without conversion');
 select is((select machine_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Opaque legacy alias','Unrelated save preserves differing raw legacy alias');
 select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Unrelated save does not create explicit canonical name');
+create temporary table name_audit_before as select count(*)::int value from public.admin_audit_log where entity_id='aa174603-0000-4000-8000-000000000001';
 select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Great Mall - Cotton Candy','commercial','source-fixture-one','setup','Stale name fixture','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Wrong old name')$$,'40001',null,'Stale name rejects whole setup save');
 select is((select operational_phase from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'live','Stale name does not change operating phase');
 select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Great Mall - Cotton Candy','commercial','source-fixture-one','live','Stale company fixture','aa174601-0000-4000-8000-000000000099','aa174602-0000-4000-8000-000000000001',null,null,'Preserved customer wording')$$,'40001',null,'Stale company rejects name edit atomically');
 select is((select refund_public_display_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Preserved customer wording','Company failure preserves public wording');
+select is((select count(*)::int from public.admin_audit_log where entity_id='aa174603-0000-4000-8000-000000000001'),(select value from name_audit_before),'Stale name/company rejection creates no audit mutation');
 select lives_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Great Mall - Cotton Candy','commercial','source-fixture-one','live','Explicit name fixture','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Preserved customer wording')$$,'Explicit name edit succeeds with atomic projection');
 select is((select display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Canonical name saved');
 select is((select refund_public_display_label from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),'Great Mall - Cotton Candy','Public name projection agrees');
@@ -59,7 +61,14 @@ select throws_ok($$select public.admin_set_machine_display_name('aa174603-0000-4
 select set_config('request.jwt.claim.sub','aa174600-0000-4000-8000-000000000002',true);
 select throws_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000001','Forbidden','Great Mall - Cotton Candy')$$,'42501',null,'Unscoped actor cannot edit name');
 select throws_ok($$select public.admin_save_machine_refund_settings('aa174603-0000-4000-8000-000000000001',false,'Forbidden refund setting')$$,'42501',null,'Unscoped actor cannot edit refund setup');
+select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000001','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','Forbidden','commercial','source-fixture-one','live','Forbidden named save','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001',null,null,'Great Mall - Cotton Candy')$$,'42501',null,'Unscoped actor cannot save named setup');
+insert into public.admin_scoped_access_grants(id,user_id,starts_at,grant_reason) values
+ ('aa174605-0000-4000-8000-000000000001','aa174600-0000-4000-8000-000000000002','2020-01-01','Synthetic single machine scope');
+insert into public.admin_scoped_access_scopes(grant_id,scope_type,machine_id,grant_reason) values
+ ('aa174605-0000-4000-8000-000000000001','machine','aa174603-0000-4000-8000-000000000002','Synthetic exact scope');
+select throws_ok($$select public.admin_save_machine_refund_settings('aa174603-0000-4000-8000-000000000001',false,'Out of scope refund setting')$$,'42501',null,'Scoped admin cannot save another machine settings');
 select is(has_function_privilege('anon','public.admin_set_machine_display_name(uuid,text,text)','EXECUTE'),false,'Anonymous name setter forbidden');
 select is(has_function_privilege('anon','public.admin_save_machine_refund_settings(uuid,boolean,text)','EXECUTE'),false,'Anonymous refund setter forbidden');
+select is(has_function_privilege('anon','public.admin_save_named_machine(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,text)','EXECUTE'),false,'Anonymous named setup forbidden');
 select * from finish();
 rollback;
