@@ -128,14 +128,19 @@ serve(async (request) => {
     }
     const token = tokenForAccount(accounts[0]);
     if (!token) return jsonResponse({ errorCode: "token_missing" }, 503);
+    let attributes: JsonObject[] = [];
+    let attributeStatus = 0;
     try {
       const response = await fetch(`${baseUrl}/machines/${machineId}/attributes`, {
         method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         signal: AbortSignal.timeout(30_000),
       });
-      if (!response.ok) return jsonResponse({ status: "unavailable", providerStatus: response.status }, 200);
-      const attributes = taxAttributeEvidence(await response.json());
-      const query = new URLSearchParams({MachineID:machineId,StartDate:"2026-09-01T00:00:00Z",EndDate:new Date().toISOString()});
+      attributeStatus = response.status;
+      if (response.ok) attributes = taxAttributeEvidence(await response.json());
+    } catch { attributeStatus = 0; }
+      // Fixed requested September reconciliation window; no undocumented limit
+      // parameter or assertion of completeness from an empty response.
+      const query = new URLSearchParams({MachineID:machineId,StartDate:"2026-09-01T00:00:00Z",EndDate:"2026-10-05T23:59:59Z"});
       let changes: JsonObject[] = [];
       let historyStatus = 0;
       try {
@@ -145,8 +150,8 @@ serve(async (request) => {
         historyStatus = history.status;
         if(history.ok) changes = taxChangeEvidence(await history.json());
       } catch { historyStatus = 0; }
-      return jsonResponse({status:"observed",observedAt:new Date().toISOString(),attributes,historyStatus,changes});
-    } catch { return jsonResponse({status:"unavailable",errorCode:"attribute_read_failed"},200); }
+      return jsonResponse({status:attributeStatus===200 || historyStatus===200 ? "observed":"unavailable",
+        observedAt:new Date().toISOString(),attributeStatus,attributes,historyStatus,changes});
   }
 
   for (const accountKey of accounts) {

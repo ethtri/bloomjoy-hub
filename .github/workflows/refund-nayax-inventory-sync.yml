@@ -52,7 +52,7 @@ jobs:
             --header 'Content-Type: application/json' \
             --data "$(jq -n --arg runKey "$RUN_KEY" --arg accountKey "$ACCOUNT_KEY" --arg operation "$OPERATION" --arg machineId "$TAX_PROBE_MACHINE_ID" '{runKey:$runKey,accountKey:$accountKey,operation:$operation,machineId:$machineId}')")
           if [[ "$OPERATION" == "tax_attribute_probe" ]]; then
-            jq '{status,observedAt,providerStatus,errorCode,attributes,historyStatus,changes}' "$RESPONSE_FILE"
+            jq '{status,observedAt,providerStatus,attributeStatus,errorCode,attributes,historyStatus,changes}' "$RESPONSE_FILE"
             if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then exit 1; fi
             exit 0
           fi
