@@ -38,8 +38,8 @@ export function laborAnalyticsCsv(report: LaborAnalyticsReport): string {
     ['Generated at', report.generatedAt], ['Calculation version', report.calculationVersion],
     ['Date basis', report.dateBasis],
     ['Coverage', 'Recorded entries only; no entries does not prove no work.'],
-    ['Week starting', 'Location', 'Machine', 'Entries', 'Recorded minutes', 'Recorded hours', 'Paid shifts'],
-    ...report.rows.map(row => [row.week, row.locationName, row.machineLabel, row.entryCount, row.actualMinutes, row.actualMinutes / 60, row.paidShifts]),
+    ['Week starting', 'Machine', 'Entries', 'Recorded minutes', 'Recorded hours', 'Paid shifts'],
+    ...report.rows.map(row => [row.week, row.machineLabel, row.entryCount, row.actualMinutes, row.actualMinutes / 60, row.paidShifts]),
   ];
   if (report.access.canViewPay && report.pay) rows.push(
     ['Authorized account pay coverage', report.pay.coverage],

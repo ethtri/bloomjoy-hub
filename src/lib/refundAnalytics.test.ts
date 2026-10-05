@@ -30,7 +30,9 @@ Deno.test('refund CSV selects safe columns and escapes spreadsheet formula label
   const csv = refundAnalyticsCsv(payload, { dateFrom: report.dateFrom, dateTo: report.dateTo });
   assert(!csv.includes('private@example.invalid') && !csv.includes('Private free text') && !csv.includes('1234'), 'Private unexpected fields leaked');
   assert(csv.includes('"\'=HYPERLINK(""evil"")"'), 'Spreadsheet formula not neutralized');
-  assert(csv.includes('"Venue, A"'), 'Comma not quoted');
+  payload.machines[0].machineLabel = 'Machine, A';
+  const quoted = refundAnalyticsCsv(payload, { dateFrom: report.dateFrom, dateTo: report.dateTo });
+  assert(quoted.includes('"Machine, A"') && !quoted.includes('Venue, A'), 'Machine quoting or retired venue omission lost');
 });
 
 Deno.test('restricted refund accounting stays unavailable in CSV while authorized recovery stays visible', () => {

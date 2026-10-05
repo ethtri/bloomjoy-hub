@@ -641,9 +641,12 @@ const run = async () => {
         (await page.locator('#start-time').inputValue()) === '' &&
         (await page.locator('#end-time').inputValue()) === ''
     );
+    await page.waitForFunction(() => document.querySelector('#work-machine')?.textContent?.includes('Francis Scott Key Mall'), undefined, { timeout: 3000 });
     check.assert(
       'Add time remembers the Technician\'s last-used machine',
-      (await page.locator('#work-machine').textContent())?.includes('Francis Scott Key Mall')
+      (await page.locator('#work-machine').textContent())?.includes('Francis Scott Key Mall') &&
+        await page.evaluate(profileId => localStorage.getItem(`bloomjoy-timekeeping-last-machine:${profileId}`), PROFILE_ID) === MACHINE_B,
+      JSON.stringify({ label: await page.locator('#work-machine').textContent(), stored: await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.includes('last-machine')))) })
     );
     await page.getByRole('button', { name: 'Back to week' }).click();
     await page.waitForURL(/\/portal\/time\?/);

@@ -140,6 +140,11 @@ const escapeHtml = (value: string): string =>
 const getStringValue = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === "string" ? record[key] as string : "";
 
+const effectiveMachineName = (machine: Record<string, unknown>) =>
+  getStringValue(machine, "machine_display_name").trim() || getStringValue(machine, "refund_public_display_label").trim() || getStringValue(machine, "machine_label").trim() || "Bloomjoy machine";
+
+
+
 const isActiveAssignmentWindow = (record: Record<string, unknown>) => {
   if (getStringValue(record, "status") !== "active") return false;
   if (record["revoked_at"]) return false;
@@ -172,34 +177,15 @@ async function getTechnicianMachineLabels(sourceId: string): Promise<string[]> {
 
   const { data: machines } = await supabase
     .from("reporting_machines")
-    .select("id, machine_label, machine_type, location_id")
+    .select("id, machine_display_name, refund_public_display_label, machine_label, machine_type, location_id")
     .in("id", [...new Set(machineIds)]);
 
   const machineRows = (machines as Record<string, unknown>[] | null) ?? [];
-  const locationIds = [
-    ...new Set(machineRows.map((machine) => getStringValue(machine, "location_id")).filter(Boolean)),
-  ];
-  let locationNameById = new Map<string, string>();
-
-  if (locationIds.length > 0) {
-    const { data: locations } = await supabase
-      .from("reporting_locations")
-      .select("id, name")
-      .in("id", locationIds);
-
-    locationNameById = new Map(
-      ((locations as Record<string, unknown>[] | null) ?? [])
-        .map((location) => [getStringValue(location, "id"), getStringValue(location, "name")] as const)
-        .filter(([id]) => Boolean(id))
-    );
-  }
-
   const machineLabelById = new Map(
     machineRows.map((machine) => {
       const id = getStringValue(machine, "id");
-      const label = getStringValue(machine, "machine_label") || "Bloomjoy machine";
-      const locationName = locationNameById.get(getStringValue(machine, "location_id"));
-      return [id, locationName ? `${label} at ${locationName}` : label] as const;
+      const label = effectiveMachineName(machine);
+      return [id, label] as const;
     })
   );
 
@@ -391,7 +377,7 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
 
   const { data: machine, error: machineError } = await supabase
     .from("reporting_machines")
-    .select("id, machine_label, machine_type, status, location_id")
+    .select("id, machine_display_name, refund_public_display_label, machine_label, machine_type, status, location_id")
     .eq("id", sourceId)
     .maybeSingle();
 
@@ -404,18 +390,7 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
     throw new Error("Reporting machine is not active.");
   }
 
-  const locationId = getStringValue(machineRecord, "location_id");
-  const { data: location } = locationId
-    ? await supabase
-        .from("reporting_locations")
-        .select("name")
-        .eq("id", locationId)
-        .maybeSingle()
-    : { data: null };
-
-  const machineLabel = getStringValue(machineRecord, "machine_label") || "a Bloomjoy machine";
-  const locationName = getStringValue((location as Record<string, unknown> | null) ?? {}, "name");
-  const locationCopy = locationName ? ` at ${locationName}` : "";
+  const machineLabel = effectiveMachineName(machineRecord);
 
   return {
     inviteType: "machine_manager",
@@ -424,7 +399,7 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
     targetEmail,
     targetUserId: null,
     title: "Your Bloomjoy Machine Manager invite",
-    body: `You have been invited to create or sign in to Bloomjoy Hub so Bloomjoy can assign you as a Machine Manager for ${machineLabel}${locationCopy}.`,
+    body: `You have been invited to create or sign in to Bloomjoy Hub so Bloomjoy can assign you as a Machine Manager for ${machineLabel}.`,
     accessSummary:
       "This invite does not assign machine access by itself. After you sign in with this email, a Bloomjoy administrator can add the Machine Manager assignment from Admin > Machines.",
   };
@@ -476,7 +451,7 @@ async function getScopedAdminSource(sourceId: string, targetEmail: string): Prom
 
   const { data: machines, error: machinesError } = await supabase
     .from("reporting_machines")
-    .select("id, machine_label, status")
+    .select("id, machine_display_name, refund_public_display_label, machine_label, status")
     .in("id", [...new Set(machineIds)])
     .eq("status", "active");
 
@@ -487,7 +462,7 @@ async function getScopedAdminSource(sourceId: string, targetEmail: string): Prom
   const machineLabelById = new Map(
     ((machines as Record<string, unknown>[] | null) ?? []).map((machine) => [
       getStringValue(machine, "id"),
-      getStringValue(machine, "machine_label") || "Bloomjoy machine",
+      effectiveMachineName(machine),
     ] as const),
   );
   const machineLabels = machineIds

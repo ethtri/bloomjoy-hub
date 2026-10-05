@@ -1273,7 +1273,7 @@ function ScopedPartnershipsWorkspace({
                                   {machine.machine_label}
                                 </span>
                                 <span className="mt-1 block text-sm text-muted-foreground">
-                                  {machine.account_name} / {machine.location_name}
+                                  {machine.account_name}
                                 </span>
                                 <span className="mt-2 inline-flex rounded-full border border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
                                   Visible through assigned admin machine scope

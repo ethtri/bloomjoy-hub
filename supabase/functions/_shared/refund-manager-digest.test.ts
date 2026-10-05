@@ -49,6 +49,22 @@ const render = (input: RefundManagerDailyDigestProjection) => buildRefundManager
   localDate: "2026-09-10",
 });
 
+Deno.test("future manager digest uses machine name and does not mutate stored case evidence", () => {
+  const input = projection([{
+    ...item(1, "manager"),
+    machineLabel: "Great Mall - Cotton Candy",
+    locationName: "Retired venue label",
+  }]);
+  const before = JSON.stringify(input);
+  const email = render(input);
+  assert(email.text.includes("Great Mall - Cotton Candy"), "text machine name");
+  assert(email.html.includes("Great Mall - Cotton Candy"), "HTML machine name");
+  assert(!email.text.includes("Retired venue label") && !email.html.includes("Retired venue label"), "no venue adornment");
+  const original = render(projection([item(1, "manager")]));
+  assert(email.text === original.text.replaceAll(item(1).machineLabel, "Great Mall - Cotton Candy"), "only display name changes; amounts and case links retained");
+  assert(JSON.stringify(input) === before, "stored case evidence unchanged");
+});
+
 Deno.test("daily digest rejects extra private fields, duplicate cases, stale totals and paid action", () => {
   const base = projection([item(1)]);
   for (const unsafe of [

@@ -806,7 +806,7 @@ const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: Refun
       <dt className="font-medium">{correctionLabels[field] ?? statusLabel(field)}</dt>
       <dd className="mt-1 text-muted-foreground">{answer.disposition === 'cannot_provide' ? 'Customer is unsure or cannot supply this.'
         : answer.disposition === 'confirmed' ? `Confirmed: ${correctionValueLabel(field, correction.previousValues[field], refundCase)}`
-        : field === 'location_or_machine' ? `Updated to ${refundCase.machineLabel} · ${refundCase.locationName}`
+        : field === 'location_or_machine' ? `Updated to ${refundCase.machineLabel}`
         : `${correctionValueLabel(field, correction.previousValues[field], refundCase)} → ${correctionValueLabel(field, answer.value, refundCase)}`}</dd>
     </div>)}</dl>}
     {submitted && correction.nextAction === 'recheck' && correction.recheckState !== 'completed' && <p className="mt-3 text-sm text-muted-foreground">Checking the updated purchase details.</p>}

@@ -1179,6 +1179,14 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Technical service diagnostics belong in Admin Reporting; partner setup diagnostics remain in Admin Partnerships Weekly Preview. Partner export/print guards remain enforced, with a concise unavailable export action and preliminary figures label instead of a report-wide setup alert.
 - Frontend preview readiness does not prove backend readiness. The local interactive preview is explicitly synthetic and cannot contact or modify production.
 
+## 2026-10-05 - Machine name and retired Location identity (#1751, #1753, #1760)
+
+- Machine name is the sole editable label and the displayed identity of an individual machine in setup, customer refunds, machine report rows/exports, timekeeping, access/assignment selectors and email. Effective precedence: nonblank `reporting_machines.machine_display_name`, legacy `refund_public_display_label`, then `machine_label`. Existing wording is preserved without mass backfills; a deliberate name edit uses the existing atomic projection and customer-selection membership protections.
+- Never prefix/suffix that name with legacy `reporting_locations.name`. Location is retired from ordinary setup. Internal location IDs, known time zones, historical associations, authorization and financial matching remain intact. Separately named venue aggregate filters/grouping retain their existing semantics; they do not define machine identity.
+- Original imported Sunze/Kexiaozhan platform, name and external ID remain read-only beside exact Nayax identity. Imports do not authorize guessed physical matches, duplicate creation, automatic unlinking or archiving. Unresolved records remain accessible in Needs review.
+- This display policy does not rewrite immutable financial snapshots, historical facts, provider IDs, QR/selection keys, scopes, tax effective dates or financial measures. Read-only Tax source diagnostics remain visible in setup; the source-backed tax decision governs tax behavior and retires routine manual overrides.
+- Issued historical financial documents and stored/Sent messages preserve their recorded content. Current authorized operational views and newly rendered messages use effective Machine name. Individual-machine CSV sections omit redundant Location display columns; internal IDs and explicitly separate venue filter/grouping metadata remain where already part of the export contract.
+
 ## 2026-10-02 - Operational report homes and mobile navigation (#1708, #1709)
 
 - Central Reporting contains Overview, Sales, Finance, Locations and Partners. Detailed labor analytics lives at `/portal/time-review?view=reports`; detailed refund/recovery analytics lives at `/refunds?view=reports`. Existing operational work remains the default in each app.

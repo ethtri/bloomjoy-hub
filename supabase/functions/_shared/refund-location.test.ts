@@ -33,7 +33,7 @@ Deno.test("refund emails never expose placeholder location names", () => {
   if (email.text.includes("Unmapped") || email.html.includes("Unmapped")) {
     throw new Error("Customer email exposed an internal placeholder location");
   }
-  if (!email.text.includes("Location: Bloomjoy location")) {
-    throw new Error("Customer email did not use the safe fallback location");
+  if (!email.text.includes("Machine: Bubble Planet - Seattle") || email.text.includes("Location:")) {
+    throw new Error("Customer email must use Machine name without a second Location label");
   }
 });
