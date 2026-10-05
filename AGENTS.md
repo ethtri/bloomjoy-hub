@@ -19,6 +19,10 @@ acting or implementing. Fetch/sync current `main` while preserving uncommitted
 work; stale checkouts, saved
 prompts and historical acceptance tests cannot override the latest owner decision.
 
+## Machine identity display
+
+Follow the “Machine name and retired Location identity” decision in `Docs/DECISIONS.md`. Individual-machine labels use effective Machine name; never derive, prefix or suffix them from legacy `reporting_locations.name`. Internal location IDs/time zones and explicitly separate aggregate venue grouping remain distinct. Imported original platform/name/ID are read-only source identity, not an alternate editable label.
+
 ## Starting Point
 
 - This project started as a Loveable-generated POC using Vite, React, TypeScript, Tailwind, and shadcn/ui.

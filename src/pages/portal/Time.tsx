@@ -132,7 +132,7 @@ const machineIsEffective = (machine: OperatorAssignedMachine, workDate: string) 
   (!machine.effectiveEndDate || machine.effectiveEndDate >= workDate);
 
 const machineLabel = (machine: Pick<OperatorAssignedMachine, 'machineLabel' | 'locationName'>) =>
-  `${machine.machineLabel} · ${machine.locationName}`;
+  machine.machineLabel;
 
 const entryLabel = (entry: OperatorTimeEntry) =>
   `${formatPlainDate(entry.workDate, {
@@ -1054,9 +1054,6 @@ export default function PortalTimePage() {
                             <h4 className="break-words font-semibold text-foreground">
                               {entry.machineLabel}
                             </h4>
-                            <p className="mt-0.5 break-words text-sm text-muted-foreground">
-                              {entry.locationName}
-                            </p>
                             <p className="mt-3 text-base font-medium tabular-nums text-foreground">
                               {formatTime(entry.startTime)} to {formatTime(entry.endTime)}
                             </p>

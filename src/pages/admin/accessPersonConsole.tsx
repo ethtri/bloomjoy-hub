@@ -1227,7 +1227,7 @@ function AdminPersonAccessConsoleInner({
                     <div className="divide-y divide-border">
                       {activeMachineAssignments.map(({ grant, machine }) => (
                         <div key={`${grant.grantId}:${machine.machineId}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] sm:items-center">
-                          <div className="min-w-0"><p className="font-medium text-foreground">{machine.machineLabel}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{machine.locationName ?? grant.accountName}</p></div>
+                          <div className="min-w-0"><p className="font-medium text-foreground">{machine.machineLabel}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{grant.accountName}</p></div>
                           <div className="text-sm"><p className="text-foreground">{grant.accountName}</p><p className="mt-0.5 text-xs text-muted-foreground">Technician access</p></div>
                           <div className="text-sm sm:text-right"><p className="text-foreground">Since {formatDate(machine.startsAt || grant.startsAt)}</p>{machine.expiresAt && <p className="mt-0.5 text-xs text-muted-foreground">Ends {formatDate(machine.expiresAt)}</p>}</div>
                         </div>
@@ -6106,7 +6106,7 @@ function MachineChecklist({
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-foreground">{machine.machineLabel}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  {machine.locationName} / external ID {machine.sunzeMachineId ?? 'n/a'} / viewers{' '}
+                  External ID {machine.sunzeMachineId ?? 'n/a'} / viewers{' '}
                   {machine.viewerCount}
                   {grantByMachineId?.has(machine.id)
                     ? ` / current manual level ${formatReportingAccessLevel(

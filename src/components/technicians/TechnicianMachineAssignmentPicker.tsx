@@ -51,7 +51,6 @@ const getMachineLocationName = (machine: TechnicianAssignableMachine) =>
 
 const getMachineMeta = (machine: TechnicianAssignableMachine) =>
   [
-    machine.locationName,
     machine.machineType ? formatMachineType(machine.machineType) : null,
     machine.status,
   ].filter(Boolean).join(' / ');
@@ -67,7 +66,7 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
   searchPlaceholder = 'Search machines',
   clearLabel = 'Clear',
   searchThreshold = 6,
-  groupByLocation = true,
+  groupByLocation = false,
   selectedFirst = false,
   className,
 }: TechnicianMachineAssignmentPickerProps<TMachine>) {

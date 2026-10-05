@@ -2129,7 +2129,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
     .map(
       (machine) => `
         <tr>
-          <td>${escapeHtml(machine.machineLabel)}<br /><span>${escapeHtml(machine.locationName)}</span></td>
+          <td>${escapeHtml(machine.machineLabel)}</td>
           <td>${escapeHtml(machine.shiftCount)}</td>
           <td>${escapeHtml(machine.paidHours.toFixed(2))}</td>
           <td>${escapeHtml(formatStatementMoney(machine.eligibleNetRevenueCents))}</td>

@@ -6,6 +6,10 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Machine identity context
+
+Machine name is the sole editable/display label for an individual machine. Location is retired from ordinary machine setup; internal location IDs/time zones and aggregate venue grouping remain for reporting/history. Effective-name precedence is nonblank `machine_display_name`, then legacy `refund_public_display_label`, then `machine_label` (imported/source alias fallback). Original imported identities remain read-only. See the canonical decision in `DECISIONS.md`; app-wide consumer acceptance is tracked in #1760.
+
 ## Refund workflow (current)
 
 - P0 #1455: the October 5 repair broadens deterministic Info inquiry matching

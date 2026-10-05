@@ -456,7 +456,7 @@ function TimeReviewEntriesPage() {
                   <label htmlFor="time-report-machine" className="text-sm font-medium text-foreground">Machine</label>
                   <Select value={machineId} onValueChange={setMachineId}>
                     <SelectTrigger id="time-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">All managed machines</SelectItem>{context.machines.map((machine) => <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel} · {machine.locationName}</SelectItem>)}</SelectContent>
+                    <SelectContent><SelectItem value="all">All managed machines</SelectItem>{context.machines.map((machine) => <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               </div>
@@ -487,7 +487,7 @@ function TimeReviewEntriesPage() {
                             <article key={entry.id} className="p-4">
                               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
-                                  <p className="font-medium text-foreground">{entry.machineLabel} · {entry.locationName}</p>
+                                  <p className="font-medium text-foreground">{entry.machineLabel}</p>
                                   <p className="mt-2 text-sm tabular-nums text-foreground">{formatDate(entry.workDate)} · {formatTime(entry.startTime)} to {formatTime(entry.endTime)}</p>
                                   <p className="mt-1 text-sm text-muted-foreground">{formatDuration(actualMinutes(entry))} actual · <span className="font-semibold text-foreground">{paidShifts(entry)} paid {paidShifts(entry) === 1 ? 'shift' : 'shifts'}</span></p>
                                   {entry.notes && <p className="mt-2 text-sm text-muted-foreground">{entry.notes}</p>}
@@ -514,7 +514,7 @@ function TimeReviewEntriesPage() {
             <div className="space-y-4">
               <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm"><p className="font-medium text-foreground">{correctionEntry.operatorName}</p><p className="text-muted-foreground">{correctionEntry.machineLabel}</p></div>
               <div><label htmlFor="correction-date" className="text-sm font-medium text-foreground">Work date</label><Input id="correction-date" type="date" value={draft.workDate} min={context?.periodStartDate} max={context?.periodEndDate} className="mt-2 min-h-11" onChange={(event) => setDraft({ ...draft, workDate: event.target.value })} /></div>
-              <div><label htmlFor="correction-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={draft.machineId} onValueChange={(value) => setDraft({ ...draft, machineId: value })}><SelectTrigger id="correction-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent>{context?.machines.map((machine) => <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel} · {machine.locationName}</SelectItem>)}</SelectContent></Select></div>
+              <div><label htmlFor="correction-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={draft.machineId} onValueChange={(value) => setDraft({ ...draft, machineId: value })}><SelectTrigger id="correction-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent>{context?.machines.map((machine) => <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label htmlFor="correction-start" className="text-sm font-medium text-foreground">Start time</label><Input id="correction-start" type="time" value={draft.startTime} className="mt-2 min-h-11" onChange={(event) => setDraft({ ...draft, startTime: event.target.value })} /></div>
                 <div><label htmlFor="correction-end" className="text-sm font-medium text-foreground">End time</label><Input id="correction-end" type="time" value={draft.endTime} className="mt-2 min-h-11" onChange={(event) => setDraft({ ...draft, endTime: event.target.value })} /></div>
@@ -573,7 +573,7 @@ function TimeReviewEntriesPage() {
                   <SelectTrigger id="missed-time-machine" className="mt-2 min-h-11"><SelectValue placeholder="Choose a machine" /></SelectTrigger>
                   <SelectContent>
                     {missedTimeMachines.map((machine) => (
-                      <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel} · {machine.locationName}</SelectItem>
+                      <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

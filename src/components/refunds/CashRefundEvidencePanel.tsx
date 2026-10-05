@@ -101,10 +101,6 @@ const SaleDetails = ({
         <dd className="mt-1 font-medium text-foreground">{sale.machineLabel ?? 'Not available'}</dd>
       </div>
       <div>
-        <dt>Location</dt>
-        <dd className="mt-1 font-medium text-foreground">{sale.locationName ?? 'Not available'}</dd>
-      </div>
-      <div>
         <dt>Product</dt>
         <dd className="mt-1 font-medium text-foreground">{sale.tradeLabel ?? 'Not available'}</dd>
       </div>
@@ -320,7 +316,7 @@ export function CashRefundEvidencePanel({
                     <span>{formatCurrency(candidate.actualAmountCents)}</span>
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                    {formatSaleTime(candidate.paymentTime, venueTimezone)} · {candidate.machineLabel ?? 'Machine unavailable'} · {candidate.locationName ?? 'Location unavailable'}
+                    {formatSaleTime(candidate.paymentTime, venueTimezone)} · {candidate.machineLabel ?? 'Machine unavailable'}
                   </span>
                   {candidate.tradeLabel && <span className="mt-1 block text-xs text-muted-foreground">Product: {candidate.tradeLabel}</span>}
                   {candidate.evidenceCodes.includes('source_time_unvalidated') && (

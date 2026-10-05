@@ -95,29 +95,9 @@ const fieldElementId: Record<RefundRequiredField, string> = {
 const hasValidIncidentLocalTime = (incidentDate: string, incidentTime: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(incidentDate) && /^\d{2}:\d{2}$/.test(incidentTime);
 
-const isPlaceholderRefundLocationLabel = (value: string) => {
-  const normalized = value.trim().toLocaleLowerCase();
 
-  return normalized === 'unmapped'
-    || normalized === 'unknown'
-    || normalized.startsWith('unmapped ')
-    || normalized.startsWith('unknown ');
-};
 
-const formatMachineOption = (locationName: string, machineLabel: string) => {
-  const normalizedLocationName = locationName.trim();
-  const normalizedMachineLabel = machineLabel.trim();
-
-  if (
-    !normalizedLocationName
-    || isPlaceholderRefundLocationLabel(normalizedLocationName)
-    || normalizedLocationName.toLocaleLowerCase() === normalizedMachineLabel.toLocaleLowerCase()
-  ) {
-    return normalizedMachineLabel;
-  }
-
-  return `${normalizedLocationName} - ${normalizedMachineLabel}`;
-};
+const formatMachineOption = (_locationName: string, machineLabel: string) => machineLabel.trim();
 
 const formatQrOpenedTime = (openedAt: string, timeZone: string, locale: 'en' | 'es') => {
   try {

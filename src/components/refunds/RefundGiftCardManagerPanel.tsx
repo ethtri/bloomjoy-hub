@@ -54,7 +54,7 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
     <div>
       <p className="text-sm font-medium">{refundCase.publicReference} · {refundCase.customerName || refundCase.customerEmail}</p>
       <p className="mt-2 whitespace-pre-line break-words text-sm leading-6">{refundCase.issueSummary || 'No additional comments.'}</p>
-      <p className="mt-2 text-sm text-muted-foreground">Purchase: {giftCardAmount(refundCase.paymentAmountCents, 'USD')} · {refundCase.locationName} · {refundCase.paymentMethod}</p>
+      <p className="mt-2 text-sm text-muted-foreground">Purchase: {giftCardAmount(refundCase.paymentAmountCents, 'USD')} · {refundCase.machineLabel} · {refundCase.paymentMethod}</p>
     </div>
     {query.isPending && <p role="status">Loading the gift card and previous issuance…</p>}
     {(query.error || error) && <p role="alert" className="text-sm text-destructive">{error || (query.error as Error).message} <Button variant="link" onClick={() => void query.refetch()}>Refresh review</Button></p>}
