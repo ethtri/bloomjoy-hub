@@ -2516,7 +2516,7 @@ function MachineDialog({
       const { supabaseClient } = await import('@/lib/supabaseClient');
       const { data, error } = await supabaseClient.rpc('admin_reporting_machine_source_tax', { p_machine_id: machine!.id });
       if (error) throw error;
-      return data as { coverageStatus: string; source: string | null; observedAt: string | null; ratePercent: number | null; saleDate: string };
+      return data as { coverageStatus: string; source: string | null; observedAt: string | null; ratePercent: number | null; saleDate: string; latestProbeStatus?: string; latestProbeAt?: string };
     },
     staleTime: 30000,
   });
@@ -3420,8 +3420,9 @@ function MachineDialog({
             </dl>
             <details className="mt-4 border-t border-border pt-3">
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Tax source diagnostics</summary>
-              <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverage…' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source ?? 'Nayax'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverage…' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source === 'finance_verified' ? 'Finance confirmation' : taxSource.data.source === 'nayax_portal' ? 'Nayax portal export' : 'Nayax API'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
               {taxSource.data?.observedAt && <p className="mt-1 text-xs text-muted-foreground">Observed {new Date(taxSource.data.observedAt).toLocaleString()}.</p>}
+              {taxSource.data?.latestProbeStatus === 'unavailable' && <p className="mt-2 text-sm text-muted-foreground">The latest Nayax refresh was unavailable. Any previously verified setting remains in use.</p>}
             </details>
             {machineRow?.attentionReasons.some((reason) => reason.tab === 'reporting') && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
