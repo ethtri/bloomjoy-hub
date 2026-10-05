@@ -29,6 +29,7 @@ alter table private.nayax_machine_tax_observations
   add constraint nayax_machine_tax_observations_bounded_portal_history
     check (source <> 'nayax_portal_history'
       or (classification = 'verified_tax' and effective_end_date is not null
+        and isfinite(effective_start_date)
         and isfinite(effective_end_date)
         and effective_end_date <= (observed_at at time zone 'UTC')::date));
 
