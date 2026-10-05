@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { taxAttributeEvidence } from "../_shared/nayax-tax-attributes.ts";
+import { taxAttributeEvidence, taxChangeEvidence } from "../_shared/nayax-tax-attributes.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -134,8 +134,18 @@ serve(async (request) => {
         signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) return jsonResponse({ status: "unavailable", providerStatus: response.status }, 200);
-      return jsonResponse({status:"observed",observedAt:new Date().toISOString(),
-        attributes:taxAttributeEvidence(await response.json())});
+      const attributes = taxAttributeEvidence(await response.json());
+      const query = new URLSearchParams({MachineID:machineId,StartDate:"2026-09-01T00:00:00Z",EndDate:new Date().toISOString()});
+      let changes: JsonObject[] = [];
+      let historyStatus = 0;
+      try {
+        const history = await fetch(`${baseUrl}/machines/changeLogs?${query}`, {
+          method:"GET",headers:{Authorization:`Bearer ${token}`,Accept:"application/json"},
+          signal:AbortSignal.timeout(30_000)});
+        historyStatus = history.status;
+        if(history.ok) changes = taxChangeEvidence(await history.json());
+      } catch { historyStatus = 0; }
+      return jsonResponse({status:"observed",observedAt:new Date().toISOString(),attributes,historyStatus,changes});
     } catch { return jsonResponse({status:"unavailable",errorCode:"attribute_read_failed"},200); }
   }
 
