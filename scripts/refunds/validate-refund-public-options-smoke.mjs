@@ -136,9 +136,9 @@ assert.match(
 );
 assert.match(locationSelectionSource, /when 'cotton_candy' then 'Cotton candy'/);
 assert.match(locationSelectionSource, /when 'snapcase' then 'Phone cases \(SnapCase\)'/);
-assert.match(locationSelectionTestSource, /where display_label = 'Capital City Mall'/);
-assert.match(locationSelectionTestSource, /South Hills Village — Cotton candy/);
-assert.match(locationSelectionTestSource, /South Hills Village — Phone cases \(SnapCase\)/);
+assert.match(locationSelectionTestSource, /where display_label = 'Capital City Mall — Cotton Candy'/);
+assert.match(locationSelectionTestSource, /South Hills Village — Cotton Candy/);
+assert.match(locationSelectionTestSource, /South Hills Village — SnapCase/);
 assert.match(placeholderSelectionRepairSource, /partition by location_id, btrim\(location_name\)/);
 assert.match(
   placeholderSelectionRepairSource,
