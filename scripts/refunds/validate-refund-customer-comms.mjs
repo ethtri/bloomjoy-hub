@@ -214,24 +214,19 @@ const run = async () => {
     !portalPage.includes('Send customer email')
   );
   assert(
-    'Manager queue does not repeat delimiter-bounded location and machine labels',
+    'Manager queue uses Machine name without legacy Location identity',
     includesAll(portalPage, [
       'formatRefundMachineLocation',
       'formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)',
       'formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)',
     ]) && includesAll(refundMachineLabel, [
-      'containsDelimitedLabel',
-      'normalizedMachineKey',
-      'normalizedLocationKey',
-    ])
+      'machineLabel.trim().replace',
+    ]) && !refundMachineLabel.includes('`${normalizedLocationName}')
   );
   assert(
-    'Public refund selector hides placeholder location names even before the database migration is deployed',
+    'Public refund selector uses Machine name and never prefixes Location',
     includesAll(publicRequestPage, [
-      'isPlaceholderRefundLocationLabel',
-      "normalized.startsWith('unmapped ')",
-      "normalized.startsWith('unknown ')",
-      'return normalizedMachineLabel',
+      'const formatMachineOption = (_locationName: string, machineLabel: string) => machineLabel.trim();',
     ])
   );
   assert(

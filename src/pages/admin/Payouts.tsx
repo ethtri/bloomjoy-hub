@@ -1532,7 +1532,7 @@ export default function AdminPayoutsPage() {
                                           {machine.machineLabel}
                                           {machine.operationalPhase === 'setup' && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>}
                                         </span>
-                      
+
                                       </span>
                                     </label>
                                   );
