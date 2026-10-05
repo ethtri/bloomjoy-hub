@@ -141,7 +141,7 @@ const getStringValue = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === "string" ? record[key] as string : "";
 
 const effectiveMachineName = (machine: Record<string, unknown>) =>
-  getStringValue(machine, "machine_display_name") || getStringValue(machine, "refund_public_display_label") || getStringValue(machine, "machine_label") || "Bloomjoy machine";
+  getStringValue(machine, "machine_display_name").trim() || getStringValue(machine, "refund_public_display_label").trim() || getStringValue(machine, "machine_label").trim() || "Bloomjoy machine";
 
 
 

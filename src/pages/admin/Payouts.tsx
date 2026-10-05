@@ -523,7 +523,7 @@ function TechnicianReport({
               <div key={assignment.assignmentId} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="min-w-0">
                   <p className="font-medium text-foreground">{assignment.machineLabel}</p>
-                  
+
                 </div>
                 <div className="text-sm sm:text-right">
                   <p className="font-medium text-foreground">{formatAssignmentRange(assignment.effectiveStartDate, assignment.effectiveEndDate)}</p>
@@ -1532,7 +1532,7 @@ export default function AdminPayoutsPage() {
                                           {machine.machineLabel}
                                           {machine.operationalPhase === 'setup' && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>}
                                         </span>
-                                        
+                      
                                       </span>
                                     </label>
                                   );
