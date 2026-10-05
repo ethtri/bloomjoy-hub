@@ -25,7 +25,7 @@ Follow the “Machine name and retired Location identity” decision in `Docs/DE
 
 ## Reusable Supabase deployment credential
 
-The owner's standing authorization permits repo agents to use the existing business Chrome session to obtain the required Supabase token and retain a one-year credential in `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env`, outside Git/worktrees with user-only access. Reuse the valid stored credential before creating another; no repeated approval is needed unless a real access blocker remains. Follow `Docs/PRODUCTION_RUNBOOK.md` for the native env-file loader and mandatory Auth pre/post checks. Never print/store token values in logs, Git, artifacts or `VITE_` variables. This authorization supersedes the older short-lived, owner-shell-only storage instruction; it does not weaken deployment gates or authorize unrelated business-data writes.
+The owner's standing authorization permits repo agents to use the existing business Chrome session to obtain the required Supabase token and retain a reusable credential (prefer one year when supported) in `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env`, outside Git/worktrees with user-only access. Reuse the valid stored credential before creating another; no repeated approval is needed unless a real access blocker remains. Follow `Docs/PRODUCTION_RUNBOOK.md` for the native env-file loader and mandatory Auth pre/post checks. Never print/store token values in logs, Git, artifacts or `VITE_` variables. This authorization supersedes the older short-lived, owner-shell-only storage instruction; it does not weaken deployment gates or authorize unrelated business-data writes.
 
 ## Starting Point
 

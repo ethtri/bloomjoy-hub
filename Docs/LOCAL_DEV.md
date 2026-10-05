@@ -403,7 +403,7 @@ Privacy guardrails:
 
 ## Preflight check (1 minute)
 
-For authorized Supabase deployment, reuse the private one-year credential file `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env` through Node `--env-file`; follow the standing business-Chrome token authority and unchanged Auth checks in `PRODUCTION_RUNBOOK.md`. This file is outside Git/worktrees and never client-exposed.
+For authorized Supabase deployment, reuse the private reusable credential file `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env` through Node `--env-file`; follow the standing business-Chrome token authority and unchanged Auth checks in `PRODUCTION_RUNBOOK.md`. This file is outside Git/worktrees and never client-exposed.
 1) Confirm you are in a worktree folder like `C:\Repos\wt-<task>`.
 2) Confirm your branch starts with `agent/`.
 3) Run `git fetch origin` to update your view of recent merges.
