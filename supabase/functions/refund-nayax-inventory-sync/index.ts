@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { taxAttributeEvidence } from "../_shared/nayax-tax-attributes.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -117,6 +118,26 @@ serve(async (request) => {
 
   const runPrefix = text(body.runKey, 120) || `scheduled-${new Date().toISOString().slice(0, 16)}`;
   const results: JsonObject[] = [];
+
+  // Scheduler-authorized, provider read-only probe for one exact machine.
+  // It does not sync inventory or persist/interpret a tax rate.
+  if (body.operation === "tax_attribute_probe") {
+    const machineId = text(body.machineId, 40);
+    if (!/^\d+$/.test(machineId) || accounts.length !== 1) {
+      return jsonResponse({ error: "One configured account and numeric machine ID required." }, 400);
+    }
+    const token = tokenForAccount(accounts[0]);
+    if (!token) return jsonResponse({ errorCode: "token_missing" }, 503);
+    try {
+      const response = await fetch(`${baseUrl}/machines/${machineId}/attributes`, {
+        method: "GET", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) return jsonResponse({ status: "unavailable", providerStatus: response.status }, 200);
+      return jsonResponse({status:"observed",observedAt:new Date().toISOString(),
+        attributes:taxAttributeEvidence(await response.json())});
+    } catch { return jsonResponse({status:"unavailable",errorCode:"attribute_read_failed"},200); }
+  }
 
   for (const accountKey of accounts) {
     const runKey = `${runPrefix}:${accountKey}`;
