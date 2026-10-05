@@ -126,4 +126,52 @@ comment on function public.refund_payout_destination_case_current(
   public.refund_cases
 ) is 'Current cash payout eligibility; historical empty research holds lift only for an explicit reviewed link with current cash attempt and source proof during customer wait. Contact authority and delivery budget remain enforced by existing writers.';
 
+-- Continuing customer wait is not permission to rewrite a sent transport.
+-- Valid event-bound receipt changes have already returned above this insertion;
+-- retain satisfaction of the original request through the existing lower guard.
+do $migration$
+declare
+  definition text := replace(pg_get_functiondef(
+    'public.guard_refund_payout_destination_message()'::regprocedure),E'\r\n',E'\n');
+  anchor text := $anchor$  select refund_case.* into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = new.refund_case_id
+  for share;$anchor$;
+  protection text := $guard$  if tg_op='UPDATE'
+    and old.delivery_kind='manual'
+    and old.message_type='more_info'
+    and old.requested_fields=array['zelle_payment_contact']::text[]
+    and old.manual_delivery_state='sent'
+    and old.status in ('sent','failed')
+    and old.sent_at is not null
+    and old.delivery_transport='resend'
+    and old.provider_message_id is not null
+    and old.delivery_state in ('accepted','deferred','delivered','failed','bounced','complained')
+    and (
+      new.provider_message_id is distinct from old.provider_message_id
+      or new.delivery_transport is distinct from old.delivery_transport
+      or new.transactional_provider_message_header is distinct from old.transactional_provider_message_header
+      or new.delivery_state is distinct from old.delivery_state
+      or new.delivery_state_updated_at is distinct from old.delivery_state_updated_at
+      or new.status is distinct from old.status
+      or new.sent_at is distinct from old.sent_at
+      or new.error_message is distinct from old.error_message
+    ) then
+    raise exception 'Sent protected payout receipt requires exact immutable provider evidence'
+      using errcode='23514';
+  end if;
+
+$guard$;
+begin
+  if (length(definition)-length(replace(definition,anchor,'')))/length(anchor)<>1
+    or strpos(definition,'old.manual_delivery_state = ''sent''')=0
+    or strpos(definition,'public.refund_transactional_delivery_state_rank')=0
+    or strpos(definition,'header_event.applied_at is not null')=0 then
+    raise exception 'Sent payout receipt guard changed before currentness repair'
+      using errcode='P4681';
+  end if;
+  execute replace(definition,anchor,protection||anchor);
+end;
+$migration$;
+
 select pg_notify('pgrst','reload schema');

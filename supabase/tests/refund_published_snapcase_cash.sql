@@ -220,7 +220,8 @@ select is(pg_temp.error_state($call$select public.service_enqueue_refund_manual_
 reset role;
 rollback to savepoint payout_contact_contract;
 -- Reproduce a manual payout request that was sent against the current reviewed
--- purchase, then became ineligible for another request while awaiting its reply.
+-- purchase. Waiting preserves current followup eligibility, while the consumed
+-- contact budget still forbids another original request and receipt rewriting.
 savepoint payout_receipt_contract;
 set local role service_role;
 create temporary table payout_receipt_intent as select
@@ -262,10 +263,10 @@ reset role;
 select ok((select m.manual_delivery_state='sent' and m.status='sent'
  and m.sent_at is not null and m.delivery_state='accepted'
  and c.status='waiting_on_customer' and c.decision is null
- and not public.refund_payout_destination_case_current(c)
+ and public.refund_payout_destination_case_current(c)
  from public.refund_case_messages m join public.refund_cases c on c.id=m.refund_case_id
  where m.id=(select refund_case_message_id from payout_receipt_claim)),
- 'The actual sent manual request is accepted while current payout-request eligibility is false');
+ 'The sent manual request remains current for its one followup while awaiting the customer');
 create temporary table payout_receipt_before as select
  to_jsonb(c) case_json,
  to_jsonb(m)-'status'-'error_message'-'delivery_state'-'delivery_state_updated_at'
@@ -298,10 +299,10 @@ select is(public.service_record_refund_transactional_delivery_event(
  'Existing receipt writer reconciles the sent manual request without reopening contact eligibility');
 reset role;
 select ok((select m.delivery_state='delivered' and m.status='sent'
- and not public.refund_payout_destination_case_current(c)
+ and public.refund_payout_destination_case_current(c)
  from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
  where m.id=(select refund_case_message_id from payout_receipt_claim)),
- 'Confirmed receipt does not reopen current payout-request eligibility');
+ 'Confirmed receipt preserves current followup proof without authorizing another original request');
 select is((select to_jsonb(c)-'lifecycle_revision'-'updated_at' from public.refund_cases c
  where c.id='16617000-0000-4000-8000-000000000001'),
  (select case_json-'lifecycle_revision'-'updated_at' from payout_receipt_before),
@@ -382,6 +383,25 @@ select is(pg_temp.error_state($call$select public.service_record_refund_transact
  '<payout-receipt@example.invalid>')$call$),'42501',
  'Receipt recording remains a service-only boundary');
 reset role;
+savepoint payout_receipt_withdrawn;
+update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
+ released_by='16600000-0000-4000-8000-000000000001',released_case_fact_version=1
+where refund_case_id='16617000-0000-4000-8000-000000000001';
+select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c
+ where id='16617000-0000-4000-8000-000000000001')),
+ 'Genuine reviewed-proof withdrawal stops new followup eligibility');
+set local role service_role;
+select is(public.service_record_refund_transactional_delivery_event(
+ repeat('2',64),'snapcase_payout_receipt_accepted','bounced',statement_timestamp(),
+ '<payout-receipt@example.invalid>')->>'deliveryState','bounced',
+ 'Exact sent-provider receipt still reconciles after purchase proof is withdrawn');
+reset role;
+select ok((select m.delivery_state='bounced' and m.status='failed'
+ and not public.refund_payout_destination_case_current(c)
+ from public.refund_cases c join public.refund_case_messages m on m.refund_case_id=c.id
+ where m.id=(select refund_case_message_id from payout_receipt_claim)),
+ 'Withdrawn proof remains ineligible after immutable receipt settlement');
+rollback to savepoint payout_receipt_withdrawn;
 rollback to savepoint payout_receipt_contract;
 savepoint payout_link_negative;
 update public.refund_sunze_cash_sale_links set released_at=now(),release_reason='wrong_sale',
