@@ -34,11 +34,16 @@ orientation snapshot; it is not a backlog or release ledger.
 - Reporting PR #1709 and its four database migrations are live in production
   (#1696). Central Reporting includes Finance, seven completed days by default,
   prior-year comparison and one detailed Sales view; Labor lives in Timekeeping
-  Reports, and Refunds & Recovery lives in Refunds Reports. Existing sales
-  calculations, tax settings and issued statements are unchanged. Dated card/cash
-  tax treatment is available in the existing machine Reporting editor; no
-  treatment overrides were added during release. Shared UAT is separate, and
-  `npm run reporting:preview` remains an isolated preview with labeled sample data.
+  Reports, and Refunds & Recovery lives in Refunds Reports. Source-tax release
+  #1767 replaces routine manual reporting tax controls with source-backed Nayax
+  card tax; cash remains untaxed. Finance shows inclusive sales, inclusive refund
+  deductions, remaining tax and net sales excluding tax, plus a separate completed
+  refund reconciliation. Original transaction tax takes priority; historical rates
+  require dated evidence and unresolved tax stays unavailable. Issued statements
+  and raw source records are preserved. September Atlanta, South Hills and Gilroy
+  reconciliation review remains open under #1763. PR #1767 is merged; production
+  frontend validation is pending. Shared UAT is separate, and `npm run reporting:preview`
+  remains an isolated preview with labeled sample data.
 
 - PR #1706 deployed a service-only assisted path for an already-supplied payout
   limitation on an existing legacy form. The reviewed same-case writer, source
