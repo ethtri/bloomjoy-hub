@@ -27,6 +27,22 @@ const rejects = (value: unknown) => {
 };
 const links = machineEmailLinks();
 
+Deno.test("future optional emails use machine names without legacy venue adornments and leave projections immutable", () => {
+  for (const [variant, projection] of Object.entries(fixtureVariants())) {
+    for (const machine of projection.machines) {
+      machine.machineLabel = `Canonical machine ${machine.machineId}`;
+      machine.locationName = "Retired venue label";
+    }
+    const before = JSON.stringify(projection);
+    const email = buildMachineEmail({ projection, links });
+    assert(!email.text.includes("Retired venue label"), `${variant}: text omits venue`);
+    assert(!email.html.includes("Retired venue label"), `${variant}: HTML omits venue`);
+    assert(email.text.includes("Canonical machine"), `${variant}: machine name rendered`);
+    assert(email.html.includes("Canonical machine"), `${variant}: HTML machine name rendered`);
+    assert(JSON.stringify(projection) === before, `${variant}: stored projection unchanged`);
+  }
+});
+
 Deno.test("all production optional templates render complete synthetic projections", () => {
   for (const [name, projection] of Object.entries(fixtureVariants())) {
     const email = buildMachineEmail({ projection, links });

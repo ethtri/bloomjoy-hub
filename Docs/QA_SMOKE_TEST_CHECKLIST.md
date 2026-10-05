@@ -1209,10 +1209,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - Check 320/390px, desktop, keyboard focus, long company names and 200% zoom without sideways navigation or page overflow. Run `node scripts/serve-reporting-preview.mjs --port 8106 --company-samples`, then `node scripts/validate-company-reporting-uat.mjs --app-url http://127.0.0.1:8106` for read-only synthetic UI coverage. Database authorization requires separate disposable-database verification.
 # Unified machine identity setup (#1742)
 
-- On `/admin/machines`, confirm source platform/original name/ID, exact Nayax name/ID/account, company, physical venue, managers, operating state and last recorded transaction are visible together. Provisional, source-only and Nayax-only records remain available.
+- On `/admin/machines`, confirm source platform/original name/ID, exact Nayax name/ID/account, company, managers, operating state and last recorded transaction are visible together. Provisional, source-only and Nayax-only records remain available.
 - Open Manage without leaving the portfolio. Search imported Nayax records by name, ID and account; select and save one. Exact ID/account are automatic; linked records cannot be assigned to another Hub machine. Refund readiness stays separate.
-- Enter a physical placement such as “Great Mall near food court”; save and reload. Another machine sharing its reporting location keeps its own label, and historical reporting location/timezone remain unchanged.
-- Cancel an unsaved venue/match close prompt and verify the draft stays. Background refresh preserves dirty drafts; a stale saved identity fails with reload guidance.
+- Edit the single Machine name such as “Great Mall - Cotton Candy”; save and reload. Internal reporting location/timezone and other machines remain unchanged.
+- Cancel an unsaved name/match close prompt and verify the draft stays. Background refresh preserves dirty drafts; a stale saved identity fails with reload guidance.
 - Review “Last recorded transaction >30 days”, “No transactions recorded”, and oldest-first sorting. Unknown/stale import status stays visible; these filters do not establish genuine inactivity.
 - Open Discover source machines on Machines. Connect Sunze to an existing Hub machine, or review the existing source setup dialog for a deliberate new record. SnapCase can link an existing Hub machine. Ignore/reopen controls stay available; source setup refreshes the portfolio.
 - Existing `/admin/machines/:machineId`, `/admin/machines/inventory`, and Reporting > Sync routes remain usable. Run `deno test --no-lock src/lib/machineTransactionRecency.test.ts` and disposable database test `supabase/tests/machine_unified_setup.sql`.

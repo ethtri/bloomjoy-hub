@@ -696,7 +696,7 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   if (input.correctionUrl) return buildRefundPurchaseCorrectionEmail(input);
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
-  const { machineLabel, locationName } = resolveRefundPublicLabels({
+  const { machineLabel } = resolveRefundPublicLabels({
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
@@ -715,7 +715,6 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
-  if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
     const amountLabel =
@@ -776,7 +775,7 @@ export const buildEditableRefundCustomerEmail = ({
 }) => {
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
-  const { machineLabel, locationName } = resolveRefundPublicLabels({
+  const { machineLabel } = resolveRefundPublicLabels({
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
@@ -797,7 +796,6 @@ export const buildEditableRefundCustomerEmail = ({
     .filter(Boolean);
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
-  if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
     const amountLabel = ["approved", "completed"].includes(input.messageType)
@@ -888,7 +886,7 @@ export const buildRefundWalletCorrectionEmail = (
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
   const correctionUrl = sanitizeText(input.correctionUrl, 1200);
-  const { machineLabel, locationName } = resolveRefundPublicLabels({
+  const { machineLabel } = resolveRefundPublicLabels({
     machineLabel: input.machineLabel,
     locationName: input.locationName,
   });
@@ -901,7 +899,6 @@ export const buildRefundWalletCorrectionEmail = (
     : "A mobile wallet such as Apple Pay or Google Pay can show different last four digits than the physical card. That may be why we could not confidently match your purchase yet.";
   const details = [`Reference: ${publicReference}`];
   if (machineLabel) details.push(`Machine: ${machineLabel}`);
-  if (locationName) details.push(`Location: ${locationName}`);
 
   const text = [
     greeting,

@@ -47,7 +47,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
 
     const page = await context.newPage();
     await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
-    await page.getByLabel('Machine location').selectOption(selectionKey);
+    await page.getByLabel('Machine', { exact: true }).selectOption(selectionKey);
     // This regression exercises the existing original-payment/native-picker path.
     await page.locator('#resolution-original').click();
     await page.getByLabel('Email', { exact: true }).fill('   ');

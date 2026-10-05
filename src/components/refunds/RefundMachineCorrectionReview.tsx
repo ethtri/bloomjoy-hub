@@ -73,7 +73,7 @@ export function RefundMachineCorrectionReview({ overview: v, context, onBusyChan
         <dl className="grid gap-x-6 gap-y-3 bg-muted/30 p-3 text-sm sm:grid-cols-2">
           <div><dt className="text-muted-foreground">Original case machine</dt><dd className="break-words font-medium">{context.machineLabel}</dd><dd className="break-all text-muted-foreground">Provider ID {v.providerMachineId}</dd></div>
           <div><dt className="text-muted-foreground">Corrected current machine</dt><dd className="break-words font-medium">{target.machineLabel}</dd><dd className="break-all text-muted-foreground">Provider ID {target.providerMachineId}</dd></div>
-          <div><dt className="text-muted-foreground">Account / location</dt><dd className="break-words">{target.accountScope} / {context.locationName}</dd></div>
+          <div><dt className="text-muted-foreground">Account</dt><dd className="break-words">{target.accountScope}</dd></div>
           <div><dt className="text-muted-foreground">Numeric machine number</dt><dd className="break-all font-medium tabular-nums">{target.machineNumber}</dd></div>
           <div><dt className="text-muted-foreground">Unchanged original</dt><dd className="break-all">{v.originalTransactionId}</dd></div>
           <div><dt className="text-muted-foreground">Exact full refund</dt><dd className="font-medium">{amount} {v.currencyCode} · Refunded (62)</dd></div>

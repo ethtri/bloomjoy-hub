@@ -90,10 +90,49 @@ select ok(not exists(select 1 from before_facts b join public.refund_cases c usi
  c.reporting_location_id,c.deterministic_fact_version,c.refund_amount_cents,c.matched_nayax_transaction_id,c.refund_completed_at,c.reporting_adjustment_id)),
  'Customer facts, money and mapping are preserved');
 select is((select count(*) from public.refund_case_events where event_type='owner_nonrefund_resolution_adopted'),1::bigint,'Exact replay creates no second observation');
+-- Privacy checks target complete identities and the redacted metadata contract,
+-- never a short hex fragment that can legitimately occur in a digest or UUID.
+create function pg_temp.adoption_metadata_is_redacted(p jsonb) returns boolean language sql as $$
+ select coalesce(jsonb_typeof(p)='object'
+ and not exists(select 1 from jsonb_object_keys(p) k where k not in
+ ('intent_id','reason_code','original_sent_at','adopted_at','notice_verification','provider_message_digest',
+ 'evidence_snapshot_digest','source_body_digest','original_fact_version','original_case_version','result','payload_redacted'))
+ and jsonb_typeof(p->'result')='object'
+ and not exists(select 1 from jsonb_object_keys(p->'result') k where k not in
+ ('status','adoptionId','noticeVerification','customerMessageSent','paymentAction','payloadRedacted'))
+ and p->'result'->>'status'='adopted' and p->'result'->>'noticeVerification'='operator_observed'
+ and p->'result'->'customerMessageSent'='false'::jsonb and p->'result'->'paymentAction'='false'::jsonb
+ and p->'payload_redacted'='true'::jsonb and p->'result'->'payloadRedacted'='true'::jsonb
+ and p->>'provider_message_digest' ~ '^[a-f0-9]{64}$'
+ and p->>'evidence_snapshot_digest' ~ '^[a-f0-9]{64}$'
+ and p->>'source_body_digest' ~ '^[a-f0-9]{64}$'
+ and p->'result'->>'adoptionId' ~ '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
+ and p::text not like '%example.invalid%'
+ and not exists(select 1 from reviews r where
+ strpos(p::text,to_jsonb(r.value->>'message')::text)>0 or strpos(p::text,to_jsonb(r.value->>'thread')::text)>0),false)
+$$;
 select ok((select metadata->>'notice_verification'='operator_observed_gmail_sent'
  and (metadata->>'adopted_at')::timestamptz>(metadata->>'original_sent_at')::timestamptz
- and metadata::text not like '%example.invalid%' and metadata::text not like '%cafe%'
+ and pg_temp.adoption_metadata_is_redacted(metadata)
  from public.refund_case_events where event_type='owner_nonrefund_resolution_adopted'),'Attestation and original/adoption times are distinct; raw identities are excluded');
+create temporary table permitted_hex_metadata as select
+ jsonb_set(jsonb_set(metadata,'{result,adoptionId}','"1cafeb8f-1bef-4039-a739-844a9b90ac10"'),
+ '{provider_message_digest}',to_jsonb(repeat('cafe',16))) value
+ from public.refund_case_events where event_type='owner_nonrefund_resolution_adopted';
+select ok((select pg_temp.adoption_metadata_is_redacted(value) from permitted_hex_metadata),
+ 'Legitimate UUID and 64-hex digest containing cafe remain redacted');
+select ok((select not pg_temp.adoption_metadata_is_redacted(value||jsonb_build_object('provider_message_id','cafe000000000001')) from permitted_hex_metadata),
+ 'Raw provider message identity is rejected');
+select ok((select not pg_temp.adoption_metadata_is_redacted(value||jsonb_build_object('provider_thread_id','cafe999999999999')) from permitted_hex_metadata),
+ 'Raw provider thread identity is rejected');
+select ok((select not pg_temp.adoption_metadata_is_redacted(value||jsonb_build_object('recipient_email','nonrefund-owner@example.invalid')) from permitted_hex_metadata),
+ 'Raw recipient identity is rejected');
+select ok((select not pg_temp.adoption_metadata_is_redacted(value||jsonb_build_object('raw_body','private content')) from permitted_hex_metadata),
+ 'Forbidden raw payload field is rejected even without fixture identity text');
+select ok((select not pg_temp.adoption_metadata_is_redacted(jsonb_set(value,'{source_body_digest}','"cafe000000000001"')) from permitted_hex_metadata),
+ 'A raw identity cannot masquerade as a digest');
+select ok((select not pg_temp.adoption_metadata_is_redacted(jsonb_set(value,'{reason_code}','"cafe000000000001"')) from permitted_hex_metadata),
+ 'Complete provider identity value is rejected even inside an allowed scalar field');
 select throws_ok($$update public.refund_case_events set message='changed' where event_type='owner_nonrefund_resolution_adopted'$$,'42501',null,'Observation cannot be changed');
 select throws_ok($$delete from public.refund_case_events where event_type='owner_nonrefund_resolution_adopted'$$,'42501',null,'Observation cannot be erased');
 set local role service_role;

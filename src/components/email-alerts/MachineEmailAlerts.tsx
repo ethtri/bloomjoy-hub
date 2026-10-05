@@ -45,7 +45,7 @@ function MachinePanel({ context: initialContext, machineId, onClose }: { context
     finally { setSaving(false); }
   };
   return <><Sheet open onOpenChange={open => { if (!open) guard(onClose); }}><SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-    <SheetHeader className="border-b px-6 py-6 text-left"><SheetTitle>Email alerts</SheetTitle><SheetDescription>{machine.machineLabel}{machine.locationName && ` · ${machine.locationName}`}</SheetDescription></SheetHeader>
+    <SheetHeader className="border-b px-6 py-6 text-left"><SheetTitle>Email alerts</SheetTitle><SheetDescription>{machine.machineLabel}</SheetDescription></SheetHeader>
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5"><p className="mb-3 text-sm leading-relaxed text-muted-foreground">Choose updates for this machine. Your other machines keep their existing choices.</p>
       <fieldset disabled={saving}>{context.alerts.filter(alert => alert.id !== 'decision-ready' || machine.isManager).map(alert => {
         const allowed = alert.available && machine.availableAlertIds.includes(alert.id);

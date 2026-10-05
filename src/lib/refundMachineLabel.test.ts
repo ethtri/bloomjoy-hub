@@ -19,17 +19,17 @@ Deno.test('refund machine summaries do not repeat a delimiter-bounded location',
   );
   assertEquals(
     formatRefundMachineLocation('Mall Atrium', 'Cotton Candy 01'),
-    'Mall Atrium - Cotton Candy 01',
+    'Cotton Candy 01',
     'distinct location and machine',
   );
   assertEquals(
     formatRefundMachineLocation('Mall', 'Small Machine'),
-    'Mall - Small Machine',
+    'Small Machine',
     'partial word is not a location match',
   );
   assertEquals(
     formatRefundMachineLocation('Colorado Mills', 'Bloomjoy at Colorado Mills entrance'),
-    'Colorado Mills - Bloomjoy at Colorado Mills entrance',
+    'Bloomjoy at Colorado Mills entrance',
     'middle phrase is not treated as the published location prefix or suffix',
   );
   assertEquals(

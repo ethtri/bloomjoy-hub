@@ -820,11 +820,8 @@ export default function AdminMachinesPage() {
         if (!normalizedSearch) return true;
         return [
           row.machine.machine_label,
-          row.machine.stored_machine_label ?? '',
-          row.machine.location_name,
           row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
-          metadataById.get(row.machine.id)?.venueLabel ?? '',
           metadataById.get(row.machine.id)?.nayaxMachineId ?? '',
           metadataById.get(row.machine.id)?.nayaxAccountKey ?? '',
           metadataById.get(row.machine.id)?.sources.map((source) => `${source.platform} ${source.name} ${source.id}`).join(' ') ?? '',
@@ -851,27 +848,29 @@ export default function AdminMachinesPage() {
     () =>
       machineRows.filter((row) => {
         const sourceKnown = metadataById.get(row.machine.id);
-        if (view === 'review') return Boolean(sourceKnown && !sourceKnown.sources.length);
-        if (sourceKnown && !sourceKnown.sources.length && !search.trim()) return false;
+        if (view === 'review') return workspaceMetadata.isError || !sourceKnown || !sourceKnown.sources.length;
+        if (!isLocalDemoMode && (workspaceMetadata.isError || !sourceKnown?.sources.length)) return false;
         if (view === 'setup') return row.machine.operational_phase === 'setup';
         if (view === 'attention') return row.attentionReasons.length > 0;
         if (view === 'ready') return row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0;
         return true;
       }),
-    [machineRows, view, metadataById, search]
+    [machineRows, view, metadataById, isLocalDemoMode, workspaceMetadata.isError]
   );
+
+  const sourceVerificationIncomplete = !isLocalDemoMode && (workspaceMetadata.isError || (workspaceMetadata.isSuccess && allMachineRows.some((row) => !metadataById.has(row.machine.id))));
 
   const renderedMachineRows = visibleMachineRows.slice(0, visibleMachineLimit);
 
   const portfolioCounts = useMemo(
     () => ({
-      all: machineRows.filter((row) => !metadataById.get(row.machine.id) || Boolean(metadataById.get(row.machine.id)?.sources.length)).length,
-      review: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length === 0).length,
-      setup: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase === 'setup').length,
-      attention: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.attentionReasons.length > 0).length,
-      ready: machineRows.filter((row) => metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
+      all: machineRows.filter((row) => isLocalDemoMode || (!workspaceMetadata.isError && Boolean(metadataById.get(row.machine.id)?.sources.length))).length,
+      review: machineRows.filter((row) => workspaceMetadata.isError || !metadataById.get(row.machine.id)?.sources.length).length,
+      setup: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase === 'setup').length,
+      attention: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.attentionReasons.length > 0).length,
+      ready: machineRows.filter((row) => !workspaceMetadata.isError && metadataById.get(row.machine.id)?.sources.length && row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
     }),
-    [machineRows, metadataById]
+    [machineRows, metadataById, isLocalDemoMode, workspaceMetadata.isError]
   );
 
   const updateView = (nextView: MachineView) => {
@@ -1472,7 +1471,7 @@ export default function AdminMachinesPage() {
                     className="h-11 pl-9"
                     value={search}
                     onChange={(event) => updateSearch(event.target.value)}
-                    placeholder="Search machine, location, account, or provider ID"
+                    placeholder="Search machine, source, account, or provider ID"
                   />
                 </div>
               </div>
@@ -1578,6 +1577,13 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
+          {sourceVerificationIncomplete && (
+            <div role="alert" className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <p>Source connections could not be verified for every machine. Only verified source-connected machines appear in the normal list; unresolved records remain in Needs review.</p>
+              <Button variant="outline" className="mt-3 min-h-11" onClick={() => void workspaceMetadata.refetch()}>Retry source connections</Button>
+            </div>
+          )}
+
           <div className="mt-5 overflow-hidden rounded-xl border border-border bg-card">
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
               <div>
@@ -1585,7 +1591,7 @@ export default function AdminMachinesPage() {
                   {view === 'attention' ? 'Machines needing attention' : view === 'ready' ? 'Ready machines' : 'All machines'}
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {visibleMachineRows.length === machineRows.length
+                  {!isLocalDemoMode && workspaceMetadata.isPending ? 'Verifying source connections…' : visibleMachineRows.length === machineRows.length
                     ? `${machineRows.length} ${machineRows.length === 1 ? 'machine' : 'machines'}`
                     : `${visibleMachineRows.length} of ${machineRows.length} machines`}
                 </p>
@@ -1598,7 +1604,7 @@ export default function AdminMachinesPage() {
               )}
             </div>
 
-            {isLoading ? (
+            {isLoading || (!isLocalDemoMode && workspaceMetadata.isPending) ? (
               <div className="space-y-px bg-border" aria-label="Loading machines">
                 {[0, 1, 2, 3].map((item) => (
                   <div key={item} className="h-24 animate-pulse bg-background p-4">
@@ -1611,10 +1617,10 @@ export default function AdminMachinesPage() {
               <div className="px-6 py-12 text-center text-sm text-muted-foreground">
                 <CheckCircle2 className="mx-auto h-7 w-7 text-muted-foreground" />
                 <h3 className="mt-3 font-semibold text-foreground">
-                  {view === 'attention' ? 'No machines need attention' : 'No machines found'}
+                  {sourceVerificationIncomplete ? 'Source verification incomplete' : view === 'attention' ? 'No machines need attention' : 'No machines found'}
                 </h3>
                 <p className="mx-auto mt-2 max-w-md leading-6">
-                {hasScopedMachineLimit && setup.machines.length === 0
+                {sourceVerificationIncomplete ? 'Retry source connections or open Needs review to inspect unresolved records.' : hasScopedMachineLimit && setup.machines.length === 0
                   ? 'No machines are assigned to your scoped admin grant yet.'
                     : view === 'attention'
                       ? 'The machines in this view are ready for their current workflows.'

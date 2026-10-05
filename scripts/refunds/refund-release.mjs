@@ -1231,7 +1231,7 @@ const findSealedManifestAnchor = (
   );
   const history = spawnSync(
     'git',
-    ['log', '--first-parent', '--format=%H', headGitCommit, '--', manifestRelativePath],
+    ['log', '--format=%H', headGitCommit, '--', manifestRelativePath],
     { cwd: rootDirectory, encoding: 'utf8', windowsHide: true }
   );
   assert(!history.error && history.status === 0, 'Unable to inspect sealed refund manifest history');

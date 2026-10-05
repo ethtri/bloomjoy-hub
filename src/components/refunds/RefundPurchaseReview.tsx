@@ -62,8 +62,8 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
     { label: 'Card digits', customer: refundCase.cardLast4 ? `Ending ${refundCase.cardLast4}` : 'Not supplied', customerNote: `${customerPayment} · ${customerDigitsSource}`,
       provider: providerDigits ? `Ending ${providerDigits}` : 'Not available', providerNote: candidate?.recognitionMethod || selected?.recognitionMethod || undefined },
     { label: 'Card type', customer: getRefundCardNetworkLabel(refundCase.cardNetwork), provider: providerNetwork === 'other_unknown' ? 'Not identified' : providerNetwork ? getRefundCardNetworkLabel(providerNetwork) : 'Not available' },
-    { label: 'Machine', customer: `${refundCase.machineLabel} · ${refundCase.locationName}`,
-      provider: selected ? `${selected.machineLabel} · ${selected.locationName}` : candidate?.machineDisplayLabel || refundCase.machineLabel },
+    { label: 'Machine', customer: refundCase.machineLabel,
+      provider: selected ? selected.machineLabel : candidate?.machineDisplayLabel || refundCase.machineLabel },
   ];
 
   return <section id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card"
