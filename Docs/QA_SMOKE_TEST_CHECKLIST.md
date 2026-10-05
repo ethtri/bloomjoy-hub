@@ -6,6 +6,12 @@
 
 # QA Smoke Test Checklist
 
+## Cash refund clarification (#1769)
+
+- On `/refunds/correct?demo=on&payment=cash&context=cash-change` at localhost, add what happened, cash inserted, and total change expected; capture the item received and actual change returned in the description. Equal or greater change than inserted cash must fail without losing answers. A valid response shows reviewer ownership and no payment confirmation.
+- Repeat at 390px and 1440px, and with `&lang=es`; “Not sure / can’t provide” saves without guessing and neither language overflows. Run `scripts/refunds/refund-cash-clarification-browser.mjs` through `playwright-cli run-code --filename` with Vite on port 4174.
+- Run `npm run refunds:validate-purchase-correction` and `npm run db:validate-migrations`. The database fixture exercises real manager enqueue/delivery, cash-only and combined Zelle scope, gift-card scope, payout-only injection rejection, stale versions, replay, and preserved purchase/refund/decision amounts. Use synthetic cases only.
+
 ## Machines search focus regression (#1744)
 - On `/admin/machines`, type a multi-character name continuously, then backspace; focus and caret stay in Search machines while results and URL update. Reload retains the query; clearing it restores all records. Verify imported Nayax and inventory searches similarly.
 - Local synthetic regression: `node scripts/validate-machine-search-focus.mjs` (Vite on port 8087, or `MACHINE_SEARCH_UAT_APP_URL`). Also verifies shared-boundary render errors recover on query and pathname navigation. No assignment saves occur.

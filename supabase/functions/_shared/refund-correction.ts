@@ -4,7 +4,7 @@ export const correctionFields = [
   'location_or_machine', 'incident_date', 'incident_time', 'incident_time_source',
   'payment_method', 'payment_interaction', 'card_last4', 'card_last4_source',
   'card_network', 'wallet_provider', 'wallet_device_kind', 'nearby_attempt_count',
-  'amount', 'zelle_payment_contact',
+  'amount', 'zelle_payment_contact', 'issue_summary', 'cash_inserted_amount', 'expected_change_amount',
 ] as const;
 export type CorrectionField = typeof correctionFields[number];
 export type CorrectionAnswer = { disposition: 'changed' | 'confirmed' | 'cannot_provide'; value?: string; confidence?: 'exact' | 'within_15_minutes' | 'within_1_hour' | 'rough' };
@@ -59,6 +59,9 @@ export const correctionLabels: Record<CorrectionField, [string, string]> = {
   card_last4: ['Card last four digits', 'Últimos cuatro dígitos de la tarjeta'],
   card_network: ['Card type', 'Tipo de tarjeta'],
   zelle_payment_contact: ['Zelle email or phone', 'Correo o teléfono de Zelle'],
+  issue_summary: ['What happened at the machine?', '¿Qué ocurrió en la máquina?'],
+  cash_inserted_amount: ['Cash inserted (USD)', 'Efectivo insertado (USD)'],
+  expected_change_amount: ['Change you expected (USD)', 'Cambio que esperaba recibir (USD)'],
 };
 export const correctionChoices: Partial<Record<CorrectionField, Array<[string, string, string]>>> = {
   payment_method: [['card', 'Card or mobile wallet', 'Tarjeta o billetera digital'], ['cash', 'Cash', 'Efectivo']],
@@ -136,9 +139,9 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
         : { disposition: answer.disposition };
       continue;
     }
-    if (typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > (field === 'zelle_payment_contact' ? 320 : 160)) throw new Error(`invalid:${field}`);
+    if (typeof answer.value !== 'string' || !answer.value.trim() || answer.value.length > (field === 'issue_summary' ? 2500 : field === 'zelle_payment_contact' ? 320 : 160)) throw new Error(`invalid:${field}`);
     let value = answer.value.trim();
-    if (field === 'amount') {
+    if (['amount', 'cash_inserted_amount', 'expected_change_amount'].includes(field)) {
       value = value.replace(/^\$\s*/, '').replace(',', '.');
       if (!/^\d{1,5}(?:\.\d{1,2})?$/.test(value) || Number(value) <= 0) throw new Error(`invalid:${field}`);
       value = Number(value).toFixed(2);
@@ -154,5 +157,10 @@ export function validateCorrectionAnswers(input: unknown, context: CorrectionCon
     result[field] = field === 'incident_time' ? { disposition: 'changed', value, confidence: answer.confidence }
       : value === values[field] ? { disposition: 'confirmed' } : { disposition: 'changed', value };
   }
+  const effective = (field: CorrectionField) => result[field]?.disposition === 'changed' ? result[field]?.value : values[field];
+  if (Object.keys(result).some((field) => ['issue_summary', 'cash_inserted_amount', 'expected_change_amount'].includes(field)) && effective('payment_method') !== 'cash') throw new Error('cash_details_require_cash');
+  const inserted = Number(effective('cash_inserted_amount'));
+  const change = Number(effective('expected_change_amount'));
+  if (inserted > 0 && change > 0 && change >= inserted) throw new Error('invalid:expected_change_amount');
   return result;
 }

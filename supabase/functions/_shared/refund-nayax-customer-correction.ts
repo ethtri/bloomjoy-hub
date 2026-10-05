@@ -122,6 +122,9 @@ export const deriveNayaxCustomerCorrectionFields = ({
 };
 
 const fieldRequest: Record<RefundMissingField, string> = {
+  issue_summary: 'what happened, including whether you received the item and any change',
+  cash_inserted_amount: 'the total cash inserted',
+  expected_change_amount: 'the total change you expected',
   location_or_machine: "the machine or Bloomjoy location",
   incident_date: "the purchase date",
   incident_time: "the approximate purchase time, including AM or PM",
@@ -140,6 +143,9 @@ const fieldRequest: Record<RefundMissingField, string> = {
 };
 
 const fieldReplyLine: Record<RefundMissingField, string> = {
+  issue_summary: 'What happened (price shown, item received, change returned, and what you are requesting):',
+  cash_inserted_amount: 'Total cash inserted (USD):',
+  expected_change_amount: 'Total change expected (USD), or not applicable:',
   location_or_machine: "Machine or location:",
   incident_date: "Purchase date (YYYY-MM-DD):",
   incident_time: "Approximate purchase time (include AM or PM):",
