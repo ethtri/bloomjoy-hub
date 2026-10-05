@@ -11,8 +11,9 @@ orientation snapshot; it is not a backlog or release ledger.
 - P0 #1455: the October 5 repair broadens deterministic Info inquiry matching
   to the three missed customer phrases, removes reused pg_net request-ID
   uniqueness from both Gmail scheduler ledgers, and exposes cron failures and
-  overdue replies through the existing health alert. Production rollout and
-  same-thread Sent/replay acceptance remain tracked in the issue.
+  overdue replies through the existing health alert. The database repair and
+  Gmail script are deployed; all three missed inquiries have one verified
+  same-thread form-link reply. Final repeat-scan evidence is tracked in the issue.
 
 - Personal machine email subscriptions are implemented in #1717: daily briefs
   default on for assigned managers and technicians at 08:00 Pacific; the other
