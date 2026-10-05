@@ -149,6 +149,11 @@ declare
     and old.delivery_state in ('accepted','deferred','delivered','failed','bounced','complained')
     and (
       new.provider_message_id is distinct from old.provider_message_id
+      or new.manual_delivery_state is distinct from old.manual_delivery_state
+      or new.manual_delivery_claim_token is distinct from old.manual_delivery_claim_token
+      or new.manual_delivery_claimed_at is distinct from old.manual_delivery_claimed_at
+      or new.manual_delivery_provider_attempted_at is distinct from old.manual_delivery_provider_attempted_at
+      or new.manual_delivery_attempt_count is distinct from old.manual_delivery_attempt_count
       or new.delivery_transport is distinct from old.delivery_transport
       or new.transactional_provider_message_header is distinct from old.transactional_provider_message_header
       or new.delivery_state is distinct from old.delivery_state

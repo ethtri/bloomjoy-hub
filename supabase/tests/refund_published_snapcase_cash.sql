@@ -347,6 +347,19 @@ select is((select to_jsonb(m) from public.refund_case_messages m
  where m.id=(select refund_case_message_id from payout_receipt_claim)),
  (select message_json from payout_receipt_delivered),
  'Receipt replay and a lower-ranked accepted event cannot downgrade delivered truth');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set manual_delivery_state='pending',manual_delivery_claim_token=null,
+ manual_delivery_claimed_at=null,manual_delivery_provider_attempted_at=null
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Sent manual original cannot rewind its claim state to enable another transport');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set manual_delivery_attempt_count=manual_delivery_attempt_count+1
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Sent manual original cannot rewrite its provider-attempt identity');
+select is(pg_temp.error_state($call$update public.refund_case_messages
+ set manual_delivery_provider_attempted_at=manual_delivery_provider_attempted_at+interval '1 second'
+ where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
+ 'Sent manual original cannot rewrite its provider-attempt timestamp');
 select is(pg_temp.error_state($call$update public.refund_case_messages set body='Changed content'
  where id=(select refund_case_message_id from payout_receipt_claim)$call$),'23514',
  'Receipt parity cannot edit the sent content');
