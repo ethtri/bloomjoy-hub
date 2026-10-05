@@ -78,6 +78,16 @@ select is((select (feb->>'remainingTaxCents')::bigint from finance_reports),800:
 select is((select (feb->>'completedRefundExTaxCents')::bigint from finance_reports),0::bigint,'Unpaid requests are absent from completed-refund reconciliation');
 select is((select (feb->>'reconciliationNetSalesExTaxCents')::bigint from finance_reports),12000::bigint,'Reconciliation uses completed payments independently of request accounting');
 select is((select (march->>'completedRefundExTaxCents')::bigint from finance_reports),600::bigint,'Partial completed payment tax uses original purchase date and includes known exclusive legacy payment');
+-- Missing tax does not erase recorded gross or turn an unknown split into zero.
+update private.nayax_machine_tax_observations set classification='missing',rate_percent=null
+where nayax_machine_id='1763002';
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,grossSalesIncludingTaxCents}')::bigint,13000::bigint,'Known gross survives missing source tax');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,refundDeductionIncludingTaxCents}')::bigint,2200::bigint,'Known gross requests survive missing source tax');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,netSalesExTaxCents}')::bigint,null::bigint,'Unknown card split prevents a confident excluding-tax net');
+select is((public.get_finance_reporting('2026-02-01','2026-02-28')#>>'{rows,0,remainingTaxCents}')::bigint,null::bigint,'Unknown tax is never presented as zero');
+select is((select gross_paid_cents from private.machine_sales_daily_waterfall_components('fb740000-0000-4000-8000-000000000001','2026-03-01','2026-03-01')),440::bigint,'Known gross paid refund survives missing original-date source tax');
+update private.nayax_machine_tax_observations set classification='verified_tax',rate_percent=10
+where nayax_machine_id='1763002';
 select is((select (feb->>'asOfOutstandingCents')::bigint from finance_reports),2200::bigint,'February outstanding ignores later payment and gift');
 select is((select (march->>'moneyPaidCents')::bigint from finance_reports),640::bigint,'Recorded money includes partial and independent legacy paid facts');
 select is((select (march->>'giftPurchaseCents')::bigint from finance_reports),1100::bigint,'Gift affected value does not use full purchase');
