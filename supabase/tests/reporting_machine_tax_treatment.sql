@@ -45,6 +45,9 @@ select results_eq($$select tax_exclusive_amount_cents,tax_cents
  from private.normalize_reporting_treated_amount_cents('ab300000-0000-4000-8000-000000000001','card',current_date,10800,'tax_inclusive',8,700,true)
 $$,$$values(10100::bigint,700::bigint)$$,'Actual transaction tax wins even without a verified rate');
 select results_eq($$select tax_exclusive_amount_cents,tax_cents
+ from private.normalize_reporting_treated_amount_cents('ab300000-0000-4000-8000-000000000001','card',current_date,10800,'unknown',8,700,true)
+$$,$$values(10100::bigint,700::bigint)$$,'Exact original charge tax supplies a split when historical basis was unknown');
+select results_eq($$select tax_exclusive_amount_cents,tax_cents
  from private.normalize_reporting_treated_amount_cents('ab300000-0000-4000-8000-000000000001','card',current_date,10800,'separate_tax',8,0,true)
 $$,$$values(10800::bigint,0::bigint)$$,'Explicit zero actual tax is preserved');
 select results_eq($$select tax_exclusive_amount_cents,tax_cents

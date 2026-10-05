@@ -25,10 +25,21 @@ returns bigint language sql stable security definer set search_path='' as $$
     on original.provider_actor_id=event.provider_actor_id
     and original.provider_machine_id=event.provider_machine_id
     and original.provider_transaction_id=event.original_transaction_id
+    and (original.provider_type=0 or (original.provider_type is null and original.provider_status in (12,62,63)))
+    and original.settlement_amount_cents>0 and original.settlement_amount_cents>=event.amount_cents
+    and original.original_transaction_id is null
+    and original.disposition in ('fact_linked','fact_linked+refund_applied')
+    and original.financial_disposition='eligible'
   join public.machine_sales_facts fact on fact.id=original.fact_id
     and fact.reporting_machine_id=event.reporting_machine_id
     and fact.sale_date=private.provider_refund_original_sale_date(p_adjustment_id)
-  where event.adjustment_id=p_adjustment_id and event.disposition='applied'
+    and fact.sale_date=original.machine_settled_at::date
+    and fact.source='nayax_scheduled_report'
+    and fact.raw_payload->>'actorId'=event.provider_actor_id
+    and fact.raw_payload->>'providerMachineId'=event.provider_machine_id
+    and fact.raw_payload->>'transactionId'=event.original_transaction_id
+    and fact.raw_payload->>'currencyCode'=event.currency_code
+  where event.adjustment_id=p_adjustment_id and event.disposition='applied' and event.currency_code='USD'
     and fact.payment_method='credit' and fact.net_sales_cents>0
     and p_amount_cents between 0 and fact.net_sales_cents
     and fact.tax_cents between 0 and fact.net_sales_cents
@@ -53,7 +64,7 @@ language sql stable security definer set search_path = '' as $$
   cross join lateral private.normalize_financial_amount_cents(
     p_amount_cents,
     case when p_tender='cash' or p_amount_cents=0 then 'tax_exclusive'
-      when p_tender='card' and p_amount_basis='tax_inclusive'
+      when p_tender='card' and p_amount_basis in ('tax_inclusive','unknown','separate_tax')
         and p_separate_tax_cents is not null then 'separate_tax'
       when p_amount_basis in ('tax_inclusive','legacy_percentage_of_gross_estimate')
         and source.rate_percent is null then 'unknown'
@@ -81,6 +92,14 @@ begin
         when lower(coalesce(fact.raw_payload ->> 'amountBasis', ''))$new$);
   definition:=replace(definition,$old$        when treatment.amount_basis <> 'source_default' then treatment.amount_basis
 $old$,'');
+  definition:=replace(definition,$old$        when event.amount_basis <> 'unknown' then event.amount_basis
+$old$,$new$        when event.amount_basis <> 'unknown' then event.amount_basis
+        when private.refund_original_source_tax_cents(event.refund_case_id,event.request_target_after_cents) is not null then 'tax_inclusive'
+$new$);
+  definition:=replace(definition,$old$        when adjustment.source = 'nayax_provider_refund' then 'tax_inclusive'
+$old$,$new$        when adjustment.source = 'nayax_provider_refund' then 'tax_inclusive'
+        when private.refund_original_source_tax_cents(linked_case.id,adjustment.amount_cents) is not null then 'tax_inclusive'
+$new$);
   for patch in select * from (values
     ('before_amount','private.refund_original_source_tax_cents(event.refund_case_id,event.recognized_target_before_cents)'),
     ('after_amount','private.refund_original_source_tax_cents(event.refund_case_id,event.recognized_target_after_cents)'),
