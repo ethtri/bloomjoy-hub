@@ -145,7 +145,13 @@ export default function RefundCorrectionPage() {
     setError('');
     let validated: CorrectionAnswers;
     try { validated = validateCorrectionAnswers(answers, context); }
-    catch { setError(requested.length ? copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.') : copy('Choose a saved detail to update or confirm. Your earlier answers are already saved.', 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.')); return; }
+    catch (failure) {
+      const invalidCash = failure instanceof Error && ['invalid:cash_inserted_amount','invalid:expected_change_amount'].includes(failure.message);
+      setError(invalidCash
+        ? copy('Check the cash amounts. Use positive dollar amounts; expected change must be less than cash inserted. You can choose “Not sure / can’t provide” if you’re unsure.', 'Revise los montos de efectivo. Use montos positivos; el cambio esperado debe ser menor que el efectivo insertado. Puede elegir “No lo sé / No lo tengo” si no está seguro.')
+        : requested.length ? copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.') : copy('Choose a saved detail to update or confirm. Your earlier answers are already saved.', 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.'));
+      return;
+    }
     setSaving(true);
     try {
       const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }

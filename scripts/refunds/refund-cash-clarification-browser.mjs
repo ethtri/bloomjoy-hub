@@ -15,6 +15,7 @@ async (page) => {
     await page.locator('#correction-expected_change_amount').fill('40');
     await page.getByRole('button', {name:'Save my response',exact:true}).click();
     await page.getByRole('alert').waitFor();
+    check(await page.getByRole('alert').textContent().then((text) => text.includes('expected change must be less than cash inserted')), 'Invalid cash does not explain how to correct it');
     check(await page.locator('#correction-cash_inserted_amount').inputValue() === '40', 'Invalid response loses entered cash');
     await page.locator('#correction-expected_change_amount').fill('15');
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Cash form overflows');
