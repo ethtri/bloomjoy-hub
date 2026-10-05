@@ -230,6 +230,13 @@ const waitForCondition = async (predicate, label, timeoutMs = 10000) => {
 };
 
 const installMockSupabaseRoutes = async (context, state) => {
+  // Machines embeds imported-source discovery; keep its relation reads synthetic.
+  await context.route('**/rest/v1/**', route => {
+    const relation = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (relation === 'reporting_machines') return route.fulfill(jsonResponse(buildMockSetup(state).machines.map(machine => ({ ...machine, reporting_locations: { name: machine.location_name, timezone: machine.location_timezone }, customer_accounts: { name: machine.account_name } }))));
+    if (['reporting_partnerships','sales_import_runs','report_schedules','report_view_snapshots','partner_report_snapshots','reporting_machine_entitlements','refund_adjustment_review_rows'].includes(relation)) return route.fulfill(jsonResponse([]));
+    return route.fallback();
+  });
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
 
@@ -438,7 +445,7 @@ const installMockSupabaseRoutes = async (context, state) => {
         nayaxAccountKey: machine.id === machineId ? state.refundSetup.nayaxAccountKey : null,
         nayaxName: machine.id === machineId && state.refundSetup.nayaxMachineId ? 'Imported UAT provider identity' : null,
         lastRecordedTransaction: machine.latest_sale_date, transactionSource: 'sunze_browser',
-        lastSuccessfulSalesImport: now.toISOString(), sources: [],
+        lastSuccessfulSalesImport: now.toISOString(), sources: machine.sunze_machine_id ? [{ platform: 'Sunze', name: machine.machine_label, id: machine.sunze_machine_id, account: null, lastSeenAt: now.toISOString(), lastTransaction: machine.latest_sale_date, lastSuccessfulImport: now.toISOString() }] : [],
       }))));
     }
 
@@ -577,7 +584,7 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse({ ok: true, inventoryId: body.p_inventory_id, state: body.p_reconciliation_state }));
     }
 
-    if (rpcName === 'admin_upsert_reporting_machine_by_id') {
+    if (rpcName === 'admin_upsert_reporting_machine_by_id' || rpcName === 'admin_save_named_machine') {
       const body = route.request().postDataJSON();
       state.machineSavePayload = body;
       state.machineType = body?.p_machine_type ?? state.machineType;
@@ -637,11 +644,14 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse({ ok: true }));
     }
 
-    if (url.includes('/admin_set_reporting_machine_refund_intake_config')) {
+    if (rpcName === 'admin_save_machine_refund_settings' || url.includes('/admin_set_reporting_machine_refund_intake_config')) {
       const body = route.request().postDataJSON();
       state.refundIntakePayload = body;
       state.refundSetup.refundIntakeEnabled = Boolean(body?.p_refund_intake_enabled);
-      state.refundSetup.refundPublicDisplayLabel = body?.p_refund_public_display_label ?? null;
+      // The new wrapper resolves the current server name, never a client name draft.
+      state.refundSetup.refundPublicDisplayLabel = rpcName === 'admin_save_machine_refund_settings'
+        ? state.refundSetup.refundPublicDisplayLabel || buildMockSetup(state).machines[0].machine_label
+        : body?.p_refund_public_display_label ?? null;
       state.refundSetup.readinessState = state.refundSetup.refundIntakeEnabled && state.refundSetup.nayaxMachineId
         ? 'ready_to_activate'
         : 'setup_needed';
@@ -816,7 +826,7 @@ const run = async () => {
     ]);
 
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
-    await page.getByRole('table', { name: 'Machines' }).getByText('Cotton Candy 01').waitFor({ timeout: 10000 });
+    await page.getByRole('table', { name: 'Machines' }).getByText('Cotton Candy 01', {exact:true}).waitFor({ timeout: 10000 });
     await page.getByText('Signed in. Redirecting...').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => undefined);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -1021,8 +1031,9 @@ const run = async () => {
     );
     recorder.assert(
       'Machine type edit preserves canonical company and location IDs through the validated save API',
-      state.rpcCalls.includes('admin_upsert_reporting_machine_by_id')
+      state.rpcCalls.includes('admin_save_named_machine')
         && !state.rpcCalls.includes('admin_upsert_reporting_machine')
+        && state.machineSavePayload?.p_expected_display_name === 'Cotton Candy 01'
         && state.machineSavePayload?.p_account_id === companyId
         && state.machineSavePayload?.p_location_id === mallLocationId
         && state.machineSavePayload?.p_expected_account_id === companyId
@@ -1191,21 +1202,20 @@ const run = async () => {
     );
     recorder.assert(
       'An unmapped machine does not assume a Nayax provider account',
-      await page.locator('#page-nayax-account').inputValue() === ''
+      state.refundSetup.nayaxMachineId === null && state.refundSetup.nayaxAccountKey === null
     );
     recorder.assert(
-      'Refund setup cannot bypass exact imported identity selection',
-      !await page.locator('#page-nayax-id').isEditable() && !await page.locator('#page-nayax-account').isEditable()
+      'Refund task has no duplicated mapping or customer-name controls',
+      await page.locator('#page-nayax-id,#page-nayax-account,#page-refund-label').count() === 0
+        && await page.getByRole('combobox', {name:'Nayax machine',exact:true}).count() === 0
     );
     // The independent unified-workspace journey verifies the imported dropdown
     // save. This retained refund scenario starts with that identity already saved.
     state.refundSetup.nayaxMachineId = 'NAYAX-UAT-001';
     state.refundSetup.nayaxAccountKey = 'TGPACI_USA_DB';
     await openRetainedMachineDetail(page, args, 'refunds');
-    await page.locator('#page-nayax-id').waitFor();
-    await waitForCondition(async () => await page.locator('#page-nayax-id').inputValue() === 'NAYAX-UAT-001', 'imported identity hydration');
+    await machineDialog.getByLabel('Transaction matching').waitFor();
     await machineDialog.getByLabel('Transaction matching').click();
-    await page.fill('#page-refund-label', 'Mall Atrium Cotton Candy');
     recorder.assert(
       'Refund setup has one explicit section save action',
       (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
@@ -1226,9 +1236,12 @@ const run = async () => {
       JSON.stringify(state.refundIntakePayload)
     );
     recorder.assert(
-      'Refund setup retains the saved exact imported identity without activating card refunds',
-      state.nayaxPayload?.p_machine_id === machineId && state.nayaxPayload?.p_nayax_machine_id === 'NAYAX-UAT-001' && state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB' && state.refundSetup.nayaxMachineId === 'NAYAX-UAT-001' && state.refundSetup.nayaxAccountKey === 'TGPACI_USA_DB' && !state.refundSetup.cardRefundsEnabled,
-      JSON.stringify(state.nayaxPayload)
+      'Refund save preserves exact imported identity without a Nayax setter or activation',
+      state.nayaxPayload === null && state.refundSetup.nayaxMachineId === 'NAYAX-UAT-001'
+        && state.refundSetup.nayaxAccountKey === 'TGPACI_USA_DB' && !state.refundSetup.cardRefundsEnabled
+        && !state.rpcCalls.includes('admin_set_reporting_machine_nayax_config')
+        && Object.keys(state.refundIntakePayload).sort().join(',') === 'p_machine_id,p_reason,p_refund_intake_enabled',
+      JSON.stringify(state.refundIntakePayload)
     );
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
@@ -1257,15 +1270,15 @@ const run = async () => {
     await waitForCondition(
       async () =>
         (await reopenedMachineDialog.getByLabel('Transaction matching').isChecked()) &&
-        (await reopenedMachineDialog.locator('#page-refund-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
-        (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001',
+        state.refundSetup.refundPublicDisplayLabel === 'Cotton Candy 01' &&
+        state.refundSetup.nayaxMachineId === 'NAYAX-UAT-001',
       'saved refund setup hydration'
     );
     recorder.assert(
       'Saved refund readiness remains visible after returning to the task tab',
       (await reopenedMachineDialog.getByLabel('Transaction matching').isChecked()) &&
-        (await reopenedMachineDialog.locator('#page-refund-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
-        (await reopenedMachineDialog.locator('#page-nayax-id').inputValue()) === 'NAYAX-UAT-001'
+        state.refundSetup.refundPublicDisplayLabel === 'Cotton Candy 01' &&
+        state.refundSetup.nayaxMachineId === 'NAYAX-UAT-001'
     );
 
     recorder.assert(
@@ -1337,7 +1350,7 @@ const run = async () => {
     await navigateUatPageAfterDrain(page, allRefundStatesUrl.toString(), { waitUntil: 'networkidle' });
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByRole('button', { name: 'Refresh', exact:true }).click();
     await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const pausedMachineDialog = page.locator('main');
@@ -1358,7 +1371,7 @@ const run = async () => {
     state.refundSetup.cardRefundLimitCents = null;
     state.refundSetup.paymentDisabledReason = 'owner_pause';
     state.refundSetup.readinessState = 'ready_to_activate';
-    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByRole('button', { name: 'Refresh', exact:true }).click();
     await openRetainedMachineDetail(page, args);
     await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     const intentionallyPausedDialog = page.locator('main');
