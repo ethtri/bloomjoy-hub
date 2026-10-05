@@ -13,8 +13,8 @@ returns bigint language sql stable security definer set search_path='' as $$
       in ('tax_inclusive','gross_customer_charge_minor','separate_tax','separately_imported_tax'))
     and p_amount_cents between 0 and fact.net_sales_cents
     and fact.tax_cents between 0 and fact.net_sales_cents
-    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
-      in ('separate_tax','separately_imported_tax'));
+    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
+      or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'));
 $$;
 revoke all on function private.refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
 grant execute on function private.refund_original_source_tax_cents(uuid,bigint) to service_role;
@@ -47,8 +47,8 @@ returns bigint language sql stable security definer set search_path='' as $$
     and lower(coalesce(fact.raw_payload->>'amountBasis','')) not in ('tax_exclusive','tax_exclusive_minor')
     and p_amount_cents between 0 and fact.net_sales_cents
     and fact.tax_cents between 0 and fact.net_sales_cents
-    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
-      in ('separate_tax','separately_imported_tax'));
+    and (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
+      or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'));
 $$;
 revoke all on function private.provider_refund_original_source_tax_cents(uuid,bigint) from public,anon,authenticated;
 grant execute on function private.provider_refund_original_source_tax_cents(uuid,bigint) to service_role;
@@ -92,7 +92,8 @@ begin
         when lower(coalesce(fact.raw_payload ->> 'amountBasis', ''))$old$,
     $new$      case
         when fact.payment_method='cash' then 'tax_exclusive'
-        when fact.tax_cents>0 and fact.payment_method='credit'
+        when (fact.tax_cents>0 or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'))
+          and fact.payment_method='credit'
           and lower(coalesce(fact.raw_payload->>'amountBasis','')) not in ('tax_exclusive','tax_exclusive_minor')
           and (fact.source<>'sunze_browser' or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
             in ('tax_inclusive','gross_customer_charge_minor','separate_tax','separately_imported_tax')) then 'separate_tax'
