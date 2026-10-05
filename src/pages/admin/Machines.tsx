@@ -1483,7 +1483,7 @@ export default function AdminMachinesPage() {
                     className="h-11 pl-9"
                     value={search}
                     onChange={(event) => updateSearch(event.target.value)}
-                    placeholder="Search machine, location, account, or provider ID"
+                    placeholder="Search machine, source, account, or provider ID"
                   />
                 </div>
               </div>

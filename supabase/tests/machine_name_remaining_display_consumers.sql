@@ -6,7 +6,8 @@ select no_plan();
 set local session_replication_role=replica;
 insert into auth.users(id,email) values
  ('aa176000-0000-4000-8000-000000000001','report-name-admin@example.invalid'),
- ('aa176000-0000-4000-8000-000000000002','report-name-outsider@example.invalid');
+ ('aa176000-0000-4000-8000-000000000002','report-name-outsider@example.invalid'),
+ ('00000000-0000-4000-8000-000000000099','consumer-outsider@example.invalid');
 insert into public.admin_roles(user_id,role,active) values('aa176000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type) values
  ('aa176001-0000-4000-8000-000000000001','Name original company','internal'),
