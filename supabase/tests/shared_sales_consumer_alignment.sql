@@ -236,7 +236,7 @@ select results_eq($$
   ) value) result
   cross join lateral jsonb_array_elements(result.value -> 'segments') segment(value)
   group by result.value
-$$, $$values (12500::bigint,1000::bigint,11500::bigint,1150::bigint,true,0)$$,
+$$, $$values (12700::bigint,1000::bigint,11700::bigint,1170::bigint,true,0)$$,
   'Assigned dated sales and request earn commission without the null-date legacy adjustment');
 
 select is((
@@ -310,8 +310,8 @@ select results_eq($$
   select sum(gross_sales_cents)::bigint, sum(tax_cents)::bigint,
     sum(refund_amount_cents)::bigint, sum(net_sales_cents)::bigint
   from public.get_sales_report(current_date, current_date, 'day')
-$$, $$values (12000::bigint,1200::bigint,1000::bigint,11000::bigint)$$,
-  'Nayax card plus vendor cash yields 120 tax-exclusive sales, one 10 deduction, and 110 net');
+$$, $$values (12200::bigint,1000::bigint,1000::bigint,11200::bigint)$$,
+  'Nayax card plus untaxed cash yields 122 excluding-tax sales, one 10 deduction, and 112 net');
 
 select results_eq($$
   select payment_method, gross_sales_cents, refund_amount_cents, net_sales_cents
@@ -325,7 +325,7 @@ $$, $$values ('credit'::text,10000::bigint,1000::bigint,9000::bigint)$$,
 select results_eq($$
   select payment_method, gross_sales_cents, refund_amount_cents, net_sales_cents
   from public.get_sales_report(current_date, current_date, 'day', null, null, array['cash'])
-$$, $$values ('cash'::text,2000::bigint,0::bigint,2000::bigint)$$,
+$$, $$values ('cash'::text,2200::bigint,0::bigint,2200::bigint)$$,
   'Cash filter includes vendor cash without vendor card shadow rows');
 
 select ok(
@@ -345,7 +345,7 @@ select results_eq($$
     'ca000000-0000-4000-8000-000000000001',
     current_date, current_date, 'day'
   )
-$$, $$values (12000::bigint,1000::bigint,11000::bigint)$$,
+$$, $$values (12200::bigint,1000::bigint,11200::bigint)$$,
   'Scheduler adapter applies the authorized owner scope and shared calculation');
 
 select is((
@@ -365,7 +365,7 @@ select results_eq($$
   from (select private.operator_machine_tax_snapshot(
     'ca300000-0000-4000-8000-000000000001', current_date, current_date
   ) value) result
-$$, $$values (12000::bigint,1000::bigint,1200::bigint,11000::bigint)$$,
+$$, $$values (12200::bigint,1000::bigint,1000::bigint,11200::bigint)$$,
   'Operator snapshot consumes the same tax-exclusive sales and request deduction');
 
 select results_eq($$
@@ -377,8 +377,8 @@ select results_eq($$
     'ca610000-0000-4000-8000-000000000001',
     'ca300000-0000-4000-8000-000000000001', current_date, current_date
   ) value) result
-$$, $$values (11000::bigint,1100::bigint,true)$$,
-  'Commission applies the existing rate to the same 110 dollar basis');
+$$, $$values (11200::bigint,1120::bigint,true)$$,
+  'Commission applies the existing rate to the same 112 dollar basis');
 
 select results_eq($$
   select (value ->> 'grossSalesCents')::bigint,
@@ -415,8 +415,8 @@ select results_eq($$
   from (select public.admin_preview_partner_period_report_internal(
     'ca700000-0000-4000-8000-000000000001', current_date, current_date,
     'calendar_month') preview) result
-$$, $$values (12000::bigint,1000::bigint,4::bigint,2::bigint,400::bigint,
-  400::bigint,10600::bigint,10200::bigint,10200::bigint)$$,
+$$, $$values (12200::bigint,1000::bigint,4::bigint,2::bigint,400::bigint,
+  400::bigint,10800::bigint,10400::bigint,10400::bigint)$$,
   'Partner basis charges three published Nayax orders plus one cash order and excludes zero-money operations');
 
 insert into public.reporting_machine_partnership_assignments (
@@ -479,7 +479,7 @@ insert into public.sales_adjustment_facts (
 select results_eq($$
   select sum(net_sales_cents)::bigint, sum(refund_paid_context_cents)::bigint
   from public.get_sales_report(current_date, current_date, 'day')
-$$, $$values (11000::bigint,1000::bigint)$$,
+$$, $$values (11200::bigint,1000::bigint)$$,
   'Later payment adds paid context and zero new refund impact');
 
 insert into public.sales_adjustment_facts (
@@ -501,7 +501,7 @@ select results_eq($$
     'ca610000-0000-4000-8000-000000000001',
     'ca300000-0000-4000-8000-000000000001', current_date, current_date
   ) value) result
-$$, $$values (1000::bigint,1100::bigint,true)$$,
+$$, $$values (1000::bigint,1120::bigint,true)$$,
   'Unlinked post-cutover paid context remains in reporting but outside Technician commission');
 
 select is((
@@ -743,7 +743,7 @@ select results_eq($$
   where payout_period_id = 'ca605000-0000-4000-8000-000000000001'
     and reporting_machine_id = 'ca300000-0000-4000-8000-000000000001'
     and status <> 'voided'
-$$, $$values (13500, 'shared-sales-basis-v1'::text)$$,
+$$, $$values (13700, 'shared-sales-basis-v1'::text)$$,
   'Changed evidence refreshes the current report snapshot on the shared basis');
 
 select results_eq($$
@@ -827,9 +827,9 @@ select results_eq($$
     'ca300000-0000-4000-8000-000000000006', current_date, current_date
   ) value) calculation
 $$, $$values (
-  1100::bigint,0::bigint,1100::bigint,1100::bigint,0::bigint,false
+  null::bigint,null::bigint,null::bigint,null::bigint,0::bigint,false
 )$$,
-  'Missing-rate commission stays numeric, incomplete, and unpublished at zero earnings');
+  'Missing-rate commission stays unavailable, incomplete, and unpublished at zero earnings');
 select ok(not exists (
   select 1
   from jsonb_array_elements(private.operator_machine_tax_commission_shared(
@@ -890,8 +890,8 @@ select is((
   private.operator_machine_tax_snapshot_shared(
     'ca300000-0000-4000-8000-000000000007', current_date, current_date
   ) ->> 'taxRateCompleteForSales'
-)::boolean, true,
-  'Estimated refund-only context does not create a missing-sales-tax blocker');
+)::boolean, false,
+  'Unresolved original refund tax prevents publishing a confident excluding-tax deduction');
 
 select * from finish();
 rollback;

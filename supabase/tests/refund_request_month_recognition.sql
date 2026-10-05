@@ -156,8 +156,8 @@ select results_eq($$
   from private.machine_sales_daily_components(
     'fd300000-0000-4000-8000-000000000001', current_date-68, current_date-68
   ) where source='manual' and tender='cash'
-$$, $$values (0::bigint,1::bigint,900::bigint,0::bigint,'context_unresolved'::text)$$,
-  'Separate-tax paid metadata stays unresolved without a proved tax component');
+$$, $$values (900::bigint,0::bigint,0::bigint,0::bigint,'proved'::text)$$,
+  'Cash payment retains its full value with zero tax regardless of old separate-tax metadata');
 
 update public.refund_cases set
   customer_request_received_at=now()-interval '50 days',
@@ -480,8 +480,8 @@ select results_eq($$
   from private.machine_sales_daily_components(
     'fd300000-0000-4000-8000-000000000013', current_date-10, current_date-10
   ) where source='nayax_scheduled_report'
-$$, $$values (1100::bigint,0::bigint,0::bigint,'estimated'::text)$$,
-  'A missing configured rate retains numeric display without claiming proved tax');
+$$, $$values (null::bigint,null::bigint,1::bigint,'unresolved'::text)$$,
+  'A missing verified rate leaves the card split unresolved');
 select results_eq($$
   select (value ->> 'grossSalesCents')::bigint,
     (value ->> 'taxCents')::bigint,
@@ -490,8 +490,8 @@ select results_eq($$
   from (select private.operator_machine_tax_snapshot_shared(
     'fd300000-0000-4000-8000-000000000013', current_date-10, current_date-10
   ) value) snapshot
-$$, $$values (1100::bigint,0::bigint,1100::bigint,false)$$,
-  'Missing-rate shared snapshots stay numeric while retaining incomplete-tax status');
+$$, $$values (null::bigint,null::bigint,null::bigint,false)$$,
+  'Missing-rate shared snapshots preserve unavailable excluding-tax amounts and incomplete status');
 
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
