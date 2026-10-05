@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(17);
+select plan(18);
 
 insert into public.customer_accounts(id,name,account_type)
 values('b1769000-0000-4000-8000-000000000001','Historical source fixture','internal');
@@ -46,6 +46,9 @@ select throws_ok($$insert into private.nayax_machine_tax_observations(account_ke
 select throws_ok($$insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date)
   values('TGPACI_USA_DB','1769000001','2099-10-06T00:00:00Z','nayax_portal_history','verified_tax',7,'test','2099-09-01','infinity')$$,
   '23514',null,'Infinite end cannot evade historical bounds');
+select throws_ok($$insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date)
+  values('TGPACI_USA_DB','1769000001','2099-10-06T00:00:00Z','nayax_portal_history','verified_tax',7,'test','-infinity','2099-09-30')$$,
+  '23514',null,'Infinite start cannot evade historical bounds');
 select throws_ok($$insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date)
   values('TGPACI_USA_DB','1769000001','2099-10-06T00:00:00Z','nayax_api','verified_tax',7,'test','2099-09-01','2099-09-30')$$,
   '23514',null,'Direct API observation still cannot backdate');
