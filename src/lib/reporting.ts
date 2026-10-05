@@ -90,6 +90,8 @@ export type SalesReportSummary = {
 
 export type AdminReportingMachine = {
   id: string;
+  machine_display_name?: string | null;
+  refund_public_display_label?: string | null;
   account_id: string;
   location_id: string;
   machine_label: string;
@@ -1055,7 +1057,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     .slice(0, 10);
 
   return {
-    machines: (machinesResult.data ?? []) as AdminReportingMachine[],
+    machines: ((machinesResult.data ?? []) as AdminReportingMachine[]).map((machine) => ({ ...machine, machine_label: machine.machine_display_name?.trim() || machine.refund_public_display_label?.trim() || machine.machine_label })),
     partnerships: (partnershipsResult.data ?? []) as AdminReportingPartnershipOption[],
     importRuns: (runsResult.data ?? []) as AdminReportingImportRun[],
     schedules: (schedulesResult.data ?? []) as AdminReportSchedule[],

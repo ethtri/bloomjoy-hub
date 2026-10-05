@@ -60,7 +60,7 @@ select ok((select to_jsonb(qr) from public.refund_machine_qr_codes qr where repo
 select ok(not exists((select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2() except select * from placeholder_membership_before) union all (select * from placeholder_membership_before except select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2())),'Rejected placeholder edits preserve keys, physical membership and grouping');
 create temporary table name_public_selection_before as select * from public.public_refund_selections()
  where selection_key=public.refund_public_selection_key('machine|aa174603-0000-4000-8000-000000000003');
-select is((select display_label from name_public_selection_before),'Unique public mall','Before explicit edit, customer selection preserves existing venue wording');
+select is((select display_label from name_public_selection_before),'Original public machine identity','Customer selection uses the preserved effective Machine name');
 select is((select machine_label from public.public_refund_machine_options() where machine_id='aa174603-0000-4000-8000-000000000003'),'Original public machine identity','Before explicit edit, public machine identity preserves legacy wording');
 select is((select machine_display_name from public.reporting_machines where id='aa174603-0000-4000-8000-000000000001'),null::text,'Migration does not backfill canonical names');
 select ok(public.admin_get_partnership_reporting_setup() @> '{"machines":[{"id":"aa174603-0000-4000-8000-000000000001","machine_label":"Preserved customer wording","stored_machine_label":"Opaque legacy alias"}]}','Admin projection preserves customer wording and raw alias');

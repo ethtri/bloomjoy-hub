@@ -300,7 +300,7 @@ const emptyMachineForm = {
   locationId: '',
   addLocation: false,
   locationName: '',
-  locationTimezone: 'America/Los_Angeles',
+  locationTimezone: '',
   machineLabel: '',
   machineType: 'commercial' as CanonicalMachineType | '',
   sunzeMachineId: '',
@@ -1663,7 +1663,7 @@ export default function AdminMachinesPage() {
                 >
                   <div role="columnheader">Source machine</div>
                   <div role="columnheader">Nayax match</div>
-                  <div role="columnheader">Company / venue</div>
+                  <div role="columnheader">Company</div>
                   <div role="columnheader">Managers</div>
                   <div role="columnheader">Last recorded transaction</div>
                   <div role="columnheader" className="text-right">Manage</div>
@@ -1756,7 +1756,7 @@ function MachinePortfolioRow({ row, metadata, isHighlighted, globalRefunds, onEd
       {machine.operational_phase === 'setup' && <Badge variant="outline" className="mt-2 border-amber-300 text-amber-900">Provisional</Badge>}
     </div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{metadata?.nayaxMachineId ? metadata.nayaxName || 'Unnamed Nayax record' : metadata ? 'Not matched' : 'Mapping data unavailable'}</p>{metadata?.nayaxMachineId && <p className="mt-1 text-xs text-muted-foreground">ID {metadata.nayaxMachineId}<br/>Account {metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Company / venue</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-1 text-xs text-muted-foreground">{metadata?.venueLabel || machine.location_name || 'Venue not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}</div>
     <div role="cell" className="flex justify-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
@@ -2531,13 +2531,14 @@ function MachineDialog({
   const { user: assignmentUser } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, assignmentUser?.id], queryFn: fetchCompanyChoices, enabled: open && canEditMachineIdentity, staleTime: 30000 });
   const loadedIdentityKeyRef = useRef('');
+  const newAssociationKeyRef = useRef(crypto.randomUUID());
   const currentAssignment: SavedCompanyAssignment | null = machine ? {
     accountId: machine.account_id ?? '', accountName: machine.account_name,
     locationId: machine.location_id ?? '', locationName: machine.location_name,
     locationTimezone: machine.location_timezone ?? '',
   } : null;
   const [savedAssignment, setSavedAssignment] = useState<SavedCompanyAssignment | null>(currentAssignment);
-  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} value={form} saved={savedAssignment} autoSelectSingleCompany={!machine} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
+  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} internalLocationName={`Unmapped Hub ${machine?.id || newAssociationKeyRef.current}`} value={form} saved={savedAssignment} autoSelectSingleCompany={!machine} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');
@@ -3167,7 +3168,7 @@ function MachineDialog({
               )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {machine.location_name || machine.account_name || 'Location not set'}
+              {machine.account_name || 'Company not set'}
             </p>
           </div>
           {machine.operational_phase === 'setup' ? (
@@ -3267,7 +3268,6 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Location</dt><dd className="text-right font-medium">{machine.location_name || 'Not set'}</dd></div>
               </dl>
             )}
           </section>

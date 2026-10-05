@@ -27,7 +27,6 @@ import {
   FileText,
   Info,
   Loader2,
-  MapPin,
   RotateCcw,
   SlidersHorizontal,
   TrendingDown,
@@ -700,18 +699,10 @@ const buildPartnerMachineOptions = (
       return { ...machine, displayLabel: machine.label };
     }
 
-    const sameLocationCount = duplicates.filter(
-      (candidate) => candidate.locationName === machine.locationName
-    ).length;
-    if (machine.locationName && sameLocationCount === 1) {
-      return { ...machine, displayLabel: `${machine.label} · ${machine.locationName}` };
-    }
-
     const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === machine.id) + 1;
-    const locationPrefix = machine.locationName ? `${machine.locationName} · ` : '';
     return {
       ...machine,
-      displayLabel: `${machine.label} · ${locationPrefix}Machine ${duplicateIndex}`,
+      displayLabel: `${machine.label} · Machine ${duplicateIndex}`,
     };
   });
 };
@@ -2488,10 +2479,7 @@ function PartnerDashboardView() {
                                     <div className="font-medium">
                                       {machineOption?.displayLabel ?? row.current.machineLabel}
                                     </div>
-                                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                      <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-                                      <span>{row.current.locationName ?? 'Location not provided'}</span>
-                                    </div>
+
                                   </TableCell>
                                   <TableCell className="text-right">
                                     {formatCurrency(row.current.grossSalesCents, true)}
@@ -3026,10 +3014,7 @@ function PartnerMachineMobileCard({
           <div className="font-medium text-foreground">
             {machine?.displayLabel ?? row.current.machineLabel}
           </div>
-          <div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
-            <MapPin className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-            <span>{row.current.locationName ?? 'Location not provided'}</span>
-          </div>
+
         </div>
         <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
@@ -3299,9 +3284,7 @@ function PartnerMachineSelector({
                   />
                   <span className="min-w-0">
                     <span className="block truncate">{machine.displayLabel}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {machine.locationName ?? 'Location not provided'}
-                    </span>
+
                   </span>
                 </CommandItem>
               ))}
@@ -3339,10 +3322,7 @@ function PartnerMachineScopeBar({
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="truncate font-semibold text-foreground">{machine.displayLabel}</span>
         </div>
-        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-          <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">{machine.locationName ?? 'Location not provided'}</span>
-        </div>
+
       </div>
       <Button
         type="button"

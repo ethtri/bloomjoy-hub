@@ -5,14 +5,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { useAuth } from '@/contexts/auth-context';
-import { changeCompanyAssignment, normalizeCompanyName, singleEligibleCompanyId, type CompanyAssignmentDraft, type SavedCompanyAssignment } from '@/lib/companyAssignment';
+import { changeCompanyAssignment, normalizeCompanyName, resolveInternalCompanyAssignment, singleEligibleCompanyId, type CompanyAssignmentDraft, type SavedCompanyAssignment } from '@/lib/companyAssignment';
 import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 
 const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
-export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true }: {
+export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true, internalLocationName }: {
   id: string;
+  internalLocationName: string;
   value: CompanyAssignmentDraft;
   onChange: (value: CompanyAssignmentDraft) => void;
   saved?: SavedCompanyAssignment | null;
@@ -29,7 +30,6 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
   const companies = useMemo(() => choices.data?.companies ?? [], [choices.data]);
   const company = companies.find((item) => item.accountId === value.accountId);
   const changed = Boolean(saved && value.accountId !== saved.accountId);
-  const showLocations = !saved || changed;
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -51,10 +51,14 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
   useEffect(() => {
     if (!autoSelectSingleCompany || !enabled || saved || value.accountId || !choices.isSuccess || choices.isError) return;
     const onlyId = singleEligibleCompanyId(companies, activeTargetsOnly);
-    if (onlyId) onChange(changeCompanyAssignment(value, onlyId));
-  }, [autoSelectSingleCompany, enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly]);
+    if (onlyId) onChange(resolveInternalCompanyAssignment(changeCompanyAssignment(value, onlyId), internalLocationName, saved));
+  }, [autoSelectSingleCompany, enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly, internalLocationName]);
+  useEffect(() => {
+    if (!enabled || !value.accountId || value.locationId || (value.addLocation && value.locationName === internalLocationName)) return;
+    onChange(resolveInternalCompanyAssignment(value, internalLocationName, saved));
+  }, [enabled, value, internalLocationName, saved, onChange]);
 
-  const chooseCompany = (accountId: string) => onChange(changeCompanyAssignment(value, accountId, saved));
+  const chooseCompany = (accountId: string) => onChange(resolveInternalCompanyAssignment(changeCompanyAssignment(value, accountId, saved), internalLocationName, saved));
   const selectExisting = () => {
     if (!duplicate || duplicate.archivedAt || (activeTargetsOnly && duplicate.status !== 'active')) return;
     chooseCompany(duplicate.accountId);
@@ -86,7 +90,7 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
 
   return <div className="min-w-0 space-y-4 sm:col-span-2">
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between"><Label htmlFor={`${id}-company`}>Company</Label><MachineHelp label="About company assignment">Used to group this machine in reports and refunds. Shared reporting location and time zone are preserved unless you explicitly change its company assignment.</MachineHelp></div>
+      <div className="flex items-center justify-between"><Label htmlFor={`${id}-company`}>Company</Label><MachineHelp label="About company assignment">Used to group this machine in reports and refunds. The machine time zone and historical records are preserved. Internal reporting associations are managed automatically.</MachineHelp></div>
       <select ref={companyRef} id={`${id}-company`} aria-describedby={`${id}-company-help`} value={value.accountId} onChange={(event) => chooseCompany(event.target.value)} disabled={disabled || choices.isPending || choices.isError} className={controlClass}>
         <option value="">{choices.isPending && enabled ? 'Loading companies…' : 'Choose company'}</option>
         {value.accountId && !company && <option value={value.accountId}>{saved?.accountName || 'Saved company'} (unavailable)</option>}
@@ -109,26 +113,12 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
       </div>}
       <p role="status" aria-live="polite" className="break-words text-sm text-muted-foreground">{message}</p>
     </div>
-    <details open={showLocations ? true : undefined} className="rounded-md border border-border px-3">
-      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Reporting details</summary>
-    {showLocations ? <div className="space-y-2 pb-3">
-      <Label htmlFor={`${id}-location`}>Reporting location</Label>
-      <select id={`${id}-location`} value={value.addLocation ? '__add__' : value.locationId} disabled={disabled || !company || choices.isError || choices.isPending} className={controlClass} onChange={(event) => {
-        const location = company?.locations.find((item) => item.locationId === event.target.value);
-        onChange({ ...value, addLocation: event.target.value === '__add__', locationId: location?.locationId ?? '', locationTimezone: location?.timezone ?? value.locationTimezone });
-      }}>
-        <option value="">Choose location</option>
-        {company?.locations.filter((item) => !activeTargetsOnly || item.status === 'active').map((item) => <option key={item.locationId} value={item.locationId}>{item.locationName}{item.status !== 'active' ? ' (inactive)' : ''}</option>)}
-        <option value="__add__">Add location…</option>
-      </select>
-      {changed && !value.locationId && !value.addLocation && <p className="text-xs text-muted-foreground">The saved location belongs to the previous company. Choose a location for this company or add one.</p>}
-      {value.addLocation && <div className="grid gap-3 sm:grid-cols-2">
-        <div><Label htmlFor={`${id}-new-location`}>New location name</Label><Input id={`${id}-new-location`} value={value.locationName} onChange={(event) => onChange({ ...value, locationName: event.target.value })} className="min-h-11" disabled={disabled} /></div>
-        <div><Label htmlFor={`${id}-timezone`}>Location time zone</Label><Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="min-h-11" disabled={disabled} /><datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist></div>
-        <p className="text-xs text-muted-foreground sm:col-span-2">This location is created when you save the machine. Use the venue's IANA time zone.</p>
-      </div>}
-    </div> : <dl className="space-y-2 pb-3 text-sm"><div><dt className="text-muted-foreground">Reporting location</dt><dd>{saved?.locationName || 'Not set'}</dd></div><div><dt className="text-muted-foreground">Time zone</dt><dd>{saved?.locationTimezone || 'Not set'}</dd></div></dl>}
-    </details>
+    {!saved?.locationTimezone && !value.locationId && value.accountId && <div className="space-y-1.5">
+      <Label htmlFor={`${id}-timezone`}>Machine time zone</Label>
+      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="h-11 min-h-11 text-base" disabled={disabled} />
+      <datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist>
+      <p className="text-xs text-muted-foreground">Required when no machine time zone is known. This determines reporting business days.</p>
+    </div>}
     {changed && <p className="text-sm text-muted-foreground">Company-level report access follows the selected company. Machine manager assignments stay the same.</p>}
   </div>;
 }

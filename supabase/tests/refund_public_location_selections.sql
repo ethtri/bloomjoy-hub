@@ -121,13 +121,13 @@ select is(
   'The Livermore label contains no provider or first/second identifier'
 );
 select is(
-  (select count(*)::integer from public.public_refund_selections() where display_label = 'Capital City Mall'),
+  (select count(*)::integer from public.public_refund_selections() where display_label = 'Capital City Mall — Cotton Candy'),
   1,
   'An ordinary one-machine location is displayed once without repeated product text'
 );
 select is(
   (select count(*)::integer from public.public_refund_selections() where display_label in (
-    'South Hills Village — Cotton candy', 'South Hills Village — Phone cases (SnapCase)'
+    'South Hills Village — Cotton Candy', 'South Hills Village — SnapCase'
   )),
   2,
   'A mixed-type location has one exact choice per product category'
