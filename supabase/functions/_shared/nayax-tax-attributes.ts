@@ -33,3 +33,20 @@ export function taxChangeEvidence(payload: unknown): ObjectRow[] {
       to:/^[\d.,%+\- ]{1,32}$/.test(String(row.ChangedTo)) ? row.ChangedTo : null,
       changedAt:typeof row.UpdatedDt==='string' && Number.isFinite(Date.parse(row.UpdatedDt)) ? row.UpdatedDt : null}));
 }
+
+export function taxSettingObservation(accountKey: string,payload: unknown) {
+  const attributes = taxAttributeEvidence(payload);
+  // Finance + exact portal reader evidence establish this field for the
+  // configured US account; this is not a generic surcharge-to-tax conversion.
+  const matches = attributes.filter(row => accountKey==='TGPACI_USA_DB'
+    && String(row.fieldName).replace(/\s+/g,' ').trim().toLowerCase()==='credit card extra charge');
+  if(matches.length===1) {
+    const value=String(matches[0].value ?? '').trim().replace(/%$/,'');
+    const rate= /^\d+(\.\d+)?$/.test(value) ? Number(value):NaN;
+    if(Number.isFinite(rate) && rate>=0 && rate<=100) return {classification:'verified_tax',ratePercent:rate,
+      fieldName:matches[0].fieldName,provenance:'Nayax Credit Card Extra Charge; configured US account tax semantics verified by owner-provided Finance and matched portal evidence; #1763'};
+  }
+  const candidate=attributes.find(row=>/extra.?charge|surcharge/i.test(String(row.fieldName)));
+  return {classification:candidate ? 'unclassified_extra_charge':'missing',ratePercent:null,
+    fieldName:candidate?.fieldName ?? null,provenance:'Nayax attributes observed; expected verified tax field absent or ambiguous'};
+}

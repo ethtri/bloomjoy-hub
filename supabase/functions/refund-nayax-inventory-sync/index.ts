@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { taxAttributeEvidence, taxChangeEvidence } from "../_shared/nayax-tax-attributes.ts";
+import { taxAttributeEvidence, taxChangeEvidence, taxSettingObservation } from "../_shared/nayax-tax-attributes.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -75,6 +75,29 @@ const recordFailure = async (runKey: string, accountKey: string, errorCode: stri
     p_succeeded: false,
     p_error_code: errorCode,
   });
+};
+
+const syncTaxSettings = async (accountKey: string,token: string) => {
+  if(!supabase) return {status:'unavailable',observed:0};
+  const {data:machines,error} = await supabase.rpc('service_list_nayax_tax_sync_machines',{p_account_key:accountKey});
+  if(error) return {status:'unavailable',observed:0,errorCode:'tax_scope_read_failed'};
+  const outcomes = await Promise.all((machines ?? []).map(async (machine: {machine_id:string}) => {
+    let setting: Record<string,unknown> = {classification:'unavailable',ratePercent:null,fieldName:null,
+      provenance:'Nayax attribute endpoint unavailable; prior verified evidence retained'};
+    try {
+      const response = await fetch(`${baseUrl}/machines/${machine.machine_id}/attributes`,{
+        method:'GET',headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},
+        signal:AbortSignal.timeout(20_000)});
+      if(response.ok) setting=taxSettingObservation(accountKey,await response.json());
+    } catch { /* Persist bounded transport diagnostic without provider payload. */ }
+    const {error:writeError} = await supabase.rpc('service_record_nayax_tax_observation',{
+      p_observation:{...setting,accountKey,machineId:machine.machine_id,source:'nayax_api',observedAt:new Date().toISOString()}});
+    return writeError ? 'write_failed':String(setting.classification);
+  }));
+  return {status:outcomes.includes('write_failed') ? 'failed':'completed',observed:outcomes.length,
+    verified:outcomes.filter(value=>value==='verified_tax').length,
+    unavailable:outcomes.filter(value=>value==='unavailable').length,
+    unresolved:outcomes.filter(value=>value==='missing'||value==='unclassified_extra_charge').length};
 };
 
 serve(async (request) => {
@@ -184,7 +207,7 @@ serve(async (request) => {
         p_error_code: null,
       });
       if (error) throw new Error("inventory_write_failed");
-      results.push(data as JsonObject);
+      results.push({...data as JsonObject,taxSettings:await syncTaxSettings(accountKey,token)});
     } catch (error) {
       const errorCode = error instanceof Error
         ? text(error.message, 120).toLowerCase().replace(/[^a-z0-9_]+/g, "_") || "sync_failed"
