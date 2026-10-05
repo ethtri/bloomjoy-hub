@@ -86,7 +86,7 @@ returns jsonb language sql stable set search_path='' as $$
 $$;
 revoke all on function private.refund_selection_membership() from public,anon,authenticated,service_role;
 do $migration$
-declare definition text; needle text;
+declare definition text; needle text; signature text;
 begin
   definition:=replace(pg_get_functiondef('public.admin_save_named_machine(uuid,uuid,uuid,text,text,text,text,text,uuid,uuid,text,text,text)'::regprocedure),E'\r\n',E'\n');
   definition:=replace(definition,'effective_name text;','effective_name text; selections_before jsonb;');
@@ -108,6 +108,14 @@ begin
   needle:='  select * into before_machine from public.reporting_machines';
   if strpos(definition,needle)=0 then raise exception 'Missing source assignment row lock'; end if;
   execute replace(definition,needle,E'  perform pg_catalog.pg_advisory_xact_lock(1746,1);\n'||needle);
+  foreach signature in array array[
+    'public.admin_link_sunze_source_to_machine(uuid,text)',
+    'public.admin_upsert_reporting_machine(uuid,text,text,text,text,text,text)'
+  ] loop
+    definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
+    if strpos(definition,E'begin\n')=0 then raise exception 'Missing guarded caller entry in %',signature; end if;
+    execute replace(definition,E'begin\n',E'begin\n  perform pg_catalog.pg_advisory_xact_lock(1746,1);\n');
+  end loop;
 end;
 $migration$;
 notify pgrst,'reload schema';

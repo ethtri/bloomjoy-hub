@@ -27,7 +27,7 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,ma
  ('aa175103-0000-4000-8000-000000000004','aa175101-0000-4000-8000-000000000001','aa175102-0000-4000-8000-000000000006','Collision other alias','commercial','Collision name');
 -- Keep the shared sibling in reporting scope without creating a same-category
 -- public duplicate: positive transfer tests begin with an eligible exact choice.
-update public.reporting_machines set refund_intake_enabled=false where id='aa175103-0000-4000-8000-000000000002';
+update public.reporting_machines set machine_type='snapcase' where id='aa175103-0000-4000-8000-000000000002';
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status)
  select id,'aa175100-0000-4000-8000-000000000001','report-name-admin@example.invalid','active' from public.reporting_machines where id::text like 'aa175103-%';
 insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at)
