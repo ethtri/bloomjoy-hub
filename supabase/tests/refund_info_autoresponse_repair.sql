@@ -29,11 +29,12 @@ update public.refund_gmail_primary_scheduler_settings set enabled=true where sin
 update public.refund_gmail_scheduler_settings set enabled=false where singleton;
 delete from cron.job_run_details where jobid in
   (select jobid from cron.job where jobname='refund-gmail-sync-primary-v1');
-insert into cron.job_run_details (jobid,status,start_time,end_time)
-select jobid,'failed',now()-interval '12 minutes',now()-interval '12 minutes'
+-- Fixed synthetic IDs avoid touching the extension-owned runid sequence.
+insert into cron.job_run_details (runid,jobid,status,start_time,end_time)
+select -1455001,jobid,'failed',now()-interval '12 minutes',now()-interval '12 minutes'
 from cron.job where jobname='refund-gmail-sync-primary-v1';
-insert into cron.job_run_details (jobid,status,start_time,end_time)
-select jobid,'failed',now()-interval '2 minutes',now()-interval '2 minutes'
+insert into cron.job_run_details (runid,jobid,status,start_time,end_time)
+select -1455002,jobid,'failed',now()-interval '2 minutes',now()-interval '2 minutes'
 from cron.job where jobname='refund-gmail-sync-primary-v1';
 select is(public.service_get_refund_gmail_delivery_health()->>'failedSchedulerCount','1',
   'Repeated primary failures are visible even without worker run rows');
@@ -45,8 +46,8 @@ select is(public.service_get_refund_workflow_health(true,true,true,false,false,
 select ok(public.service_get_refund_workflow_health(true,true,true,false,false,
   array['info@bloomjoysweets.com']) ?& array['customerClarificationDelivery','customerStatusDelivery','customerDelivery'],
   'Gmail health preserves the current clarification, status, and completion obligations');
-insert into cron.job_run_details (jobid,status,start_time,end_time)
-select jobid,'succeeded',now()-interval '1 minute',now()-interval '1 minute'
+insert into cron.job_run_details (runid,jobid,status,start_time,end_time)
+select -1455003,jobid,'succeeded',now()-interval '1 minute',now()-interval '1 minute'
 from cron.job where jobname='refund-gmail-sync-primary-v1';
 select is(public.service_get_refund_gmail_delivery_health()->>'failedSchedulerCount','0',
   'A successful primary run clears its previous error without erasing history');
