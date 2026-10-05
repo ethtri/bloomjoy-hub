@@ -23,6 +23,12 @@ insert into public.reporting_machine_entitlements(user_id,machine_id,starts_at) 
  ('fb710000-0000-4000-8000-000000000002','fb740000-0000-4000-8000-000000000001','2020-01-01');
 insert into public.reporting_machine_tax_rates(machine_id,tax_rate_percent,effective_start_date,status)
  values('fb740000-0000-4000-8000-000000000001',10,'2020-01-01','active');
+update public.reporting_machines set nayax_machine_id='1763002',nayax_account_key='TGPACI_USA_DB'
+where id='fb740000-0000-4000-8000-000000000001';
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,
+ classification,rate_percent,provenance,effective_start_date,effective_end_date)
+values('TGPACI_USA_DB','1763002',now(),'finance_verified','verified_tax',10,
+ 'Synthetic dated Finance evidence','2020-01-01','2026-12-31');
 insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
  values(true,'2026-01-01','Synthetic finance test');
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,
@@ -66,6 +72,12 @@ select is((select (feb->>'reportingTaxRemovedCents')::bigint from finance_report
 select is((select (feb->>'salesExTaxCents')::bigint from finance_reports),12000::bigint,'Canonical sales basis retained');
 select is((select (feb->>'requestedDeductionExTaxCents')::bigint from finance_reports),2000::bigint,'Requested basis books both affected portions in February');
 select is((select (feb->>'netSalesExTaxCents')::bigint from finance_reports),10000::bigint,'Finance net reconciles canonical equation');
+select is((select (feb->>'grossSalesIncludingTaxCents')::bigint from finance_reports),13000::bigint,'Gross includes full untaxed cash plus card charge');
+select is((select (feb->>'refundDeductionIncludingTaxCents')::bigint from finance_reports),2200::bigint,'Gross request deductions are retained before separating refund tax');
+select is((select (feb->>'remainingTaxCents')::bigint from finance_reports),800::bigint,'Remaining tax subtracts tax on requested refunds once');
+select is((select (feb->>'completedRefundExTaxCents')::bigint from finance_reports),0::bigint,'Unpaid requests are absent from completed-refund reconciliation');
+select is((select (feb->>'reconciliationNetSalesExTaxCents')::bigint from finance_reports),12000::bigint,'Reconciliation uses completed payments independently of request accounting');
+select is((select (march->>'completedRefundExTaxCents')::bigint from finance_reports),600::bigint,'Partial completed payment tax uses original purchase date and includes known exclusive legacy payment');
 select is((select (feb->>'asOfOutstandingCents')::bigint from finance_reports),2200::bigint,'February outstanding ignores later payment and gift');
 select is((select (march->>'moneyPaidCents')::bigint from finance_reports),640::bigint,'Recorded money includes partial and independent legacy paid facts');
 select is((select (march->>'giftPurchaseCents')::bigint from finance_reports),1100::bigint,'Gift affected value does not use full purchase');
