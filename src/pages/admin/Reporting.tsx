@@ -1216,7 +1216,7 @@ function ImportedMachineSetupDialog({
         locationTimezone: mappedMachine.reporting_locations?.timezone ?? '',
       } : null,
       locationTimezone: mappedMachine?.reporting_locations?.timezone ?? '',
-      machineLabel: currentSnapCaseMachine?.sourceLabel ?? currentSunzeMachine?.sunzeMachineName ?? '',
+      machineLabel: mappedMachine?.machine_label ?? currentSnapCaseMachine?.sourceLabel ?? currentSunzeMachine?.sunzeMachineName ?? '',
       locationName: inferImportedMachineLocationName(currentSunzeMachine),
     });
   }, [machine, partnerships, machines]);

@@ -53,6 +53,10 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
     const onlyId = singleEligibleCompanyId(companies, activeTargetsOnly);
     if (onlyId) onChange(resolveInternalCompanyAssignment(changeCompanyAssignment(value, onlyId), internalLocationName, saved));
   }, [autoSelectSingleCompany, enabled, saved, value, choices.isSuccess, choices.isError, companies, onChange, activeTargetsOnly, internalLocationName]);
+  useEffect(() => {
+    if (!enabled || !value.accountId || value.locationId || (value.addLocation && value.locationName === internalLocationName)) return;
+    onChange(resolveInternalCompanyAssignment(value, internalLocationName, saved));
+  }, [enabled, value, internalLocationName, saved, onChange]);
 
   const chooseCompany = (accountId: string) => onChange(resolveInternalCompanyAssignment(changeCompanyAssignment(value, accountId, saved), internalLocationName, saved));
   const selectExisting = () => {
