@@ -85,7 +85,7 @@ export const createOrdinarySuccessChecks = ({
       (await page.locator('input[type="file"]').count()) === 0 &&
         (await page.getByText(/upload|photo|attachment/i).count()) === 0
     );
-    const demoLocation = page.getByLabel('Machine location');
+    const demoLocation = page.getByLabel('Machine', { exact: true });
     recorder.assert(
       'Customer selector renders restored fallback labels, Capital City, one Livermore choice, and distinct South Hills product choices',
       await demoLocation.locator('option', { hasText: 'Bubble Planet - Atlanta' }).count() === 1 &&
