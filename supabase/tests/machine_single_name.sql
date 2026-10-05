@@ -26,9 +26,38 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
  ('aa174603-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000001','2026-09-01','credit',1200,2,'card_authority_daily','name-history-card','{"originalProvider":"17460001","originalName":"Opaque legacy alias"}');
 create temporary table original_name_history as select to_jsonb(f) value from public.machine_sales_facts f where source_row_hash='name-history-card';
+insert into public.reporting_locations(id,account_id,name,timezone) values
+ ('aa174602-0000-4000-8000-000000000004','aa174601-0000-4000-8000-000000000001','Unmapped fixture four','America/Los_Angeles'),
+ ('aa174602-0000-4000-8000-000000000005','aa174601-0000-4000-8000-000000000001','Unknown fixture five','America/Los_Angeles'),
+ ('aa174602-0000-4000-8000-000000000006','aa174601-0000-4000-8000-000000000001','Unmapped fixture six','America/Los_Angeles'),
+ ('aa174602-0000-4000-8000-000000000007','aa174601-0000-4000-8000-000000000001','Unknown fixture seven','America/Los_Angeles');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,refund_public_display_label) values
+ ('aa174603-0000-4000-8000-000000000004','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000004','Placeholder alias four','commercial','Unique placeholder four'),
+ ('aa174603-0000-4000-8000-000000000005','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000005','Placeholder alias five','commercial','Unique placeholder five'),
+ ('aa174603-0000-4000-8000-000000000006','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000006','Placeholder alias six','commercial','Duplicate placeholder'),
+ ('aa174603-0000-4000-8000-000000000007','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000007','Placeholder alias seven','commercial','Duplicate placeholder');
 set local session_replication_role=origin;
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','aa174600-0000-4000-8000-000000000001',true);
+-- Placeholder overrides participate in legacy duplicate suppression; edits may change wording only.
+insert into public.refund_machine_qr_codes(reporting_machine_id,public_code,version) values
+ ('aa174603-0000-4000-8000-000000000004',repeat('b',32),1);
+create temporary table placeholder_qr_before as select to_jsonb(qr) value from public.refund_machine_qr_codes qr where reporting_machine_id='aa174603-0000-4000-8000-000000000004';
+create temporary table placeholder_membership_before as select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2();
+select is((select count(*)::int from public.public_refund_selections_v2() where machine_id in ('aa174603-0000-4000-8000-000000000004','aa174603-0000-4000-8000-000000000005')),2,'Unique placeholder machines both begin visible');
+select lives_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000004','Renamed placeholder four','Unique placeholder four')$$,'Nonconflicting placeholder rename succeeds');
+select is((select display_label from public.public_refund_selections_v2() where machine_id='aa174603-0000-4000-8000-000000000004'),'Renamed placeholder four','Placeholder rename changes public wording');
+select ok(not exists((select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2() except select * from placeholder_membership_before) union all (select * from placeholder_membership_before except select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2())),'Unique placeholder rename preserves every public selection identity');
+create temporary table placeholder_rows_before as select id,to_jsonb(m) value from public.reporting_machines m where id in ('aa174603-0000-4000-8000-000000000004','aa174603-0000-4000-8000-000000000005','aa174603-0000-4000-8000-000000000006','aa174603-0000-4000-8000-000000000007');
+create temporary table placeholder_audit_before as select count(*)::int value from public.admin_audit_log;
+select throws_ok($$select public.admin_save_named_machine('aa174603-0000-4000-8000-000000000004','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000004','Unique placeholder five','commercial',null,'setup','Collision test','aa174601-0000-4000-8000-000000000001','aa174602-0000-4000-8000-000000000004',null,null,'Renamed placeholder four')$$,'22023','This name changes customer machine choices. Choose a distinct name or review the existing duplicate names.','Placeholder collision rejects whole setup save');
+select is((select count(*)::int from public.public_refund_selections_v2() where machine_id in ('aa174603-0000-4000-8000-000000000004','aa174603-0000-4000-8000-000000000005')),2,'Rejected collision leaves both choices visible');
+select is((select count(*)::int from public.public_refund_selections_v2() where machine_id in ('aa174603-0000-4000-8000-000000000006','aa174603-0000-4000-8000-000000000007')),0,'Legacy duplicate placeholder choices begin hidden');
+select throws_ok($$select public.admin_set_machine_display_name('aa174603-0000-4000-8000-000000000006','Now unique placeholder six','Duplicate placeholder')$$,'22023',null,'Name edit cannot activate previously suppressed choices');
+select ok(not exists(select 1 from placeholder_rows_before original join public.reporting_machines m using(id) where to_jsonb(m) is distinct from original.value),'Rejected placeholder edits roll back all names, state, timestamps and eligibility');
+select is((select count(*)::int from public.admin_audit_log),(select value from placeholder_audit_before),'Rejected placeholder edits create no audit mutation');
+select ok((select to_jsonb(qr) from public.refund_machine_qr_codes qr where reporting_machine_id='aa174603-0000-4000-8000-000000000004')=(select value from placeholder_qr_before),'Placeholder rename and rejected collisions preserve QR UUID, code, version and status');
+select ok(not exists((select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2() except select * from placeholder_membership_before) union all (select * from placeholder_membership_before except select selection_key,selection_kind,location_timezone,machine_id from public.public_refund_selections_v2())),'Rejected placeholder edits preserve keys, physical membership and grouping');
 create temporary table name_public_selection_before as select * from public.public_refund_selections()
  where selection_key=public.refund_public_selection_key('machine|aa174603-0000-4000-8000-000000000003');
 select is((select display_label from name_public_selection_before),'Unique public mall','Before explicit edit, customer selection preserves existing venue wording');

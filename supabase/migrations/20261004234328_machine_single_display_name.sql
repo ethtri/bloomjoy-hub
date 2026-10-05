@@ -27,7 +27,7 @@ on public.reporting_machines for each row execute function private.keep_machine_
 create function public.admin_set_machine_display_name(
   p_machine_id uuid,p_display_name text,p_expected_display_name text
 ) returns void language plpgsql security definer set search_path='' as $$
-declare machine public.reporting_machines; effective_name text;
+declare machine public.reporting_machines; effective_name text; selections_before jsonb; selections_after jsonb;
 begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
     raise exception 'Super Admin access required' using errcode='42501';
@@ -35,13 +35,24 @@ begin
   if nullif(btrim(p_display_name),'') is null or length(btrim(p_display_name))>120 then
     raise exception 'Machine name must be 1–120 characters' using errcode='22023';
   end if;
+  -- Serialize name edits because placeholder names participate in legacy duplicate suppression.
+  perform pg_catalog.pg_advisory_xact_lock(1746,1);
   select * into machine from public.reporting_machines where id=p_machine_id for update;
   if not found then raise exception 'Machine not found' using errcode='22023'; end if;
   effective_name:=coalesce(nullif(btrim(machine.machine_display_name),''),nullif(btrim(machine.refund_public_display_label),''),machine.machine_label);
   if effective_name is distinct from p_expected_display_name then
     raise exception 'Machine name changed. Reload and retry.' using errcode='40001';
   end if;
+  select coalesce(jsonb_agg(jsonb_build_array(selection_key,selection_kind,location_timezone,machine_id)
+    order by selection_key,selection_kind,location_timezone,machine_id),'[]'::jsonb)
+    into selections_before from public.public_refund_selections_v2();
   update public.reporting_machines set machine_display_name=btrim(p_display_name),updated_at=now() where id=p_machine_id;
+  select coalesce(jsonb_agg(jsonb_build_array(selection_key,selection_kind,location_timezone,machine_id)
+    order by selection_key,selection_kind,location_timezone,machine_id),'[]'::jsonb)
+    into selections_after from public.public_refund_selections_v2();
+  if selections_before is distinct from selections_after then
+    raise exception 'This name changes customer machine choices. Choose a distinct name or review the existing duplicate names.' using errcode='22023';
+  end if;
   insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
   values(auth.uid(),'reporting_machine.display_name_saved','reporting_machine',p_machine_id::text,
     jsonb_build_object('displayName',effective_name),jsonb_build_object('displayName',btrim(p_display_name)),
@@ -64,6 +75,7 @@ begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
     raise exception 'Super Admin access required' using errcode='42501';
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(1746,1);
   if p_machine_id is not null then
     select * into machine from public.reporting_machines where id=p_machine_id for update;
     if not found then raise exception 'Machine not found' using errcode='22023'; end if;
