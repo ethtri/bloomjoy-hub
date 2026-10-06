@@ -8,28 +8,28 @@ const output='output/playwright/machine-source-manage'; await mkdir(output,{recu
 const json=value=>({contentType:'application/json',body:JSON.stringify(value)});
 const reuseMode=process.argv.includes('--existing-reader');
 const checks=[],browser=await chromium.launch();
-async function runExistingReader() { for(const width of [1440,390]) {
+async function runExistingReader() { for(const platform of ['Sunze','Kexiaozhan']) for(const width of [1440,390]) {
  const context=await browser.newContext({viewport:{width,height:1000},hasTouch:width===390});
  const state={machineType:'commercial',managerEmails:['manager-two@example.test'],rpcCalls:[],accessInviteBodies:[],inviteDeliveries:[],refundSetup:{refundIntakeEnabled:false,refundPublicDisplayLabel:'Historical Gilroy',nayaxMachineId:'252175281',nayaxAccountKey:'TGPACI_USA_DB'}};
  await installMockSupabaseRoutes(context,state);
  const base=buildMockSetup(state),seed=base.machines[0]; Object.assign(seed,{machine_label:'Historical Gilroy',sunze_machine_id:null,location_timezone:'America/Los_Angeles',nayax_machine_id:'252175281',nayax_account_key:'TGPACI_USA_DB'});
  const baseline=JSON.stringify(base), inventoryId='55555555-5555-4555-8555-555555555551';
- const source={sourceKey:'Sunze:1683202662515916906439361',platform:'Sunze',providerAccountId:null,sourceId:'1683202662515916906439361',sourceName:'BS04 Gilroy Outlets',sourceTimezone:null,lastSourceTransaction:'2026-10-04',reportingMachineId:null,mappingConflict:false,archivedMapping:false};
+ const source={sourceKey:`${platform}:exact-reuse`,platform,providerAccountId:platform==='Sunze'?null:'096ca52a-444a-4d4f-9a2b-8844ddd16a95',sourceAccountKey:platform==='Sunze'?null:'synthetic-kex-account',sourceId:platform==='Sunze'?'1683202662515916906439361':'1000703',sourceName:platform==='Sunze'?'BS04 Gilroy Outlets':'Great Mall imported SnapCase',sourceTimezone:null,lastSourceTransaction:'2026-10-04',reportingMachineId:null,mappingConflict:false,archivedMapping:false};
  const option={inventoryId,machineId,machineName:'Historical Gilroy',companyId:seed.account_id,companyName:seed.account_name,timezone:'America/Los_Angeles',expectedMachineUpdatedAt:'2026-10-06T00:00:00Z',eligible:true,reason:null};
  let readFailure=false, stale=false, refreshFailure=false; const writes=[],errors=[],failed=[];
  await context.route('**/rest/v1/rpc/admin_get_refund_nayax_inventory',r=>r.fulfill(json({machines:[{id:inventoryId,accountKey:'TGPACI_USA_DB',nayaxMachineId:'252175281',machineName:'BS03 Gilroy Outlets',reportingMachineId:machineId,state:'published',providerActive:true}],lastRun:null})));
  await context.route('**/rest/v1/rpc/admin_get_imported_source_reuse_options',r=>r.fulfill(readFailure?{...json({message:'Synthetic eligibility unavailable'}),status:500}:json([option])));
  await context.route('**/rest/v1/rpc/admin_get_machine_source_inventory',r=>r.fulfill(json({sources:[source],count:1})));
  await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup',r=>r.fulfill(refreshFailure?{...json({message:'Synthetic continuation unavailable'}),status:500}:json({...base,machines:writes.length?base.machines:[]})));
- await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata',r=>r.fulfill(json([{machineId,salesActivationPending:!!source.reportingMachineId,sources:source.reportingMachineId?[{platform:'Sunze',id:source.sourceId,name:source.sourceName}]:[],nayaxName:'BS03 Gilroy Outlets',nayaxMachineId:'252175281',nayaxAccountKey:'TGPACI_USA_DB'}])));
+ await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata',r=>r.fulfill(json([{machineId,salesActivationPending:false,sourceAssociationCompleted:!!source.reportingMachineId,sources:source.reportingMachineId?[{platform,id:source.sourceId,name:source.sourceName,account:source.sourceAccountKey}]:[],nayaxName:'BS03 Gilroy Outlets',nayaxMachineId:'252175281',nayaxAccountKey:'TGPACI_USA_DB'}])));
  await context.route('**/rest/v1/rpc/admin_reuse_imported_source_machine',r=>{
-  const body=r.request().postDataJSON();assert.equal(body.p_platform,'Sunze');assert.equal(body.p_source_id,source.sourceId);assert.equal(body.p_inventory_id,inventoryId);assert.equal(body.p_expected_machine_id,machineId);assert.equal(body.p_expected_updated_at,option.expectedMachineUpdatedAt);assert.equal(body.p_expected_timezone,option.timezone);assert.equal(body.p_provider_account_id,null);
+  const body=r.request().postDataJSON();assert.equal(body.p_platform,platform);assert.equal(body.p_source_id,source.sourceId);assert.equal(body.p_inventory_id,inventoryId);assert.equal(body.p_expected_machine_id,machineId);assert.equal(body.p_expected_updated_at,option.expectedMachineUpdatedAt);assert.equal(body.p_expected_timezone,option.timezone);assert.equal(body.p_provider_account_id,source.providerAccountId);
   if(stale)return r.fulfill({...json({message:'Synthetic stale connection; reload'}),status:409});
-  writes.push(body);source.reportingMachineId=machineId;source.salesActivationPending=true;refreshFailure=true;
-  return r.fulfill(json({machineId,salesActivationPending:true}));
+  writes.push(body);source.reportingMachineId=machineId;source.salesActivationPending=false;source.sourceAssociationCompleted=true;refreshFailure=true;
+  return r.fulfill(json({machineId,salesActivationPending:false,sourceAssociationCompleted:true}));
  });
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('requestfailed',r=>{if(r.url().includes('/rest/v1/'))failed.push(new URL(r.url()).pathname);});
- const pass=(name,value)=>{assert(value,`${width}: ${name}`);checks.push(`${width}: ${name}`);console.log(`PASS ${width}: ${name}`);};
+ const pass=(name,value)=>{assert(value,`${platform}/${width}: ${name}`);checks.push(`${platform}/${width}: ${name}`);console.log(`PASS ${platform}/${width}: ${name}`);};
  try {
   await page.goto(`${origin}/admin/machines`);await page.locator('#email-password').fill(mockUser.email);await page.locator('#password').fill('synthetic-password');await page.getByRole('button',{name:/sign in/i}).click();
   await page.locator('[data-source-key]').getByRole('button',{name:'Manage',exact:true}).click();
@@ -38,37 +38,37 @@ async function runExistingReader() { for(const width of [1440,390]) {
   const search=page.getByRole('combobox',{name:'Search Nayax machines',exact:true});await search.fill('252175281');
   const occupied=page.getByRole('option').filter({hasText:'252175281'});pass('occupied exact reader can be explicitly selected',await occupied.isEnabled());await occupied.click();
   const review=editor.getByRole('region',{name:'Review existing machine connection'}), confirmation=review.getByRole('checkbox');
-  await review.waitFor();await page.getByText('Signed in. Redirecting...',{exact:true}).waitFor({state:'hidden'});await page.screenshot({path:`${output}/existing-reader-${width}-review.png`,fullPage:true});pass('review names existing Hub and saved timezone with pending-sales warning',(await review.innerText()).includes('Historical Gilroy')&&(await review.innerText()).includes('America/Los_Angeles')&&(await review.innerText()).includes('Imported sales stay pending'));
-  pass('reuse hides new company/name/timezone draft and requires physical confirmation',await editor.getByLabel('Machine name',{exact:true}).count()===0&&await editor.getByLabel('Machine time zone',{exact:true}).count()===0&&!await review.getByRole('button',{name:'Use existing machine',exact:true}).isEnabled());
+  await review.waitFor();await page.getByText('Signed in. Redirecting...',{exact:true}).waitFor({state:'hidden'});await page.screenshot({path:`${output}/existing-reader-${platform}-${width}-review.png`,fullPage:true});pass('review names existing Hub and saved timezone with automatic card/cash authority explanation',(await review.innerText()).includes('Historical Gilroy')&&(await review.innerText()).includes('America/Los_Angeles')&&(await review.innerText()).includes('Source card observations do not add a second sale'));
+  pass('reuse hides new company/name/timezone draft and requires physical confirmation',await editor.getByLabel('Machine name',{exact:true}).count()===0&&await editor.getByLabel('Machine time zone',{exact:true}).count()===0&&!await review.getByRole('button',{name:'Save machine changes',exact:true}).isEnabled());
   for(const reason of ['This machine already has another real source connection. Review it before reconciliation.','Saved machine time zone is unavailable. Review the current machine.']) {
    option.eligible=false;option.reason=reason;await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await review.getByText(reason,{exact:true}).waitFor();
-   pass(`ineligible reader explains ${reason.includes('another')?'source conflict':'missing timezone'} and offers current-machine review without write`,await review.getByRole('link',{name:'Open current machine to review its source connection'}).getAttribute('href')===`/admin/machines/${machineId}`&&await review.getByRole('button',{name:'Use existing machine',exact:true}).count()===0&&writes.length===0);
+   pass(`ineligible reader explains ${reason.includes('another')?'source conflict':'missing timezone'} and offers current-machine review without write`,await review.getByRole('link',{name:'Open current machine to review its source connection'}).getAttribute('href')===`/admin/machines/${machineId}`&&await review.getByRole('button',{name:'Save machine changes',exact:true}).count()===0&&writes.length===0);
    option.eligible=true;option.reason=null;await review.getByRole('button',{name:'Reload connection details',exact:true}).click();await confirmation.waitFor();
   }
   await confirmation.check();readFailure=true;await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));
   await review.getByText('Connection details unavailable. Reload before reviewing this reader.',{exact:true}).waitFor();
-  pass('cached successful eligibility cannot authorize after read failure',await review.getByRole('button',{name:'Use existing machine',exact:true}).count()===0&&writes.length===0);
+  pass('cached successful eligibility cannot authorize after read failure',await review.getByRole('button',{name:'Save machine changes',exact:true}).count()===0&&writes.length===0);
   readFailure=false;await review.getByRole('button',{name:'Reload connection details',exact:true}).click();await confirmation.waitFor();
   await confirmation.check();option.expectedMachineUpdatedAt='2026-10-06T01:00:00Z';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));
-  await page.waitForLoadState('networkidle');pass('changed reviewed snapshot resets physical attestation',!await confirmation.isChecked()&&!await review.getByRole('button',{name:'Use existing machine',exact:true}).isEnabled());
+  await page.waitForLoadState('networkidle');pass('changed reviewed snapshot resets physical attestation',!await confirmation.isChecked()&&!await review.getByRole('button',{name:'Save machine changes',exact:true}).isEnabled());
   await confirmation.check();option.timezone='America/New_York';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await page.waitForLoadState('networkidle');await page.waitForFunction(()=>Array.from(document.querySelectorAll('[aria-label="Review existing machine connection"] input[type=checkbox]')).some(e=>!e.checked));pass('saved-site timezone change separately resets attestation and updates preview',!await confirmation.isChecked()&&(await review.innerText()).includes('America/New_York'));
   option.timezone='America/Los_Angeles';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await page.waitForLoadState('networkidle');
-  await confirmation.check();stale=true;await review.getByRole('button',{name:'Use existing machine',exact:true}).click();await page.getByText('Synthetic stale connection; reload',{exact:true}).waitFor();
+  await confirmation.check();stale=true;await review.getByRole('button',{name:'Save machine changes',exact:true}).click();await page.getByText('Synthetic stale connection; reload',{exact:true}).waitFor();
   pass('stale attachment leaves same source unbound and history untouched',writes.length===0&&!source.reportingMachineId&&JSON.stringify(base)===baseline);
-  stale=false;await page.waitForLoadState('networkidle');pass('stale response clears attestation and reloads connection before retry',!await confirmation.isChecked());await confirmation.check();await review.getByRole('button',{name:'Use existing machine',exact:true}).click();
+  stale=false;await page.waitForLoadState('networkidle');pass('stale response clears attestation and reloads connection before retry',!await confirmation.isChecked());await confirmation.check();await review.getByRole('button',{name:'Save machine changes',exact:true}).click();
   await editor.getByText('Machine setup saved',{exact:true}).waitFor();pass('successful same-Hub reuse persists saved/retry state after refresh failure',writes.length===1&&source.reportingMachineId===machineId&&await editor.getByRole('button',{name:'Save machine changes',exact:true}).count()===0);
-  await page.screenshot({path:`${output}/existing-reader-${width}-saved.png`,fullPage:true});
+  await page.screenshot({path:`${output}/existing-reader-${platform}-${width}-saved.png`,fullPage:true});
   const retry=editor.getByRole('button',{name:'Retry loading',exact:true});await retry.waitFor();await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Retry loading'&&!b.disabled));refreshFailure=false;await retry.click();
   await editor.getByLabel('Machine name',{exact:true}).waitFor();await page.waitForLoadState('networkidle');
   pass('retry continues same historical Hub without duplicate setup or ordinary save',writes.length===1&&await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Historical Gilroy'&&!state.machineSavePayload&&!state.refundSavePayload);
   pass('history-facing company/timezone/managers and setup rows unchanged',JSON.stringify(base)===baseline&&state.managerEmails[0]==='manager-two@example.test');
-  pass('attached source warns financial activation pending and cannot claim Ready',(await editor.innerText()).includes(source.sourceId)&&(await editor.innerText()).includes('Sales activation awaits reconciliation; imported orders remain pending')&&source.salesActivationPending);
+  pass('association completes without a separate financial activation step',(await editor.innerText()).includes(source.sourceId)&&!(await editor.innerText()).includes('Sales activation awaits reconciliation')&&!source.salesActivationPending&&source.sourceAssociationCompleted);
   await editor.getByRole('button',{name:'Close',exact:true}).click();await page.waitForLoadState('networkidle');await page.reload();
   await page.locator('[data-source-key]').getByRole('button',{name:'Manage',exact:true}).click();await editor.getByLabel('Machine name',{exact:true}).waitFor();
   pass('durable refetch/reopen shows same Hub and exact source with known zone',await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Historical Gilroy'&&(await editor.innerText()).includes(source.sourceId)&&await editor.getByLabel('Machine time zone',{exact:true}).count()===0);
   pass('no source-setup/name/refund/manager financial writers',!state.rpcCalls.some(c=>/admin_setup_imported_machine|admin_save_named_machine|admin_set_machine_nayax|admin_set_reporting_machine_refund_managers/.test(c.rpcName)));
   pass('strict request failure and browser exception ledgers empty',!errors.length&&!failed.length);
- }catch(error){await page.screenshot({path:`${output}/existing-reader-${width}-failure.png`,fullPage:true});await writeFile(`${output}/existing-reader-${width}-failure.json`,JSON.stringify({dialogs:await page.getByRole('dialog').allTextContents(),writes,errors,failed},null,2));throw error;}finally{await page.waitForLoadState('networkidle');await context.close();}
+ }catch(error){await page.screenshot({path:`${output}/existing-reader-${platform}-${width}-failure.png`,fullPage:true});await writeFile(`${output}/existing-reader-${platform}-${width}-failure.json`,JSON.stringify({dialogs:await page.getByRole('dialog').allTextContents(),writes,errors,failed},null,2));throw error;}finally{await page.waitForLoadState('networkidle');await context.close();}
  }}
 
 try { if(reuseMode) await runExistingReader(); else for(const platform of ['Sunze','Kexiaozhan']) for(const width of [1440,390]) {
@@ -100,8 +100,9 @@ try { if(reuseMode) await runExistingReader(); else for(const platform of ['Sunz
   bodies.push(body);
   state.managerEmails=body.p_manager_emails;state.refundSetup.refundPublicDisplayLabel=body.p_machine_name;
   state.refundSetup.nayaxMachineId='UAT-NAYAX-002';state.refundSetup.nayaxAccountKey='UAT_ACCOUNT';
+  source.sourceAssociationCompleted=true;source.salesActivationPending=false;
   base.machines=[{...seed,machine_label:body.p_machine_name,machine_type:body.p_machine_type,location_timezone:body.p_timezone,sunze_machine_id:platform==='Sunze'?source.sourceId:null,nayax_machine_id:'UAT-NAYAX-002',nayax_account_key:'UAT_ACCOUNT'}];source.reportingMachineId=machineId;
-  return r.fulfill(json({machineId}));
+  return r.fulfill(json({machineId,sourceAssociationCompleted:true,salesActivationPending:false}));
  });
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('requestfailed',r=>{if(r.url().includes('/rest/v1/'))requestFailures.push(new URL(r.url()).pathname);});
  const pass=(label,value)=>{assert(value,`${platform}/${width}: ${label}`);checks.push(`${platform}/${width}: ${label}`);};
@@ -156,6 +157,7 @@ try { if(reuseMode) await runExistingReader(); else for(const platform of ['Sunz
   await page.waitForLoadState('networkidle');
   await editor.getByLabel('Machine name',{exact:true}).evaluate(async element=>{await Promise.all(element.closest('[role="dialog"]').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});
   pass('one atomic setup creates Hub and stays in unified editor',bodies.length===1&&await editor.isVisible()&&await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Concise cabinet name');
+  pass('free-reader save completes association without financial activation task',source.sourceAssociationCompleted&&!source.salesActivationPending&&!(await editor.innerText()).includes('Sales activation awaits reconciliation'));
   pass('no separate provider/name setters used during first setup',!state.rpcCalls.some(c=>/admin_set_machine_nayax|admin_set_machine_display_name/.test(c.rpcName)));
   const savedTaxReads=taxReads.filter(x=>x.rpc==='admin_reporting_machine_source_tax').length;
   await editor.getByRole('combobox',{name:'Nayax machine',exact:true}).click();
