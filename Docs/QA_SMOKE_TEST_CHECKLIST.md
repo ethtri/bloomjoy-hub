@@ -1229,10 +1229,16 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Name/company failures roll back together; label-only changes preserve shared venue/timezone, reader/source identity, history and refund permissions. No automatic archive occurs.
 # Info refund auto-response repair (#1455)
 
+- #1789: acknowledgment is the default for a direct customer, including
+  `Please help`, a photo-only message, non-English text and pricing questions.
+  Confirm one neutral same-thread reply with the conditional form link, no case
+  before form submission, and no duplicate. Spam/trash, notification senders,
+  known business/internal mail and existing-case questions stay excluded.
 - Also test a completed purchase report without the word refund or a stock
   failure phrase: `I paid cash at the cotton candy machine, then my card was
   billed for the full amount`. Expect one same-thread link and clean replay.
-  General pricing/payment-method questions must receive no refund reply (#1782).
+  General pricing/payment-method questions receive the neutral acknowledgment
+  under #1789; known business requests remain excluded.
 - Send an owner-controlled non-manager inquiry to Info with subject `Refund`
   or body `The machine took my money`. Confirm the normal ten-minute scheduler
   produces one reply in the original thread with `/refunds/request`, leaves

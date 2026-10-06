@@ -1217,3 +1217,16 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Partnership lifecycle dates, machine assignment dates and financial-term dates are separate. Change split reviews actual participant/Bloomjoy percentages and affected machines, then atomically closes only the preceding open financial rule and creates new dated terms. Existing ended versions, deductions, raw facts and issued payout snapshots remain intact. Partner-level terms cover eligible existing and future assigned machines.
 - Superseding owner correction (#1788): from September 1, 2026, both Merlin and Bubble Planet split actual sales after tax and refunds only, 70% partner / 30% Bloomjoy. No stick, processing or other configured deduction applies. Correct the existing October version and trim its preceding terms to August 31 atomically; do not create a duplicate breakpoint. Older Bubble 60/40 with $0.40-per-stick and Merlin 30/70 terms remain through August 31. Lifecycle and machine assignment dates remain unchanged; issued reports/payout snapshots are immutable and any adjustment is reviewed separately.
 - Confirmed Peppa source 1777281426074167988377962 is already Merlin; do not duplicate it. LA source 1785123901474964787735686 must use its real source-backed setup, never the similarly named provisional Hub. Preserve historical source allocation when configuring LA; current company and prior ownership must be established before pending orders are promoted.
+## 2026-10-06 - Default customer email acknowledgment (#1789)
+
+- Every new direct customer email to the connected Info, Support or Refunds
+  mailbox receives one neutral receipt with a conditional hosted refund-form
+  link. Do not require refund, purchase, failure or English-language vocabulary;
+  short and attachment-only messages qualify. This owner-requested policy
+  supersedes the earlier narrow inquiry matching and pricing exclusions.
+- Known business/internal mail, spam/trash, automated/forwarded or untrusted
+  messages remain excluded. Existing cases continue on the same case. Existing
+  thread/send claims prevent another acknowledgment, including after copy edits.
+- This acknowledgment creates no refund case or payment promise. The form
+  remains the case-creation boundary. Reuse the deterministic Gmail script,
+  ten-minute schedule and existing delivery health/alert; no LLM or new service.

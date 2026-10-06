@@ -167,7 +167,9 @@ Deno.test("first-contact copy is versioned, customer-first, and contains only pu
     supportUrl: "https://www.bloomjoyusa.com/resources#support-boundaries",
   });
   assertEquals(email.templateKey, REFUND_FIRST_CONTACT_TEMPLATE_KEY);
-  assertStringIncludes(email.text, "We are sorry something went wrong");
+  assertStringIncludes(email.text, "We received your message and are here to help.");
+  assertStringIncludes(email.text, "If you need a refund review");
+  assertStringIncludes(email.html, "If you need a refund review");
   assertStringIncludes(email.text, "If you already submitted a form");
   assertStringIncludes(email.text, "RF-SYNTH01");
   assertStringIncludes(
