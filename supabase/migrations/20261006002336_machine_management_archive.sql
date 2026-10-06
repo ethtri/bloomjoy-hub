@@ -292,7 +292,7 @@ begin
         d.sunze_machine_name as source_name,null::text as source_status,d.status as discovery_status,
         d.first_seen_at,d.last_seen_at,null::text as source_timezone,
         match.machine_ids,match.archived_ids,
-        (select max(sale_date)::timestamptz from public.sunze_unmapped_sales pending
+        (select max(sale_date)::text from public.sunze_unmapped_sales pending
           where pending.sunze_machine_id=d.sunze_machine_id and transaction_count>0) as last_source_transaction
       from public.sunze_machine_discoveries d
       left join lateral (
@@ -304,7 +304,7 @@ begin
       select jsonb_build_array('kexiaozhan',s.provider_account_id,s.source_machine_id)::text,'Kexiaozhan',
         s.provider_account_id,a.source_account_key,s.source_machine_id,s.source_label,s.source_status,
         null::text,s.first_seen_at,s.last_seen_at,s.source_timezone,match.machine_ids,match.archived_ids,
-        (select max(occurred_at) from private.snapcase_sales_observations observation
+        (select max(occurred_at)::text from private.snapcase_sales_observations observation
           where observation.provider_account_id=s.provider_account_id and observation.source_machine_id=s.source_machine_id
             and amount_minor>0)
       from private.snapcase_source_machines s join private.snapcase_provider_accounts a on a.id=s.provider_account_id
@@ -340,3 +340,80 @@ begin
 end; $fn$;
 revoke all on function public.admin_get_machine_source_inventory() from public,anon;
 grant execute on function public.admin_get_machine_source_inventory() to authenticated;
+
+-- First setup is one transaction: invalid mapping or manager assignments cannot
+-- leave a second physical record or a partially connected source behind.
+create function public.admin_setup_imported_machine(
+  p_platform text,p_provider_account_id uuid,p_source_id text,p_account_id uuid,
+  p_machine_name text,p_machine_type text,p_operational_phase text,p_timezone text,
+  p_inventory_id uuid,p_manager_emails text[],p_reason text
+) returns jsonb language plpgsql security definer set search_path='' as $fn$
+declare machine public.reporting_machines; source_date date; mapped jsonb;
+begin
+  if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
+    raise exception 'Super Admin access required' using errcode='42501';
+  end if;
+  if nullif(btrim(p_machine_name),'') is null or length(p_machine_name)>120 then
+    raise exception 'Enter a machine name of at most 120 characters' using errcode='22023';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(1746,1);
+  if p_platform='Sunze' then
+    perform 1 from public.sunze_machine_discoveries where sunze_machine_id=p_source_id for update;
+    if not found then raise exception 'Imported source no longer exists. Reload Machines.' using errcode='22023'; end if;
+    if exists(select 1 from public.reporting_machines where sunze_machine_id=p_source_id)
+      or exists(select 1 from public.sunze_machine_discoveries where sunze_machine_id=p_source_id and reporting_machine_id is not null) then
+      raise exception 'This source already has a machine. Reload Machines.' using errcode='40001';
+    end if;
+    machine:=private.upsert_reporting_machine_by_id(null,p_account_id,null,btrim(p_machine_name),p_machine_type,p_source_id,
+      p_operational_phase,p_reason,null,null,'Unmapped Hub Source Sunze '||p_source_id,p_timezone,true);
+  elsif p_platform='Kexiaozhan' then
+    if p_machine_type<>'snapcase' then raise exception 'Kexiaozhan source requires SnapCase type' using errcode='22023'; end if;
+    select (first_seen_at at time zone 'UTC')::date into source_date from private.snapcase_source_machines
+      where provider_account_id=p_provider_account_id and source_machine_id=p_source_id for update;
+    if not found then raise exception 'Imported source no longer exists. Reload Machines.' using errcode='22023'; end if;
+    if exists(select 1 from private.snapcase_machine_mappings mapping join public.reporting_machines existing on existing.id=mapping.reporting_machine_id
+      where mapping.provider_account_id=p_provider_account_id and mapping.source_machine_id=p_source_id
+        and (existing.management_archived_at is not null or (mapping.effective_start_date<=current_date and coalesce(mapping.effective_end_date,'infinity'::date)>=current_date))) then
+      raise exception 'This source already has a machine. Reload Machines.' using errcode='40001';
+    end if;
+    mapped:=public.admin_map_snapcase_machine(p_provider_account_id,p_source_id,null,p_account_id,null,
+      'Unmapped Hub Source Kexiaozhan '||p_provider_account_id::text||' '||p_source_id,btrim(p_machine_name),null,
+      coalesce(source_date,current_date),null,p_reason,p_timezone);
+    select * into strict machine from public.reporting_machines where id=(mapped->>'machineId')::uuid;
+    update public.reporting_machines set operational_phase=p_operational_phase where id=machine.id;
+  else raise exception 'Unsupported source platform' using errcode='22023';
+  end if;
+  perform public.admin_set_machine_display_name(machine.id,btrim(p_machine_name),private.reporting_machine_display_name(machine));
+  if p_inventory_id is not null then
+    perform public.admin_save_machine_workspace_mapping(machine.id,'',p_inventory_id,null,null,null);
+  end if;
+  if cardinality(coalesce(p_manager_emails,array[]::text[]))>0 then
+    perform public.admin_set_reporting_machine_refund_managers(machine.id,p_manager_emails,p_reason);
+  end if;
+  return jsonb_build_object('machineId',machine.id);
+end; $fn$;
+revoke all on function public.admin_setup_imported_machine(text,uuid,text,uuid,text,text,text,text,uuid,text[],text) from public,anon;
+grant execute on function public.admin_setup_imported_machine(text,uuid,text,uuid,text,text,text,text,uuid,text[],text) to authenticated;
+
+create function public.admin_get_imported_machine_tax(p_inventory_id uuid)
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare result jsonb;
+begin
+  if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
+    raise exception 'Super Admin access required' using errcode='42501';
+  end if;
+  select jsonb_build_object('coverageStatus',observation.classification,'source',observation.source,
+    'ratePercent',case when observation.classification='verified_tax' then observation.rate_percent end,
+    'observedAt',observation.observed_at,'saleDate',current_date)
+  into result from public.refund_nayax_machine_inventory inventory
+  left join lateral (
+    select evidence.* from private.nayax_machine_tax_observations evidence
+    where evidence.account_key=inventory.account_key and evidence.nayax_machine_id=inventory.nayax_machine_id
+      and evidence.effective_start_date<=current_date and coalesce(evidence.effective_end_date,'infinity'::date)>=current_date
+    order by (evidence.classification<>'unavailable') desc,evidence.effective_start_date desc,evidence.observed_at desc,evidence.id
+    limit 1
+  ) observation on true where inventory.id=p_inventory_id;
+  return coalesce(result,jsonb_build_object('coverageStatus','missing','ratePercent',null));
+end; $fn$;
+revoke all on function public.admin_get_imported_machine_tax(uuid) from public,anon;
+grant execute on function public.admin_get_imported_machine_tax(uuid) to authenticated;
