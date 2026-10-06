@@ -3238,7 +3238,7 @@ function MachineDialog({
   const effectiveTaxSource = importedSource && !machine ? importedTaxSource : taxSource;
   const taxRateSetup = <div className="rounded-md border border-border p-3 text-sm" aria-label="Source tax rate">
     <p className="font-medium">Tax rate</p>
-    <p className="mt-1">{effectiveTaxSource.isPending && (machine?.id || sourceInventoryId) ? 'Checking source tax…' : !effectiveTaxSource.isError && effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% · ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} · ${effectiveTaxSource.data.saleDate}` : 'Unavailable — no verified source tax rate'}</p>
+    <p className="mt-1">{(effectiveTaxSource.isPending || effectiveTaxSource.isFetching) && (machine?.id || sourceInventoryId) ? 'Checking source tax…' : !effectiveTaxSource.isError && effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% · ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} · ${effectiveTaxSource.data.saleDate}` : 'Unavailable — no verified source tax rate'}</p>
     <p className="mt-1 text-xs text-muted-foreground">Read-only source setting. Cash has no tax deduction.</p>
   </div>;
 
