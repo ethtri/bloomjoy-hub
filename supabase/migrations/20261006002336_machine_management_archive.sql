@@ -10,8 +10,10 @@ create index reporting_machines_management_active_idx on public.reporting_machin
 
 create function private.assert_machine_management_active(p_machine_id uuid)
 returns void language plpgsql security definer set search_path='' as $fn$
+declare archived boolean;
 begin
-  if exists(select 1 from public.reporting_machines where id=p_machine_id and management_archived_at is not null) then
+  select management_archived_at is not null into archived from public.reporting_machines where id=p_machine_id for share;
+  if archived then
     raise exception 'This machine is archived from management. Restore it explicitly before changing its setup.' using errcode='22023';
   end if;
 end; $fn$;
@@ -20,6 +22,7 @@ revoke all on function private.assert_machine_management_active(uuid) from publi
 create function private.assert_machine_management_choices(p_machine_ids uuid[])
 returns void language plpgsql security definer set search_path='' as $fn$
 begin
+  perform id from public.reporting_machines where id=any(coalesce(p_machine_ids,array[]::uuid[])) order by id for share;
   if exists(select 1 from public.reporting_machines where id=any(coalesce(p_machine_ids,array[]::uuid[])) and management_archived_at is not null) then
     raise exception 'Archived machines cannot receive new management assignments. Restore them explicitly.' using errcode='22023';
   end if;
@@ -450,8 +453,8 @@ declare definition text; anchor text:=$old$  perform pg_advisory_xact_lock(hasht
 begin
   definition:=replace(replace(pg_get_functiondef('public.admin_set_reporting_machine_refund_managers(uuid,text[],text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
   if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_set_reporting_machine_refund_managers(uuid,text[],text)'; end if;
-  execute replace(definition,anchor,$new$  perform private.assert_machine_management_active(p_machine_id);
-  perform pg_advisory_xact_lock(hashtext('machine_manager:' || p_machine_id::text));$new$);
+  execute replace(definition,anchor,$new$  perform pg_advisory_xact_lock(hashtext('machine_manager:' || p_machine_id::text));
+  perform private.assert_machine_management_active(p_machine_id);$new$);
 end; $patch$;
 
 do $patch$
@@ -549,4 +552,59 @@ begin
   if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: technician_apply_machine_assignments(uuid,uuid[],text,uuid)'; end if;
   execute replace(definition,anchor,$new$  perform private.assert_machine_management_choices(added_machine_ids);
   with revoked_assignments as ($new$);
+end; $patch$;
+
+-- New time admission is blocked; unchanged historical entry corrections remain valid.
+do $patch$
+declare definition text; anchor text:=$old$begin
+  manager_correction :=$old$;
+begin
+ definition:=replace(replace(pg_get_functiondef('public.validate_operator_time_entry_assignment()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+ if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: validate_operator_time_entry_assignment()'; end if;
+ execute replace(definition,anchor,$new$begin
+  if tg_op='INSERT' then
+    perform private.assert_machine_management_active(new.reporting_machine_id);
+  elsif new.reporting_machine_id is distinct from old.reporting_machine_id then
+    perform private.assert_machine_management_active(new.reporting_machine_id);
+  end if;
+  manager_correction :=$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  if p_reporting_machine_id is not null then
+    select * into reporting$old$;
+begin
+ definition:=replace(replace(pg_get_functiondef('public.admin_reconcile_refund_nayax_machine(uuid,text,text,uuid,text,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+ if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_reconcile_refund_nayax_machine'; end if;
+ execute replace(definition,anchor,$new$  perform private.assert_machine_management_active(coalesce(p_reporting_machine_id,before_row.reporting_machine_id));
+  if p_reporting_machine_id is not null then
+    select * into reporting$new$);
+end; $patch$;
+
+-- Missed-time and tax setup choices are current options; historical contexts stay intact.
+do $patch$
+declare definition text; anchor text:=$old$  from scoped_assignments option_row;$old$;
+begin
+ definition:=replace(replace(pg_get_functiondef('public.get_my_time_review_entry_options(date)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+ if strpos(definition,anchor)=0 then raise exception 'Archive choice anchor changed: get_my_time_review_entry_options'; end if;
+ execute replace(definition,anchor,$new$  from scoped_assignments option_row
+  where not exists(select 1 from public.reporting_machines archived where archived.id=option_row.machine_id and archived.management_archived_at is not null);$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  return coalesce(
+    result,
+    jsonb_build_object(
+      'machines', '[]'::jsonb,
+      'taxRates', '[]'::jsonb,
+      'warnings', '[]'::jsonb
+    )
+  );$old$;
+begin
+ definition:=replace(replace(pg_get_functiondef('public.admin_get_scoped_machine_tax_setup()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+ if strpos(definition,anchor)=0 then raise exception 'Archive choice anchor changed: admin_get_scoped_machine_tax_setup'; end if;
+ execute replace(definition,anchor,$new$  return private.active_machine_management_options(coalesce(
+    result,
+    jsonb_build_object('machines','[]'::jsonb,'taxRates','[]'::jsonb,'warnings','[]'::jsonb)
+  ));$new$);
 end; $patch$;

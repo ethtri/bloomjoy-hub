@@ -64,6 +64,17 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,ma
 select throws_ok($$select private.apply_reviewed_machine_retirements()$$,'P0001',null,'Exact batch refuses a newly source-connected reviewed placeholder');
 select ok((select management_archived_at is null from public.reporting_machines where id='19f40178-711c-499d-bf51-c68374959f25'),'Changed source guard commits no marker');
 update public.reporting_machines set sunze_machine_id=null where id='19f40178-711c-499d-bf51-c68374959f25';
+set local session_replication_role=replica;
+insert into private.snapcase_provider_accounts(id,source_account_key) values ('aa177409-0000-4000-8000-000000000001','archive-historical-source-fixture');
+insert into private.snapcase_source_machines(provider_account_id,source_machine_id,source_label) values ('aa177409-0000-4000-8000-000000000001','expired-source-link','Exact historical source');
+insert into private.snapcase_machine_mappings(provider_account_id,source_machine_id,reporting_machine_id,effective_start_date,effective_end_date,mapping_reason) values ('aa177409-0000-4000-8000-000000000001','expired-source-link','19f40178-711c-499d-bf51-c68374959f25','2020-01-01','2020-01-02','Synthetic expired exact mapping');
+set local session_replication_role=origin;
+select throws_ok($$select private.apply_reviewed_machine_retirements()$$,'P0001',null,'Exact batch refuses newly discovered historical source alignment');
+select ok((select management_archived_at is null from public.reporting_machines where id='19f40178-711c-499d-bf51-c68374959f25'),'Historical source refusal preserves original record');
+set local session_replication_role=replica;
+delete from private.snapcase_machine_mappings where provider_account_id='aa177409-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
  ('19f40178-711c-499d-bf51-c68374959f25','aa177400-0000-4000-8000-000000000001','archive-admin@example.invalid','active');
 select throws_ok($$select private.apply_reviewed_machine_retirements()$$,'P0001',null,'Exact batch refuses new referenced history on a previously empty placeholder');
