@@ -3044,6 +3044,7 @@ function FinancialTermsSection({
               <div className="font-medium text-foreground">
                 {formatLabel(currentFinancialRule.calculation_model)}
               </div>
+              <p className="mt-1 text-sm">{formatDate(currentFinancialRule.effective_start_date)} – {currentFinancialRule.effective_end_date ? formatDate(currentFinancialRule.effective_end_date) : 'Ongoing'}</p>
               <div className="mt-1 text-xs text-muted-foreground">
                 {currentFinancialRule.fee_label || 'Deduction'} {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
                 {formatFeeBasisLabel(currentFinancialRule.fee_basis)} /{' '}
@@ -3061,14 +3062,7 @@ function FinancialTermsSection({
                   ? 'Active'
                   : formatLabel(currentFinancialRule.status)}
               </Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                className="min-h-11"
-                onClick={() => { setForm(createRuleFormFromRule(currentFinancialRule)); setIsChangingSplit(true); }}
-              >
-                Change split
-              </Button>
+
             </div>
           </Row>
         )}
@@ -3981,7 +3975,7 @@ function DateWindowFields({
   onEndChange: (value: string) => void;
 }) {
   const [hasEndDate, setHasEndDate] = useState(Boolean(endValue));
-  useEffect(() => { if (endValue) setHasEndDate(true); }, [endValue]);
+  useEffect(() => { setHasEndDate(Boolean(endValue)); }, [endValue]);
   return (
     <>
       <div className="min-w-0">
