@@ -2799,10 +2799,6 @@ function FinancialTermsSection({
     onDirtyChange?.(isRuleFormDirty || isChangingSplit);
   }, [isRuleFormDirty, isChangingSplit, onDirtyChange]);
 
-  const editRule = (rule: ReportingPartnershipFinancialRule) => {
-    setForm(createRuleFormFromRule(rule));
-  };
-
   const updatePayoutPreset = (preset: PayoutModelPreset) => {
     setForm((current) => applyPayoutModelPreset(current, preset));
   };
@@ -2901,7 +2897,7 @@ function FinancialTermsSection({
       <div className="rounded-lg border border-border bg-card p-5">
         <div>
           <h2 className="font-semibold text-foreground">
-            {form.ruleId ? 'Edit Payout Rules' : 'Create Payout Rules'}
+            {isChangingSplit ? 'New dated split' : form.ruleId ? 'Current payout rules' : 'Create Payout Rules'}
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
             Define how weekly sales become payout amounts. Participant records only define who is
@@ -2911,7 +2907,7 @@ function FinancialTermsSection({
 
         <PayoutFlowSummary form={form} payoutParticipants={payoutParticipants} />
 
-        <fieldset disabled={isChangingSplit} className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <fieldset disabled={Boolean(currentFinancialRule)} className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div>
             <FieldLabel
               htmlFor="payout-model-preset"
@@ -2964,6 +2960,7 @@ function FinancialTermsSection({
           </div>
         </fieldset>
 
+        <fieldset disabled={Boolean(currentFinancialRule) && !isChangingSplit}>
         <PayoutAllocationSection
           form={form}
           payoutParticipants={payoutParticipants}
@@ -2971,6 +2968,7 @@ function FinancialTermsSection({
           allocationTotal={allocationTotal}
           onShareChange={updateSharePercent}
         />
+        </fieldset>
 
         <details className="mt-4 rounded-md border border-border p-4">
           <summary className="cursor-pointer text-sm font-medium text-foreground">
@@ -2979,7 +2977,7 @@ function FinancialTermsSection({
           <p className="mt-2 text-sm text-muted-foreground">
             Use Change split for new dated terms. Earlier versions and their deductions remain in history.
           </p>
-          <fieldset disabled={isChangingSplit} className="mt-4 grid gap-4 lg:grid-cols-2">
+          <fieldset disabled={Boolean(currentFinancialRule)} className="mt-4 grid gap-4 lg:grid-cols-2">
             <div>
               <div className="text-xs font-medium uppercase text-muted-foreground">Applies from</div>
               <div className="mt-1 text-sm text-foreground">{formatDate(hiddenRuleStartDate)}</div>
@@ -3025,7 +3023,7 @@ function FinancialTermsSection({
           <Button
             className="min-h-11"
             onClick={() => isChangingSplit ? setIsSplitReviewOpen(true) : saveRule()}
-            disabled={isSaving || Boolean(saveDisabledReason)}
+            disabled={isSaving || Boolean(saveDisabledReason) || (Boolean(currentFinancialRule) && !isChangingSplit)}
           >
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             {isChangingSplit ? 'Review split change' : 'Save Payout Rules'}
@@ -3067,9 +3065,9 @@ function FinancialTermsSection({
                 variant="outline"
                 size="sm"
                 className="min-h-11"
-                onClick={() => editRule(currentFinancialRule)}
+                onClick={() => { setForm(createRuleFormFromRule(currentFinancialRule)); setIsChangingSplit(true); }}
               >
-                Edit
+                Change split
               </Button>
             </div>
           </Row>
