@@ -48,8 +48,9 @@ Machine name is the sole editable/display label for an individual machine. Locat
   require dated evidence and unresolved tax stays unavailable. Issued statements
   and raw source records are preserved. Reviewed Nayax portal history now supplies
   bounded September evidence for Atlanta (8%), South Hills (7%) and Gilroy (9.13%).
-  Atlanta settled receipts versus unpaid requests reconcile; Gilroy's Finance
-  worksheet amount remains a specific reconciliation question under #1763. PR #1767 is deployed; authenticated
+  Atlanta settled receipts versus unpaid requests reconcile. Finance corrected
+  its earlier formula, and the owner accepted Nayax's verified Gilroy rate and
+  $499.42 September net, resolving #1763. PRs #1767 and #1772 are deployed; authenticated
   production Finance and machine tax diagnostics are verified on desktop and mobile. Shared UAT is separate, and `npm run reporting:preview`
   remains an isolated preview with labeled sample data.
 

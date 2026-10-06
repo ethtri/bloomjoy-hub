@@ -20,6 +20,14 @@
 - Finance's supplied September 2026 confirmations are bounded to that month:
   White Oaks 8%, Avenues 8%, and Merlin Chicago 7.25%. Other historical rates
   require source evidence; do not copy a current setting into prior months.
+- September reconciliation closeout (#1763, #1772): reviewed dated Nayax history
+  supports Atlanta 8%, South Hills 7%, and Gilroy 9.13%. After Finance corrected
+  its earlier formula and quoted a 9% example, the owner explicitly
+  chose the verified Nayax figure. Gilroy therefore retains $555.90 receipts
+  minus $10.90 inclusive refund deductions minus $45.58 remaining tax, producing
+  $499.42 net under the existing daily rounding. Do not replace it with the
+  9% example $500 or the withdrawn $495.95. Previously issued reports
+  remain preserved; this decision does not authorize resending them.
 
 ## 2026-10-03 - Company management and Merlin ownership
 
