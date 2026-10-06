@@ -105,7 +105,7 @@ select ok(not exists(select 1 from private.financial_machine_sales_facts where s
 select is((select net_sales_cents from machine_sales_facts where source_row_hash='complete-later-app-card'),700,'Operational-only eligibility never destroys raw source money');
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','aa180200-0000-4000-8000-000000000001',true);
-select results_eq($$select (preview#>>'{summary,gross_sales_cents}')::int,(preview#>>'{summary,order_count}')::int,(preview#>>'{summary,item_quantity}')::int,(preview#>>'{summary,tax_cents}')::int,(preview#>>'{summary,fee_cents}')::int,(preview#>>'{summary,cost_cents}')::int,(preview#>>'{summary,amount_owed_cents}')::int from (select public.admin_preview_partner_period_report_internal('aa180207-0000-4000-8000-000000000001','2025-01-01','2025-01-31','calendar_month') preview) report$$,$$ values (1500,3,3,100,300,600,600)$$,'Actual partner per-order fees and per-stick costs exclude operational app-card transactions and units');
+select results_eq($$select (preview#>>'{summary,gross_sales_cents}')::int,(preview#>>'{summary,order_count}')::int,(preview#>>'{summary,item_quantity}')::int,(preview#>>'{summary,tax_cents}')::int,(preview#>>'{summary,fee_cents}')::int,(preview#>>'{summary,cost_cents}')::int,(preview#>>'{summary,amount_owed_cents}')::int from (select public.admin_preview_partner_period_report_internal('aa180207-0000-4000-8000-000000000001','2025-01-01','2025-01-31','calendar_month') preview) report$$,$$ values (1600,3,3,100,300,600,600)$$,'Actual partner recorded gross minus original tax, per-order fees and per-stick costs excludes operational app-card transactions and units');
 -- Normal initial setup establishes its policy BEFORE any pending promotion.
 create temporary table complete_free_result(machine_id uuid);
 grant select,insert on complete_free_result to authenticated;
@@ -157,7 +157,8 @@ select is((select net_sales_cents from private.financial_machine_sales_facts whe
 -- Simulate a changed current-reader lookup only in the isolated seed seam;
 -- the service action itself runs with ordinary origin triggers afterward.
 set local session_replication_role=replica;
-update refund_nayax_machine_inventory set reporting_machine_id='aa180203-0000-4000-8000-000000000004' where id='aa180204-0000-4000-8000-000000000001';
+insert into reporting_machines(id,account_id,location_id,machine_label,machine_type) values('aa180203-0000-4000-8000-000000000006','aa180201-0000-4000-8000-000000000001','aa180202-0000-4000-8000-000000000001','Synthetic changed inventory owner','commercial');
+update refund_nayax_machine_inventory set reporting_machine_id='aa180203-0000-4000-8000-000000000006' where id='aa180204-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
 select lives_ok($$select service_ingest_nayax_scheduled_sales(repeat('4',64),jsonb_build_array(pg_temp.complete_native_sale('18020001','1802000101',repeat('12',32),true)))$$,'Repeated original transaction survives changed current reader lookup');
 select is((select count(*) from machine_sales_facts where source_order_hash=repeat('12',32)),1::bigint,'Repeated original transaction has one fact');
