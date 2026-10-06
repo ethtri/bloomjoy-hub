@@ -80,6 +80,28 @@ Deno.test("direct Info refund request is eligible for the form-link path", () =>
     "new_refund_inquiry");
 });
 
+Deno.test("customer purchase descriptions receive the form without prescribed failure wording", () => {
+  for (const body of [
+    "I paid $8 cash into the cotton candy machine. Some coins got stuck. My card transaction should have been $2, but the machine ate my cash.",
+    "I paid cash at your machine, then my card was billed for the full amount.",
+    "I purchased cotton candy and the machine kept the change.",
+    "I was charged by your machine and need help with the transaction.",
+    "My payment at the SnapCase machine doesn't look right.",
+    "I bought cotton candy yesterday. Can you help with that purchase?",
+  ]) assertRoute(message({ subject: "Transaction question", body }), "new_refund_inquiry");
+});
+
+Deno.test("general product payment questions and business purchases remain excluded", () => {
+  for (const body of [
+    "How much does the cotton candy machine charge?",
+    "Which payment methods does your machine accept?",
+    "Where can I buy cotton candy?",
+    "I purchased cotton candy for our wholesale order and need an invoice.",
+  ]) assertRoute(message({ body }), "non_refund");
+  assertRoute(message({ body: "I paid at your machine and already submitted the refund form." }),
+    "existing_case_question");
+});
+
 Deno.test("an intentionally excluded non-customer sender does not fail Info recovery", () => {
   const managerText = message({ body: "I bought cotton candy from your machine, but it ran out of sticks and charged me." });
   assertRoute(managerText, "new_refund_inquiry");
