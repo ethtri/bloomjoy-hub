@@ -1,6 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
+set local timezone='UTC';
 select no_plan();
 -- Disposable synthetic identities only. Origin triggers are enabled for every
 -- action under test; the initial fixture bypass avoids incidental seed effects.
@@ -51,7 +52,7 @@ insert into public.refund_nayax_machine_inventory(id,account_key,nayax_machine_i
  ('aa177404-0000-4000-8000-000000000003','FIXTURE_SOURCE_B','17740001','Other merchant same reader ID',true,null,'needs_setup');
 insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date) values
  ('FIXTURE_SOURCE_A','17740001',now()-interval '1 hour','finance_verified','verified_tax',7.25,'Synthetic verified source tax',current_date-1),
- ('FIXTURE_SOURCE_A','17740002',now(),'nayax_api','unclassified_extra_charge',9,'Synthetic surcharge, not verified tax',current_date-1),
+ ('FIXTURE_SOURCE_A','17740002',now(),'nayax_api','unclassified_extra_charge',9,'Synthetic surcharge, not verified tax',(now() at time zone 'UTC')::date),
  ('FIXTURE_SOURCE_B','17740001',now(),'finance_verified','verified_tax',9.5,'Synthetic different merchant tax',current_date-1);
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
  ('aa177403-0000-4000-8000-000000000004','aa177402-0000-4000-8000-000000000001','2026-09-01','credit',800,1,'nayax_scheduled_report','fixture-source-history','{"providerMachineId":"17740002","originalName":"Preserved history"}');
