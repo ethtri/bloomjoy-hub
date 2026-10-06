@@ -273,3 +273,70 @@ begin
  execute replace(definition,anchor,$new$and machine.status = 'active'
       and machine.management_archived_at is null$new$);
 end; $patch$;
+
+-- Physical inventory originates from every stored imported source identity, not Hub rows
+-- or a pending-only setup queue. No import status, last-seen or name-based exclusion.
+create function public.admin_get_machine_source_inventory()
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare actor uuid:=auth.uid(); super_admin boolean; scoped_ids uuid[]; inventory jsonb;
+begin
+  super_admin:=coalesce(public.is_super_admin(actor),false);
+  if actor is null or not (super_admin or coalesce(public.is_scoped_admin(actor),false)) then
+    raise exception 'Admin access required' using errcode='42501';
+  end if;
+  scoped_ids:=coalesce(public.scoped_admin_machine_ids(actor),'{}'::uuid[]);
+  inventory:=coalesce((
+    with source_inventory as (
+      select 'sunze:'||d.sunze_machine_id as source_key,'Sunze'::text as platform,
+        null::uuid as provider_account_id,null::text as source_account_key,d.sunze_machine_id as source_id,
+        d.sunze_machine_name as source_name,null::text as source_status,d.status as discovery_status,
+        d.first_seen_at,d.last_seen_at,null::text as source_timezone,
+        match.machine_ids,match.archived_ids,
+        (select max(sale_date)::timestamptz from public.sunze_unmapped_sales pending
+          where pending.sunze_machine_id=d.sunze_machine_id and transaction_count>0) as last_source_transaction
+      from public.sunze_machine_discoveries d
+      left join lateral (
+        select array_agg(m.id order by m.id) filter(where m.management_archived_at is null) as machine_ids,
+          array_agg(m.id order by m.id) filter(where m.management_archived_at is not null) as archived_ids
+        from public.reporting_machines m where m.sunze_machine_id=d.sunze_machine_id
+      ) match on true
+      union all
+      select jsonb_build_array('kexiaozhan',s.provider_account_id,s.source_machine_id)::text,'Kexiaozhan',
+        s.provider_account_id,a.source_account_key,s.source_machine_id,s.source_label,s.source_status,
+        null::text,s.first_seen_at,s.last_seen_at,s.source_timezone,match.machine_ids,match.archived_ids,
+        (select max(occurred_at) from private.snapcase_sales_observations observation
+          where observation.provider_account_id=s.provider_account_id and observation.source_machine_id=s.source_machine_id
+            and amount_minor>0)
+      from private.snapcase_source_machines s join private.snapcase_provider_accounts a on a.id=s.provider_account_id
+      left join lateral (
+        select array_agg(distinct m.id order by m.id) filter(where m.management_archived_at is null) as machine_ids,
+          array_agg(distinct m.id order by m.id) filter(where m.management_archived_at is not null) as archived_ids
+        from private.snapcase_machine_mappings map join public.reporting_machines m on m.id=map.reporting_machine_id
+        where map.provider_account_id=s.provider_account_id and map.source_machine_id=s.source_machine_id
+          and map.effective_start_date<=current_date and (map.effective_end_date is null or map.effective_end_date>=current_date)
+      ) match on true
+    )
+    select jsonb_agg(jsonb_build_object(
+      'sourceKey',source_key,'platform',platform,'providerAccountId',provider_account_id,
+      'sourceAccountKey',source_account_key,'sourceId',source_id,'sourceName',source_name,
+      'sourceStatus',source_status,'discoveryStatus',discovery_status,
+      'firstSeenAt',first_seen_at,'lastSeenAt',last_seen_at,'sourceTimezone',source_timezone,
+      'lastSourceTransaction',last_source_transaction,
+      'reportingMachineId',case when cardinality(machine_ids)=1 then machine_ids[1] end,
+      'machineName',private.reporting_machine_display_name(current_machine),
+      'nayaxMachineId',current_machine.nayax_machine_id,
+      'nayaxAccountKey',case when current_machine.nayax_machine_id is not null then upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB')) end,
+      'nayaxName',inventory.machine_name,
+      'mappingConflict',coalesce(cardinality(machine_ids)>1,false),
+      'archivedMapping',coalesce(cardinality(archived_ids)>0,false)
+    ) order by platform,source_name nulls last,source_key)
+    from source_inventory
+    left join public.reporting_machines current_machine on current_machine.id=case when cardinality(machine_ids)=1 then machine_ids[1] end
+    left join public.refund_nayax_machine_inventory inventory on inventory.nayax_machine_id=current_machine.nayax_machine_id
+      and inventory.account_key=upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB'))
+    where super_admin or (cardinality(machine_ids)=1 and machine_ids[1]=any(scoped_ids))
+  ),'[]'::jsonb);
+  return jsonb_build_object('sources',inventory,'count',jsonb_array_length(inventory));
+end; $fn$;
+revoke all on function public.admin_get_machine_source_inventory() from public,anon;
+grant execute on function public.admin_get_machine_source_inventory() to authenticated;
