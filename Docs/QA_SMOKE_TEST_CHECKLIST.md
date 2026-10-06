@@ -1229,6 +1229,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Name/company failures roll back together; label-only changes preserve shared venue/timezone, reader/source identity, history and refund permissions. No automatic archive occurs.
 # Info refund auto-response repair (#1455)
 
+- Also test a completed purchase report without the word refund or a stock
+  failure phrase: `I paid cash at the cotton candy machine, then my card was
+  billed for the full amount`. Expect one same-thread link and clean replay.
+  General pricing/payment-method questions must receive no refund reply (#1782).
 - Send an owner-controlled non-manager inquiry to Info with subject `Refund`
   or body `The machine took my money`. Confirm the normal ten-minute scheduler
   produces one reply in the original thread with `/refunds/request`, leaves
