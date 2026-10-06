@@ -55,6 +55,43 @@ end; $$;
 revoke all on function public.admin_change_partnership_split(uuid,uuid,jsonb,date,integer,integer,integer,text) from public, anon;
 grant execute on function public.admin_change_partnership_split(uuid,uuid,jsonb,date,integer,integer,integer,text) to authenticated;
 
+-- Deliberate historical end-date correction copies every other term unchanged.
+create or replace function public.admin_correct_partnership_rule_end_date(
+  p_rule_id uuid, p_expected_rule jsonb, p_end_date date, p_reason text
+) returns public.reporting_partnership_financial_rules
+language plpgsql security definer set search_path = '' as $$
+declare
+  prior public.reporting_partnership_financial_rules;
+  partnership_id uuid;
+  actor uuid := auth.uid();
+begin
+  select r.partnership_id into partnership_id from public.reporting_partnership_financial_rules r where r.id=p_rule_id;
+  if actor is null or not (public.is_super_admin(actor) or
+    (public.is_scoped_admin(actor) and public.admin_can_manage_scoped_partnership(actor,partnership_id))) then
+    raise exception 'Authorized partnership admin required' using errcode='42501';
+  end if;
+  perform public.reporting_admin_assert_reason(p_reason);
+  perform 1 from public.reporting_partnerships p where p.id=partnership_id for update;
+  select * into prior from public.reporting_partnership_financial_rules where id=p_rule_id for update;
+  if prior.id is null or p_expected_rule is null or not (to_jsonb(prior) @> p_expected_rule)
+    or not (p_expected_rule ?& array['effective_start_date','effective_end_date','fever_share_basis_points',
+      'partner_share_basis_points','bloomjoy_share_basis_points','fee_amount_cents','fee_basis',
+      'cost_amount_cents','cost_basis','calculation_model','split_base','fee_label','cost_label',
+      'deduction_timing','gross_to_net_method','additional_deductions_notes','notes','status','updated_at']) then
+    raise exception 'Financial terms changed. Reload and review the correction again.' using errcode='40001';
+  end if;
+  if p_end_date is not null and p_end_date < prior.effective_start_date then
+    raise exception 'End date must be on or after the rule start' using errcode='22023';
+  end if;
+  return public.admin_upsert_reporting_financial_rule(prior.id,prior.partnership_id,prior.calculation_model,
+    prior.split_base,prior.fee_amount_cents,prior.fee_basis,prior.fee_label,prior.cost_amount_cents,
+    prior.cost_basis,prior.cost_label,prior.deduction_timing,prior.gross_to_net_method,
+    prior.additional_deductions_notes,prior.fever_share_basis_points,prior.partner_share_basis_points,
+    prior.bloomjoy_share_basis_points,prior.effective_start_date,p_end_date,prior.status,prior.notes,p_reason);
+end; $$;
+revoke all on function public.admin_correct_partnership_rule_end_date(uuid,jsonb,date,text) from public, anon;
+grant execute on function public.admin_correct_partnership_rule_end_date(uuid,jsonb,date,text) to authenticated;
+
 -- Serialize the legacy writer with dated changes without changing its permissions or terms.
 do $$ declare definition text; anchor text := '  normalized_reason := public.reporting_admin_assert_reason(p_reason);';
 begin

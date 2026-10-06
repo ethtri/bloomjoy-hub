@@ -58,6 +58,7 @@ import {
   removeReportingPartnershipPartyAdmin,
   upsertReportingFinancialRuleAdmin,
   changePartnershipSplitAdmin,
+  correctPartnershipRuleEndAdmin,
   upsertReportingMachineAssignmentAdmin,
   upsertReportingPartnerAdmin,
   upsertReportingPartnershipAdmin,
@@ -1281,6 +1282,7 @@ function ScopedPartnershipsWorkspace({
                                 <span className="mt-1 block text-sm text-muted-foreground">
                                   {machine.account_name}
                                 </span>
+                                <span className="mt-1 block text-sm text-muted-foreground">{sourceByMachine.get(machine.id)?.platform ?? 'Existing assignment'} source ID: {sourceByMachine.get(machine.id)?.sourceId ?? 'not linked'}{sourceByMachine.get(machine.id)?.sourceName ? ` / ${sourceByMachine.get(machine.id)?.sourceName}` : ''}</span>
                                 <span className="mt-2 inline-flex rounded-full border border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
                                   Visible through assigned admin machine scope
                                 </span>
@@ -2784,6 +2786,12 @@ function FinancialTermsSection({
   const [isChangingSplit, setIsChangingSplit] = useState(false);
   const [splitEffectiveFrom, setSplitEffectiveFrom] = useState(today());
   const [isSplitReviewOpen, setIsSplitReviewOpen] = useState(false);
+  const [correctionRule, setCorrectionRule] = useState<ReportingPartnershipFinancialRule | null>(null);
+  const [correctionEnd, setCorrectionEnd] = useState('');
+  const [correctionHasEnd, setCorrectionHasEnd] = useState(false);
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionReviewed, setCorrectionReviewed] = useState(false);
+  const [isCorrectingEnd, setIsCorrectingEnd] = useState(false);
   const saveDisabledReason = isChangingSplit && (!splitEffectiveFrom || splitEffectiveFrom <= (currentFinancialRule?.effective_start_date ?? ''))
       ? 'Choose a later effective-from date for the new split.'
       : additionalPayoutParticipants.length > 0
@@ -2885,6 +2893,30 @@ function FinancialTermsSection({
             value={splitEffectiveFrom} onChange={e => setSplitEffectiveFrom(e.target.value)} />
         </div>}
       </div>}
+      <Dialog open={Boolean(correctionRule)} onOpenChange={open => { if (!open && !isCorrectingEnd) setCorrectionRule(null); }}>
+        <DialogContent><DialogHeader><DialogTitle>Correct historical end date</DialogTitle>
+          <DialogDescription>Only the selected rule's end date changes. Percentages, deductions, original start and issued payouts stay unchanged.</DialogDescription></DialogHeader>
+          <p>{correctionRule && formatRuleAllocationSummary(correctionRule, payoutParticipants)}; starts {correctionRule && formatDate(correctionRule.effective_start_date)}</p>
+          <fieldset disabled={correctionReviewed || isCorrectingEnd} className="min-w-0 space-y-3">
+            <label className="flex min-h-11 items-center gap-2"><Checkbox checked={!correctionHasEnd} onCheckedChange={checked => { setCorrectionHasEnd(!checked); if (checked) setCorrectionEnd(''); }} />No end date</label>
+            {!correctionHasEnd ? <p>Ongoing</p> : <div className="min-w-0"><Label htmlFor="rule-correction-end">Corrected end date</Label>
+              <Input id="rule-correction-end" type="date" className="h-11 min-w-0 w-full md:text-base" value={correctionEnd} onChange={e => setCorrectionEnd(e.target.value)} /></div>}
+            <Label htmlFor="rule-correction-reason">Reason for correction</Label>
+            <Textarea id="rule-correction-reason" value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} />
+          </fieldset>
+          {correctionReviewed && <p>Review: {correctionRule?.effective_end_date ? formatDate(correctionRule.effective_end_date) : 'No end date'} → {correctionEnd ? formatDate(correctionEnd) : 'No end date'}. {correctionReason}</p>}
+          <DialogFooter><Button variant="outline" disabled={isCorrectingEnd} onClick={() => correctionReviewed ? setCorrectionReviewed(false) : setCorrectionRule(null)}>Back</Button>
+            <Button disabled={isCorrectingEnd || !correctionReason.trim() || (correctionHasEnd && (!correctionEnd || correctionEnd < (correctionRule?.effective_start_date ?? '')))} onClick={async () => {
+              if (!correctionReviewed) { setCorrectionReviewed(true); return; }
+              if (!correctionRule) return;
+              setIsCorrectingEnd(true);
+              try { await correctPartnershipRuleEndAdmin(correctionRule, correctionEnd, correctionReason.trim());
+                setCorrectionRule(null); toast.success('Historical end date corrected.'); await onRefresh();
+              } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to correct end date.'); }
+              finally { setIsCorrectingEnd(false); }
+            }}>{correctionReviewed ? 'Confirm end-date correction' : 'Review end-date correction'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={isSplitReviewOpen} onOpenChange={setIsSplitReviewOpen}>
         <DialogContent><DialogHeader><DialogTitle>Review split change</DialogTitle>
           <DialogDescription>Existing terms and issued payouts stay unchanged before this date.</DialogDescription></DialogHeader>
@@ -3059,7 +3091,7 @@ function FinancialTermsSection({
               </div>
               {financialRules.length > 1 && (
                 <div className="mt-1 text-xs text-muted-foreground">
-                  <details><summary>History ({financialRules.length - 1} earlier versions)</summary>{financialRules.slice(1).map(rule => <p key={rule.id}>{formatDate(rule.effective_start_date)} – {rule.effective_end_date ? formatDate(rule.effective_end_date) : 'Ongoing'}: {formatRuleAllocationSummary(rule, payoutParticipants)}</p>)}</details>
+                  Earlier versions remain in History below.
                 </div>
               )}
             </div>
@@ -3074,6 +3106,15 @@ function FinancialTermsSection({
           </Row>
         )}
       </div>
+      <details className="rounded-lg border p-4"><summary className="cursor-pointer font-medium">History ({financialRules.length} versions)</summary>
+        {financialRules.map(rule => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-3">
+          <div>{formatDate(rule.effective_start_date)} – {rule.effective_end_date ? formatDate(rule.effective_end_date) : 'Ongoing'}: {formatRuleAllocationSummary(rule, payoutParticipants)}</div>
+          <Button variant="outline" className="min-h-11" onClick={() => {
+            setCorrectionRule(rule); setCorrectionEnd(rule.effective_end_date ?? ''); setCorrectionHasEnd(Boolean(rule.effective_end_date));
+            setCorrectionReason(''); setCorrectionReviewed(false);
+          }}>Correct end date</Button>
+        </div>)}
+      </details>
     </section>
   );
 }
