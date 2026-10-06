@@ -27,6 +27,7 @@ import {
 } from './sync-diagnostics.mjs';
 import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 import { collectSunzeMachineInventory, parseSunzeMachinePagination, scrollSunzeMachineList } from './machine-inventory-coverage.mjs';
+import { inspectSunzeMachineStructure } from './machine-structure-diagnostic.mjs';
 
 const args = process.argv.slice(2);
 
@@ -796,6 +797,7 @@ const openOrdersPage = async (page) => {
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(2500);
 
+  if (hasFlag('--machine-diagnostic')) return baseUrl;
   await page.goto(`${baseUrl}#/orderCenter`, { waitUntil: 'domcontentloaded' });
   assertAllowedSunzeRoute(page, baseUrl);
   await page.waitForLoadState('networkidle').catch(() => {});
@@ -1879,6 +1881,20 @@ const loadOrdersSource = async () => {
   throw new Error('Unable to export and parse provider Orders workbook.');
 };
 
+if (hasFlag('--machine-diagnostic')) {
+  if (!dryRun) throw new Error('Machine diagnostics require --dry-run; no export or ingestion is allowed.');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const baseUrl = await openOrdersPage(page);
+    const inventory = await readVisibleSunzeMachines(page, baseUrl);
+    assertAllowedSunzeRoute(page);
+    const structure = await page.evaluate(inspectSunzeMachineStructure);
+    const result = {machineCoverage:inventory.coverage,structure};
+    await writeFile('sunze-machine-structure.json',JSON.stringify(result,null,2));
+    console.log(JSON.stringify(result,null,2));
+  } finally { await browser.close(); }
+} else {
 let cleanupTarget = null;
 
 try {
@@ -2102,4 +2118,5 @@ try {
       cleanupMode: cleanupTarget.mode,
     });
   }
+}
 }

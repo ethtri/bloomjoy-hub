@@ -31,6 +31,10 @@ on:
       ingest_chunk_size:
         description: 'Rows per Supabase ingest request'
         required: false
+      machine_diagnostic_only:
+        description: 'Read sanitized Machine Center structure only; requires dry_run=true'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -53,6 +57,7 @@ jobs:
       DATE_START: ${{ inputs.date_start || '' }}
       DATE_END: ${{ inputs.date_end || '' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      MACHINE_DIAGNOSTIC_ONLY: ${{ inputs.machine_diagnostic_only || 'false' }}
       CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
@@ -88,6 +93,14 @@ jobs:
       - name: Sync sales orders
         shell: bash
         run: |
+          if [[ "$MACHINE_DIAGNOSTIC_ONLY" == "true" ]]; then
+            if [[ "$DRY_RUN" != "true" ]]; then
+              echo "Machine diagnostics require dry_run=true." >&2
+              exit 1
+            fi
+            node scripts/sunze/sync-orders.mjs --dry-run --machine-diagnostic
+            exit 0
+          fi
           args=()
           if [[ -n "$DATE_START" || -n "$DATE_END" ]]; then
             if [[ -z "$DATE_START" || -z "$DATE_END" ]]; then
@@ -115,7 +128,7 @@ jobs:
           npm run reporting:provider-sync -- "${args[@]}"
 
       - name: Check sales import freshness
-        if: ${{ success() && env.DRY_RUN != 'true' }}
+        if: ${{ success() && env.DRY_RUN != 'true' && env.MACHINE_DIAGNOSTIC_ONLY != 'true' }}
         run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"
 
       - name: Upload sales import diagnostics
@@ -128,9 +141,17 @@ jobs:
           retention-days: 14
 
       - name: Notify manual sales import failure
-        if: ${{ failure() && github.event_name == 'workflow_dispatch' && env.DRY_RUN != 'true' }}
+        if: ${{ failure() && github.event_name == 'workflow_dispatch' && env.DRY_RUN != 'true' && env.MACHINE_DIAGNOSTIC_ONLY != 'true' }}
         run: >
           npm run reporting:provider-health --
           --event failure
           --message "Manual Sales Import Sync workflow failed before a completed import."
           --stale-hours "$SALES_IMPORT_STALE_HOURS"
+
+      - name: Upload sanitized machine structure
+        if: ${{ success() && env.MACHINE_DIAGNOSTIC_ONLY == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunze-machine-structure
+          path: sunze-machine-structure.json
+          retention-days: 3
