@@ -2598,7 +2598,7 @@ function MachineDialog({
     try {
       const id = await reuseImportedSourceMachine(importedSource, sourceReuseOption);
       onImportedSourceSaved?.(id);
-      toast.success('Existing machine connected. Sales activation remains pending reconciliation.');
+      toast.success('Source and reader saved to the existing machine.');
       await onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to use the existing machine.');
@@ -3634,9 +3634,9 @@ function MachineDialog({
             <p className="font-medium">This reader is connected to {sourceReuseOption?.machineName || 'an existing machine'}.</p>
             {sourceReuseVerified && sourceReuseOption?.eligible ? <>
               <p className="text-sm">Use the same machine, preserving its name, company ({sourceReuseOption.companyName}), managers, saved time zone ({sourceReuseOption.timezone}) and sales history. No new machine is created.</p>
-              <p className="text-sm text-muted-foreground">Imported sales stay pending until financial reconciliation. This does not replay orders or activate refunds.</p>
+              <p className="text-sm text-muted-foreground">Nayax supplies card revenue; genuine source cash remains included. Source card observations do not add a second sale. Existing financial history stays unchanged, and refunds are not activated by this save.</p>
               <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={reuseConfirmed} onChange={(event) => setReuseConfirmed(event.target.checked)} disabled={isSaving}/>I confirm this source and reader identify the same physical machine.</label>
-              <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Use existing machine</Button>
+              <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Save machine changes</Button>
             </> : <>
               <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
               {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}

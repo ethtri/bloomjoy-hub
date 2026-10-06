@@ -199,6 +199,8 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
         authorizationAmountCents: normalized.authorizationAmountCents,
         settlementAmountCents: normalized.settlementAmountCents,
         paidAmountCents: normalized.paidAmountCents,
+        machineAuthorizedAt: normalized.machineAuthorizedAt,
+        authorizedAt: normalized.authorizedAt,
         machineSettledAt: normalized.machineSettledAt,
         providerSettledAt: normalized.providerSettledAt,
         // Keep the provider's actual revision clock. This remains null when

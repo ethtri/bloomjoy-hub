@@ -88,6 +88,8 @@ Deno.test("actual seven-row shape keeps parent/child coverage, day-first UTC and
   assertEquals(r.sales[0].providerStatusName, "Settled");
   assertEquals(r.sales[0].settlementAmountCents, 1100);
   assertEquals(r.sales[0].machineSettledAt, "2026-09-03T12:45:52");
+  assertEquals(r.sales[0].machineAuthorizedAt, "2026-09-03T12:45:51");
+  assertEquals(r.sales[0].authorizedAt, "2026-09-03T19:45:52Z");
   assertEquals(r.sales[0].providerUpdatedAt, "2026-09-03T19:45:57Z");
   assertEquals(String(r.sales[0].sourceOrderHash).length, 64);
   assertEquals(String(r.sales[0].sourceRowHash).length, 64);
