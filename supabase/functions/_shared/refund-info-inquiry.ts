@@ -86,10 +86,11 @@ const currentMessageText = (value: string) => value
 // Acknowledgment is the default for direct customer mail. Do not require
 // purchase/problem vocabulary: short, attachment-only and non-English messages
 // need the same receipt and conditional form link as an explicit refund ask.
-const automatedSender = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifier|notifications?)@/i;
+const automatedSender = /(?:^|[-_.])(?:no[-_.]?reply|do[-_.]?not[-_.]?reply)(?:@|[-_.])|^(?:notifier|notifications?)@|(?:acctsreceivable|accountsreceivable)@/i;
+const automatedSubject = /^(?:automatic\s+reply|auto[- ]?reply|out\s+of\s+office|receipt\s+for\s+.+\s+payment\s+to)\b/i;
 const statusQuestion = /\b(?:where\s+is\s+my\s+refund|status\s+of\s+my\s+(?:refund|case|request)|already\s+(?:submitted|filled\s+out|completed)\s+(?:the\s+)?(?:refund\s+)?form|following\s+up\s+on\s+my\s+(?:refund|case|request))\b/i;
 const publicReference = /\bRF-[A-Z0-9]{6,20}\b/i;
-const businessContext = /\b(?:invoice|wholesale|partnership|sponsorship|advertising|marketing|seo|payroll|technician|service\s+ticket|vendor|supplier)\b/i;
+const businessContext = /\b(?:wholesale|partnership|sponsorship|advertising|marketing|seo|payroll|technician|service\s+ticket|vendor|supplier|timekeeping|timesheets?|accounts\s+receivable|shipping\s+(?:rates?|updates?|labels?)|(?:usps|ups)\s+(?:is\s+(?:raising|updating)\s+)?(?:service|holiday|rates?|surcharges)|(?:web|website)\s+(?:design|redesign|development))\b/i;
 
 export function classifyRefundInfoInquiry({
   messages,
@@ -101,6 +102,7 @@ export function classifyRefundInfoInquiry({
   const connectedIdentities = new Set(mailboxIdentities.map((email) => email.toLowerCase()));
   let infoAddressed = false;
   let untrusted = false;
+  let knownBusinessThread = false;
   let latestApplicable: { route: RefundInfoInquiryRoute; sourceMessageId: string | null } | null = null;
   for (const message of messages) {
     const signals = inspectRefundGmailParticipantSignals({
@@ -114,6 +116,7 @@ export function classifyRefundInfoInquiry({
     infoAddressed = true;
     if (signals.mailboxOrigin || signals.participantTrust !== "direct_human" ||
       automatedSender.test(signals.from.email) ||
+      automatedSubject.test(getGmailHeader(message.payload?.headers, "Subject")) ||
       (message.labelIds ?? []).some((label) => ["SPAM", "TRASH"].includes(label.toUpperCase()))) {
       untrusted = true;
       continue;
@@ -121,6 +124,7 @@ export function classifyRefundInfoInquiry({
     const subject = getGmailHeader(message.payload?.headers, "Subject");
     const text = currentMessageText(`${subject}\n${extractPlainTextBody(message.payload)}`);
     if (businessContext.test(text)) {
+      knownBusinessThread = true;
       // A later business message must not trigger an older automatic reply.
       // Retain an already observed customer inquiry for human review instead
       // of silently losing its unanswered obligation.
@@ -134,6 +138,7 @@ export function classifyRefundInfoInquiry({
       latestApplicable = { route: "existing_case_question", sourceMessageId: message.id ?? null };
       continue;
     }
+    if (knownBusinessThread && latestApplicable?.route === "non_refund") continue;
     latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
   }
   if (latestApplicable) return latestApplicable;

@@ -99,6 +99,8 @@ Deno.test("general questions receive acknowledgment while business purchases rem
     "Please help",
     "Necesito ayuda",
     "我的付款有问题",
+    "My account statement shows a charge I don't recognize.",
+    "Please see the receipt or invoice attached.",
     "",
   ]) assertRoute(message({ body }), "new_refund_inquiry");
   assertRoute(message({ body: "I purchased cotton candy for our wholesale order and need an invoice." }), "non_refund");
@@ -296,9 +298,22 @@ Deno.test("spam, trash and notification senders cannot trigger broad acknowledgm
     excluded.labelIds = [label];
     assertRoute(excluded, "untrusted");
   }
-  for (const from of ["noreply@example.test", "no-reply@example.test", "DoNotReply@example.test", "notifier@example.test", "notifications@example.test"]) {
+  for (const from of ["noreply@example.test", "no-reply@example.test", "DoNotReply@example.test", "notifier@example.test", "notifications@example.test", "testflight_no_reply@example.test", "workspace-noreply@example.test", "UFAcctsReceivable@example.test"]) {
     assertRoute(message({ from, body: "Payment receipt" }), "untrusted");
   }
+  for (const subject of ["Automatic reply: Help", "Receipt for $5 payment to a carrier"]) {
+    assertRoute(message({ subject }), "untrusted");
+  }
+});
+
+Deno.test("routine business notifications and short business follow-ups stay excluded", () => {
+  for (const body of ["Accounts receivable notice", "USPS service update", "Please enter your timesheet", "Website design proposal"]) {
+    assertRoute(message({ body }), "non_refund");
+  }
+  const earlier = message({ body: "Please complete the vendor permit for our event." });
+  const later = message({ body: "Checking that you saw my message." });
+  const result = classifyRefundInfoInquiry({ messages: [earlier, later], mailboxIdentities: ["info@bloomjoysweets.com"] });
+  if (result.route !== "non_refund") throw new Error("A short vendor follow-up cannot become customer intake");
 });
 
 Deno.test("a photo-only customer inquiry does not need a plaintext part or subject", () => {
