@@ -16,6 +16,8 @@ Issue #1774 is deployed through PR #1775 (main 13ee3155), with production monito
 
 ## Partnership workflow
 
+- #1788 supersedes the previously applied October terms: implement reviewed correction to September 1, 2026, 70% partner / 30% Bloomjoy of sales after tax/refunds only, with zero extra deductions for both Merlin and Bubble Planet. Guarded live application is pending; facts, issued snapshots and assignment dates stay unchanged.
+
 - PR #1786 is deployed (main `fc441c29`), with optional ongoing dates, exact-source additions with explicit start dates, and reviewed atomic dated splits. Guarded portal updates continued Merlin’s existing 30% partner / 70% Bloomjoy NET terms through September 30, 2026, and applied ongoing 70% partner / 30% Bloomjoy NET terms to Merlin and Bubble Planet from October 1. Bubble Planet’s $0.40-per-stick deduction, all nine assignments (including existing Peppa), 19 draft snapshots, facts, parties and partnership lifecycle dates are unchanged. #1784 remains In Progress: LA source `1785123901474964787735686` is still unbound pending company and pre-October ownership allocation; all 641 pending orders, including 470 before October 1, remain unchanged.
 
 ## Refund workflow (current)

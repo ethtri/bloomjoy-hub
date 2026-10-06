@@ -59,6 +59,7 @@ import {
   upsertReportingFinancialRuleAdmin,
   changePartnershipSplitAdmin,
   correctPartnershipRuleEndAdmin,
+  correctPartnershipTermsAdmin,
   upsertReportingMachineAssignmentAdmin,
   upsertReportingPartnerAdmin,
   upsertReportingPartnershipAdmin,
@@ -210,6 +211,8 @@ const emptyRuleForm = {
 };
 
 const payoutModelPresets = [
+  { value: 'post_tax_refunds_only', label: 'Sales after tax and refunds only',
+    description: 'Actual sales less tax and refunds, with no stick, processing or other configured deductions.' },
   {
     value: 'net_after_tax_fee',
     label: 'Net sales split',
@@ -429,6 +432,8 @@ const sortFinancialRulesForSetup = (rules: ReportingPartnershipFinancialRule[]) 
   [...rules].sort((left, right) => getRuleSortValue(right).localeCompare(getRuleSortValue(left)));
 
 const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => {
+  if (form.calculationModel === 'net_split' && form.splitBase === 'net_sales' &&
+    form.grossToNetMethod === 'imported_tax_plus_configured_fees' && Number(form.feeAmountDollars) === 0 && Number(form.costAmountDollars) === 0) return 'post_tax_refunds_only';
   if (form.calculationModel === 'internal_only') return 'internal_only';
   if (form.calculationModel === 'gross_split' && form.splitBase === 'gross_sales') {
     return 'gross_sales_split';
@@ -447,6 +452,9 @@ const applyPayoutModelPreset = (
   form: typeof emptyRuleForm,
   preset: PayoutModelPreset
 ): typeof emptyRuleForm => {
+  if (preset === 'post_tax_refunds_only') return { ...form, calculationModel: 'net_split', splitBase: 'net_sales',
+    grossToNetMethod: 'imported_tax_plus_configured_fees', feeAmountDollars: '0.00', feeBasis: 'none', feeLabel: 'No additional deductions',
+    costAmountDollars: '0.00', costBasis: 'none', costLabel: 'No additional costs', deductionTiming: 'before_split', additionalDeductionsNotes: '' };
   if (preset === 'gross_sales_split') {
     return {
       ...form,
@@ -2782,6 +2790,13 @@ function FinancialTermsSection({
   const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
   const isRuleFormDirty = JSON.stringify(form) !== JSON.stringify(defaultRuleForm);
   const [isChangingSplit, setIsChangingSplit] = useState(false);
+  const [isCorrectingTerms, setIsCorrectingTerms] = useState(false);
+  const [termsEffectiveFrom, setTermsEffectiveFrom] = useState('');
+  const [termsReason, setTermsReason] = useState('');
+  const [termsReviewed, setTermsReviewed] = useState(false);
+  const [isSavingTerms, setIsSavingTerms] = useState(false);
+  const previousFinancialRule = financialRules.find(rule => rule.status === 'active' && rule.id !== currentFinancialRule?.id) ?? null;
+
   const [splitEffectiveFrom, setSplitEffectiveFrom] = useState(today());
   const [isSplitReviewOpen, setIsSplitReviewOpen] = useState(false);
   const [correctionRule, setCorrectionRule] = useState<ReportingPartnershipFinancialRule | null>(null);
@@ -2809,8 +2824,8 @@ function FinancialTermsSection({
   }, [defaultRuleForm]);
 
   useEffect(() => {
-    onDirtyChange?.(isRuleFormDirty || isChangingSplit);
-  }, [isRuleFormDirty, isChangingSplit, onDirtyChange]);
+    onDirtyChange?.(isRuleFormDirty || isChangingSplit || isCorrectingTerms);
+  }, [isRuleFormDirty, isChangingSplit, isCorrectingTerms, onDirtyChange]);
 
   const updatePayoutPreset = (preset: PayoutModelPreset) => {
     setForm((current) => applyPayoutModelPreset(current, preset));
@@ -2884,6 +2899,11 @@ function FinancialTermsSection({
         <Button className="min-h-11" variant="outline" onClick={() => {
           setForm(createRuleFormFromRule(currentFinancialRule)); setIsChangingSplit(true);
         }}>Change split</Button>
+        <Button className="min-h-11" variant="outline" onClick={() => {
+          setForm(createRuleFormFromRule(currentFinancialRule));
+          setTermsEffectiveFrom(currentFinancialRule.effective_start_date);
+          setTermsReason(''); setTermsReviewed(false); setIsCorrectingTerms(true);
+        }}>Correct terms</Button>
         {isChangingSplit && <Button variant="outline" onClick={() => { setIsChangingSplit(false); setForm(defaultRuleForm); }}>Cancel split change</Button>}
         {isChangingSplit && <div className="min-w-0">
           <Label htmlFor="split-effective-from">New split effective from</Label>
@@ -2891,6 +2911,48 @@ function FinancialTermsSection({
             value={splitEffectiveFrom} onChange={e => setSplitEffectiveFrom(e.target.value)} />
         </div>}
       </div>}
+      <Dialog open={isCorrectingTerms} onOpenChange={open => { if (!isSavingTerms) setIsCorrectingTerms(open); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto"><DialogHeader>
+          <DialogTitle>Correct partnership terms</DialogTitle>
+          <DialogDescription>Correct the current version and its preceding boundary together. Assignment dates and issued reports or payouts remain unchanged.</DialogDescription>
+        </DialogHeader>
+        <fieldset disabled={termsReviewed || isSavingTerms} className="min-w-0 space-y-3">
+          <Label htmlFor="terms-effective-from">Corrected terms effective from</Label>
+          <Input id="terms-effective-from" type="date" className="h-11 min-w-0 w-full md:text-base" value={termsEffectiveFrom} onChange={e => setTermsEffectiveFrom(e.target.value)} />
+          <Label htmlFor="terms-model">Calculation model</Label>
+          <select id="terms-model" className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-base" value="post_tax_refunds_only" onChange={() => undefined}>
+            <option value="post_tax_refunds_only">Sales after tax and refunds only</option>
+          </select>
+          <p className="text-sm">No stick deduction, processing fee or other configured cost. The remaining amount is split below.</p>
+          <PayoutAllocationSection form={form} payoutParticipants={payoutParticipants} additionalPayoutParticipants={additionalPayoutParticipants} allocationTotal={allocationTotal} onShareChange={updateSharePercent} />
+          <Label htmlFor="terms-correction-reason">Reason for terms correction</Label>
+          <Textarea id="terms-correction-reason" value={termsReason} onChange={e => setTermsReason(e.target.value)} />
+        </fieldset>
+        {termsReviewed && <div className="space-y-2 text-sm">
+          <p>{selectedPartnership.name}: sales after tax and refunds only from {formatDate(termsEffectiveFrom)}. All additional deductions: $0.</p>
+          <p>{formatRuleAllocationSummary({ ...currentFinancialRule,
+            fever_share_basis_points: basisPointsFromPercent(form.primarySharePercent),
+            partner_share_basis_points: basisPointsFromPercent(form.partnerSharePercent),
+            bloomjoy_share_basis_points: basisPointsFromPercent(form.bloomjoySharePercent)
+          } as ReportingPartnershipFinancialRule, payoutParticipants)}</p>
+          <p>Previous terms end the day before this date. The current {currentFinancialRule && formatDate(currentFinancialRule.effective_start_date)} breakpoint is replaced, not duplicated. Existing and future assigned machines inherit these terms; assignment dates stay unchanged.</p>
+          <p>September and October draft previews will recalculate. Issued reports and payouts stay as recorded; reconcile any required adjustment separately.</p>
+          <ul className="max-h-32 overflow-y-auto">{setup.assignments.filter(a => a.partnership_id === selectedPartnership.id && a.status === 'active' && (!a.effective_end_date || a.effective_end_date >= termsEffectiveFrom)).map(a => <li key={a.id}>{setup.machines.find(m => m.id === a.machine_id)?.machine_label ?? a.machine_id}</li>)}</ul>
+        </div>}
+        <DialogFooter><Button variant="outline" disabled={isSavingTerms} onClick={() => termsReviewed ? setTermsReviewed(false) : setIsCorrectingTerms(false)}>Back</Button>
+          <Button disabled={isSavingTerms || !termsReason.trim() || !termsEffectiveFrom || allocationTotal !== 100 || additionalPayoutParticipants.length > 0 || (previousFinancialRule && termsEffectiveFrom <= previousFinancialRule.effective_start_date) || (currentFinancialRule?.effective_end_date != null && termsEffectiveFrom > currentFinancialRule.effective_end_date)} onClick={async () => {
+            if (!termsReviewed) { setTermsReviewed(true); return; }
+            if (!currentFinancialRule) return;
+            const shares = getNormalizedPayoutShares(form, payoutParticipants.length);
+            setIsSavingTerms(true);
+            try { await correctPartnershipTermsAdmin({ rule: currentFinancialRule, previousRule: previousFinancialRule, effectiveFrom: termsEffectiveFrom,
+              primaryShare: basisPointsFromPercent(shares.primarySharePercent), secondaryShare: basisPointsFromPercent(shares.partnerSharePercent), bloomjoyShare: basisPointsFromPercent(shares.bloomjoySharePercent), reason: termsReason.trim() });
+              setIsCorrectingTerms(false); toast.success('Partnership terms corrected. Review affected draft reports.'); await onRefresh();
+            } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to correct partnership terms.'); }
+            finally { setIsSavingTerms(false); }
+          }}>{termsReviewed ? 'Confirm terms correction' : 'Review terms correction'}</Button>
+        </DialogFooter></DialogContent>
+      </Dialog>
       <Dialog open={Boolean(correctionRule)} onOpenChange={open => { if (!open && !isCorrectingEnd) setCorrectionRule(null); }}>
         <DialogContent><DialogHeader><DialogTitle>Correct historical end date</DialogTitle>
           <DialogDescription>Only the selected rule's end date changes. Percentages, deductions, original start and issued payouts stay unchanged.</DialogDescription></DialogHeader>
@@ -3300,8 +3362,8 @@ function PayoutFlowSummary({
         <div className="mt-1 text-xs text-muted-foreground">Weekly paid orders</div>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
-        <div className="font-medium text-foreground">Taxes and stick costs</div>
-        <div className="mt-1 text-xs text-muted-foreground">{deductionSummary}</div>
+        <div className="font-medium text-foreground">{getPayoutModelPreset(form) === 'post_tax_refunds_only' ? 'Tax and refunds only' : 'Taxes and stick costs'}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{getPayoutModelPreset(form) === 'post_tax_refunds_only' ? 'No additional deductions' : deductionSummary}</div>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
         <div className="font-medium text-foreground">Payout base</div>

@@ -1256,3 +1256,8 @@ npm run refunds:validate-portal-uat-lifecycle
 - Machine additions use explicit Assignment effective from and exact source ID. The provisional LA Hub is not a new machine option; confirmed Peppa already assigned is a no-op. Never promote historical LA source orders into an unverified company.
 
 - Under partnership History, Correct end date reviews a selected version/date and requires a reason. Confirm changes only that date through a guarded expected-snapshot writer; stale/overlapping correction and audit failure roll back. For approved Merlin repair, preserve old 30% Merlin / 70% Bloomjoy deductions and start while correcting its end to September 30 before adding October terms.
+
+### Partnership terms correction (#1788)
+- Open Bubble Planet or Merlin → Payout rules → Correct terms. Review September 1, 2026, the explicit sales-after-tax/refunds-only model, 70% partner / 30% Bloomjoy and zero additional deductions.
+- Confirm prior terms end August 31 and the October breakpoint is replaced. September/October draft previews recalculate; issued reports/payouts, assignment dates and lifecycle dates remain unchanged.
+- Verify stale terms or a failed save preserve both versions, drafts and audit state.

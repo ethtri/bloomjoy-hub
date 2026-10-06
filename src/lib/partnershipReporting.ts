@@ -728,6 +728,21 @@ export const correctPartnershipRuleEndAdmin = async (rule: ReportingPartnershipF
   return data as ReportingPartnershipFinancialRule;
 };
 
+export const correctPartnershipTermsAdmin = async (input: {
+  rule: ReportingPartnershipFinancialRule; previousRule: ReportingPartnershipFinancialRule | null;
+  effectiveFrom: string; primaryShare: number; secondaryShare: number; bloomjoyShare: number; reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_correct_partnership_terms', {
+    p_rule_id: input.rule.id, p_expected_rule: reviewedFinancialRule(input.rule),
+    p_previous_rule_id: input.previousRule?.id ?? null,
+    p_expected_previous_rule: input.previousRule ? reviewedFinancialRule(input.previousRule) : null,
+    p_effective_from: input.effectiveFrom, p_primary_share: input.primaryShare,
+    p_secondary_share: input.secondaryShare, p_bloomjoy_share: input.bloomjoyShare, p_reason: input.reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to correct partnership terms.');
+  return data as ReportingPartnershipFinancialRule;
+};
+
 export const changePartnershipSplitAdmin = async (input: {
   partnershipId: string; expectedRule: ReportingPartnershipFinancialRule; effectiveFrom: string;
   primaryShare: number; secondaryShare: number; bloomjoyShare: number;
