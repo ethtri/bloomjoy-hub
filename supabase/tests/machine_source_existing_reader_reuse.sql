@@ -18,19 +18,23 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,ma
  ('aa179903-0000-4000-8000-000000000001','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Existing cotton machine','commercial','17990001','REUSE_FIXTURE',null,true,true),
  ('aa179903-0000-4000-8000-000000000002','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Other real source machine','commercial','17990002','REUSE_FIXTURE','fixture-1799-bound',true,true),
  ('aa179903-0000-4000-8000-000000000003','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Existing case machine','snapcase','17990003','REUSE_FIXTURE',null,true,false),
- ('aa179903-0000-4000-8000-000000000004','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Historical case connection','snapcase','17990004','REUSE_FIXTURE',null,true,false);
+ ('aa179903-0000-4000-8000-000000000004','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Historical case connection','snapcase','17990004','REUSE_FIXTURE',null,true,false),
+ ('aa179903-0000-4000-8000-000000000005','aa179901-0000-4000-8000-000000000001','aa179902-0000-4000-8000-000000000001','Historical Sunze association','commercial','17990005','REUSE_FIXTURE',null,true,false);
 insert into public.sunze_machine_discoveries(sunze_machine_id,sunze_machine_name,status,reporting_machine_id,last_seen_at) values
  ('fixture-1799-gilroy','Imported cotton alias','pending',null,now()),
  ('fixture-1799-other','Second unbound source','pending',null,now()),
  ('fixture-1799-bound','Bound source','mapped','aa179903-0000-4000-8000-000000000002',now());
 insert into public.sunze_unmapped_sales(sunze_machine_id,source_order_hash,source_row_hash,sale_date,payment_method,net_sales_cents,transaction_count,raw_payload) values
  ('fixture-1799-gilroy','reuse-old-order','reuse-old-row','2025-08-03','credit',900,1,'{"machine_code":"fixture-1799-gilroy","machine_name":"Imported cotton alias"}'),
- ('fixture-1799-gilroy','reuse-recent-order','reuse-recent-row','2026-10-04','cash',400,1,'{"machine_code":"fixture-1799-gilroy","machine_name":"Imported cotton alias"}');
+ ('fixture-1799-gilroy','reuse-recent-order','reuse-recent-row','2026-10-04','cash',400,1,'{"machine_code":"fixture-1799-gilroy","machine_name":"Imported cotton alias"}'),
+ ('fixture-1799-historical','reuse-historical-order','reuse-historical-row','2025-08-03','credit',500,1,'{}');
+update public.sunze_unmapped_sales set reporting_machine_id='aa179903-0000-4000-8000-000000000005' where source_order_hash='reuse-historical-order';
 insert into public.refund_nayax_machine_inventory(id,account_key,nayax_machine_id,machine_name,provider_is_active,reporting_machine_id,reconciliation_state,refund_category) values
  ('aa179904-0000-4000-8000-000000000001','REUSE_FIXTURE','17990001','Occupied legacy reader',true,'aa179903-0000-4000-8000-000000000001','published','cotton_candy'),
  ('aa179904-0000-4000-8000-000000000002','REUSE_FIXTURE','17990002','Occupied genuine source reader',true,'aa179903-0000-4000-8000-000000000002','published','cotton_candy'),
  ('aa179904-0000-4000-8000-000000000003','REUSE_FIXTURE','17990003','Occupied case reader',true,'aa179903-0000-4000-8000-000000000003','needs_setup','snapcase'),
- ('aa179904-0000-4000-8000-000000000004','REUSE_FIXTURE','17990004','Historical mapped reader',true,'aa179903-0000-4000-8000-000000000004','needs_setup','snapcase');
+ ('aa179904-0000-4000-8000-000000000004','REUSE_FIXTURE','17990004','Historical mapped reader',true,'aa179903-0000-4000-8000-000000000004','needs_setup','snapcase'),
+ ('aa179904-0000-4000-8000-000000000005','REUSE_FIXTURE','17990005','Historical Sunze reader',true,'aa179903-0000-4000-8000-000000000005','needs_setup','cotton_candy');
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,status) values
  ('aa179903-0000-4000-8000-000000000001','aa179900-0000-4000-8000-000000000001','reuse-admin@example.invalid','active');
 insert into public.refund_machine_qr_codes(reporting_machine_id,public_code,version) values
@@ -82,6 +86,8 @@ select throws_ok($$select public.admin_get_imported_source_reuse_options(null,nu
 select ok(public.admin_get_imported_source_reuse_options('Sunze',null,'fixture-1799-gilroy') @> '[{"inventoryId":"aa179904-0000-4000-8000-000000000001","machineId":"aa179903-0000-4000-8000-000000000001","timezone":"America/Los_Angeles","eligible":true}]','Exact occupied legacy reader offers same-Hub reuse with existing saved zone');
 select ok(public.admin_get_imported_source_reuse_options('Sunze',null,'fixture-1799-gilroy') @> '[{"inventoryId":"aa179904-0000-4000-8000-000000000002","eligible":false}]','Reader belonging to a genuine source is an explained conflict, not a reusable legacy target');
 select ok(public.admin_get_imported_source_reuse_options('Sunze',null,'fixture-1799-gilroy') @> '[{"inventoryId":"aa179904-0000-4000-8000-000000000004","eligible":false}]','Expired source history still blocks silently reusing a different machine');
+select ok(public.admin_get_imported_source_reuse_options('Sunze',null,'fixture-1799-gilroy') @> '[{"inventoryId":"aa179904-0000-4000-8000-000000000005","eligible":false}]','Historical pending-order source association blocks reuse even after current source links were cleared');
+select throws_ok($$select public.admin_reuse_imported_source_machine('Sunze',null,'fixture-1799-other','aa179904-0000-4000-8000-000000000005','aa179903-0000-4000-8000-000000000005',(select updated_at from reuse_expected where id='aa179903-0000-4000-8000-000000000005'),'America/Los_Angeles','Attempt historical pending association replacement')$$,'22023',null,'Direct writer also rejects a prior pending-order source association');
 select throws_ok($$select public.admin_reuse_imported_source_machine('Sunze',null,'fixture-1799-gilroy','aa179904-0000-4000-8000-000000000001','aa179903-0000-4000-8000-000000000001','2000-01-01','America/Los_Angeles','Synthetic stale source review')$$,'40001',null,'Stale machine review cannot attach a source');
 select throws_ok($$select public.admin_reuse_imported_source_machine('Sunze',null,'fixture-1799-gilroy','aa179904-0000-4000-8000-000000000001','aa179903-0000-4000-8000-000000000001',(select updated_at from reuse_expected where id='aa179903-0000-4000-8000-000000000001'),'America/New_York','Synthetic stale timezone review')$$,'40001',null,'Changed shared site timezone invalidates review even without a Hub timestamp change');
 select throws_ok($$select public.admin_reuse_imported_source_machine('Sunze',null,'fixture-1799-gilroy','aa179904-0000-4000-8000-000000000001','aa179903-0000-4000-8000-000000000001',(select updated_at from reuse_expected where id='aa179903-0000-4000-8000-000000000001'),null,'Synthetic omitted timezone review')$$,'40001',null,'Omitted reviewed timezone cannot authorize association');
