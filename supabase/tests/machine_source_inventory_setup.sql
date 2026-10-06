@@ -56,6 +56,8 @@ insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,
  ('FIXTURE_SOURCE_B','17740001',now(),'finance_verified','verified_tax',9.5,'Synthetic different merchant tax',current_date-1);
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload) values
  ('aa177403-0000-4000-8000-000000000004','aa177402-0000-4000-8000-000000000001','2026-09-01','credit',800,1,'nayax_scheduled_report','fixture-source-history','{"providerMachineId":"17740002","originalName":"Preserved history"}');
+insert into public.sales_import_runs(id,source,status,started_at,completed_at,created_at,meta) values
+ ('aa177407-0000-4000-8000-000000000001','sunze_browser','completed',now()+interval '1 day',now()+interval '1 day',now()+interval '1 day','{"machine_coverage_verified":true,"private_fixture_contact":"not-published@example.invalid"}');
 create temporary table source_setup_history_before as select id,to_jsonb(fact) value from public.machine_sales_facts fact where source_row_hash='fixture-source-history';
 create temporary table source_catalogue_expected as
  select jsonb_build_array('Sunze',null::text,sunze_machine_id) identity from public.sunze_machine_discoveries
@@ -74,6 +76,7 @@ select throws_ok($$select public.admin_get_machine_source_inventory()$$,'42501',
 select throws_ok($$select public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000000001')$$,'42501',null,'Authenticated outsider cannot read imported tax');
 select set_config('request.jwt.claim.sub','aa177400-0000-4000-8000-000000000002',true);
 select is((public.admin_get_machine_source_inventory()->>'count')::int,1,'Scoped user sees exact authorized imported source only, not authorized Hub-only history or global unbound sources');
+select is(public.admin_get_machine_source_inventory()->'importHealth','null'::jsonb,'Global provider account health is not disclosed outside superadmin scope');
 select ok(public.admin_get_machine_source_inventory()->'sources' @> '[{"platform":"Sunze","sourceId":"fixture-1774-mapped","reportingMachineId":"aa177403-0000-4000-8000-000000000001"}]','Scoped catalogue preserves stable mapped identity');
 select throws_ok($$select public.admin_setup_imported_machine('Sunze',null,'fixture-1774-pending','aa177401-0000-4000-8000-000000000001','Unauthorized setup','commercial','setup','America/Los_Angeles',null,array[]::text[],'Synthetic denied setup')$$,'42501',null,'Scoped user cannot claim an unbound source');
 select throws_ok($$select public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000000001')$$,'42501',null,'Scoped user cannot enumerate arbitrary imported-reader tax');
@@ -93,6 +96,18 @@ select is((public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000
 select is((public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000000003')->>'ratePercent')::numeric,9.5::numeric,'Tax preview uses exact merchant account as well as reader ID');
 select is(public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000000002')->>'ratePercent',null::text,'Unclassified surcharge is never invented as numeric tax');
 select is(public.admin_get_imported_machine_tax('aa177404-0000-4000-8000-000000000099')->>'coverageStatus','missing','Missing imported reader has explicit unavailable tax state');
+select is((public.admin_get_machine_source_inventory()->'importHealth'->>'verified')::boolean,false,'Legacy nonempty-list boolean cannot claim provider completeness');
+select ok(position('not-published@example.invalid' in (public.admin_get_machine_source_inventory()->'importHealth')::text)=0,'Importer warning projects safe fields only, never raw private metadata');
+reset role;
+update public.sales_import_runs set meta=meta||'{"machine_coverage_verification_version":1}'::jsonb where id='aa177407-0000-4000-8000-000000000001';
+set local role authenticated;
+select is((public.admin_get_machine_source_inventory()->'importHealth'->>'verified')::boolean,true,'Completed import verified by new proof version may be reported as complete');
+reset role;
+insert into public.sales_import_runs(id,source,status,started_at,completed_at,created_at,meta,error_message) values
+ ('aa177407-0000-4000-8000-000000000002','sunze_browser','failed',now()+interval '2 days',now()+interval '2 days',now()+interval '2 days','{"machine_coverage_verification_version":1,"machine_coverage_verified":true}','Synthetic provider read failure');
+set local role authenticated;
+select is((public.admin_get_machine_source_inventory()->'importHealth'->>'verified')::boolean,false,'Newer failed import cannot be concealed by earlier verified success');
+select is((public.admin_get_machine_source_inventory()->>'count')::int,(select count(*)::int from source_catalogue_expected),'Failed latest import does not remove stored historical source identities');
 reset role;
 create temporary table source_setup_before_failure as select
  (select count(*) from public.reporting_machines) machines,
