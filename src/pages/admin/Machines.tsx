@@ -860,6 +860,8 @@ export default function AdminMachinesPage() {
 
   const sourceVerificationIncomplete = !isLocalDemoMode && (workspaceMetadata.isError || (workspaceMetadata.isSuccess && allMachineRows.some((row) => !metadataById.has(row.machine.id))));
 
+  const selectedViewMachineCount = visibleMachineRows.length;
+
   const renderedMachineRows = visibleMachineRows.slice(0, visibleMachineLimit);
 
   const portfolioCounts = useMemo(
@@ -1591,9 +1593,9 @@ export default function AdminMachinesPage() {
                   {view === 'attention' ? 'Machines needing attention' : view === 'ready' ? 'Ready machines' : 'All machines'}
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {!isLocalDemoMode && workspaceMetadata.isPending ? 'Verifying source connections…' : visibleMachineRows.length === machineRows.length
-                    ? `${machineRows.length} ${machineRows.length === 1 ? 'machine' : 'machines'}`
-                    : `${visibleMachineRows.length} of ${machineRows.length} machines`}
+                  {!isLocalDemoMode && workspaceMetadata.isPending ? 'Verifying source connections…' : visibleMachineRows.length === selectedViewMachineCount
+                    ? `${selectedViewMachineCount} ${selectedViewMachineCount === 1 ? 'machine' : 'machines'}`
+                    : `${visibleMachineRows.length} of ${selectedViewMachineCount} machines`}
                 </p>
               </div>
               {view === 'attention' && visibleMachineRows.length > 0 && (
