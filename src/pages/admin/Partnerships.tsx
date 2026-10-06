@@ -2560,9 +2560,7 @@ function MachineAssignmentsSection({
           <div>
             <h2 className="font-semibold text-foreground">Assign Machines</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Select every machine that belongs to this partnership, then save once. Dates, status,
-              and assignment role use the normal V1 defaults in the background. Saved legacy end
-              dates remain visible here until they are synchronized.
+              Choose machines by source ID and select when new assignments begin. Existing assignment dates stay unchanged.
             </p>
           </div>
           <Button asChild variant="outline" size="sm" className="min-h-11">
