@@ -99,4 +99,3 @@ select ok(not exists((select * from preserved_before except select * from preser
 select is((select count(*)::int from admin_audit_log where action='reporting_partnership_financial_rule.updated' and after->>'partnership_id'='c1788104-0000-4000-8000-000000000001' and meta->>'actorAuthority'='super_admin'),2,'One correction emits exactly two attributable audited version changes');
 select * from finish();
 rollback;
-
