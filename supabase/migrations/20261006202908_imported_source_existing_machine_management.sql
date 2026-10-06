@@ -16,6 +16,8 @@ create table private.machine_source_management_associations (
 );
 alter table private.machine_source_management_associations enable row level security;
 revoke all on private.machine_source_management_associations from public,anon,authenticated;
+create index sunze_unmapped_sales_existing_machine_idx on public.sunze_unmapped_sales(reporting_machine_id)
+  where reporting_machine_id is not null;
 
 create function private.machine_source_reuse_blocker(p_machine_id uuid)
 returns text language sql stable security definer set search_path='' as $fn$
@@ -26,6 +28,7 @@ returns text language sql stable security definer set search_path='' as $fn$
       or exists(select 1 from private.snapcase_machine_mappings k where k.reporting_machine_id=m.id)
       or exists(select 1 from public.sunze_machine_discoveries d where d.reporting_machine_id=m.id)
       or exists(select 1 from public.machine_sales_facts fact where fact.reporting_machine_id=m.id and fact.source='sunze_browser')
+      or exists(select 1 from public.sunze_unmapped_sales pending where pending.reporting_machine_id=m.id)
       or exists(select 1 from private.machine_source_management_associations a where a.reporting_machine_id=m.id)
       then 'This machine already has a source association. Open its Manage screen to review the existing connection; a source transfer requires reconciliation.'
     else null end
