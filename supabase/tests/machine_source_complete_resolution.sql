@@ -154,6 +154,26 @@ select is((select disposition_reason from nayax_pending_sales where source_order
 select lives_ok($$select service_ingest_nayax_scheduled_sales(repeat('6',64),jsonb_build_array(pg_temp.complete_native_sale('18020003','1802000302',repeat('15',32),true)))$$,'Actual authorization in inherited app-card history does not imply cross-provider transaction identity');
 select ok(not exists(select 1 from machine_sales_facts where source_order_hash in(repeat('13',32),repeat('15',32))),'Unproven inherited-overlap native rows add no duplicate money/counts/tax/items');
 select is((select net_sales_cents from private.financial_machine_sales_facts where id='aa180206-0000-4000-8000-000000000003'),1000,'Quarantined native overlap does not erase inherited card money');
+-- A purchase after all immutable observation timestamps cannot be among the
+-- already-observed inherited inputs. This is causal evidence, not a sale-date
+-- cutover or a comparison with the unverified provider-local calendar.
+insert into nayax_scheduled_report_files(file_digest,received_at,byte_count,row_count,report)
+ select repeat('3',64),max(observed_at)+interval '5 seconds',500,1,'{}'::jsonb
+ from private.machine_preserved_source_card_facts where reporting_machine_id='aa180203-0000-4000-8000-000000000003';
+create function pg_temp.complete_observed_native_sale(p_later boolean) returns jsonb language sql as $$
+ select pg_temp.complete_native_sale('18020003',case when p_later then '1802000303' else '1802000304' end,case when p_later then repeat('17',32) else repeat('18',32) end,true)
+ || jsonb_build_object('authorizedAt',to_char(observed+case when p_later then interval '2 seconds' else interval '0 seconds' end at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+ 'providerSettledAt',to_char(observed+interval '4 seconds' at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+ 'machineSettledAt',to_char(observed+interval '3 seconds' at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),
+ 'machineAuthorizedAt',to_char(observed+case when p_later then interval '2 seconds' else interval '0 seconds' end at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),
+ 'providerUpdatedAt',to_char(observed+interval '4 seconds' at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+ from (select max(observed_at) observed from private.machine_preserved_source_card_facts where reporting_machine_id='aa180203-0000-4000-8000-000000000003') capture
+$$;
+select lives_ok($$select service_ingest_nayax_scheduled_sales(repeat('3',64),jsonb_build_array(pg_temp.complete_observed_native_sale(true),pg_temp.complete_observed_native_sale(false)))$$,'Validated post-observation purchases can flow without an artificial mapping-date cutoff');
+select is((select count(*) from machine_sales_facts where source_order_hash=repeat('17',32)),1::bigint,'Strictly later authorization supplies one new Nayax card contribution');
+select ok(not exists(select 1 from machine_sales_facts where source_order_hash=repeat('18',32)),'Authorization not later than observation time cannot establish non-overlap');
+select is((select disposition_reason from nayax_pending_sales where source_order_hash=repeat('18',32)),'inherited_source_card_purchase_ownership_unverified','Unproven causal boundary remains recoverable pending');
+select is((select sum(net_sales_cents) from private.financial_machine_sales_facts where reporting_machine_id='aa180203-0000-4000-8000-000000000003'),1500::bigint,'Original inherited card inputs and proven new Nayax purchase contribute once each');
 -- Simulate a changed current-reader lookup only in the isolated seed seam;
 -- the service action itself runs with ordinary origin triggers afterward.
 set local session_replication_role=replica;
