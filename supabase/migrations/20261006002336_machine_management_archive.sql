@@ -468,24 +468,20 @@ begin
 end; $patch$;
 
 do $patch$
-declare definition text; anchor text:=$old$  where public.is_super_admin(actor_user_id)
+declare definition text;
+  opening text:=$old$  where public.is_super_admin(actor_user_id)
     or ($old$;
-begin
-  definition:=replace(replace(pg_get_functiondef('public.admin_get_refund_nayax_inventory()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
-  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_get_refund_nayax_inventory()'; end if;
-  execute replace(definition,anchor,$new$  where not exists(select 1 from public.reporting_machines archived where archived.id=inventory.reporting_machine_id and archived.management_archived_at is not null)
-    and (public.is_super_admin(actor_user_id)
-    or ($new$);
-end; $patch$;
-
-do $patch$
-declare definition text; anchor text:=$old$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
+  closing text:=$old$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
     );$old$;
 begin
   definition:=replace(replace(pg_get_functiondef('public.admin_get_refund_nayax_inventory()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
-  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_get_refund_nayax_inventory()'; end if;
-  execute replace(definition,anchor,$new$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
+  if strpos(definition,opening)=0 or strpos(definition,closing)=0 then raise exception 'Archive admission anchors changed: admin_get_refund_nayax_inventory()'; end if;
+  definition:=replace(definition,opening,$new$  where not exists(select 1 from public.reporting_machines archived where archived.id=inventory.reporting_machine_id and archived.management_archived_at is not null)
+    and (public.is_super_admin(actor_user_id)
+    or ($new$);
+  definition:=replace(definition,closing,$new$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
     ));$new$);
+  execute definition;
 end; $patch$;
 
 do $patch$
