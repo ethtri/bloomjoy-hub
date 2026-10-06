@@ -352,3 +352,36 @@ Deno.test("refund alias recipient is preserved in secondary To or Cc", () => {
     refundInquiryRecipient(["helper@example.test"], ["refunds@bloomjoysweets.com"]) !== "refunds@bloomjoysweets.com") throw new Error("Exact public recipient must reach the contact ledger");
   assertRoute(message({ to: "helper@example.test", body: "I need a refund", extraHeaders: [{ name: "Cc", value: "refunds@bloomjoysweets.com" }] }), "new_refund_inquiry");
 });
+
+Deno.test("previously answered conversations do not create a new first-response obligation", () => {
+  const customer = { ...message({ body: "Please help." }), id: "customer" };
+  const sent = { ...message({ from: "info@bloomjoysweets.com", to: "customer@example.test", body: "We received your message." }), id: "reply", labelIds: ["SENT"] };
+  const followup = { ...message({ body: "See attached." }), id: "followup" };
+  for (const messages of [[customer, sent], [customer, sent, followup]]) {
+    const result = classifyRefundInfoInquiry({ messages, mailboxIdentities: ["info@bloomjoysweets.com"] });
+    if (result.route !== "non_refund" || result.sourceMessageId !== null) throw new Error("Provider-confirmed previous reply must suppress a new acknowledgment obligation");
+  }
+});
+
+Deno.test("draft and spoofed mailbox replies cannot suppress customer acknowledgment", () => {
+  const customer = { ...message({ body: "Please help." }), id: "customer" };
+  const reply = { ...message({ from: "info@bloomjoysweets.com", to: "customer@example.test" }), id: "reply" };
+  for (const labelIds of [[], ["DRAFT"], ["INBOX"]]) {
+    const result = classifyRefundInfoInquiry({ messages: [customer, { ...reply, labelIds }], mailboxIdentities: ["info@bloomjoysweets.com"] });
+    if (result.route !== "new_refund_inquiry") throw new Error("Only provider-Sent evidence may suppress the obligation");
+  }
+});
+
+Deno.test("a sent reply to another participant cannot suppress customer acknowledgment", () => {
+  const customer = { ...message({ body: "Please help." }), id: "customer" };
+  const unrelated = { ...message({ from: "info@bloomjoysweets.com", to: "someone-else@example.test" }), id: "reply", labelIds: ["SENT"] };
+  const result = classifyRefundInfoInquiry({ messages: [customer, unrelated], mailboxIdentities: ["info@bloomjoysweets.com"] });
+  if (result.route !== "new_refund_inquiry") throw new Error("Reply must address the same customer");
+});
+
+Deno.test("existing-case status routing survives a prior sent acknowledgment", () => {
+  const customer = { ...message({ body: "Where is my refund for RF-ABC123?" }), id: "customer" };
+  const sent = { ...message({ from: "info@bloomjoysweets.com", to: "customer@example.test" }), id: "reply", labelIds: ["SENT"] };
+  const result = classifyRefundInfoInquiry({ messages: [sent, customer], mailboxIdentities: ["info@bloomjoysweets.com"] });
+  if (result.route !== "existing_case_question" || result.sourceMessageId !== "customer") throw new Error("Existing-case follow-up must retain status routing");
+});
