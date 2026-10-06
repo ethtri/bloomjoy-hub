@@ -8,7 +8,7 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Machine identity context
 
-Existing-reader source reuse (#1799) is being verified: explicit same-physical-machine review may associate an imported identity with an eligible existing Hub for management, preserving its name/company/site/time zone/managers/Nayax and all financial history. This association does not activate sales or replay pending orders. Financial activation and occupied-reader transfers between already source-associated machines require reconciliation. Gilroy reader selection remains unconfirmed; no production pairing is implied.
+Existing-reader source reuse (#1799) is deployed via PR #1800: explicit same-physical-machine review may associate an imported identity with an eligible existing Hub for management, preserving its name/company/site/time zone/managers/Nayax and all financial history. This association does not activate sales or replay pending orders. Financial activation and occupied-reader transfers between already source-associated machines require reconciliation. Live review preserved Gilroy's 2,350 sales facts and 1,508 pending orders; no association was saved. Gilroy's intended reader remains unconfirmed; no production pairing is implied.
 
 Repo agents have standing business-Chrome authorization to self-serve and reuse the private reusable Supabase credential at `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env`. The runbook governs its env-file loader, user-only access and unchanged Auth deployment checks; do not repeat routine approval requests or expose tokens.
 
