@@ -21,7 +21,7 @@ insert into public.admin_scoped_access_scopes(grant_id,scope_type,machine_id,gra
 insert into public.machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,item_quantity,source,source_order_hash,source_row_hash,tax_cents,raw_payload) values
  ('ce400000-0000-4000-8000-000000000001','ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',current_date-20,'cash',3000,3,3,'sunze_browser',repeat('a',32),repeat('a',64),0,'{}'),
  ('ce400000-0000-4000-8000-000000000002','ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',current_date-20,'credit',1100,1,1,'nayax_scheduled_report',null,repeat('b',64),100,'{"amountBasis":"separate_tax"}'),
- ('ce400000-0000-4000-8000-000000000003','ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',current_date-20,'cash',500,1,1,'manual_csv',null,repeat('c',64),0,'{}');
+ ('ce400000-0000-4000-8000-000000000003','ce300000-0000-4000-8000-000000000002','ce200000-0000-4000-8000-000000000001',current_date-20,'cash',500,1,1,'manual_csv',null,repeat('c',64),0,'{}');
 create temporary table original_cash_facts as select * from public.machine_sales_facts where reporting_machine_id in ('ce300000-0000-4000-8000-000000000001','ce300000-0000-4000-8000-000000000002');
 select ok(not (select exclude_cash_from_financial_reporting from public.reporting_machines where id='ce300000-0000-4000-8000-000000000001'),'New machines include cash by default');
 select is((select sum(sales_ex_tax_cents)::bigint from private.machine_sales_daily_components('ce300000-0000-4000-8000-000000000001',current_date-30,current_date)),4000::bigint,'Default includes cash and actual card net');
