@@ -1,3 +1,4 @@
+import { fetchMachineSourceInventorySnapshot, machineSourceInventoryQueryKey } from '@/lib/machineSourceInventory';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -56,6 +57,7 @@ import {
   previewPartnerWeeklyReportAdmin,
   removeReportingPartnershipPartyAdmin,
   upsertReportingFinancialRuleAdmin,
+  changePartnershipSplitAdmin,
   upsertReportingMachineAssignmentAdmin,
   upsertReportingPartnerAdmin,
   upsertReportingPartnershipAdmin,
@@ -794,6 +796,8 @@ function ScopedPartnershipsWorkspace({
   const [form, setForm] = useState({ ...emptyPartnershipForm, reason: '' });
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(() => new Set());
   const [machineSearch, setMachineSearch] = useState('');
+  const sourceInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, retry: false });
+  const sourceByMachine = useMemo(() => new Map((sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data]);
   const [isSaving, setIsSaving] = useState(false);
   const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
 
@@ -839,20 +843,20 @@ function ScopedPartnershipsWorkspace({
   );
   const filteredMachines = useMemo(() => {
     const normalizedSearch = machineSearch.trim().toLowerCase();
-    if (!normalizedSearch) return setup.machines;
+    if (!normalizedSearch) return setup.machines.filter(machine => sourceByMachine.has(machine.id) || originalMachineIds.has(machine.id));
 
-    return setup.machines.filter((machine) =>
+    return setup.machines.filter((machine) => (sourceByMachine.has(machine.id) || originalMachineIds.has(machine.id)) &&
       [
         machine.machine_label,
         machine.account_name,
-        machine.location_name,
-        machine.sunze_machine_id ?? '',
+        sourceByMachine.get(machine.id)?.sourceId ?? machine.sunze_machine_id ?? '',
+        sourceByMachine.get(machine.id)?.sourceName ?? '',
       ]
         .join(' ')
         .toLowerCase()
         .includes(normalizedSearch)
     );
-  }, [machineSearch, setup.machines]);
+  }, [machineSearch, setup.machines, sourceByMachine, originalMachineIds]);
   const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
   const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
   const hasMachineChanges = addedMachineIds.length > 0 || removedMachineIds.length > 0;
@@ -2318,11 +2322,13 @@ function MachineAssignmentsSection({
 }) {
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
   const [machineSearch, setMachineSearch] = useState('');
+  const sourceInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, retry: false });
+  const sourceByMachine = useMemo(() => new Map((sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data]);
   const [isSaving, setIsSaving] = useState(false);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
 
   const currentDate = today();
-  const machineAlignmentStartDate = selectedPartnership.effective_start_date || today();
+  const [machineAlignmentStartDate, setMachineAlignmentStartDate] = useState(today());
 
   const activeAssignmentsByMachineId = useMemo(() => {
     const assignmentMap = new Map<string, ReturnType<typeof getActiveMachineAssignments>>();
@@ -2376,27 +2382,24 @@ function MachineAssignmentsSection({
 
   const filteredMachines = useMemo(() => {
     const normalizedSearch = machineSearch.trim().toLowerCase();
-    if (!normalizedSearch) return setup.machines;
+    if (!normalizedSearch) return setup.machines.filter(machine => sourceByMachine.has(machine.id) || originalMachineIds.has(machine.id));
 
-    return setup.machines.filter((machine) =>
+    return setup.machines.filter((machine) => (sourceByMachine.has(machine.id) || originalMachineIds.has(machine.id)) &&
       [
         machine.machine_label,
         machine.account_name,
-        machine.sunze_machine_id ?? '',
+        sourceByMachine.get(machine.id)?.sourceId ?? machine.sunze_machine_id ?? '',
+        sourceByMachine.get(machine.id)?.sourceName ?? '',
       ]
         .join(' ')
         .toLowerCase()
         .includes(normalizedSearch)
     );
-  }, [machineSearch, setup.machines]);
+  }, [machineSearch, setup.machines, sourceByMachine, originalMachineIds]);
 
   const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
   const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
-  const assignmentsToSync = selectedPartnershipAssignments.filter(
-    (assignment) =>
-      !removedMachineIds.includes(assignment.machine_id) &&
-      Boolean(assignment.effective_end_date)
-  );
+  const assignmentsToSync: typeof selectedPartnershipAssignments = [];
   const hasChanges =
     addedMachineIds.length > 0 || removedMachineIds.length > 0 || assignmentsToSync.length > 0;
   const conflictingAddedMachines = addedMachineIds
@@ -2592,6 +2595,16 @@ function MachineAssignmentsSection({
           </Button>
         </div>
 
+        {sourceInventory.isError && <Alert><AlertDescription>Source identity could not be loaded. Retry before adding machines.
+          <Button variant="outline" onClick={() => sourceInventory.refetch()}>Retry source inventory</Button></AlertDescription></Alert>}
+        {(sourceInventory.data?.sources ?? []).filter(source => !source.reportingMachineId && !source.archivedMapping && !source.mappingConflict && (!machineSearch || [source.sourceName, source.sourceId].join(' ').toLowerCase().includes(machineSearch.toLowerCase()))).length > 0 &&
+          <details className="mt-4 rounded border p-3"><summary>Imported machines awaiting setup</summary>
+            {(sourceInventory.data?.sources ?? []).filter(source => !source.reportingMachineId && !source.archivedMapping && !source.mappingConflict && (!machineSearch || [source.sourceName, source.sourceId].join(' ').toLowerCase().includes(machineSearch.toLowerCase()))).map(source =>
+              <div key={source.sourceKey} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>{source.sourceName || source.sourceId} — {source.platform} {source.sourceId}</span>
+                <Button asChild variant="outline" className="min-h-11"><Link to={`/admin/machines?search=${encodeURIComponent(source.sourceId)}`}>Manage machine</Link></Button>
+              </div>)}
+          </details>}
         <div className="mt-4 rounded-lg border border-border">
           <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3 text-sm">
             <div>
@@ -2633,12 +2646,11 @@ function MachineAssignmentsSection({
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium text-foreground">{machine.machine_label}</span>
                       <span className="mt-1 block text-sm text-muted-foreground">
-                        {machine.account_name} / external machine ID: {machine.sunze_machine_id ?? 'n/a'}
+                        {machine.account_name} / {sourceByMachine.get(machine.id)?.platform ?? 'Existing assignment'} source ID: {sourceByMachine.get(machine.id)?.sourceId ?? machine.sunze_machine_id ?? 'not linked'}
                       </span>
                       {currentAssignment?.effective_end_date && (
                         <span className="mt-1 block text-xs font-medium text-amber-800">
-                          Saved assignment ended {formatPartnershipReviewDate(currentAssignment.effective_end_date)} —
-                          it will be synchronized when you save.
+                          Saved assignment ended {formatPartnershipReviewDate(currentAssignment.effective_end_date)}. Historical dates are preserved.
                         </span>
                       )}
                       {otherAssignments.length > 0 && (
@@ -2675,7 +2687,10 @@ function MachineAssignmentsSection({
             Save Machine Alignment
           </Button>
           <div className="text-sm text-muted-foreground">
-            New assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
+            New assignments start: {formatDate(machineAlignmentStartDate)}.
+            <Label htmlFor="assignment-start">Assignment effective from</Label>
+            <Input id="assignment-start" type="date" className="h-11 min-w-0 w-full md:text-base"
+              value={machineAlignmentStartDate} onChange={e => setMachineAlignmentStartDate(e.target.value)} />
             Existing assignment start dates stay unchanged.
           </div>
         </div>
@@ -2748,7 +2763,7 @@ function FinancialTermsSection({
     [selectedPartnership.id, setup.financialRules]
   );
   const currentFinancialRule = financialRules[0] ?? null;
-  const hiddenRuleStartDate = selectedPartnership.effective_start_date || today();
+  const hiddenRuleStartDate = currentFinancialRule?.effective_start_date || selectedPartnership.effective_start_date || today();
   const defaultRuleForm = useMemo(
     () =>
       currentFinancialRule
@@ -2761,11 +2776,9 @@ function FinancialTermsSection({
   const payoutPreset = getPayoutModelPreset(form);
   const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
   const isRuleFormDirty = JSON.stringify(form) !== JSON.stringify(defaultRuleForm);
-  const payoutRuleDatesNeedSync = Boolean(
-    currentFinancialRule &&
-      (currentFinancialRule.effective_start_date !== hiddenRuleStartDate ||
-        currentFinancialRule.effective_end_date)
-  );
+  const [isChangingSplit, setIsChangingSplit] = useState(false);
+  const [splitEffectiveFrom, setSplitEffectiveFrom] = useState(today());
+  const [isSplitReviewOpen, setIsSplitReviewOpen] = useState(false);
   const saveDisabledReason = additionalPayoutParticipants.length > 0
       ? 'V1 supports two payout recipients plus Bloomjoy. Change extra payout recipients to another participant role before saving.'
       : allocationTotal !== 100
@@ -2783,8 +2796,8 @@ function FinancialTermsSection({
   }, [defaultRuleForm]);
 
   useEffect(() => {
-    onDirtyChange?.(isRuleFormDirty || payoutRuleDatesNeedSync);
-  }, [isRuleFormDirty, onDirtyChange, payoutRuleDatesNeedSync]);
+    onDirtyChange?.(isRuleFormDirty || isChangingSplit);
+  }, [isRuleFormDirty, isChangingSplit, onDirtyChange]);
 
   const editRule = (rule: ReportingPartnershipFinancialRule) => {
     setForm(createRuleFormFromRule(rule));
@@ -2819,7 +2832,13 @@ function FinancialTermsSection({
 
     setIsSaving(true);
     try {
-      const savedRule = await upsertReportingFinancialRuleAdmin({
+      const savedRule = isChangingSplit && currentFinancialRule
+        ? await changePartnershipSplitAdmin({ partnershipId: selectedPartnership.id,
+            expectedRule: currentFinancialRule, effectiveFrom: splitEffectiveFrom,
+            primaryShare: basisPointsFromPercent(normalizedShares.primarySharePercent),
+            secondaryShare: basisPointsFromPercent(normalizedShares.partnerSharePercent),
+            bloomjoyShare: basisPointsFromPercent(normalizedShares.bloomjoySharePercent) })
+        : await upsertReportingFinancialRuleAdmin({
         ...form,
         ruleId: form.ruleId ?? currentFinancialRule?.id ?? null,
         partnershipId: selectedPartnership.id,
@@ -2832,12 +2851,14 @@ function FinancialTermsSection({
         partnerShareBasisPoints: basisPointsFromPercent(normalizedShares.partnerSharePercent),
         bloomjoyShareBasisPoints: basisPointsFromPercent(normalizedShares.bloomjoySharePercent),
         effectiveStartDate: hiddenRuleStartDate,
-        effectiveEndDate: '',
+        effectiveEndDate: currentFinancialRule?.effective_end_date ?? '',
         status: 'active',
         reason: form.ruleId || currentFinancialRule ? 'Payout rules updated' : 'Payout rules created',
       });
       toast.success(form.ruleId || currentFinancialRule ? 'Payout rules updated.' : 'Payout rules created.');
       setForm(createRuleFormFromRule(savedRule));
+      setIsChangingSplit(false);
+      setIsSplitReviewOpen(false);
       onDirtyChange?.(false);
       await onRefresh();
     } catch (error) {
@@ -2850,21 +2871,33 @@ function FinancialTermsSection({
   return (
     <section className="space-y-4">
       {financialWarnings.length > 0 && <WarningList warnings={financialWarnings} />}
-      {payoutRuleDatesNeedSync && currentFinancialRule && (
-        <Alert className="border-amber-300 bg-amber-50 text-amber-950">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Payout rule dates need synchronization</AlertTitle>
-          <AlertDescription>
-            The current payout calculation still uses legacy reporting dates
-            {currentFinancialRule.effective_end_date
-              ? ` and ended on ${formatPartnershipReviewDate(currentFinancialRule.effective_end_date)}`
-              : ''}
-            . Save Payout Rules to keep the same calculation and use the partnership reporting
-            window instead.
-          </AlertDescription>
-        </Alert>
-      )}
-
+      {currentFinancialRule && <div className="flex flex-wrap items-center gap-3">
+        <Button className="min-h-11" variant="outline" onClick={() => {
+          setForm(createRuleFormFromRule(currentFinancialRule)); setIsChangingSplit(true);
+        }}>Change split</Button>
+        {isChangingSplit && <Button variant="outline" onClick={() => { setIsChangingSplit(false); setForm(defaultRuleForm); }}>Cancel split change</Button>}
+        {isChangingSplit && <div className="min-w-0">
+          <Label htmlFor="split-effective-from">New split effective from</Label>
+          <Input id="split-effective-from" type="date" className="h-11 min-w-0 w-full md:text-base"
+            value={splitEffectiveFrom} onChange={e => setSplitEffectiveFrom(e.target.value)} />
+        </div>}
+      </div>}
+      <Dialog open={isSplitReviewOpen} onOpenChange={setIsSplitReviewOpen}>
+        <DialogContent><DialogHeader><DialogTitle>Review split change</DialogTitle>
+          <DialogDescription>Existing terms and issued payouts stay unchanged before this date.</DialogDescription></DialogHeader>
+          <p>{selectedPartnership.name}: {formatDate(splitEffectiveFrom)}</p>
+          <p>{formatRuleAllocationSummary({ ...currentFinancialRule,
+            fever_share_basis_points: basisPointsFromPercent(form.primarySharePercent),
+            partner_share_basis_points: basisPointsFromPercent(form.partnerSharePercent),
+            bloomjoy_share_basis_points: basisPointsFromPercent(form.bloomjoySharePercent)
+          } as ReportingPartnershipFinancialRule, payoutParticipants)} of {formatLabel(form.splitBase)}</p>
+          <p>Existing deductions are preserved. This partnership-wide split also applies to future assigned machines.</p>
+          <ul className="max-h-48 overflow-y-auto">{setup.assignments.filter(a => a.partnership_id === selectedPartnership.id && a.status === 'active').map(a =>
+            <li key={a.id}>{setup.machines.find(m => m.id === a.machine_id)?.machine_label ?? a.machine_id}</li>)}</ul>
+          <DialogFooter><Button variant="outline" onClick={() => setIsSplitReviewOpen(false)}>Back</Button>
+            <Button onClick={saveRule} disabled={isSaving}>Confirm split change</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="rounded-lg border border-border bg-card p-5">
         <div>
           <h2 className="font-semibold text-foreground">
@@ -2944,11 +2977,9 @@ function FinancialTermsSection({
             Notes and reporting details
           </summary>
           <p className="mt-2 text-sm text-muted-foreground">
-            The current payout rule is active by default and follows the partnership effective
-            start date. Backend timing fields remain available for reporting history without adding
-            normal setup friction.
+            Use Change split for new dated terms. Earlier versions and their deductions remain in history.
           </p>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <fieldset disabled={isChangingSplit} className="mt-4 grid gap-4 lg:grid-cols-2">
             <div>
               <div className="text-xs font-medium uppercase text-muted-foreground">Applies from</div>
               <div className="mt-1 text-sm text-foreground">{formatDate(hiddenRuleStartDate)}</div>
@@ -2987,17 +3018,17 @@ function FinancialTermsSection({
               {formatLabel(form.calculationModel)} / {formatLabel(form.splitBase)} /{' '}
               {formatFeeBasisLabel(form.feeBasis)} / {formatLabel(form.grossToNetMethod)}
             </div>
-          </div>
+          </fieldset>
         </details>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             className="min-h-11"
-            onClick={saveRule}
+            onClick={() => isChangingSplit ? setIsSplitReviewOpen(true) : saveRule()}
             disabled={isSaving || Boolean(saveDisabledReason)}
           >
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            {payoutRuleDatesNeedSync ? 'Save & Sync Payout Rules' : 'Save Payout Rules'}
+            {isChangingSplit ? 'Review split change' : 'Save Payout Rules'}
           </Button>
           {saveDisabledReason && (
             <div className="basis-full text-sm text-destructive">{saveDisabledReason}</div>
@@ -3022,7 +3053,7 @@ function FinancialTermsSection({
               </div>
               {financialRules.length > 1 && (
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {financialRules.length - 1} older rule{financialRules.length === 2 ? '' : 's'} hidden from setup.
+                  <details><summary>History ({financialRules.length - 1} earlier versions)</summary>{financialRules.slice(1).map(rule => <p key={rule.id}>{formatDate(rule.effective_start_date)} – {rule.effective_end_date ? formatDate(rule.effective_end_date) : 'Ongoing'}: {formatRuleAllocationSummary(rule, payoutParticipants)}</p>)}</details>
                 </div>
               )}
             </div>
@@ -3372,12 +3403,12 @@ function WeeklyPreviewSection({
   );
   const activePayoutRulesCoveringFullWeek = useMemo(
     () =>
-      activePayoutRulesCoveringWeek.filter(
-        (rule) =>
-          rule.effective_start_date <= weekStartDate &&
-          (!rule.effective_end_date || rule.effective_end_date >= weekEndingDate)
-      ),
-    [activePayoutRulesCoveringWeek, weekEndingDate, weekStartDate]
+      [...Array(7)].every((_, index) => {
+        const date = new Date(`${weekStartDate}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + index);
+        const day = date.toISOString().slice(0, 10);
+        return activePayoutRulesCoveringWeek.some(rule => rule.effective_start_date <= day && (!rule.effective_end_date || rule.effective_end_date >= day));
+      }) ? activePayoutRulesCoveringWeek : [],
+    [activePayoutRulesCoveringWeek, weekStartDate]
   );
   const previewReadinessIssues = useMemo(() => {
     const issues: PreviewReadinessIssue[] = [];
@@ -3953,7 +3984,7 @@ function DateWindowFields({
 }) {
   return (
     <>
-      <div>
+      <div className="min-w-0">
         <Label htmlFor={startId}>Effective start</Label>
         <Input
           id={startId}
@@ -3963,15 +3994,17 @@ function DateWindowFields({
           className="h-11"
         />
       </div>
-      <div>
-        <Label htmlFor={endId}>Effective end</Label>
-        <Input
-          id={endId}
-          type="date"
-          value={endValue}
-          onChange={(event) => onEndChange(event.target.value)}
-          className="h-11"
-        />
+      <div className="min-w-0 space-y-2">
+        <label className="flex min-h-11 items-center gap-2">
+          <Checkbox checked={!endValue} onCheckedChange={checked => onEndChange(checked ? '' : today())} />
+          No end date
+        </label>
+        {!endValue ? <p className="text-sm">Ongoing</p> : <>
+          <Label htmlFor={endId}>Ends on (optional)</Label>
+          <Input id={endId} type="date" value={endValue}
+            onChange={event => onEndChange(event.target.value)} className="h-11 min-w-0 w-full md:text-base" />
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => onEndChange('')}>Clear end date</Button>
+        </>}
       </div>
     </>
   );
