@@ -2912,7 +2912,7 @@ function FinancialTermsSection({
         </div>}
       </div>}
       <Dialog open={isCorrectingTerms} onOpenChange={open => { if (!isSavingTerms) setIsCorrectingTerms(open); }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto"><DialogHeader>
+        <DialogContent className="min-w-0 max-h-[90dvh] overflow-x-hidden overflow-y-auto" style={{ width: 'calc(100vw - 2rem)', maxWidth: '32rem' }}><DialogHeader>
           <DialogTitle>Correct partnership terms</DialogTitle>
           <DialogDescription>Correct the current version and its preceding boundary together. Assignment dates and issued reports or payouts remain unchanged.</DialogDescription>
         </DialogHeader>
