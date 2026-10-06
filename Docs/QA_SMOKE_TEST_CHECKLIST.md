@@ -1267,3 +1267,20 @@ npm run refunds:validate-portal-uat-lifecycle
 - Open Bubble Planet or Merlin → Payout rules → Correct terms. Review September 1, 2026, the explicit sales-after-tax/refunds-only model, 70% partner / 30% Bloomjoy and zero additional deductions.
 - Confirm prior terms end August 31 and the October breakpoint is replaced. September/October draft previews recalculate; issued reports/payouts, assignment dates and lifecycle dates remain unchanged.
 - Verify stale terms or a failed save preserve both versions, drafts and audit state.
+## Machine cash reporting exclusion (#1795)
+
+- Admin Machines → Manage (or machine detail → Reporting): “Exclude cash from
+  financial reporting” shows the saved state, saves immediately and persists on
+  reload. Check desktop, 390px and 320px widths; switch is keyboard accessible.
+- A failed save restores the stored state. Only a super-admin or scoped machine
+  admin can save; another machine is outside scoped access. “Cash excluded” is
+  visible on the catalogue row when enabled.
+- On a synthetic mixed card/cash machine, enable exclusion: Sales, Finance,
+  technician commission and partner paid-sale quantities omit cash for both
+  historical and current periods. Card amount/count/tax, real refunds and actual
+  expenses stay unchanged. Disable to restore raw cash eligibility.
+- A late cash import stays excluded. Source telemetry remains available. A Pay
+  Stub prepared before the policy changes cannot be published; retry prepares
+  current totals. Already-issued statement payloads stay identical.
+- Run `node scripts/validate-machine-cash-exclusion-uat.mjs` against localhost:8098
+  and `npm run db:validate-migrations` for the full disposable SQL suite.

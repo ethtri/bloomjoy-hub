@@ -10,13 +10,34 @@ The owner confirmed the interim mixed authority:
 
 - Nayax supplies card sale amounts, settled state and paid card-refund evidence.
 - Sunze and Kexiaozhan supply cash sale observations. Cash intentionally omitted
-  from a finance spreadsheet is still part of Hub's all-payments data.
+  from a finance spreadsheet is still part of Hub's all-payments data, subject to
+  the owner-confirmed per-machine cash exclusion below.
 - Hub owns canonical refund-case identity and the once-only requested/paid
   deduction. Provider refund flags corroborate that lineage; they do not create a
   second deduction.
 - Never add a vendor card amount to the corresponding Nayax card amount.
 
 This is the selected interim source split, not a pending vendor-only switch.
+
+### Cashless machine exclusion (#1795, 2026-10-06)
+
+`reporting_machines.exclude_cash_from_financial_reporting` defaults to false.
+When enabled, every newly calculated financial period excludes that machine's
+cash sale observations before amount normalization, paid-sale counts and
+completeness checks. Sales, Finance, technician commission bases, partner shares
+and their exports/scheduled reports use the same eligible facts. Raw telemetry,
+card sales, legitimate refund deductions and actual expenses remain intact.
+Historical live reports use the current setting; issued statement payloads keep
+their original version. Draft snapshot metadata and Pay Stub publication guards
+track the policy used. A machine admin can change it from Admin Machines; changes
+are scoped, detect stale inverse writes and are audited.
+
+Initial exclusions are the two Livermore machines, Great Mall cotton candy,
+Eastridge and Stoneridge (exact account/Nayax/Sunze identities documented in
+`MACHINE_CASH_REPORTING_EXCLUSION_PLAN.md`). The removed Great Mall SnapCase and
+all other machines keep their existing policy. This rule applies to future/late
+cash imports too; it does not delete observations or change source authority.
+
 Machine apps can remain incomplete while a machine is offline for several days.
 A complete paginated API response or export proves that the provider returned
 the complete response for that request; it does not prove that an offline

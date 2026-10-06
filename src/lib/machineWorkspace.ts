@@ -10,6 +10,7 @@ export type MachineWorkspaceMetadata = {
   nayaxAccountKey: string | null; lastRecordedTransaction: string | null;
   nayaxName: string | null;
   nayaxLastTransaction: string | null;
+  excludeCashFromFinancialReporting?: boolean;
   transactionSource: string | null; transactionImportedAt: string | null;
   lastSuccessfulSalesImport: string | null; sources: MachineSourceIdentity[];
 };
@@ -41,6 +42,13 @@ export async function saveMachineRefundSettings(machineId: string, intakeEnabled
   const { error } = await supabaseClient.rpc('admin_save_machine_refund_settings', {
     p_machine_id: machineId, p_refund_intake_enabled: intakeEnabled,
     p_reason: 'Transaction matching settings updated from Admin Machines',
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function saveMachineCashReportingExclusion(machineId: string, excluded: boolean, expectedExcluded: boolean) {
+  const { error } = await supabaseClient.rpc('admin_set_machine_cash_reporting_exclusion', {
+    p_machine_id: machineId, p_exclude_cash: excluded, p_expected_exclude_cash: expectedExcluded,
   });
   if (error) throw new Error(error.message);
 }

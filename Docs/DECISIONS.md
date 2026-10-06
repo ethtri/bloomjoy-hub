@@ -1230,3 +1230,14 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - This acknowledgment creates no refund case or payment promise. The form
   remains the case-creation boundary. Reuse the deterministic Gmail script,
   ten-minute schedule and existing delivery health/alert; no LLM or new service.
+# 2026-10-06 — Per-machine cash financial exclusion (#1795)
+
+The owner authorized implementation, testing and deployment of an audited machine
+setting that excludes fabricated engineering-test cash sales. Default false;
+initialize true only for the verified two Livermore, Great Mall cotton candy,
+Eastridge and Stoneridge identities. Keep raw source evidence, actual card tax,
+legitimate refunds, actual expenses and issued statements. Apply current policy
+to all recalculated periods through a private eligible-sale view used by both
+Sales/commission and Finance adapters, legacy readers and partner quantities.
+Track draft policy freshness and refuse stale Pay Stub publication. Retired Great
+Mall SnapCase remains outside this rollout. See the source contract and feature plan.

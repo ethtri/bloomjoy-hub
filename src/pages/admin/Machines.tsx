@@ -1,6 +1,7 @@
 import { fetchMachineSourceInventorySnapshot, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
+import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -1798,6 +1799,7 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
     <div role="cell" className="min-w-0 break-words">
       <CellLabel>Source machine</CellLabel>
       <p className="font-semibold">{machine.machine_label}</p>
+      {metadata?.excludeCashFromFinancialReporting && <Badge variant="outline" className="mt-2 mr-2">Cash excluded</Badge>}
       {identities?.length ? identities.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-2"><p className="text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform}: {source.name || 'Unnamed source machine'} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="mt-1 text-xs text-muted-foreground">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
       {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive · history retained</Badge>}
       <Badge variant="outline" className="mt-2">{machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
@@ -3533,6 +3535,7 @@ function MachineDialog({
             <h2 id="machine-reporting-title" className="text-lg font-semibold text-foreground">Reporting</h2>
             <p className="mt-1 text-sm text-muted-foreground">Partnership assignment and sales reporting coverage.</p>
             <p className="mt-3 text-sm text-muted-foreground">Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.</p>
+            <div className="mt-5"><MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} /></div>
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Partner reports</dt><dd className="text-right font-medium">{machineRow?.activeAssignments.map((assignment) => assignment.partnership_name).join(', ') || 'Not assigned'}</dd></div>
             </dl>
@@ -3601,6 +3604,7 @@ function MachineDialog({
           </div>
         ) : <>
         {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
+        {machine && <MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
           <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
           <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending} onSelect={setSourceInventoryId}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
