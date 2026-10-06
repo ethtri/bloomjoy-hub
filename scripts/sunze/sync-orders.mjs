@@ -26,6 +26,7 @@ import {
   summarizeRowsByDateForLog,
 } from './sync-diagnostics.mjs';
 import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
+import { collectSunzeMachineInventory, parseSunzeMachinePagination, scrollSunzeMachineList } from './machine-inventory-coverage.mjs';
 
 const args = process.argv.slice(2);
 
@@ -675,35 +676,7 @@ const clickNextMachineListPage = async (page) =>
     return true;
   });
 
-const scrollTopLevelMachineList = async (page) =>
-  page.evaluate(() => {
-    const candidates = [
-      document.scrollingElement,
-      document.documentElement,
-      document.body,
-      ...Array.from(
-        document.querySelectorAll(
-          '.ant-table-body,.ant-table-content,.ant-list,.ant-card-body,main,[class*="scroll"],[class*="table"]'
-        )
-      ),
-    ].filter(Boolean);
-
-    let moved = false;
-    for (const element of candidates) {
-      if (!(element instanceof HTMLElement)) continue;
-      const beforeTop = element.scrollTop;
-      const beforeLeft = element.scrollLeft;
-      element.scrollTop = element.scrollHeight;
-      element.scrollLeft = element.scrollLeft;
-      if (element.scrollTop !== beforeTop || element.scrollLeft !== beforeLeft) {
-        moved = true;
-      }
-    }
-
-    const beforeY = window.scrollY;
-    window.scrollTo(0, document.body.scrollHeight);
-    return moved || window.scrollY !== beforeY;
-  });
+const scrollTopLevelMachineList = async (page) => page.evaluate(scrollSunzeMachineList);
 
 const readMachineListDiagnostic = async (page) =>
   page.evaluate(() => {
@@ -719,95 +692,55 @@ const readMachineListDiagnostic = async (page) =>
       .slice(0, 5);
   });
 
+const readMachineListPagination = async (page) => {
+  const controls = await page.evaluate(() => {
+    const next = document.querySelector('.ant-pagination-next,[title="Next Page"],[aria-label="Next Page"]');
+    const disabled = next && (next.classList.contains('ant-pagination-disabled') ||
+      next.getAttribute('aria-disabled') === 'true' || next.hasAttribute('disabled') ||
+      Boolean(next.querySelector('button[disabled],button[aria-disabled="true"]')));
+    return {
+      nextState: next ? disabled ? 'disabled' : 'enabled' : 'absent',
+      totalTexts: Array.from(document.querySelectorAll('.ant-pagination-total-text,[class*="pagination-total"]'))
+        .map(element => (element.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean),
+    };
+  });
+  return parseSunzeMachinePagination(controls);
+};
+
 const readVisibleSunzeMachines = async (page, baseUrl) => {
   await page.goto(`${baseUrl}#/device`, { waitUntil: 'domcontentloaded' });
   assertAllowedSunzeRoute(page);
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(2500);
 
-  const visibleMachinesByCode = new Map();
-  let pagesScanned = 0;
-  let nextClicks = 0;
-  let scrollAttempts = 0;
-
-  for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
-    pagesScanned += 1;
-    const bodyText = await page.locator('body').innerText();
-    for (const machine of extractMachinesFromText(bodyText)) {
-      const existing = visibleMachinesByCode.get(machine.machineCode);
-      visibleMachinesByCode.set(machine.machineCode, {
-        machineCode: machine.machineCode,
-        machineName: machine.machineName ?? existing?.machineName ?? null,
-      });
-    }
-
-    for (let scrollIndex = 0; scrollIndex < 10; scrollIndex += 1) {
-      const beforeScrollCount = visibleMachinesByCode.size;
-      const scrolled = await scrollTopLevelMachineList(page);
-      if (!scrolled) break;
-
-      scrollAttempts += 1;
+  const inventory = await collectSunzeMachineInventory({
+    readMachines: async () => extractMachinesFromText(await page.locator('body').innerText()),
+    readPagination: () => readMachineListPagination(page),
+    scroll: () => scrollTopLevelMachineList(page),
+    advancePage: () => clickNextMachineListPage(page),
+    settle: async (action) => {
       await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(1000);
-
-      const scrolledBodyText = await page.locator('body').innerText();
-      for (const machine of extractMachinesFromText(scrolledBodyText)) {
-        const existing = visibleMachinesByCode.get(machine.machineCode);
-        visibleMachinesByCode.set(machine.machineCode, {
-          machineCode: machine.machineCode,
-          machineName: machine.machineName ?? existing?.machineName ?? null,
-        });
-      }
-
-      if (visibleMachinesByCode.size === beforeScrollCount) break;
-    }
-
-    const clickedNextPage = await clickNextMachineListPage(page);
-    if (!clickedNextPage) break;
-
-    nextClicks += 1;
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForTimeout(1500);
-  }
-
-  const visibleMachines = [...visibleMachinesByCode.values()].sort((left, right) =>
-    left.machineCode.localeCompare(right.machineCode)
-  );
-  const machineCodes = visibleMachines.map((machine) => machine.machineCode);
+      await page.waitForTimeout(action === 'page' ? 1500 : 1000);
+    },
+    expectedCount: expectedVisibleMachineCount,
+  });
   const paginationDiagnostic = (await readMachineListDiagnostic(page))
     .map(sanitizeDiagnosticText)
     .join(' | ');
 
   updateDiagnostic({
     machineCoverage: {
-      visibleSourceMachineCount: machineCodes.length,
-      verified: machineCodes.length > 0,
-      issue: machineCodes.length === 0 ? 'missing_visible_machine_codes' : null,
-      pagesScanned,
-      nextClicks,
-      scrollAttempts,
+      ...inventory.coverage,
       paginationDiagnostic: paginationDiagnostic || null,
     },
   });
 
-  if (machineCodes.length === 0) {
+  if (!inventory.coverage.verified) {
     console.warn(
-      `Unable to verify source machine coverage from the top-level machine list. Continuing with workbook row machine IDs. Scanned ${pagesScanned} top-level page(s), clicked next ${nextClicks} time(s), scrolled ${scrollAttempts} time(s). Pagination controls: ${paginationDiagnostic || 'none'}.`
-    );
-    return [];
-  }
-
-  if (
-    expectedVisibleMachineCount !== null &&
-    Number.isSafeInteger(expectedVisibleMachineCount) &&
-    machineCodes.length !== expectedVisibleMachineCount
-  ) {
-    console.warn(
-      `Visible source machine count changed: expected ${expectedVisibleMachineCount}, observed ${machineCodes.length}. Scanned ${pagesScanned} top-level page(s), clicked next ${nextClicks} time(s), scrolled ${scrollAttempts} time(s). Pagination controls: ${paginationDiagnostic || 'none'}.`
+      `Source machine coverage is incomplete or unverified (${inventory.coverage.issue}). Retaining ${inventory.machines.length} discovered identities and workbook row machine IDs. Scanned ${inventory.coverage.pagesScanned} top-level page(s).`
     );
   }
-
-  return visibleMachines;
+  return inventory;
 };
 
 const routeBaseMatches = (url, expectedBaseUrl) => {
@@ -1705,7 +1638,8 @@ const exportOrdersWorkbook = async () => {
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);
     downloadedFilePath = filePath;
-    const visibleSunzeMachines = await readVisibleSunzeMachines(page, baseUrl);
+    const machineInventory = await readVisibleSunzeMachines(page, baseUrl);
+    const visibleSunzeMachines = machineInventory.machines;
     const visibleSunzeMachineCodes = visibleSunzeMachines.map((machine) => machine.machineCode);
     succeeded = true;
 
@@ -1714,6 +1648,7 @@ const exportOrdersWorkbook = async () => {
       uiSummaries: [preExportUiSummary],
       visibleSunzeMachines,
       visibleSunzeMachineCodes,
+      machineCoverage: machineInventory.coverage,
       exportTaskCreatedAtMs: task.createdAtMs,
       cleanupPath: downloadDirArg ? filePath : downloadRoot,
       cleanupMode: downloadDirArg ? 'file' : 'directory',
@@ -1875,6 +1810,7 @@ const loadOrdersSource = async () => {
       uiSummaries: [],
       visibleSunzeMachines: [],
       visibleSunzeMachineCodes: [],
+      machineCoverage: { verified: false, issue: 'parse_file_no_machine_center_check' },
       cleanupPath: null,
       cleanupMode: null,
     };
@@ -1950,12 +1886,8 @@ try {
   const requestedWindow = deriveSelectedWindow();
   const coverageBounds = validatedCoverageBounds(requestedWindow);
   const visibleSunzeMachineCount = source.visibleSunzeMachineCodes.length;
-  const machineCoverageVerified = !parseFilePath && visibleSunzeMachineCount > 0;
-  const machineCoverageIssue = parseFilePath
-    ? 'parse_file_no_machine_center_check'
-    : machineCoverageVerified
-      ? null
-      : 'missing_visible_machine_codes';
+  const machineCoverageVerified = source.machineCoverage?.verified === true;
+  const machineCoverageIssue = source.machineCoverage?.issue ?? (machineCoverageVerified ? null : 'machine_navigation_unverified');
 
   const payload = {
     source: 'sunze_browser',
@@ -2020,6 +1952,7 @@ try {
       visibleSunzeMachineCount,
       expectedVisibleMachineCount: parseFilePath ? null : expectedVisibleMachineCount,
       machineCoverageRequired: false,
+      machineCoverage: source.machineCoverage,
       machineCoverageVerified,
       machineCoverageIssue,
     },
@@ -2079,6 +2012,7 @@ try {
       uiReconciliationMode: matchedUiSummary?.uiReconciliationMode ?? null,
       visibleSourceMachineCount: visibleSunzeMachineCount,
       machineCoverageVerified,
+      machineCoverage: source.machineCoverage,
       machineCoverageIssue,
       rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
@@ -2118,6 +2052,7 @@ try {
       machineCoverageIssue,
       rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
+      machineCoverage: source.machineCoverage,
       importRunIds: result.importRunIds ?? null,
       ingestChunkCount: result.chunkCount ?? null,
       ingestChunkSize: result.ingestChunkSize ?? null,
