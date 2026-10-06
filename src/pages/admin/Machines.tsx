@@ -711,13 +711,16 @@ export default function AdminMachinesPage() {
         const attentionReasons: MachineAttentionReason[] = [];
         const isSetupPhase = machine.operational_phase === 'setup';
 
-        if (!isSetupPhase && refundReadinessState !== 'ready_to_refund') {
-          const reasonLabel =
-            refundReadinessState === 'ready_to_activate'
+        const providerBlocked = refundReadinessState === 'ready_to_refund' && (refundManagerSetup.globalRefunds.paused || !refundManagerSetup.globalRefunds.available);
+        if (!isSetupPhase && (refundReadinessState !== 'ready_to_refund' || providerBlocked)) {
+          const reasonLabel = providerBlocked
+            ? refundManagerSetup.globalRefunds.paused ? 'Card refunds paused globally' : 'Direct API is unavailable'
+            : refundReadinessState === 'ready_to_activate'
               ? 'Card refunds are ready to activate'
               : refundReasonLabel(refundBlockReason);
-          const nextStep =
-            refundBlockReason === 'manager_route_not_ready'
+          const nextStep = providerBlocked
+            ? 'Review global refund status'
+            : refundBlockReason === 'manager_route_not_ready'
               ? 'Assign a Machine Manager'
               : refundBlockReason === 'transaction_lookup_not_ready'
                 ? 'Review Nayax mapping'
@@ -771,7 +774,7 @@ export default function AdminMachinesPage() {
           attentionReasons,
         };
       });
-  }, [refundManagerSetupByMachineId, setup, taxDrafts]);
+  }, [refundManagerSetupByMachineId, refundManagerSetup.globalRefunds.available, refundManagerSetup.globalRefunds.paused, setup, taxDrafts]);
 
   const machineRows = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
