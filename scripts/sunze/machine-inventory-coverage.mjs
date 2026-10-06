@@ -13,7 +13,7 @@ export const parseSunzeMachinePagination = ({ nextState, totalTexts }) => {
 // is serialized by Playwright; keep it independent of module closures.
 export const scrollSunzeMachineList = () => {
   const candidates = new Set([document.scrollingElement, document.documentElement,
-    document.body, ...document.querySelectorAll('.ant-table-body,.ant-table-content,.ant-list,.ant-card-body,main,[class*="scroll"],[class*="table"]')]);
+    document.body, ...document.querySelectorAll('.device-list-container,.ant-table-body,.ant-table-content,.ant-list,.ant-card-body,main,[class*="scroll"],[class*="table"]')]);
   let moved = false;
   for (const element of candidates) {
     if (!(element instanceof HTMLElement) || element.clientHeight <= 0) continue;
