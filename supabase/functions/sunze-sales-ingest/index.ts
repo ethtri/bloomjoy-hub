@@ -958,6 +958,7 @@ serve(async (req) => {
     const finalRunMeta = {
       ...runMeta,
       visible_sunze_machine_count: machineCoverage.visibleMachineCount,
+      machine_coverage_verification_version: 1,
       machine_coverage_verified: machineCoverage.visibleMachineCoverageVerified,
       machine_coverage_issue: machineCoverage.visibleMachineCoverageIssue,
       machine_coverage_required: machineCoverage.visibleMachineCoverageRequired,
