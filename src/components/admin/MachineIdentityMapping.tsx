@@ -29,11 +29,12 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   const [draftMetadata, setDraftMetadata] = useState<MachineWorkspaceMetadata | undefined>();
   const inventory = inventoryQuery.data?.machines ?? [];
   const selected = inventory.find((item) => item.id === inventoryId);
+  const occupiedElsewhere = !!selected?.reportingMachineId && selected.reportingMachineId !== machineId;
   const dirty = Boolean(draftMetadata && inventoryId && (!selected || selected.nayaxMachineId !== draftMetadata.nayaxMachineId || selected.accountKey !== (draftMetadata.nayaxAccountKey || 'TGPACI_USA_DB')));
   useEffect(() => { if (metadata && (!draftMetadata || draftMetadata.machineId !== machineId || !dirty)) { setDraftMetadata(metadata); setInventoryId(''); } }, [machineId, metadata, draftMetadata, dirty]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   async function save() {
-    if (!draftMetadata || saving) return;
+    if (!draftMetadata || saving || occupiedElsewhere) return;
     setSaving(true);
     try {
       await saveMachineWorkspaceMapping(draftMetadata, draftMetadata.venueLabel ?? '', inventoryId || null);
@@ -57,11 +58,13 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
       </div>
       <div className="space-y-1.5">
         <p className="text-sm font-medium">Nayax match</p>
-        {canEdit ? <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} /> : <p className="break-words text-sm">{metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>}
+        {canEdit ? <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} allowOccupied onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} /> : <p className="break-words text-sm">{metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>}
         {inventoryQuery.isError && <p role="alert" className="text-sm text-destructive">Imported Nayax records unavailable. Refresh to retry.</p>}
       </div>
+      {metadata.salesActivationPending && <p className="rounded-md border p-3 text-sm">Source connected for management. Sales activation awaits reconciliation; imported orders remain pending and existing sales history is unchanged.</p>}
+      {occupiedElsewhere && <div role="alert" className="rounded-md border p-3 text-sm space-y-2"><p>This reader is currently connected to another machine. Moving it requires reviewing both source identities and their financial history; it cannot be taken over by this save.</p><a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${selected.reportingMachineId}`}>Open the currently connected machine</a><Button variant="outline" className="min-h-11" onClick={() => { setInventoryId(''); onDirtyChange?.(false); }}>Keep the current match</Button></div>}
       <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} · {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
-      {dirty && canEdit && <div className="flex justify-end"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? 'Saving…' : 'Save Nayax match'}</Button></div>}
+      {dirty && canEdit && !occupiedElsewhere && <div className="flex justify-end"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? 'Saving…' : 'Save Nayax match'}</Button></div>}
     </>}
   </section>;
 }

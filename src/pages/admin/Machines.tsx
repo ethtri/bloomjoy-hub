@@ -1,4 +1,4 @@
-import { fetchMachineSourceInventorySnapshot, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
+import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
@@ -883,9 +883,9 @@ export default function AdminMachinesPage() {
   }, [isLocalDemoMode, machineRows, importedInventory.data, importedInventory.isError, allMachineRows, search, machineTypeFilter, taxFilter, assignmentFilter, refundFilter, activityFilter, sort, metadataById]);
   const sourceViewMatches = (item: { hubRow: MachineSetupRowViewModel | null; source: MachineSourceInventoryItem }, selectedView: MachineView) => {
     if (selectedView === 'review') return !item.source.reportingMachineId || item.source.mappingConflict;
-    if (selectedView === 'setup') return !item.hubRow || item.hubRow.machine.operational_phase === 'setup' || item.hubRow.attentionReasons.length > 0;
-    if (selectedView === 'attention') return !item.hubRow || item.hubRow.attentionReasons.length > 0;
-    if (selectedView === 'ready') return !!item.hubRow && item.hubRow.machine.operational_phase !== 'setup' && item.hubRow.attentionReasons.length === 0;
+    if (selectedView === 'setup') return !!item.source.salesActivationPending || !item.hubRow || item.hubRow.machine.operational_phase === 'setup' || item.hubRow.attentionReasons.length > 0;
+    if (selectedView === 'attention') return !!item.source.salesActivationPending || !item.hubRow || item.hubRow.attentionReasons.length > 0;
+    if (selectedView === 'ready') return !item.source.salesActivationPending && !!item.hubRow && item.hubRow.machine.operational_phase !== 'setup' && item.hubRow.attentionReasons.length === 0;
     return true;
   };
   const visibleSourceRows = sourceRows.filter((item) => sourceViewMatches(item, view));
@@ -1802,7 +1802,8 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
       {metadata?.excludeCashFromFinancialReporting && <Badge variant="outline" className="mt-2 mr-2">Cash excluded</Badge>}
       {identities?.length ? identities.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-2"><p className="text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform}: {source.name || 'Unnamed source machine'} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="mt-1 text-xs text-muted-foreground">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
       {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive · history retained</Badge>}
-      <Badge variant="outline" className="mt-2">{machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
+      <Badge variant="outline" className="mt-2">{source?.salesActivationPending || machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
+      {source?.salesActivationPending && <p className="mt-2 text-xs text-muted-foreground">Source connected for management. Sales activation awaits reconciliation; existing sales history is unchanged.</p>}
     </div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{nayaxId ? nayaxName || 'Unnamed Nayax record' : metadata || source ? 'Not matched' : 'Mapping data unavailable'}</p>{nayaxId && <p className="mt-1 text-xs text-muted-foreground">ID {nayaxId}<br/>Account {nayaxAccount || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
@@ -2585,6 +2586,21 @@ function MachineDialog({
   const [mappingHasChanges, setMappingHasChanges] = useState(false);
   const [sourceInventoryId, setSourceInventoryId] = useState('');
   const sourceNayaxInventory = useQuery({ queryKey: ['admin-refund-nayax-inventory'], queryFn: fetchRefundNayaxInventory, enabled: open && !!importedSource && !machine, staleTime: 30000 });
+  const sourceReuseOptions = useQuery({ queryKey: ['imported-source-reuse', importedSource?.sourceKey], queryFn: () => fetchImportedSourceReuseOptions(importedSource!), enabled: open && !!importedSource && !machine, staleTime: 0, retry: false });
+  const sourceReaderOccupied = !!importedSource && !machine && !committedImportedMachineId && !!sourceNayaxInventory.data?.machines.find((reader) => reader.id === sourceInventoryId)?.reportingMachineId;
+  const sourceReuseOption = sourceReuseOptions.data?.find((option) => option.inventoryId === sourceInventoryId);
+  const [reuseConfirmed, setReuseConfirmed] = useState(false);
+  const reuseExistingMachine = async () => {
+    if (!importedSource || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving) return;
+    setIsSaving(true);
+    try {
+      const id = await reuseImportedSourceMachine(importedSource, sourceReuseOption);
+      onImportedSourceSaved?.(id);
+      toast.success('Existing machine connected. Sales activation remains pending reconciliation.');
+      await onSaved();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to use the existing machine.'); }
+    finally { setIsSaving(false); }
+  };
   const { user: assignmentUser } = useAuth();
   const taxSource = useQuery({
     queryKey: ['admin-machine-tax-source', assignmentUser?.id, machine?.id, refundManagerSetup?.nayaxAccountKey, refundManagerSetup?.nayaxMachineId],
@@ -3607,8 +3623,22 @@ function MachineDialog({
         {machine && <MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
           <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
-          <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending} onSelect={setSourceInventoryId}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
+          <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending} allowOccupied onSelect={(id) => { setSourceInventoryId(id); setReuseConfirmed(false); }}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
+          {sourceReaderOccupied && <div className="rounded-md border p-4 space-y-3" role="region" aria-label="Review existing machine connection">
+            <p className="font-medium">This reader is connected to {sourceReuseOption?.machineName || 'an existing machine'}.</p>
+            {sourceReuseOption?.eligible ? <>
+              <p className="text-sm">Use the same machine, preserving its name, company ({sourceReuseOption.companyName}), managers, saved time zone ({sourceReuseOption.timezone}) and sales history. No new machine is created.</p>
+              <p className="text-sm text-muted-foreground">Imported sales stay pending until financial reconciliation. This does not replay orders or activate refunds.</p>
+              <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={reuseConfirmed} onChange={(event) => setReuseConfirmed(event.target.checked)} disabled={isSaving}/>I confirm this source and reader identify the same physical machine.</label>
+              <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Use existing machine</Button>
+            </> : <>
+              <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isPending ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
+              {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}
+              <Button variant="outline" className="min-h-11" onClick={() => void sourceReuseOptions.refetch()}>Reload connection details</Button>
+            </>}
+          </div>}
         </div>}
+        {!sourceReaderOccupied && <>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="machine-label">Machine name</Label>
@@ -3974,11 +4004,12 @@ null
           </>
         )}
         </>}
+        </>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button key={committedImportedMachineId ? 'retry-source-load' : 'save-machine'} onClick={() => void saveMachine('all')} disabled={mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button key={committedImportedMachineId ? 'retry-source-load' : 'save-machine'} onClick={() => void saveMachine('all')} disabled={sourceReaderOccupied || mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
