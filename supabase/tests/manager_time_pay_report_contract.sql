@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(158);
+select plan(159);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1439,6 +1439,7 @@ values (
   jsonb_build_object(
     'schemaVersion', 'operator-pay-stub-v2',
     'calculationMeta', jsonb_build_object(
+      'cashReportingPolicy', '[]'::jsonb,
       'paySourceRevision', private.operator_pay_time_source_revision(
         'a6000000-0000-0000-0000-000000000002',
         '2026-08-31'
@@ -1525,6 +1526,7 @@ values (
   jsonb_build_object(
     'schemaVersion', 'operator-pay-stub-v2',
     'calculationMeta', jsonb_build_object(
+      'cashReportingPolicy', '[]'::jsonb,
       'paySourceRevision', private.operator_pay_time_source_revision(
         'a6000000-0000-0000-0000-000000000002',
         '2026-08-31'
@@ -1546,6 +1548,23 @@ values (
   'a1000000-0000-0000-0000-000000000003',
   'ac300000-0000-0000-0000-000000000004', 1, now()
 );
+
+-- Synthetic prepared draft includes the exact machine policy just as prepare does.
+update public.pay_statements
+set statement_payload=statement_payload || jsonb_build_object(
+  'machines',jsonb_build_array(jsonb_build_object('machineId','a4000000-0000-0000-0000-000000000002')),
+  'calculationMeta',(statement_payload->'calculationMeta') || jsonb_build_object(
+    'cashReportingPolicy',jsonb_build_array(jsonb_build_object(
+      'machineId','a4000000-0000-0000-0000-000000000002','excludeCash',false))))
+where id='ac300000-0000-0000-0000-000000000004';
+update public.reporting_machines set exclude_cash_from_financial_reporting=true
+where id='a4000000-0000-0000-0000-000000000002';
+select is(pg_temp.capture_error($$select public.service_complete_pay_stub(
+  'ad000000-0000-0000-0000-000000000002','ac300000-0000-0000-0000-000000000004','test/stale-cash.pdf')$$),
+  'Pay Stub source changed during generation; retry required',
+  'Publication rejects a cash policy change committed after preparation');
+update public.reporting_machines set exclude_cash_from_financial_reporting=false
+where id='a4000000-0000-0000-0000-000000000002';
 
 select is(
   public.service_complete_pay_stub(
@@ -2681,6 +2700,7 @@ values (
   jsonb_build_object(
     'schemaVersion', 'operator-pay-stub-v2',
     'calculationMeta', jsonb_build_object(
+      'cashReportingPolicy', '[]'::jsonb,
       'paySourceRevision', private.operator_pay_time_source_revision(
         'a6000000-0000-0000-0000-000000000001',
         '2026-07-31'
