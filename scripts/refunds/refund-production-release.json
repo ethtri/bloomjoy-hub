@@ -323,7 +323,8 @@
     "20261005172717_refund_info_autoresponse_repair.sql",
     "20261005201647_nayax_source_tax_observations.sql",
     "20261005221713_nayax_bounded_portal_tax_history.sql",
-    "20261005222133_verified_nayax_september_history.sql"
+    "20261005222133_verified_nayax_september_history.sql",
+    "20261006033118_nayax_manual_portal_to_api_mapping.sql"
   ],
   "migrationFilesSha256": "e9bd00189a6586c05448a59c9f249aad81299785b72a72a4df8b42a972d9ce4b",
   "migrationVersionSetSha256": "e178e7bc4f246b160fb8f05c602145965a40c05fa7f99873d732281b7846c3af",
