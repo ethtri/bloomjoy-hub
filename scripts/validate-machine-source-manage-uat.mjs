@@ -17,11 +17,15 @@ try { for(const platform of ['Sunze','Kexiaozhan']) for(const width of [1440,390
   {accountId:'aa990000-0000-4000-8000-000000000001',accountName:'Other synthetic company',status:'active',archivedAt:null,locations:[]},
  ]})));
  const source={sourceKey:`${platform}:synthetic-exact`,platform,providerAccountId:platform==='Sunze'?null:'096ca52a-444a-4d4f-9a2b-8844ddd16a95',sourceAccountKey:platform==='Sunze'?null:'synthetic-account',sourceId:platform==='Sunze'?'1683202662515916906439361':'1000703',sourceName:platform==='Sunze'?'Gilroy imported cabinet':'Great Mall imported cabinet',sourceStatus:null,discoveryStatus:'pending',firstSeenAt:'2026-01-01T00:00:00Z',lastSeenAt:'2026-10-05T00:00:00Z',sourceTimezone:null,lastSourceTransaction:'2026-10-04',reportingMachineId:null,mappingConflict:false,archivedMapping:false};
- const bodies=[],taxReads=[],errors=[],requestFailures=[];let rejectedOnce=false;
- await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup',r=>r.fulfill(json(base)));
+ const bodies=[],taxReads=[],errors=[],requestFailures=[],mappingBodies=[];let rejectedOnce=false,readerId='UAT-NAYAX-002',taxRate=8.875,taxFailure=false,continuationFailure=process.env.MACHINE_SOURCE_CONTINUATION_FAILURE==='true';
+ await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup',r=>r.fulfill(continuationFailure && bodies.length ? {...json({message:'Synthetic saved-machine refresh failure'}),status:500} : json(base)));
  await context.route('**/rest/v1/rpc/admin_get_machine_source_inventory',r=>r.fulfill(json({sources:[source],count:1})));
- await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata',r=>r.fulfill(json(source.reportingMachineId?[{machineId,sources:[{platform,id:source.sourceId,name:source.sourceName,account:source.sourceAccountKey}],nayaxName:'SnapCase setup needed',nayaxMachineId:'UAT-NAYAX-002',nayaxAccountKey:'UAT_ACCOUNT'}]:[])));
- for(const rpc of ['admin_get_imported_machine_tax','admin_reporting_machine_source_tax']) await context.route(`**/rest/v1/rpc/${rpc}`,r=>{taxReads.push({rpc,body:r.request().postDataJSON()});return r.fulfill(json({coverageStatus:'verified_tax',source:'nayax_source',ratePercent:8.875,saleDate:'2026-10-04'}));});
+ await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata',r=>r.fulfill(json(source.reportingMachineId?[{machineId,venueLabel:null,sources:[{platform,id:source.sourceId,name:source.sourceName,account:source.sourceAccountKey}],nayaxName:readerId==='UAT-NAYAX-002'?'SnapCase setup needed':'Synthetic provider test',nayaxMachineId:readerId,nayaxAccountKey:'UAT_ACCOUNT'}]:[])));
+ for(const rpc of ['admin_get_imported_machine_tax','admin_reporting_machine_source_tax']) await context.route(`**/rest/v1/rpc/${rpc}`,r=>{taxReads.push({rpc,body:r.request().postDataJSON()});return r.fulfill(taxFailure?{...json({message:'Synthetic tax read unavailable'}),status:500}:json({coverageStatus:'verified_tax',source:'nayax_source',ratePercent:taxRate,saleDate:'2026-10-04'}));});
+ await context.route('**/rest/v1/rpc/admin_save_machine_workspace_mapping',r=>{
+  const body=r.request().postDataJSON();assert.equal(body.p_machine_id,machineId);assert.equal(body.p_expected_nayax_machine_id,'UAT-NAYAX-002');assert.equal(body.p_expected_nayax_account_key,'UAT_ACCOUNT');assert.equal(body.p_inventory_id,'55555555-5555-4555-8555-555555555554');
+  mappingBodies.push(body);readerId='UAT-NAYAX-TEST';taxRate=7.25;return r.fulfill(json({ok:true}));
+ });
  await context.route('**/rest/v1/rpc/admin_setup_imported_machine',r=>{
   const body=r.request().postDataJSON();
   assert.equal(body.p_platform,platform); assert.equal(body.p_source_id,source.sourceId); assert.equal(body.p_provider_account_id,source.providerAccountId);
@@ -73,11 +77,33 @@ try { for(const platform of ['Sunze','Kexiaozhan']) for(const width of [1440,390
   await page.getByText('Synthetic setup rejected',{exact:true}).waitFor();
   pass('failed setup preserves exact source and all pending draft values',bodies.length===0&&source.reportingMachineId===null&&await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Concise cabinet name'&&(await picker.innerText()).includes('UAT-NAYAX-002')&&await editor.getByRole('button',{name:'Remove manager-two@example.test',exact:true}).isVisible());
   await editor.getByRole('button',{name:'Save machine changes',exact:true}).click();
+  if(process.env.MACHINE_SOURCE_CONTINUATION_FAILURE === 'true') {
+   await editor.getByText('Machine setup saved',{exact:true}).waitFor();
+   pass('committed setup shows persistent saved status without inviting duplicate creation',bodies.length===1&&await editor.getByRole('button',{name:'Save machine changes',exact:true}).count()===0&&(await editor.innerText()).includes(source.sourceId));
+   const retry=editor.getByRole('button',{name:'Retry loading',exact:true});
+   await retry.waitFor();
+   await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>button.textContent.trim()==='Retry loading'&&!button.disabled));
+   continuationFailure=false;await retry.click();
+   pass('loading retry never resubmits atomic creation or normal saves',bodies.length===1&&!state.machineSavePayload&&!state.refundSavePayload);
+  }
   await editor.getByLabel('Machine name',{exact:true}).waitFor();
   await editor.getByRole('region',{name:'Source identity and Nayax matching',exact:true}).waitFor();
+  await page.waitForLoadState('networkidle');
+  await editor.getByLabel('Machine name',{exact:true}).evaluate(async element=>{await Promise.all(element.closest('[role="dialog"]').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});
   pass('one atomic setup creates Hub and stays in unified editor',bodies.length===1&&await editor.isVisible()&&await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Concise cabinet name');
   pass('no separate provider/name setters used during first setup',!state.rpcCalls.some(c=>/admin_set_machine_nayax|admin_set_machine_display_name/.test(c.rpcName)));
+  const savedTaxReads=taxReads.filter(x=>x.rpc==='admin_reporting_machine_source_tax').length;
+  await editor.getByRole('combobox',{name:'Nayax machine',exact:true}).click();
+  await page.getByRole('combobox',{name:'Search Nayax machines',exact:true}).fill('UAT-NAYAX-TEST');
+  await page.getByRole('option').filter({hasText:'UAT-NAYAX-TEST'}).click();
+  await editor.getByRole('button',{name:'Save Nayax match',exact:true}).click();
+  await editor.getByText(/7.25%/).waitFor();
+  pass('successful exact reader change refreshes numeric tax for the same Hub',mappingBodies.length===1&&taxReads.filter(x=>x.rpc==='admin_reporting_machine_source_tax').length>savedTaxReads&&!(await editor.innerText()).includes('8.875%'));
+  taxFailure=true;await page.waitForLoadState('networkidle');await page.reload();
+  await page.getByRole('button',{name:'Manage',exact:true}).click();
+  await editor.getByText('Unavailable — no verified source tax rate',{exact:true}).waitFor();
+  pass('failed tax read displays unavailable without previous reader percentage',!(await editor.innerText()).includes('7.25%')&&!(await editor.innerText()).includes('8.875%')&&mappingBodies.length===1&&bodies.length===1);
   pass('no app exceptions or aborted requests',errors.length===0&&requestFailures.length===0);pass('controls actual44px/16px',controlDimensions.every(x=>x.height>=44&&x.font>=16));
- }finally{await page.waitForLoadState('networkidle');await context.close();}
+ }catch(error){await page.screenshot({path:`${output}/failure-${platform}-${width}.png`,fullPage:true});await writeFile(`${output}/failure-${platform}-${width}.json`,JSON.stringify({url:page.url(),dialogs:await page.getByRole('dialog').allTextContents(),bodies,mappingBodies,taxReads,machineSavePayload:state.machineSavePayload,rpcCalls:state.rpcCalls,errors,requestFailures},null,2));throw error;}finally{await page.waitForLoadState('networkidle');await context.close();}
 } }finally{await browser.close();}
-await writeFile(`${output}/results.json`,JSON.stringify(checks,null,2));console.log(`${checks.length} source Manage checks PASS`);
+await writeFile(`${output}/${process.env.MACHINE_SOURCE_CONTINUATION_FAILURE==='true'?'continuation-results':'results'}.json`,JSON.stringify(checks,null,2));console.log(`${checks.length} source Manage checks PASS`);
