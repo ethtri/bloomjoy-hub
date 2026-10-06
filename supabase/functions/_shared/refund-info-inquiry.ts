@@ -83,15 +83,10 @@ const currentMessageText = (value: string) => value
   .replace(/[’‘]/g, "'")
   .toLowerCase();
 
-// Sending the intake form requires no particular sentence structure.
-const directRefundAsk = /\b(?:refund|money\s+back|charged\s+(?:me|us)\s+twice)\b/i;
-const purchaseExperience = /\b(?:bought|purchased|paid|payment|charged|charge|took\s+(?:my|our)\s+money|tried\s+(?:to\s+)?(?:buy|use)|used\s+(?:your|the)\s+machine|my\s+(?:order|purchase))\b/i;
-// A customer reporting a completed purchase needs the intake link without
-// having to describe the problem using a particular failure word. General
-// pricing/payment questions do not establish a completed purchase.
-const completedPurchase = /\b(?:bought|purchased|paid|charged\s+(?:me|us)|(?:was|were|been|got)\s+charged|used\s+(?:your|the)\s+machine|(?:my|our)\s+(?:order|purchase|payment|charge|transaction))\b/i;
-const productContext = /\b(?:bloomjoy|cotton\s+candy|machine|snapcase|your\s+product)\b/i;
-const productFailure = /\b(?:did\s+not|didn't|never|failed|broken|stale|bad|wrong|missing|damaged|empty|not\s+working|does\s+not\s+work|doesn't\s+work|no\s+candy|ran\s+out\s+of\s+sticks|double\s+charg(?:e|ed))\b/i;
+// Acknowledgment is the default for direct customer mail. Do not require
+// purchase/problem vocabulary: short, attachment-only and non-English messages
+// need the same receipt and conditional form link as an explicit refund ask.
+const automatedSender = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifier|notifications?)@/i;
 const statusQuestion = /\b(?:where\s+is\s+my\s+refund|status\s+of\s+my\s+(?:refund|case|request)|already\s+(?:submitted|filled\s+out|completed)\s+(?:the\s+)?(?:refund\s+)?form|following\s+up\s+on\s+my\s+(?:refund|case|request))\b/i;
 const publicReference = /\bRF-[A-Z0-9]{6,20}\b/i;
 const businessContext = /\b(?:invoice|wholesale|partnership|sponsorship|advertising|marketing|seo|payroll|technician|service\s+ticket|vendor|supplier)\b/i;
@@ -117,7 +112,9 @@ export function classifyRefundInfoInquiry({
       continue;
     }
     infoAddressed = true;
-    if (signals.mailboxOrigin || signals.participantTrust !== "direct_human") {
+    if (signals.mailboxOrigin || signals.participantTrust !== "direct_human" ||
+      automatedSender.test(signals.from.email) ||
+      (message.labelIds ?? []).some((label) => ["SPAM", "TRASH"].includes(label.toUpperCase()))) {
       untrusted = true;
       continue;
     }
@@ -137,20 +134,7 @@ export function classifyRefundInfoInquiry({
       latestApplicable = { route: "existing_case_question", sourceMessageId: message.id ?? null };
       continue;
     }
-    if (directRefundAsk.test(text) ||
-      (productContext.test(text) &&
-        (completedPurchase.test(text) || /\btook\s+(?:my|our)\b/i.test(text)))) {
-      latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
-      continue;
-    }
-    if (productContext.test(text) && productFailure.test(text) &&
-      (purchaseExperience.test(text) || /\bdispens(?:e|ed|ing)\b/i.test(text))) {
-      latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
-      continue;
-    }
-    if (productContext.test(text) && productFailure.test(text)) {
-      latestApplicable = { route: "needs_review", sourceMessageId: message.id ?? null };
-    }
+    latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
   }
   if (latestApplicable) return latestApplicable;
   return { route: !infoAddressed ? "not_info" : untrusted ? "untrusted" : "non_refund",
