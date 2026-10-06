@@ -14,6 +14,10 @@ Machine name is the sole editable/display label for an individual machine. Locat
 
 Issue #1774 is deployed through PR #1775 (main 13ee3155), with production monitoring passed. The catalogue shows all 63 stored source identities (40 Sunze, 23 Kexiaozhan), including all 13 unbound imports, with one Manage workflow and visible numeric Nayax source tax. The 15 Hub-only records do not add physical inventory or counts; eight reviewed legacy records are reversibly archived with all linked history preserved. The seven unarchived operational records still require exact source pairing under #1747; the South Hills cotton-candy Sunze ID remains unresolved. Provider coverage is unverified: these are stored-source counts, not a complete provider census, and import warnings never hide stored identities.
 
+## Partnership workflow
+
+- #1784 is implementing optional ongoing dates, exact-source machine additions with explicit start dates, and reviewed atomic effective-dated partner splits. Approved October 1 NET allocation is 70% partner / 30% Bloomjoy for Merlin and Bubble Planet, preserving existing deductions and history; approved Merlin prior terms continue through September 30. LA historical company allocation is being verified before guarded setup, and existing Peppa assignment is a no-op. No live financial or assignment changes have been applied by implementation.
+
 ## Refund workflow (current)
 
 - P0 #1782: a new cash/card complaint exposed another Info matching exclusion.

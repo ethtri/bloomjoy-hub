@@ -1247,3 +1247,12 @@ npm run refunds:validate-portal-uat-lifecycle
 - Expand the breakdown and confirm cash retains its full collected value. Compare the separate completed-refund reconciliation with Nayax without changing request-based deductions.
 - Check an unresolved tax split: affected totals show Unavailable rather than zero or an inferred gross amount. Confirm desktop and 390px mobile layouts remain readable.
 - Open `/admin/machines/:machineId?tab=reporting`. Normal machine forms have no editable tax rates; admin source diagnostics show verified, unclassified, missing, or unavailable source coverage.
+
+### Partnership dated split and optional dates (#1784)
+
+- At `/admin/partnerships`, verify No end date shows Ongoing and saves NULL. Unchecking reveals an empty optional date without defaulting today; an entered end survives reload and Clear restores Ongoing. At 320/390 px the full date and controls fit.
+- For an existing partnership, use Change split, set effective-from, review named partner/Bloomjoy NET percentages and affected machines, and confirm once. Existing deduction controls stay locked; prior versions appear in History. Stale state/invalid totals/overlap fail without partial changes.
+- Verify a transition week covered by two adjacent versions does not report missing partial-week terms. September financial measures and issued payout snapshots remain unchanged; October uses the new partner-wide rule, including later assigned machines.
+- Machine additions use explicit Assignment effective from and exact source ID. The provisional LA Hub is not a new machine option; confirmed Peppa already assigned is a no-op. Never promote historical LA source orders into an unverified company.
+
+- Under partnership History, Correct end date reviews a selected version/date and requires a reason. Confirm changes only that date through a guarded expected-snapshot writer; stale/overlapping correction and audit failure roll back. For approved Merlin repair, preserve old 30% Merlin / 70% Bloomjoy deductions and start while correcting its end to September 30 before adding October terms.

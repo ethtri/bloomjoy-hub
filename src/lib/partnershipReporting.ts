@@ -712,6 +712,37 @@ export const upsertReportingFinancialRuleAdmin = async (input: UpsertFinancialRu
   return data as ReportingPartnershipFinancialRule;
 };
 
+const reviewedFinancialRule = (rule: ReportingPartnershipFinancialRule) => {
+  const keys = ['effective_start_date', 'effective_end_date', 'fever_share_basis_points',
+    'partner_share_basis_points', 'bloomjoy_share_basis_points', 'fee_amount_cents', 'fee_basis',
+    'cost_amount_cents', 'cost_basis', 'calculation_model', 'split_base', 'fee_label', 'cost_label',
+    'deduction_timing', 'gross_to_net_method', 'additional_deductions_notes', 'notes', 'status', 'updated_at'] as const;
+  return Object.fromEntries(keys.map(key => [key, rule[key]]));
+};
+
+export const correctPartnershipRuleEndAdmin = async (rule: ReportingPartnershipFinancialRule, endDate: string, reason: string) => {
+  const { data, error } = await supabaseClient.rpc('admin_correct_partnership_rule_end_date', {
+    p_rule_id: rule.id, p_expected_rule: reviewedFinancialRule(rule), p_end_date: endDate || null, p_reason: reason,
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to correct historical end date.');
+  return data as ReportingPartnershipFinancialRule;
+};
+
+export const changePartnershipSplitAdmin = async (input: {
+  partnershipId: string; expectedRule: ReportingPartnershipFinancialRule; effectiveFrom: string;
+  primaryShare: number; secondaryShare: number; bloomjoyShare: number;
+}) => {
+  const expected = reviewedFinancialRule(input.expectedRule);
+  const { data, error } = await supabaseClient.rpc('admin_change_partnership_split', {
+    p_partnership_id: input.partnershipId, p_expected_rule_id: input.expectedRule.id,
+    p_expected_rule: expected, p_effective_from: input.effectiveFrom,
+    p_primary_share: input.primaryShare, p_secondary_share: input.secondaryShare,
+    p_bloomjoy_share: input.bloomjoyShare, p_reason: 'Reviewed effective-dated partnership split change',
+  });
+  if (error || !data) throw new Error(error?.message || 'Unable to change partnership split.');
+  return data as ReportingPartnershipFinancialRule;
+};
+
 export const previewPartnerWeeklyReportAdmin = async (
   partnershipId: string,
   weekEndingDate: string
