@@ -20,6 +20,31 @@ export type MachineSourceInventoryItem = {
   nayaxName?: string | null;
   mappingConflict: boolean;
   archivedMapping: boolean;
+  salesActivationPending?: boolean;
+};
+
+export type ImportedSourceReuseOption = {
+  inventoryId: string; machineId: string; machineName: string; companyId: string;
+  companyName: string; timezone: string; expectedMachineUpdatedAt: string;
+  eligible: boolean; reason: string | null;
+};
+export const fetchImportedSourceReuseOptions = async (source: MachineSourceInventoryItem): Promise<ImportedSourceReuseOption[]> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_imported_source_reuse_options', {
+    p_platform: source.platform, p_provider_account_id: source.providerAccountId, p_source_id: source.sourceId,
+  });
+  if (error || !Array.isArray(data)) throw new Error(error?.message || 'Unable to review existing reader connections.');
+  return data;
+};
+export const reuseImportedSourceMachine = async (source: MachineSourceInventoryItem, option: ImportedSourceReuseOption): Promise<string> => {
+  const { data, error } = await supabaseClient.rpc('admin_reuse_imported_source_machine', {
+    p_platform: source.platform, p_provider_account_id: source.providerAccountId, p_source_id: source.sourceId,
+    p_inventory_id: option.inventoryId, p_expected_machine_id: option.machineId,
+    p_expected_updated_at: option.expectedMachineUpdatedAt,
+    p_expected_timezone: option.timezone,
+    p_reason: 'Reviewed same physical machine: reuse existing reader machine without financial activation',
+  });
+  if (error || !data?.machineId) throw new Error(error?.message || 'Unable to use this existing machine.');
+  return data.machineId;
 };
 
 export const machineSourceInventoryQueryKey = ['admin-machine-source-inventory'];

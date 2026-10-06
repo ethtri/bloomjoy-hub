@@ -1284,3 +1284,5 @@ npm run refunds:validate-portal-uat-lifecycle
   current totals. Already-issued statement payloads stay identical.
 - Run `node scripts/validate-machine-cash-exclusion-uat.mjs` against localhost:8098
   and `npm run db:validate-migrations` for the full disposable SQL suite.
+
+- Existing-reader reuse (#1799): select an occupied reader in an unbound imported machine's Manage screen. An eligible source-free Hub requires explicit same-physical-machine confirmation and preserves its name/company/time zone/managers/history. After Save, continue/reopen the same Hub with the exact imported source ID and sales-activation-pending notice. Failed continuation offers read-only Retry without a second write. Stale/source-conflicting/archived selections must fail without any changes; already source-connected occupied readers offer current-connection review instead of takeover.

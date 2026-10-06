@@ -1241,3 +1241,7 @@ to all recalculated periods through a private eligible-sale view used by both
 Sales/commission and Finance adapters, legacy readers and partner quantities.
 Track draft policy freshness and refuse stale Pay Stub publication. Retired Great
 Mall SnapCase remains outside this rollout. See the source contract and feature plan.
+
+# 2026-10-06 — Existing-reader management source reuse (#1799)
+
+An explicitly reviewed same-physical-machine association can reuse an existing source-free, nonarchived Hub and its exact occupied reader. Preserve the existing machine name, company, site/time zone, managers, refund state and financial records. Store the imported management association separately from financial source activation: Sunze/Kex imports remain pending, and no historical orders are promoted or existing revenue recalculated. Show the read-only source identity and a sales-activation-pending notice; this state is Setup needed, never Ready. Source and Hub uniqueness, stale snapshots, permissions and financial-activation guards apply server-side. Occupied readers belonging to a different source remain visible with their current connection and a reconciliation path; ordinary Save cannot take them over. No provider time zone may be inferred from names or a universal default.
