@@ -5,6 +5,7 @@ import { drainSunzeCashCorrelation } from "../_shared/sunze-cash-correlation.ts"
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 import { verifySunzeMachineCoverage } from "../_shared/sunze-machine-coverage.mjs";
+import { usableSunzeMachineName, mergeSunzeMachineNames, preserveSunzeMachineName } from "../_shared/sunze-machine-name.mjs";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -41,6 +42,7 @@ type SunzeIngestRow = {
 type VisibleSunzeMachine = {
   machineCode: string;
   machineName: string | null;
+  machineNameEvidence: string | null;
 };
 
 type ReportingMachine = {
@@ -130,10 +132,10 @@ const normalizeVisibleSunzeMachines = (value: unknown): VisibleSunzeMachine[] =>
     );
     if (!machineCode) continue;
 
-    const machineName = sanitizeText(
+    const machineName = usableSunzeMachineName(sanitizeText(
       record.machineName ?? record.sunzeMachineName ?? record.name,
       200
-    );
+    ), record.machineNameEvidence === "explicit_field");
 
     const key = machineCode.toLowerCase();
     const existing = byCode.get(key);
@@ -141,6 +143,7 @@ const normalizeVisibleSunzeMachines = (value: unknown): VisibleSunzeMachine[] =>
     byCode.set(key, {
       machineCode,
       machineName: machineName || existing?.machineName || null,
+      machineNameEvidence: record.machineNameEvidence === "explicit_field" ? "explicit_field" : null,
     });
   }
 
@@ -439,21 +442,9 @@ const buildMachineNameMap = (rows: SunzeIngestRow[]) => {
     const machineCode = sanitizeText(row.machineCode, 100);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$/.test(machineCode)) continue;
 
-    const machineName = sanitizeText(row.machineName, 200);
+    const machineName = usableSunzeMachineName(sanitizeText(row.machineName, 200), true);
     if (machineName) {
       namesByCode.set(machineCode.toLowerCase(), machineName);
-    }
-  }
-
-  return namesByCode;
-};
-
-const buildVisibleMachineNameMap = (meta: Record<string, unknown>) => {
-  const namesByCode = new Map<string, string>();
-
-  for (const machine of normalizeVisibleSunzeMachines(meta.visibleSunzeMachines)) {
-    if (machine.machineName) {
-      namesByCode.set(machine.machineCode.toLowerCase(), machine.machineName);
     }
   }
 
@@ -518,7 +509,7 @@ const upsertSunzeMachineDiscoveries = async ({
     return {
       sunze_machine_id: machineCode,
       sunze_machine_name:
-        machineNamesByCode.get(normalizedCode) ?? existingDiscovery?.sunze_machine_name ?? null,
+        preserveSunzeMachineName(machineNamesByCode.get(normalizedCode), existingDiscovery?.sunze_machine_name),
       status,
       reporting_machine_id: mappedMachine?.id ?? null,
       last_seen_import_run_id: importRunId,
@@ -935,10 +926,7 @@ serve(async (req) => {
       machineBySunzeId,
       rowMachineCodes,
     });
-    const machineNamesByCode = new Map([
-      ...buildMachineNameMap(rows),
-      ...buildVisibleMachineNameMap(bodyMeta),
-    ]);
+    const machineNamesByCode = mergeSunzeMachineNames(buildMachineNameMap(rows), normalizeVisibleSunzeMachines(bodyMeta.visibleSunzeMachines));
     const discoveryState = await upsertSunzeMachineDiscoveries({
       machineCodes: machineCoverage.discoveredMachineCodes,
       machineNamesByCode,

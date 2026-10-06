@@ -28,6 +28,7 @@ import {
 import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 import { collectSunzeMachineInventory, parseSunzeMachinePagination, scrollSunzeMachineList } from './machine-inventory-coverage.mjs';
 import { inspectSunzeMachineStructure } from './machine-structure-diagnostic.mjs';
+import { readSunzeMachineFields, normalizeSunzeMachineFields, extractSunzeMachineIdentitiesFromText } from './machine-identity.mjs';
 
 const args = process.argv.slice(2);
 
@@ -578,75 +579,6 @@ const sanitizeMachineCode = (value) => {
   return text;
 };
 
-const machineListNameNoise = new Set([
-  'more',
-  'normal',
-  'abnormal',
-  'online',
-  'offline',
-  'machine id',
-  'machine name',
-  'device id',
-  'device name',
-]);
-
-const sanitizeMachineName = (value) => {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-  if (!text || text.length > 200) return null;
-  const normalized = text.toLowerCase().replace(/[:：]\s*$/, '');
-  if (machineListNameNoise.has(normalized)) return null;
-  if (/^(heating temp|internal temp|humidity)\s*[:：]/i.test(text)) return null;
-  if (/^machine\s*id\s*[:：]?/i.test(text)) return null;
-  if (/^machine\s*name\s*[:：]?/i.test(text)) return null;
-  if (/^device\s*(id|name)\s*[:：]?/i.test(text)) return null;
-  return text;
-};
-
-const findMachineNameBeforeLine = (lines, index) => {
-  for (
-    let previousIndex = index - 1;
-    previousIndex >= 0 && previousIndex >= index - 5;
-    previousIndex -= 1
-  ) {
-    const name = sanitizeMachineName(lines[previousIndex]);
-    if (name) return name;
-  }
-  return null;
-};
-
-const extractMachinesFromText = (text) => {
-  const lines = String(text ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const machinesByCode = new Map();
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const inlineMatch = lines[index].match(/Machine\s*ID\s*(?::|\uFF1A)?\s*([A-Za-z0-9][A-Za-z0-9._-]{1,79})/i);
-    const inlineCode = sanitizeMachineCode(inlineMatch?.[1]);
-    if (inlineCode) {
-      machinesByCode.set(inlineCode, {
-        machineCode: inlineCode,
-        machineName: findMachineNameBeforeLine(lines, index),
-      });
-    }
-
-    if (/^Machine\s*ID\s*(?::|\uFF1A)?$/i.test(lines[index])) {
-      const nextCode = sanitizeMachineCode(lines[index + 1]);
-      if (nextCode) {
-        machinesByCode.set(nextCode, {
-          machineCode: nextCode,
-          machineName: findMachineNameBeforeLine(lines, index),
-        });
-      }
-    }
-  }
-
-  return [...machinesByCode.values()].sort((left, right) =>
-    left.machineCode.localeCompare(right.machineCode)
-  );
-};
-
 const summaryMachineCodes = [
   ...new Set(
     summaryMachineCodesArg
@@ -718,7 +650,10 @@ const readVisibleSunzeMachines = async (page, baseUrl) => {
   await page.waitForTimeout(2500);
 
   const inventory = await collectSunzeMachineInventory({
-    readMachines: async () => extractMachinesFromText(await page.locator('body').innerText()),
+    readMachines: async () => {
+      const fields = normalizeSunzeMachineFields(await page.evaluate(readSunzeMachineFields));
+      return fields.length ? fields : extractSunzeMachineIdentitiesFromText(await page.locator('body').innerText());
+    },
     readPagination: () => readMachineListPagination(page),
     scroll: () => scrollTopLevelMachineList(page),
     advancePage: () => clickNextMachineListPage(page),
@@ -1890,7 +1825,7 @@ if (hasFlag('--machine-diagnostic')) {
     const inventory = await readVisibleSunzeMachines(page, baseUrl);
     assertAllowedSunzeRoute(page);
     const structure = await page.evaluate(inspectSunzeMachineStructure);
-    const result = {machineCoverage:inventory.coverage,structure};
+    const result = {machineCoverage:inventory.coverage,structure,machines:inventory.machines.map(machine=>({sourceId:machine.machineCode,sourceName:machine.machineName && !/@|https?:\/\//i.test(machine.machineName) ? sanitizeDiagnosticText(machine.machineName) : null}))};
     await writeFile('sunze-machine-structure.json',JSON.stringify(result,null,2));
     console.log(JSON.stringify(result,null,2));
   } finally { await browser.close(); }
