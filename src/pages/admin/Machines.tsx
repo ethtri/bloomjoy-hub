@@ -2591,7 +2591,7 @@ function MachineDialog({
   const sourceReuseOption = sourceReuseOptions.data?.find((option) => option.inventoryId === sourceInventoryId);
   const sourceReuseVerified = !sourceReuseOptions.isError && !sourceReuseOptions.isFetching && !!sourceReuseOption;
   const [reuseConfirmed, setReuseConfirmed] = useState(false);
-  useEffect(() => { setReuseConfirmed(false); }, [importedSource?.sourceKey, sourceInventoryId, sourceReuseOption?.machineId, sourceReuseOption?.expectedMachineUpdatedAt]);
+  useEffect(() => { setReuseConfirmed(false); }, [importedSource?.sourceKey, sourceInventoryId, sourceReuseOption?.machineId, sourceReuseOption?.expectedMachineUpdatedAt, sourceReuseOption?.timezone]);
   const reuseExistingMachine = async () => {
     if (!importedSource || !sourceReuseVerified || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving) return;
     setIsSaving(true);
@@ -2600,7 +2600,11 @@ function MachineDialog({
       onImportedSourceSaved?.(id);
       toast.success('Existing machine connected. Sales activation remains pending reconciliation.');
       await onSaved();
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to use the existing machine.'); }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to use the existing machine.');
+      setReuseConfirmed(false);
+      await sourceReuseOptions.refetch();
+    }
     finally { setIsSaving(false); }
   };
   const { user: assignmentUser } = useAuth();

@@ -79,7 +79,7 @@ grant execute on function public.admin_get_imported_source_reuse_options(text,uu
 
 create function public.admin_reuse_imported_source_machine(
   p_platform text,p_provider_account_id uuid,p_source_id text,p_inventory_id uuid,
-  p_expected_machine_id uuid,p_expected_updated_at timestamptz,p_reason text)
+  p_expected_machine_id uuid,p_expected_updated_at timestamptz,p_expected_timezone text,p_reason text)
 returns jsonb language plpgsql security definer set search_path='' as $fn$
 declare machine public.reporting_machines; reader public.refund_nayax_machine_inventory;
   association private.machine_source_management_associations; source_zone text; site_zone text;
@@ -120,7 +120,10 @@ begin
   if private.machine_source_reuse_blocker(machine.id) is not null then
     raise exception '%',private.machine_source_reuse_blocker(machine.id) using errcode='22023';
   end if;
-  select timezone into site_zone from public.reporting_locations where id=machine.location_id for share;
+  select timezone into site_zone from public.reporting_locations where id=machine.location_id for share nowait;
+  if p_expected_timezone is null or site_zone is distinct from p_expected_timezone then
+    raise exception 'Saved machine time zone changed. Reload and review.' using errcode='40001';
+  end if;
   if not exists(select 1 from pg_catalog.pg_timezone_names where name=site_zone) then
     raise exception 'Review the saved machine time zone before connecting this source.' using errcode='22023';
   end if;
@@ -142,8 +145,8 @@ begin
 exception when lock_not_available then
   raise exception 'Machine or reader is being updated. Reload and retry.' using errcode='40001';
 end; $fn$;
-revoke all on function public.admin_reuse_imported_source_machine(text,uuid,text,uuid,uuid,timestamptz,text) from public,anon;
-grant execute on function public.admin_reuse_imported_source_machine(text,uuid,text,uuid,uuid,timestamptz,text) to authenticated;
+revoke all on function public.admin_reuse_imported_source_machine(text,uuid,text,uuid,uuid,timestamptz,text,text) from public,anon;
+grant execute on function public.admin_reuse_imported_source_machine(text,uuid,text,uuid,uuid,timestamptz,text,text) to authenticated;
 
 -- Association is deliberately not a financial activation mechanism. All
 -- ordinary writers must reconcile that separately rather than bypass it.
@@ -225,6 +228,7 @@ begin
   definition:=pg_get_functiondef('public.admin_get_machine_workspace_metadata()'::regprocedure);
   if strpos(definition,anchor)=0 then raise exception 'Machine metadata wrapper anchor changed'; end if;
   execute replace(definition,anchor,$new$'excludeCashFromFinancialReporting', machine.exclude_cash_from_financial_reporting,
+    'machineName',private.reporting_machine_display_name(machine),
     'salesActivationPending',exists(select 1 from private.machine_source_management_associations association where association.reporting_machine_id=machine.id),
     'sources',coalesce(item.value->'sources','[]'::jsonb)||coalesce((
       select jsonb_agg(jsonb_build_object('platform',association.platform,'id',association.source_id,

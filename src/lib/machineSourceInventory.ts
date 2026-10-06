@@ -40,6 +40,7 @@ export const reuseImportedSourceMachine = async (source: MachineSourceInventoryI
     p_platform: source.platform, p_provider_account_id: source.providerAccountId, p_source_id: source.sourceId,
     p_inventory_id: option.inventoryId, p_expected_machine_id: option.machineId,
     p_expected_updated_at: option.expectedMachineUpdatedAt,
+    p_expected_timezone: option.timezone,
     p_reason: 'Reviewed same physical machine: reuse existing reader machine without financial activation',
   });
   if (error || !data?.machineId) throw new Error(error?.message || 'Unable to use this existing machine.');
