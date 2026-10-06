@@ -23,7 +23,9 @@ Issue #1774 is deployed through PR #1775 (main 13ee3155), with production monito
 - P0 #1782: a new cash/card complaint exposed another Info matching exclusion.
   Customer purchase reports now qualify for the intake link without a particular
   failure word; general pricing/business mail and existing-case guards remain.
-  Production recovery and repeat-scan acceptance are tracked in the issue.
+  The corrected Gmail script is deployed and the missed customer has a verified
+  same-thread recovery reply. Automatic duplicate-suppression acceptance is
+  tracked in the issue.
 
 - P0 #1455: the October 5 repair broadens deterministic Info inquiry matching
   to the three missed customer phrases, removes reused pg_net request-ID
