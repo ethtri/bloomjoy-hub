@@ -1358,6 +1358,16 @@ const run = async () => {
       await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).isVisible()
         && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
     );
+    recorder.assert(
+      'Source catalogue retains both identities with consistent blocked readiness counts',
+      await page.getByRole('button', { name: /^Machines\s+2$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Ready\s+0$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Setup needed\s+2$/ }).isVisible()
+    );
+    await page.getByRole('button', { name: /^Ready\s+0$/ }).click();
+    recorder.assert('Ready source view cannot expose a globally blocked machine', (await page.locator('[data-source-key]').count()) === 0);
+    await page.getByRole('button', { name: /^Machines\s+2$/ }).click();
+    await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).waitFor({ timeout: 10000 });
     await page.getByText('Filters', { exact: true }).click();
     await page.locator('#refund-filter').selectOption('ready');
     recorder.assert(
@@ -1374,6 +1384,17 @@ const run = async () => {
     const allRefundStatesUrl = new URL(page.url());
     allRefundStatesUrl.searchParams.delete('refund');
     await navigateUatPageAfterDrain(page, allRefundStatesUrl.toString(), { waitUntil: 'networkidle' });
+    state.globalRefundsAvailable = true;
+    state.globalRefundsBlockReason = null;
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await guardedMachineRow.getByText('Refunds: Ready', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Provider recovery restores readiness without changing source inventory',
+      await page.getByRole('button', { name: /^Machines\s+2$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Ready\s+1$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Setup needed\s+1$/ }).isVisible()
+        && await guardedMachineRow.getByText('Ready', { exact: true }).isVisible()
+    );
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Refresh', exact:true }).click();
@@ -1393,6 +1414,14 @@ const run = async () => {
 
     await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
+    await guardedMachineRow.getByText('Refunds: Paused globally', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Global pause consistently moves the same source from Ready to Setup needed',
+      await page.getByRole('button', { name: /^Machines\s+2$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Ready\s+0$/ }).isVisible()
+        && await page.getByRole('button', { name: /^Setup needed\s+2$/ }).isVisible()
+        && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
+    );
     state.globalRefundsPaused = false;
     state.refundSetup.cardRefundsEnabled = false;
     state.refundSetup.cardRefundLimitCents = null;
