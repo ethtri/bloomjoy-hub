@@ -1,6 +1,7 @@
 import {
   extractPlainTextBody,
   getGmailHeader,
+  hasCustomerFacingMailboxReply,
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
 } from "./refund-gmail.ts";
@@ -140,6 +141,18 @@ export function classifyRefundInfoInquiry({
     }
     if (knownBusinessThread && latestApplicable?.route === "non_refund") continue;
     latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
+  }
+  if (latestApplicable?.route === "new_refund_inquiry") {
+    const source = messages.find((message) => message.id === latestApplicable?.sourceMessageId);
+    const customerEmail = source
+      ? inspectRefundGmailParticipantSignals({ message: source, mailboxIdentities }).from.email
+      : "";
+    // The first-response obligation must use the same provider-Sent evidence as
+    // duplicate prevention. A previously answered conversation is not a new
+    // acknowledgment obligation, even when its latest customer message is short.
+    if (hasCustomerFacingMailboxReply({ messages, mailboxIdentities, customerEmail })) {
+      return { route: "non_refund", sourceMessageId: null };
+    }
   }
   if (latestApplicable) return latestApplicable;
   return { route: !infoAddressed ? "not_info" : untrusted ? "untrusted" : "non_refund",

@@ -26,6 +26,8 @@ Issue #1774 is deployed through PR #1775 (main 13ee3155), with production monito
   internal, automated/spam mail and existing cases retain their exclusions.
   The broader Gmail rule is deployed from PR #1791. Normal-scheduler delivery,
   duplicate suppression and the downloaded production seal are tracked in the issue.
+  Follow-up repair #1792 aligns first-response obligations with the existing
+  provider-Sent duplicate guard for previously answered conversations.
 
 - P0 #1782: a new cash/card complaint exposed another Info matching exclusion.
   Customer purchase reports now qualify for the intake link without a particular
