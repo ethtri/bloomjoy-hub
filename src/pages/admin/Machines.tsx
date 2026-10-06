@@ -2589,9 +2589,11 @@ function MachineDialog({
   const sourceReuseOptions = useQuery({ queryKey: ['imported-source-reuse', importedSource?.sourceKey], queryFn: () => fetchImportedSourceReuseOptions(importedSource!), enabled: open && !!importedSource && !machine, staleTime: 0, retry: false });
   const sourceReaderOccupied = !!importedSource && !machine && !committedImportedMachineId && !!sourceNayaxInventory.data?.machines.find((reader) => reader.id === sourceInventoryId)?.reportingMachineId;
   const sourceReuseOption = sourceReuseOptions.data?.find((option) => option.inventoryId === sourceInventoryId);
+  const sourceReuseVerified = !sourceReuseOptions.isError && !sourceReuseOptions.isFetching && !!sourceReuseOption;
   const [reuseConfirmed, setReuseConfirmed] = useState(false);
+  useEffect(() => { setReuseConfirmed(false); }, [importedSource?.sourceKey, sourceInventoryId, sourceReuseOption?.machineId, sourceReuseOption?.expectedMachineUpdatedAt]);
   const reuseExistingMachine = async () => {
-    if (!importedSource || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving) return;
+    if (!importedSource || !sourceReuseVerified || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving) return;
     setIsSaving(true);
     try {
       const id = await reuseImportedSourceMachine(importedSource, sourceReuseOption);
@@ -3626,13 +3628,13 @@ function MachineDialog({
           <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending} allowOccupied onSelect={(id) => { setSourceInventoryId(id); setReuseConfirmed(false); }}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
           {sourceReaderOccupied && <div className="rounded-md border p-4 space-y-3" role="region" aria-label="Review existing machine connection">
             <p className="font-medium">This reader is connected to {sourceReuseOption?.machineName || 'an existing machine'}.</p>
-            {sourceReuseOption?.eligible ? <>
+            {sourceReuseVerified && sourceReuseOption?.eligible ? <>
               <p className="text-sm">Use the same machine, preserving its name, company ({sourceReuseOption.companyName}), managers, saved time zone ({sourceReuseOption.timezone}) and sales history. No new machine is created.</p>
               <p className="text-sm text-muted-foreground">Imported sales stay pending until financial reconciliation. This does not replay orders or activate refunds.</p>
               <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={reuseConfirmed} onChange={(event) => setReuseConfirmed(event.target.checked)} disabled={isSaving}/>I confirm this source and reader identify the same physical machine.</label>
               <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Use existing machine</Button>
             </> : <>
-              <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isPending ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
+              <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
               {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}
               <Button variant="outline" className="min-h-11" onClick={() => void sourceReuseOptions.refetch()}>Reload connection details</Button>
             </>}
