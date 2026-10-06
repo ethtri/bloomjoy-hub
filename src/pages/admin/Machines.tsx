@@ -3971,7 +3971,7 @@ null
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button onClick={() => void saveMachine('all')} disabled={mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button key={committedImportedMachineId ? 'retry-source-load' : 'save-machine'} onClick={() => void saveMachine('all')} disabled={mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
