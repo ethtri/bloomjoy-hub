@@ -153,5 +153,39 @@ select is((select jsonb_agg(to_jsonb(component) order by booking_date,tender) fr
 select ok(exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id='aa180303-0000-4000-8000-000000000002' and nayax_machine_id='18030003' and ownership_basis='original_transactions_only' and effective_until='2026-10-03T19:00Z'),'Unproved former installation period is recorded only as original-transaction evidence');
 select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030003','2026-10-03T19:00:01Z'),'aa180303-0000-4000-8000-000000000003'::uuid,'After the actual move instant new purchases use the new physical owner');
 select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030003','2026-10-03T18:59:59Z'),null::uuid,'Unseen pre-transfer transactions are not assigned through an invented old installation period');
+-- Completed same-physical mapping attests a proved old interval. Its later
+-- ordinary replacement must retire that interval, not leave two readers active
+-- for future unmatched refund cases.
+set local session_replication_role=replica;
+insert into reporting_machines(id,account_id,location_id,machine_label,machine_type,nayax_machine_id,nayax_account_key) values
+ ('aa180303-0000-4000-8000-000000000004','aa180301-0000-4000-8000-000000000001','aa180302-0000-4000-8000-000000000001','Attested physical cabinet','commercial','18030005','TGPACI_USA_DB');
+insert into sunze_machine_discoveries(sunze_machine_id,sunze_machine_name,status) values('reader-change-attested-source','Attested source cabinet','pending');
+insert into refund_nayax_machine_inventory(id,account_key,nayax_machine_id,machine_name,provider_is_active,reporting_machine_id,reconciliation_state,refund_category) values
+ ('aa180304-0000-4000-8000-000000000005','TGPACI_USA_DB','18030005','Proved old reader',true,'aa180303-0000-4000-8000-000000000004','published','cotton_candy'),
+ ('aa180304-0000-4000-8000-000000000006','TGPACI_USA_DB','18030006','Proved replacement reader',true,null,'needs_setup','cotton_candy');
+create temporary table attested_machine_expected as select updated_at from reporting_machines where id='aa180303-0000-4000-8000-000000000004';
+grant select on attested_machine_expected to authenticated;
+set local session_replication_role=origin;
+set local role authenticated;
+select lives_ok($$select admin_reuse_imported_source_machine('Sunze',null,'reader-change-attested-source','aa180304-0000-4000-8000-000000000005','aa180303-0000-4000-8000-000000000004',(select updated_at from attested_machine_expected),'America/Los_Angeles','Explicit same physical cabinet throughout')$$,'Actual source reuse establishes the proved same-machine old-reader interval');
+reset role;
+create temporary table attested_change_expected as select updated_at from reporting_machines where id='aa180303-0000-4000-8000-000000000004';
+grant select on attested_change_expected to authenticated;
+set local role authenticated;
+select lives_ok($$select admin_change_machine_reader('aa180303-0000-4000-8000-000000000004','aa180304-0000-4000-8000-000000000006',(select updated_at from attested_change_expected),null,'America/Los_Angeles','2026-10-02',null,'Actual later broken-reader replacement')$$,'Normal replacement closes the proved former interval without a fabricated UTC instant');
+reset role;
+select ok(exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id='aa180303-0000-4000-8000-000000000004' and nayax_machine_id='18030005' and ownership_basis='same_physical_machine_all_history' and closed_on='2026-10-02' and effective_until is null),'Proved former reader retains its actual calendar retirement evidence');
+select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030005','2026-10-01T19:00Z'),'aa180303-0000-4000-8000-000000000004'::uuid,'Late old-reader purchase before the actual replacement day remains attributable');
+select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030005','2026-10-03T19:00Z'),null::uuid,'Retired old reader is not a second active candidate for future purchases');
+set local session_replication_role=replica;
+insert into refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,status,customer_request_received_at,customer_request_received_source) values
+ ('aa180306-0000-4000-8000-000000000002','RF-1803-FUTURE','aa180303-0000-4000-8000-000000000004','aa180302-0000-4000-8000-000000000001','reader-future@example.invalid','Synthetic future purchase','2026-10-04T19:00Z','card',1100,'needs_review','2026-10-04T20:00Z','hosted_refund_intake'),
+ ('aa180306-0000-4000-8000-000000000003','RF-1803-SWITCHDAY','aa180303-0000-4000-8000-000000000004','aa180302-0000-4000-8000-000000000001','reader-switch@example.invalid','Synthetic switch-day purchase','2026-10-02T19:00Z','card',1100,'needs_review','2026-10-04T20:00Z','hosted_refund_intake');
+set local session_replication_role=origin;
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001')->>'readerId','18030001','Matched old-reader case resolves exact original evidence rather than current replacement');
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000002','aa180303-0000-4000-8000-000000000004')->>'readerId','18030006','Future unmatched case resolves exactly one new reader after proved old retirement');
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000003','aa180303-0000-4000-8000-000000000004')->>'readerId',null::text,'Unknown switch-day case cannot fall back to the newly current reader');
+select ok(not has_function_privilege('authenticated','public.service_refund_case_reader_identity(uuid,uuid)','execute'),'Case-original reader resolver is service-only');
+select throws_ok($$select public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000004')$$,'22023',null,'Service identity lookup enforces the retained case machine/location scope');
 select * from finish();
 rollback;
