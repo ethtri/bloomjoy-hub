@@ -796,8 +796,9 @@ function ScopedPartnershipsWorkspace({
   const [form, setForm] = useState({ ...emptyPartnershipForm, reason: '' });
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(() => new Set());
   const [machineSearch, setMachineSearch] = useState('');
+  const [assignmentEffectiveFrom, setAssignmentEffectiveFrom] = useState(today());
   const sourceInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, retry: false });
-  const sourceByMachine = useMemo(() => new Map((sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data]);
+  const sourceByMachine = useMemo(() => new Map((sourceInventory.isError ? [] : sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data, sourceInventory.isError]);
   const [isSaving, setIsSaving] = useState(false);
   const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
 
@@ -864,6 +865,7 @@ function ScopedPartnershipsWorkspace({
     !selectedPartnership ||
     form.name !== selectedPartnership.name ||
     form.effectiveStartDate !== selectedPartnership.effective_start_date ||
+    form.effectiveEndDate !== (selectedPartnership.effective_end_date ?? '') ||
     form.status !== selectedPartnership.status ||
     form.notes !== (selectedPartnership.notes ?? '');
   const canSave =
@@ -872,6 +874,7 @@ function ScopedPartnershipsWorkspace({
     form.effectiveStartDate.length > 0 &&
     form.reason.trim().length > 0 &&
     selectedMachineIds.size > 0 &&
+    (addedMachineIds.length === 0 || (Boolean(assignmentEffectiveFrom) && !sourceInventory.isError && Boolean(sourceInventory.data) && !sourceInventory.isFetching)) &&
     (hasPartnershipChanges || hasMachineChanges);
 
   useEffect(() => {
@@ -938,6 +941,9 @@ function ScopedPartnershipsWorkspace({
   };
 
   const saveScopedPartnership = async () => {
+    if (addedMachineIds.length && (!assignmentEffectiveFrom || sourceInventory.isError || !sourceInventory.data || sourceInventory.isFetching || addedMachineIds.some(id => !sourceByMachine.has(id)))) {
+      toast.error('Choose an assignment date and reload verified source identity before adding machines.'); return;
+    }
     const reason = form.reason.trim();
     if (!form.name.trim() || !form.effectiveStartDate) {
       toast.error('Partnership name and effective start date are required.');
@@ -974,7 +980,7 @@ function ScopedPartnershipsWorkspace({
           machineId,
           partnershipId: savedPartnership.id,
           assignmentRole: 'primary_reporting',
-          effectiveStartDate: savedPartnership.effective_start_date,
+          effectiveStartDate: assignmentEffectiveFrom,
           effectiveEndDate: '',
           status: 'active',
           notes: null,
@@ -1185,18 +1191,10 @@ function ScopedPartnershipsWorkspace({
                         <option value="draft">draft</option>
                       </select>
                     </div>
-                    <div>
-                      <Label htmlFor="scoped-partnership-start">Effective start</Label>
-                      <Input
-                        id="scoped-partnership-start"
-                        type="date"
-                        value={form.effectiveStartDate}
-                        onChange={(event) =>
-                          setForm({ ...form, effectiveStartDate: event.target.value })
-                        }
-                        className="h-11"
-                      />
-                    </div>
+                    <DateWindowFields startId="scoped-partnership-start" endId="scoped-partnership-end"
+                      startValue={form.effectiveStartDate} endValue={form.effectiveEndDate}
+                      onStartChange={value => setForm({ ...form, effectiveStartDate: value })}
+                      onEndChange={value => setForm({ ...form, effectiveEndDate: value })} />
                     <div>
                       <Label htmlFor="scoped-partnership-notes">Notes</Label>
                       <Input
@@ -1223,6 +1221,10 @@ function ScopedPartnershipsWorkspace({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <h2 className="font-semibold text-foreground">Assigned machines</h2>
+                      <Label htmlFor="scoped-assignment-start">Assignment effective from</Label>
+                      <Input id="scoped-assignment-start" type="date" className="h-11 min-w-0 w-full md:text-base"
+                        value={assignmentEffectiveFrom} onChange={e => setAssignmentEffectiveFrom(e.target.value)} />
+                      {sourceInventory.isError && <p role="alert">Source identity unavailable. <Button variant="outline" onClick={() => sourceInventory.refetch()}>Retry source inventory</Button></p>}
                       <p className="mt-1 text-sm text-muted-foreground">
                         Select from the machines this admin is allowed to manage.
                       </p>
@@ -2323,7 +2325,7 @@ function MachineAssignmentsSection({
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
   const [machineSearch, setMachineSearch] = useState('');
   const sourceInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, retry: false });
-  const sourceByMachine = useMemo(() => new Map((sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data]);
+  const sourceByMachine = useMemo(() => new Map((sourceInventory.isError ? [] : sourceInventory.data?.sources ?? []).filter(source => source.reportingMachineId && !source.archivedMapping && !source.mappingConflict).map(source => [source.reportingMachineId, source])), [sourceInventory.data, sourceInventory.isError]);
   const [isSaving, setIsSaving] = useState(false);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
 
@@ -2446,6 +2448,9 @@ function MachineAssignmentsSection({
   };
 
   const saveMachineAlignment = async () => {
+    if (addedMachineIds.length && (!machineAlignmentStartDate || sourceInventory.isError || !sourceInventory.data || sourceInventory.isFetching || addedMachineIds.some(id => !sourceByMachine.has(id)))) {
+      toast.error('Choose an assignment date and reload verified source identity before adding machines.'); return;
+    }
     if (!hasChanges) {
       toast.info('No machine assignment changes to save.');
       return;
