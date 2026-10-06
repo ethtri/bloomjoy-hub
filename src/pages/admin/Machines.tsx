@@ -612,6 +612,7 @@ export default function AdminMachinesPage() {
       queryClient.invalidateQueries({ queryKey: refundNayaxInventoryQueryKey }),
       queryClient.invalidateQueries({ queryKey: machineWorkspaceQueryKey }),
       queryClient.invalidateQueries({ queryKey: machineSourceInventoryQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ['admin-machine-tax-source'] }),
     ]);
   };
 
@@ -1699,9 +1700,10 @@ export default function AdminMachinesPage() {
 
       <MachineDialog
         open={isMachineEditorOpen || !!selectedImportedSource}
-        onOpenChange={(nextOpen) => { if (selectedImportedSource) { if (!nextOpen) setSelectedImportedSource(null); } else closeMachineDialog(nextOpen); }}
+        onOpenChange={(nextOpen) => { if (selectedImportedSource) { if (!nextOpen) { setSelectedImportedSource(null); setCompletedSourceMachineId(null); } } else closeMachineDialog(nextOpen); }}
         importedSource={selectedImportedSource}
         onImportedSourceSaved={(id) => setCompletedSourceMachineId(id)}
+        committedImportedMachineId={selectedImportedSource ? completedSourceMachineId : null}
         machine={selectedMachineForEditor}
         machineRow={allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)}
         machines={setup.machines}
@@ -2525,6 +2527,7 @@ function MachineDialog({
   machine,
   importedSource,
   onImportedSourceSaved,
+  committedImportedMachineId,
   machines,
   refundManagerSetup,
   isRefundManagerSetupLoading,
@@ -2551,6 +2554,7 @@ function MachineDialog({
   machine: PartnershipSetupMachine | null;
   importedSource?: MachineSourceInventoryItem | null;
   onImportedSourceSaved?: (machineId: string) => void;
+  committedImportedMachineId?: string | null;
   machines: PartnershipSetupMachine[];
   refundManagerSetup: RefundManagerSetup['machines'][number] | null;
   isRefundManagerSetupLoading: boolean;
@@ -2578,7 +2582,7 @@ function MachineDialog({
   const sourceNayaxInventory = useQuery({ queryKey: ['admin-refund-nayax-inventory'], queryFn: fetchRefundNayaxInventory, enabled: open && !!importedSource && !machine, staleTime: 30000 });
   const { user: assignmentUser } = useAuth();
   const taxSource = useQuery({
-    queryKey: ['admin-machine-tax-source', assignmentUser?.id, machine?.id],
+    queryKey: ['admin-machine-tax-source', assignmentUser?.id, machine?.id, refundManagerSetup?.nayaxAccountKey, refundManagerSetup?.nayaxMachineId],
     enabled: open && !!machine?.id && !isLocalDemoMode,
     queryFn: async () => {
       const { supabaseClient } = await import('@/lib/supabaseClient');
@@ -2803,6 +2807,12 @@ function MachineDialog({
   ]);
 
   const saveMachine = async (scope: 'all' | 'identity' | 'refund' = 'all') => {
+    if (committedImportedMachineId) {
+      setIsSaving(true);
+      try { await onSaved(); } catch { toast.error('Machine setup is saved. Retry loading its details.'); }
+      finally { setIsSaving(false); }
+      return;
+    }
     const shouldSaveIdentity = scope !== 'refund' && canEditMachineIdentity;
     const shouldSaveRefunds = scope !== 'identity' && Boolean(form.machineId);
 
@@ -2870,8 +2880,8 @@ function MachineDialog({
       if (importedSource && !form.machineId) {
         const id = await setupImportedMachine(importedSource, { accountId: form.accountId, machineName: machineLabel, machineType: form.machineType, operationalPhase: form.operationalPhase, timezone: form.locationTimezone, inventoryId: sourceInventoryId, managerEmails: selectedMachineManagerEmails });
         onImportedSourceSaved?.(id);
-        await onSaved();
         toast.success('Machine setup saved.');
+        await onSaved();
         return;
       }
 
@@ -3117,7 +3127,7 @@ function MachineDialog({
     form.machineType !== (importedSource?.platform === 'Kexiaozhan' ? 'snapcase' : 'commercial') ||
     form.operationalPhase !== 'setup'
   );
-  const hasUnsavedChanges = importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
+  const hasUnsavedChanges = !committedImportedMachineId && (importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges);
 
   const cancelMachineIdentityChanges = useCallback(() => {
     if (!machine) return;
@@ -3228,7 +3238,7 @@ function MachineDialog({
   const effectiveTaxSource = importedSource && !machine ? importedTaxSource : taxSource;
   const taxRateSetup = <div className="rounded-md border border-border p-3 text-sm" aria-label="Source tax rate">
     <p className="font-medium">Tax rate</p>
-    <p className="mt-1">{effectiveTaxSource.isPending && (machine?.id || sourceInventoryId) ? 'Checking source tax…' : effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% · ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} · ${effectiveTaxSource.data.saleDate}` : 'Unavailable — no verified source tax rate'}</p>
+    <p className="mt-1">{effectiveTaxSource.isPending && (machine?.id || sourceInventoryId) ? 'Checking source tax…' : !effectiveTaxSource.isError && effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% · ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} · ${effectiveTaxSource.data.saleDate}` : 'Unavailable — no verified source tax rate'}</p>
     <p className="mt-1 text-xs text-muted-foreground">Read-only source setting. Cash has no tax deduction.</p>
   </div>;
 
@@ -3580,6 +3590,13 @@ function MachineDialog({
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
+        {committedImportedMachineId ? (
+          <div role="status" className="mt-6 rounded-md border border-border bg-muted/30 p-4">
+            <p className="font-medium">Machine setup saved</p>
+            <p className="mt-2 text-sm text-muted-foreground">Its details have not loaded yet. Retry loading to continue managing this machine.</p>
+            <p className="mt-2 text-xs text-muted-foreground">{importedSource?.platform} · ID {importedSource?.sourceId}</p>
+          </div>
+        ) : <>
         {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
           <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
@@ -3949,6 +3966,7 @@ null
           </div>
           </>
         )}
+        </>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
@@ -3959,7 +3977,7 @@ null
             ) : (
               <CheckCircle2 className="mr-2 h-4 w-4" />
             )}
-            {canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
+            {committedImportedMachineId ? 'Retry loading' : canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
           </Button>
         </SheetFooter>
         {mappingHasChanges && <p className="mt-2 text-sm text-muted-foreground">Save Nayax match above before saving other machine changes.</p>}
