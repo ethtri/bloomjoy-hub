@@ -14,9 +14,14 @@ for (const [engine, browserType, width] of [['desktop', chromium, 1440], ['touch
  const browser = await browserType.launch();
  try {
   const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 500 });
-  const state = { machineType: 'commercial', managerEmails: [firstManagerEmail], rpcCalls: [], accessInviteBodies: [], inviteDeliveries: [], globalRefundsAvailable: true, globalRefundsPaused: false, globalRefundsBlockReason: null };
+  const state = { machineType: 'commercial', managerEmails: [firstManagerEmail], rpcCalls: [], accessInviteBodies: [], inviteDeliveries: [], globalRefundsAvailable: true, globalRefundsPaused: false, globalRefundsBlockReason: null,
+    refundSetup: { refundIntakeEnabled: false, refundPublicDisplayLabel: 'Great Mall - SnapCase', nayaxMachineId: null, nayaxAccountKey: null, customerIntakeAccepting: true, cardRefundsEnabled: false, cardRefundLimitCents: null, paymentDisabledReason: 'awaiting_reviewed_activation', readinessState: 'setup_needed', readinessBlockReason: 'transaction_matching_off' } };
   await installMockSupabaseRoutes(context, state);
-  await context.route('**/rest/v1/**', route => new URL(route.request().url()).pathname.includes('/rpc/') ? route.fallback() : route.fulfill(json([])));
+  await context.route('**/rest/v1/**', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.includes('/rpc/') || pathname.endsWith('/reporting_machines')) return route.fallback();
+    return route.fulfill(json([]));
+  });
   let excluded = false; let fail = false; const writes = [];
   await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata', route => route.fulfill(json([
    { machineId, sources: [], excludeCashFromFinancialReporting: excluded },
