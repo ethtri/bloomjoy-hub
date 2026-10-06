@@ -107,7 +107,7 @@ const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
   machineType: 'commercial',
 };
 
-type ImportedSetupMachine =
+export type ImportedSetupMachine =
   | { provider: 'sunze'; machine: AdminSunzeMachineQueueItem }
   | { provider: 'snapcase'; machine: AdminSnapCaseMachineQueueItem };
 
@@ -231,7 +231,12 @@ const formatStatusVariant = (status: string): 'default' | 'destructive' | 'outli
   return 'outline';
 };
 
-export default function AdminReportingPage({ discoveryOnly = false }: { discoveryOnly?: boolean } = {}) {
+export default function AdminReportingPage({ discoveryOnly = false, sourceSetup, onSourceSetupClosed, onSourceSetupSaved }: {
+  discoveryOnly?: boolean;
+  sourceSetup?: ImportedSetupMachine | null;
+  onSourceSetupClosed?: () => void;
+  onSourceSetupSaved?: (machineId: string) => void;
+} = {}) {
   const queryClient = useQueryClient();
   const { user, isSuperAdmin } = useAuth();
   const companyChoices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: isSuperAdmin, staleTime: 30000 });
@@ -246,6 +251,7 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
   const [isCreatingSchedule, setIsCreatingSchedule] = useState(false);
   const [updatingSunzeMachineId, setUpdatingSunzeMachineId] = useState<string | null>(null);
   const [setupMachine, setSetupMachine] = useState<ImportedSetupMachine | null>(null);
+  useEffect(() => { if (sourceSetup) setSetupMachine(sourceSetup); }, [sourceSetup]);
   const [isSettingUpMachine, setIsSettingUpMachine] = useState(false);
   const [lastSetupResult, setLastSetupResult] =
     useState<MapSourceMachineToPartnershipResult | null>(null);
@@ -381,6 +387,7 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
         setSetupMachine(null);
         setLastMappedMachineId(result.machineId);
         await refresh();
+        onSourceSetupSaved?.(result.machineId);
       } catch (setupError) {
         toast.error(setupError instanceof Error ? setupError.message : 'Unable to map SnapCase machine.');
       } finally {
@@ -435,6 +442,7 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
         queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
         queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
       ]);
+      onSourceSetupSaved?.(result.machineId);
     } catch (setupError) {
       toast.error(
         setupError instanceof Error ? setupError.message : 'Unable to set up imported machine.'
@@ -520,6 +528,8 @@ export default function AdminReportingPage({ discoveryOnly = false }: { discover
       setIsCreatingSchedule(false);
     }
   };
+
+  if (sourceSetup !== undefined) return <ImportedMachineSetupDialog machine={setupMachine} partnerships={partnerships} machines={machines} isSaving={isSettingUpMachine} onOpenChange={(open) => { if (!open) { setSetupMachine(null); onSourceSetupClosed?.(); } }} onSave={setupImportedMachine}/>;
 
   if (discoveryOnly) return <section className="mt-5 space-y-4" aria-label="Imported source discovery">
     <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Discover source machines</h2><p className="text-sm text-muted-foreground">Review original source identities and connect them to an existing Hub machine before creating another record.</p></div><Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>Refresh sources</Button></div>
@@ -1286,14 +1296,8 @@ function ImportedMachineSetupDialog({
               </select>
             </div>
             <div>
-              <Label htmlFor="imported-machine-external-id">External machine ID</Label>
-              <Input
-                id="imported-machine-external-id"
-                value={sunzeMachine?.sunzeMachineId ?? snapcaseMachine?.sourceMachineId ?? ''}
-                readOnly
-                aria-readonly="true"
-                className="h-11"
-              />
+              <p className="text-sm font-medium">{snapcaseMachine ? 'Kexiaozhan' : 'Sunze'} machine ID</p>
+              <p id="imported-machine-external-id" className="mt-1 break-all text-sm text-muted-foreground">{sunzeMachine?.sunzeMachineId ?? snapcaseMachine?.sourceMachineId ?? ''}</p>
             </div>
             {snapcaseMachine && (
               <div>

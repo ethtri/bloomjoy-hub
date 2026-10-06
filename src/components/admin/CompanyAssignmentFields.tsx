@@ -11,7 +11,7 @@ import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } f
 const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
-export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true, internalLocationName }: {
+export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true, internalLocationName, authoritativeTimezone }: {
   id: string;
   internalLocationName: string;
   value: CompanyAssignmentDraft;
@@ -21,6 +21,7 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
   enabled?: boolean;
   activeTargetsOnly?: boolean;
   autoSelectSingleCompany?: boolean;
+  authoritativeTimezone?: string | null;
 }) {
   // Emit only assignment fields; the containing form owns its other draft and stale-write fields.
   const value = useMemo<CompanyAssignmentDraft>(() => ({ accountId: draft.accountId, locationId: draft.locationId, locationName: draft.locationName, locationTimezone: draft.locationTimezone, addLocation: draft.addLocation }), [draft.accountId, draft.locationId, draft.locationName, draft.locationTimezone, draft.addLocation]);
@@ -113,9 +114,9 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
       </div>}
       <p role="status" aria-live="polite" className="break-words text-sm text-muted-foreground">{message}</p>
     </div>
-    {!saved?.locationTimezone && !value.locationId && value.accountId && <div className="space-y-1.5">
+    {!saved?.locationTimezone && !authoritativeTimezone && !value.locationId && value.accountId && <div className="space-y-1.5">
       <Label htmlFor={`${id}-timezone`}>Machine time zone</Label>
-      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="h-11 min-h-11 text-base" disabled={disabled} />
+      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="h-11 min-h-11 text-base md:text-base" disabled={disabled} />
       <datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist>
       <p className="text-xs text-muted-foreground">Required when no machine time zone is known. This determines reporting business days.</p>
     </div>}

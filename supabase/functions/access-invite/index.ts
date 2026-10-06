@@ -379,6 +379,7 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
     .from("reporting_machines")
     .select("id, machine_display_name, refund_public_display_label, machine_label, machine_type, status, location_id")
     .eq("id", sourceId)
+    .is("management_archived_at", null)
     .maybeSingle();
 
   if (machineError || !machine) {

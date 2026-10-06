@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { drainSunzeCashCorrelation } from "../_shared/sunze-cash-correlation.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
+import { verifySunzeMachineCoverage } from "../_shared/sunze-machine-coverage.mjs";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -383,7 +384,7 @@ const uniqueCodes = (values: unknown[]) =>
     ),
   ].sort();
 
-const summarizeMachineCoverage = ({
+const summarizeMachineCoverage = async ({
   meta,
   machineBySunzeId,
   rowMachineCodes,
@@ -399,13 +400,12 @@ const summarizeMachineCoverage = ({
   ]);
   const expectedCount = safeInteger(meta.expectedVisibleMachineCount);
   const coverageRequired = meta.machineCoverageRequired === true;
-  const coverageVerified = visibleCodes.length > 0;
-  const coverageIssue =
-    sanitizeText(meta.machineCoverageIssue, 100) ||
-    (coverageVerified ? null : "missing_visible_machine_codes");
+  const coverageProof = await verifySunzeMachineCoverage(meta, visibleCodes);
+  const coverageVerified = coverageProof.verified;
+  const coverageIssue = coverageProof.issue;
 
   if (coverageRequired && !coverageVerified) {
-    console.warn("Sunze machine coverage was requested but no top-level machine codes were provided.");
+    console.warn("Sunze machine coverage is incomplete or unverified; retaining discovered identities.");
   }
 
   const unmappedVisibleCodes = visibleCodes.filter(
@@ -930,7 +930,7 @@ serve(async (req) => {
 
     const machineBySunzeId = await loadMachineMap();
     const rowMachineCodes = uniqueCodes(rows.map((row) => row.machineCode));
-    const machineCoverage = summarizeMachineCoverage({
+    const machineCoverage = await summarizeMachineCoverage({
       meta: bodyMeta,
       machineBySunzeId,
       rowMachineCodes,
@@ -958,6 +958,7 @@ serve(async (req) => {
     const finalRunMeta = {
       ...runMeta,
       visible_sunze_machine_count: machineCoverage.visibleMachineCount,
+      machine_coverage_verification_version: 1,
       machine_coverage_verified: machineCoverage.visibleMachineCoverageVerified,
       machine_coverage_issue: machineCoverage.visibleMachineCoverageIssue,
       machine_coverage_required: machineCoverage.visibleMachineCoverageRequired,

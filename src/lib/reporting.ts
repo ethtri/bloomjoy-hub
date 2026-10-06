@@ -90,6 +90,7 @@ export type SalesReportSummary = {
 
 export type AdminReportingMachine = {
   id: string;
+  management_archived_at?: string | null;
   machine_display_name?: string | null;
   refund_public_display_label?: string | null;
   account_id: string;
@@ -933,6 +934,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     supabaseClient
       .from('reporting_machines')
       .select('*, reporting_locations(name, timezone), customer_accounts(name)')
+      .is('management_archived_at', null)
       .order('updated_at', { ascending: false }),
     supabaseClient
       .from('reporting_partnerships')

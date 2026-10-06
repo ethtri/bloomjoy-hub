@@ -38,6 +38,8 @@ export type ReportingPartnership = {
 
 export type PartnershipSetupMachine = {
   id: string;
+  management_archived_at?: string | null;
+  managementArchivedAt?: string | null;
   machine_label: string;
   stored_machine_label?: string;
   machine_type: ReportingMachineType;
@@ -466,6 +468,7 @@ export const fetchPartnershipReportingSetup = async (): Promise<PartnershipRepor
     ...setup,
     machines: setup.machines.map((machine) => ({
       ...machine,
+      management_archived_at: machine.managementArchivedAt ?? machine.management_archived_at ?? null,
       operational_phase: phaseByMachineId.get(machine.id) ?? machine.operational_phase ?? 'live',
     })),
   };
