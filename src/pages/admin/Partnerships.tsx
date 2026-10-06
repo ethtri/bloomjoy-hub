@@ -2911,7 +2911,7 @@ function FinancialTermsSection({
 
         <PayoutFlowSummary form={form} payoutParticipants={payoutParticipants} />
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <fieldset disabled={isChangingSplit} className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div>
             <FieldLabel
               htmlFor="payout-model-preset"
@@ -2962,7 +2962,7 @@ function FinancialTermsSection({
               className="h-11"
             />
           </div>
-        </div>
+        </fieldset>
 
         <PayoutAllocationSection
           form={form}
@@ -3982,6 +3982,8 @@ function DateWindowFields({
   onStartChange: (value: string) => void;
   onEndChange: (value: string) => void;
 }) {
+  const [hasEndDate, setHasEndDate] = useState(Boolean(endValue));
+  useEffect(() => { if (endValue) setHasEndDate(true); }, [endValue]);
   return (
     <>
       <div className="min-w-0">
@@ -3991,19 +3993,19 @@ function DateWindowFields({
           type="date"
           value={startValue}
           onChange={(event) => onStartChange(event.target.value)}
-          className="h-11"
+          className="h-11 min-w-0 w-full md:text-base"
         />
       </div>
       <div className="min-w-0 space-y-2">
         <label className="flex min-h-11 items-center gap-2">
-          <Checkbox checked={!endValue} onCheckedChange={checked => onEndChange(checked ? '' : today())} />
+          <Checkbox checked={!hasEndDate} onCheckedChange={checked => { setHasEndDate(!checked); if (checked) onEndChange(''); }} />
           No end date
         </label>
-        {!endValue ? <p className="text-sm">Ongoing</p> : <>
+        {!hasEndDate ? <p className="text-sm">Ongoing</p> : <>
           <Label htmlFor={endId}>Ends on (optional)</Label>
           <Input id={endId} type="date" value={endValue}
             onChange={event => onEndChange(event.target.value)} className="h-11 min-w-0 w-full md:text-base" />
-          <Button type="button" variant="outline" className="min-h-11" onClick={() => onEndChange('')}>Clear end date</Button>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => { onEndChange(''); setHasEndDate(false); }}>Clear end date</Button>
         </>}
       </div>
     </>
