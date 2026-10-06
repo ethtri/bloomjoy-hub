@@ -160,7 +160,7 @@ select is((select net_sales_cents from private.financial_machine_sales_facts whe
 -- already-observed inherited inputs. This is causal evidence, not a sale-date
 -- cutover or a comparison with the unverified provider-local calendar.
 insert into nayax_scheduled_report_files(file_digest,received_at,byte_count,row_count,report)
- select repeat('3',64),max(observed_at)+interval '5 seconds',500,1,'{}'::jsonb
+ select repeat('3',64),max(observed_at)+interval '5 seconds',500,2,'{}'::jsonb
  from private.machine_preserved_source_card_facts where reporting_machine_id='aa180203-0000-4000-8000-000000000003';
 create function pg_temp.complete_observed_native_sale(p_later boolean) returns jsonb language sql as $$
  select pg_temp.complete_native_sale('18020003',case when p_later then '1802000303' else '1802000304' end,case when p_later then repeat('17',32) else repeat('18',32) end,true)

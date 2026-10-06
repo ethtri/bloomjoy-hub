@@ -94,7 +94,7 @@ select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','1803000
 insert into nayax_scheduled_report_files(file_digest,received_at,byte_count,row_count,report) values(repeat('5',64),'2026-10-04T03:00:00Z',800,4,'{}');
 create function pg_temp.reader_change_native(p_reader text,p_transaction text,p_hash text,p_day date) returns jsonb language sql as $$
  select jsonb_build_object('transactionId',p_transaction,'siteId','4','actorId','2003563806','providerMachineId',p_reader,'currencyCode','USD','authorizationAmountCents',1100,'settlementAmountCents',1100,'paidAmountCents',1100,
- 'machineAuthorizedAt',p_day::text||'T12:00:00','authorizedAt',p_day::text||'T19:00:00Z','machineSettledAt',p_day::text||'T12:00:01','providerSettledAt',p_day::text||'T19:00:01Z','providerUpdatedAt',p_day::text||'T19:00:02Z','providerStatus',12,'providerStatusName','Settled','sourceOrderHash',p_hash,'sourceRowHash',repeat('2',64))
+ 'machineAuthorizedAt',p_day::text||'T12:00:00','authorizedAt',p_day::text||'T19:00:00Z','machineSettledAt',p_day::text||'T12:00:01','providerSettledAt',p_day::text||'T19:00:01Z','providerUpdatedAt',p_day::text||'T19:00:02Z','providerStatus',12,'providerStatusName','Settled','sourceOrderHash',p_hash,'sourceRowHash',p_hash)
 $$;
 select set_config('request.jwt.claim.role','service_role',true);
 select lives_ok($$select service_ingest_nayax_scheduled_sales(repeat('5',64),jsonb_build_array(
