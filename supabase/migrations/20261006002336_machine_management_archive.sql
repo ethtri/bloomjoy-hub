@@ -337,24 +337,24 @@ begin
       ) match on true
     )
     select jsonb_agg(jsonb_build_object(
-      'sourceKey',source_key,'platform',platform,'providerAccountId',provider_account_id,
-      'sourceAccountKey',source_account_key,'sourceId',source_id,'sourceName',source_name,
-      'sourceStatus',source_status,'discoveryStatus',discovery_status,
-      'firstSeenAt',first_seen_at,'lastSeenAt',last_seen_at,'sourceTimezone',source_timezone,
-      'lastSourceTransaction',last_source_transaction,
-      'reportingMachineId',case when cardinality(machine_ids)=1 then machine_ids[1] end,
+      'sourceKey',src.source_key,'platform',src.platform,'providerAccountId',src.provider_account_id,
+      'sourceAccountKey',src.source_account_key,'sourceId',src.source_id,'sourceName',src.source_name,
+      'sourceStatus',src.source_status,'discoveryStatus',src.discovery_status,
+      'firstSeenAt',src.first_seen_at,'lastSeenAt',src.last_seen_at,'sourceTimezone',src.source_timezone,
+      'lastSourceTransaction',src.last_source_transaction,
+      'reportingMachineId',case when cardinality(src.machine_ids)=1 then src.machine_ids[1] end,
       'machineName',private.reporting_machine_display_name(current_machine),
       'nayaxMachineId',current_machine.nayax_machine_id,
       'nayaxAccountKey',case when current_machine.nayax_machine_id is not null then upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB')) end,
-      'nayaxName',inventory.machine_name,
-      'mappingConflict',coalesce(cardinality(machine_ids)>1,false),
-      'archivedMapping',coalesce(cardinality(archived_ids)>0 and coalesce(cardinality(machine_ids),0)=0,false)
-    ) order by platform,source_name nulls last,source_key)
-    from source_inventory
-    left join public.reporting_machines current_machine on current_machine.id=case when cardinality(machine_ids)=1 then machine_ids[1] end
-    left join public.refund_nayax_machine_inventory inventory on inventory.nayax_machine_id=current_machine.nayax_machine_id
-      and inventory.account_key=upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB'))
-    where super_admin or (cardinality(machine_ids)=1 and machine_ids[1]=any(scoped_ids))
+      'nayaxName',reader_inventory.machine_name,
+      'mappingConflict',coalesce(cardinality(src.machine_ids)>1,false),
+      'archivedMapping',coalesce(cardinality(src.archived_ids)>0 and coalesce(cardinality(src.machine_ids),0)=0,false)
+    ) order by src.platform,src.source_name nulls last,src.source_key)
+    from source_inventory src
+    left join public.reporting_machines current_machine on current_machine.id=case when cardinality(src.machine_ids)=1 then src.machine_ids[1] end
+    left join public.refund_nayax_machine_inventory reader_inventory on reader_inventory.nayax_machine_id=current_machine.nayax_machine_id
+      and reader_inventory.account_key=upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB'))
+    where super_admin or (cardinality(src.machine_ids)=1 and src.machine_ids[1]=any(scoped_ids))
   ),'[]'::jsonb);
   return jsonb_build_object('sources',inventory,'count',jsonb_array_length(inventory),
     'importHealth',case when super_admin then coalesce((select jsonb_build_object(
