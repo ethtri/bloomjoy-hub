@@ -410,6 +410,26 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildMockSetup(state)));
     }
 
+    if (rpcName === 'admin_get_machine_source_inventory') {
+      // The catalogue originates provider records, while retained direct routes
+      // continue exercising the same real Hub IDs and manager/reader writes.
+      const sources = buildMockSetup(state).machines.map((machine, index) => ({
+        sourceKey: `sunze:UAT-SOURCE-${index + 1}`,
+        platform: 'Sunze', providerAccountId: null, sourceAccountKey: null,
+        sourceId: machine.sunze_machine_id || `UAT-SOURCE-${index + 1}`,
+        sourceName: machine.machine_label, sourceStatus: 'Running',
+        discoveryStatus: 'mapped', reportingMachineId: machine.id,
+        machineName: machine.machine_label, mappingConflict: false, archivedMapping: false,
+        sourceTimezone: machine.location_timezone,
+        firstSeenAt: now.toISOString(), lastSeenAt: now.toISOString(),
+        lastSourceTransaction: machine.latest_sale_date,
+        nayaxName: machine.id === machineId && state.refundSetup.nayaxMachineId ? 'Imported UAT provider identity' : null,
+        nayaxMachineId: machine.id === machineId ? state.refundSetup.nayaxMachineId : null,
+        nayaxAccountKey: machine.id === machineId ? state.refundSetup.nayaxAccountKey : null,
+      }));
+      return route.fulfill(jsonResponse({ sources, count: sources.length }));
+    }
+
     if (rpcName === 'admin_get_reporting_company_choices') {
       return route.fulfill(jsonResponse({
         canCreateCompany: true,

@@ -14,7 +14,11 @@ const sources = fleet.flatMap(m => m.sources.map(s => ({ platform: s.platform, s
     sourceName: s.sourceId === '1683202662515916906439361' ? 'BS04 Gilroy Outlets' : s.sourceId === '1000339' ? null : `Imported cabinet ${n}`,
     sourceStatus: s.sourceId === '1000339' ? null : n % 3 ? 'Off' : 'Running', discoveryStatus: s.reportingMachineId ? 'mapped' : n % 2 ? 'pending' : 'ignored',
     firstSeenAt: '2026-01-01T00:00:00Z', lastSeenAt: '2026-10-05T00:00:00Z', sourceTimezone: null,
-    lastSourceTransaction: s.sourceId === '1683202662515916906439361' ? '2026-10-04T12:00:00Z' : null, mappingConflict: false, archivedMapping: false }));
+    lastSourceTransaction: s.sourceId === '1683202662515916906439361' ? '2026-10-04' : s.sourceId === '1000703' ? '2026-10-04T12:00:00Z' : null,
+    nayaxName: s.sourceId === '1001584' ? 'Exact synthetic Arizona reader' : null,
+    nayaxMachineId: s.sourceId === '1001584' ? '798677690' : null,
+    nayaxAccountKey: s.sourceId === '1001584' ? 'TGPACI_USA_DB' : null,
+    mappingConflict: false, archivedMapping: false }));
 assert.equal(sources.length, 63); assert.equal(new Set(sources.map(s => s.sourceKey)).size, 63);
 const expected = sources.map(s => s.sourceKey).sort();
 const checks = [], browser = await chromium.launch();
@@ -28,7 +32,9 @@ try { for (const width of [1440,390]) {
   await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup', r => r.fulfill(json(base)));
   let metadataFailure = false;
   await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata', r => r.fulfill(metadataFailure ? { ...json({ message: 'Synthetic metadata failure' }), status: 500 } : json(sources.filter(s => s.reportingMachineId).map(s => ({ machineId: s.reportingMachineId, sources: [{ platform: s.platform, id: s.sourceId, name: s.sourceName }] })))));
-  await context.route('**/rest/v1/rpc/admin_get_machine_source_inventory', r => r.fulfill(json({ sources, count: sources.length })));
+  let inventoryMode = 'good';
+  let importHealth = null, archivedSource = false;
+  await context.route('**/rest/v1/rpc/admin_get_machine_source_inventory', r => r.fulfill(json({ sources: inventoryMode === 'duplicate' ? [...sources.slice(0,-1), { ...sources[0], sourceKey: 'different-key-same-semantic-identity' }] : sources.map(s => archivedSource && s.sourceId === '1000703' ? { ...s, archivedMapping: true } : s), count: inventoryMode === 'partial' ? sources.length + 1 : sources.length, importHealth })));
   const page = await context.newPage(), errors = [], failedRequests = [];
   page.on('pageerror', e => errors.push(e.message)); page.on('requestfailed', r => { if (r.url().includes('/rest/v1/')) failedRequests.push(new URL(r.url()).pathname); });
   const pass = (label, value) => { assert(value, `${width}: ${label}`); checks.push(`${width}: ${label}`); };
@@ -41,7 +47,9 @@ try { for (const width of [1440,390]) {
     await page.getByRole('button', { name: /^Machines\s+63$/ }).waitFor();
     pass('exact full imported identity set after all pagination', JSON.stringify(await allKeys()) === JSON.stringify(expected));
     pass('15 historical Hub-only records invent no catalogue machines', (await page.locator('[data-source-key]').count()) === 63 && !(await page.locator('main').innerText()).includes('Synthetic Hub a0109b34'));
-    pass('all13 unbound sources visible without Hub/Nayax', sources.filter(s => !s.reportingMachineId).every(s => expected.includes(s.sourceKey)) && await page.getByRole('button', { name: 'Set up', exact: true }).count() === 13);
+    pass('all13 unbound sources visible without Hub/Nayax', sources.filter(s => !s.reportingMachineId).every(s => expected.includes(s.sourceKey)) && await page.getByRole('button', { name: 'Manage', exact: true }).count() === 63);
+    pass('simple primary navigation has one catalogue and setup/readiness views', await page.getByRole('button', { name: /^Setup needed/ }).isVisible() && await page.getByRole('button', { name: /^Ready/ }).isVisible());
+    pass('missing import proof warns without dropping stored sources', await page.getByLabel('Import coverage warning').isVisible());
     const search = page.getByRole('textbox', { name: 'Search machines', exact: true });
     for (const sourceId of ['1683202662515916906439361','1000339','1000703',...pendingSunze]) {
       await search.fill(sourceId);
@@ -49,12 +57,36 @@ try { for (const width of [1440,390]) {
       pass(`exact source search retains ${sourceId}`, found === sources.find(s => s.sourceId === sourceId).sourceKey && await page.getByText('1 machine', { exact: true }).isVisible());
     }
     await search.fill('1000339'); pass('unnamed unknown-status source has stable ID fallback', (await page.locator('[data-source-key]').innerText()).includes('1000339'));
+    await search.fill('1000703'); pass('Kex positive observation is not mislabeled transaction', (await page.locator('[data-source-key]').innerText()).includes('Last positive source observation') && !(await page.locator('[data-source-key]').innerText()).includes('Last source transaction'));
     await search.fill('1683202662515916906439361'); pass('Gilroy appears from its real source without old BS03 join', (await page.locator('[data-source-key]').innerText()).includes('BS04 Gilroy Outlets') && !((await page.locator('[data-source-key]').innerText()).includes('252175281')));
+    pass('Sunze calendar date does not shift into prior day', (await page.locator('[data-source-key]').innerText()).includes('Last source transaction: 2026-10-04'));
     await page.getByText('Signed in. Redirecting...', { exact: true }).waitFor({ state: 'hidden' });
     await page.screenshot({ path: `${output}/gilroy-${width}.png`, fullPage: true });
     await search.fill(''); pass('no horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.waitForLoadState('networkidle'); metadataFailure = true; await page.reload(); await page.getByRole('button', { name: /^Machines\s+63$/ }).waitFor();
     pass('Hub metadata failure does not hide imported sources', JSON.stringify(await allKeys()) === JSON.stringify(expected));
+    for (const query of ['798677690','Exact synthetic Arizona reader']) {
+      await search.fill(query); pass(`Nayax search survives ancillary metadata failure: ${query}`, await page.locator('[data-source-key]').count() === 1 && await page.locator('[data-source-key]').getAttribute('data-source-key') === sources.find(s => s.sourceId === '1001584').sourceKey);
+    }
+    for (const mode of ['duplicate','partial']) {
+      await page.waitForLoadState('networkidle'); inventoryMode = mode; await page.reload();
+      await page.getByText('Source verification incomplete', { exact: true }).waitFor();
+      pass(`${mode} source catalogue cannot claim completeness or substitute Hub records`, await page.locator('[data-source-key]').count() === 0 && await page.getByRole('button', { name: 'Retry imported machines', exact: true }).isVisible());
+      inventoryMode = 'good'; await page.getByRole('button', { name: 'Retry imported machines', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Search machines', exact: true }).fill('');
+      await page.getByRole('button', { name: /^Machines\s+63$/ }).waitFor();
+      pass(`${mode} recovery restores exact source set`, JSON.stringify(await allKeys()) === JSON.stringify(expected));
+    }
+    importHealth = { observedAt: new Date().toISOString(), verified: false, issue: 'latest_import_failed' };
+    await page.waitForLoadState('networkidle'); await page.reload();
+    await page.getByRole('button', { name: /^Machines\s+63$/ }).waitFor();
+    pass('failed latest import warns and retains all stored identities', await page.getByLabel('Import coverage warning').isVisible() && JSON.stringify(await allKeys()) === JSON.stringify(expected));
+    archivedSource = true;
+    await page.waitForLoadState('networkidle'); await page.reload();
+    await page.getByRole('button', { name: /^Machines\s+62$/ }).waitFor();
+    pass('explicitly archived source is excluded from default inventory and counts', JSON.stringify(await allKeys()) === JSON.stringify(expected.filter(key => key !== sources.find(s => s.sourceId === '1000703').sourceKey)));
+    await page.getByRole('textbox', { name: 'Search machines', exact: true }).fill('1000703');
+    pass('archived source cannot reappear through default search', await page.locator('[data-source-key]').count() === 0);
     pass('no business writes or app/network failures', !state.rpcCalls.some(c => /save|set_|upsert|archive|restore|reconcile|link_/.test(c.rpcName)) && errors.length === 0 && failedRequests.length === 0);
   } finally { await page.waitForLoadState('networkidle'); await context.close(); }
 } } finally { await browser.close(); }
