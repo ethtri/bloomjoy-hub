@@ -321,7 +321,9 @@
     "20261003220644_technician_refund_read_access.sql",
     "20261004022303_provider_refund_purchase_tax_attribution.sql",
     "20261005172717_refund_info_autoresponse_repair.sql",
-    "20261005201647_nayax_source_tax_observations.sql"
+    "20261005201647_nayax_source_tax_observations.sql",
+    "20261005221713_nayax_bounded_portal_tax_history.sql",
+    "20261005222133_verified_nayax_september_history.sql"
   ],
   "migrationFilesSha256": "fd88108775f08b29abd04ba176d8cf814e14857ae1f8c1a4de5ad7c6f3ff07bc",
   "migrationVersionSetSha256": "c9304fec8194a4846fa4690a35a31ccf01497b7ed274bbf700f92689a22b8431",
