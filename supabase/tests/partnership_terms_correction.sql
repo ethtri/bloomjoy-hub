@@ -37,7 +37,12 @@ values('c1788107-0000-4000-8000-000000000001','RF-TERMS-1788','c1788103-0000-400
 insert into sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,amount_cents,complaint_count,source,source_row_hash,refund_case_id,raw_payload,created_at)
 values('c1788108-0000-4000-8000-000000000001','c1788103-0000-4000-8000-000000000001','c1788102-0000-4000-8000-000000000001','2026-09-16','refund',1100,1,'manual','terms-refund-adjustment','c1788107-0000-4000-8000-000000000001','{"payment_method":"card","amountBasis":"tax_inclusive"}','2026-08-01T12:00:00Z');
 -- Synthetic diagnostics distinguish an unmatched refund from its exact original purchase.
-select diag(jsonb_build_object('unmatched_refund_source_tax',(select to_jsonb(t) from private.resolve_reporting_machine_source_tax('c1788103-0000-4000-8000-000000000001','2026-09-15')t),'unmatched_components',(select jsonb_agg(to_jsonb(c)) from private.machine_sales_daily_components('c1788103-0000-4000-8000-000000000001','2026-09-01','2026-09-30')c))::text);
+select diag(jsonb_build_object('pre_activation_rollout',(select to_jsonb(r) from private.refund_request_recognition_rollout r where singleton),'unmatched_refund_source_tax',(select to_jsonb(t) from private.resolve_reporting_machine_source_tax('c1788103-0000-4000-8000-000000000001','2026-09-15')t),'unmatched_components',(select jsonb_agg(to_jsonb(c)) from private.machine_sales_daily_components('c1788103-0000-4000-8000-000000000001','2026-09-01','2026-09-30')c))::text);
+-- Production already activated recognition on September 30; fresh replay deliberately has not.
+-- Match that deployed engine state only in this transactional synthetic seed.
+insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
+values(true,'2026-09-30T01:03:14.491153Z','Synthetic deployed recognition state')
+on conflict(singleton) do update set activated_at=excluded.activated_at;
 update refund_cases set matched_sales_fact_id='c1788106-0000-4000-8000-000000000002' where id='c1788107-0000-4000-8000-000000000001';
 select is(private.refund_original_source_tax_cents('c1788107-0000-4000-8000-000000000001',1100),100::bigint,'Exact retained original purchase proves the refund tax component before correction');
 insert into partner_report_snapshots(id,partnership_id,week_ending_date,status,summary_json,period_grain,period_start_date,period_end_date,generated_by,approved_by,approved_at,sent_at)
