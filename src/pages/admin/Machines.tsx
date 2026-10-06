@@ -1757,12 +1757,12 @@ function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
 }) {
   const blocked = source.mappingConflict || source.archivedMapping || Boolean(source.reportingMachineId);
   return <div role="row" data-source-key={source.sourceKey} className="grid grid-cols-1 gap-4 px-4 py-5 text-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · ID {source.sourceId}{source.sourceAccountKey ? ` · ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{blocked ? 'Setup needs review' : 'Source setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">Operating state unknown</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · ID {source.sourceId}{source.sourceAccountKey ? ` · ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{blocked ? 'Setup needs review' : 'Setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">Operating state unknown</p></div>
     <div role="cell"><CellLabel>Nayax match</CellLabel><p className="break-words">{source.nayaxMachineId ? `${source.nayaxName || 'Saved Nayax record'} · ID ${source.nayaxMachineId} · ${source.nayaxAccountKey}` : 'Not matched'}</p></div>
     <div role="cell"><CellLabel>Company</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Managers</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? (source.platform === 'Sunze' ? source.lastSourceTransaction.slice(0, 10) : new Date(source.lastSourceTransaction).toLocaleDateString()) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
-    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Set up</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
+    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
   </div>;
 }
 
@@ -3316,7 +3316,7 @@ function MachineDialog({
                 <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="page-machine-label">Machine name</Label>
-                    <Input id="page-machine-label" className="h-11 min-h-11 text-base" maxLength={120} value={form.machineLabel} onChange={(event) => setForm({ ...form, machineLabel: event.target.value })} />
+                    <Input id="page-machine-label" className="h-11 min-h-11 text-base md:text-base" maxLength={120} value={form.machineLabel} onChange={(event) => setForm({ ...form, machineLabel: event.target.value })} />
                   </div>
                   {assignmentFields('page-machine')}
                   <div>
@@ -3573,7 +3573,7 @@ function MachineDialog({
             <Label htmlFor="machine-label">Machine name</Label>
             <Input
               id="machine-label"
-              className="h-11 min-h-11 text-base" maxLength={120}
+              className="h-11 min-h-11 text-base md:text-base" maxLength={120}
               value={form.machineLabel}
               onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
               disabled={!canEditMachineIdentity}
@@ -3701,7 +3701,7 @@ null
                             void addMachineManagerEmail(managerSearch);
                           }
                         }}
-                        className="pl-9"
+                        className="h-11 min-h-11 pl-9 text-base md:text-base"
                         placeholder="Search or enter an email"
                         disabled={
                           isAddingMachineManager ||
