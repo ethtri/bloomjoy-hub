@@ -187,6 +187,51 @@ select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-00
 select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000003','aa180303-0000-4000-8000-000000000004')->>'readerId',null::text,'Unknown switch-day case cannot fall back to the newly current reader');
 select ok(not has_function_privilege('authenticated','public.service_refund_case_reader_identity(uuid,uuid)','execute'),'Case-original reader resolver is service-only');
 select throws_ok($$select public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000004')$$,'22023',null,'Service identity lookup enforces the retained case machine/location scope');
+-- A source with no Hub can take an already occupied reader through ONE
+-- atomic setup/change action. Both provider adapters preserve prior ownership.
+set local session_replication_role=replica;
+insert into sunze_machine_discoveries(sunze_machine_id,sunze_machine_name,status) values('reader-new-occupied-cotton','New imported cotton cabinet','pending');
+insert into sunze_unmapped_sales(sunze_machine_id,source_order_hash,source_row_hash,sale_date,payment_method,net_sales_cents,transaction_count,raw_payload) values
+ ('reader-new-occupied-cotton',repeat('4e',32),repeat('4f',32),'2026-09-01','cash',300,1,'{"order_amount_cents":300,"item_quantity":1,"tax_cents":0,"payment_method_source":"Coin + Notes"}'),
+ ('reader-new-occupied-cotton',repeat('5e',32),repeat('5f',32),'2026-09-01','credit',600,1,'{"order_amount_cents":600,"item_quantity":1,"tax_cents":0,"payment_method_source":"Credit card"}');
+insert into private.snapcase_provider_accounts(id,source_account_key) values('aa180309-0000-4000-8000-000000000001','reader-wrapper-kex-account');
+insert into private.snapcase_source_machines(provider_account_id,source_machine_id,source_label,source_timezone) values
+ ('aa180309-0000-4000-8000-000000000001','reader-new-occupied-case','New imported case cabinet','America/Los_Angeles');
+set local session_replication_role=origin;
+create temporary table source_move_before as select
+ (select count(*) from reporting_machines where account_id='aa180301-0000-4000-8000-000000000001') machines,
+ (select count(*) from reporting_locations where account_id='aa180301-0000-4000-8000-000000000001') sites,
+ (select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where reporting_machine_id='aa180303-0000-4000-8000-000000000001') owner_facts,
+ (select to_jsonb(m) from reporting_machines m where id='aa180303-0000-4000-8000-000000000001') owner,
+ (select jsonb_agg(to_jsonb(p) order by id) from sunze_unmapped_sales p where sunze_machine_id='reader-new-occupied-cotton') pending,
+ (select updated_at from reporting_machines where id='aa180303-0000-4000-8000-000000000001') cotton_owner_stamp,
+ (select updated_at from reporting_machines where id='aa180303-0000-4000-8000-000000000004') case_owner_stamp,
+ (select count(*) from admin_audit_log) audits;
+grant select on source_move_before to authenticated;
+create temporary table source_move_result(platform text primary key,machine_id uuid);
+grant select,insert on source_move_result to authenticated;
+create function pg_temp.fail_initial_reader_move_audit() returns trigger language plpgsql as $$begin if new.action='reporting_machine.reader_changed' and new.meta->>'reason'='Synthetic initial occupied failure' then raise exception 'Synthetic initial occupied final audit failure' using errcode='P0001'; end if; return new; end$$;
+create trigger initial_reader_move_failure before insert on admin_audit_log for each row execute function pg_temp.fail_initial_reader_move_audit();
+select set_config('request.jwt.claim.role','authenticated',true);
+set local role authenticated;
+select throws_ok($$select admin_setup_imported_machine_with_reader_change('Sunze',null,'reader-new-occupied-cotton','aa180301-0000-4000-8000-000000000001','Chosen occupied cotton machine','commercial','setup','America/Los_Angeles','aa180304-0000-4000-8000-000000000002',array[]::text[],'Synthetic initial occupied failure',(select cotton_owner_stamp from source_move_before),'2026-10-04','2026-10-04T19:00Z')$$,'P0001','Synthetic initial occupied final audit failure','Failed single-save occupied setup rolls back both new machine and old reader ownership');
+reset role;
+drop trigger initial_reader_move_failure on admin_audit_log;
+select is((select count(*) from reporting_machines where account_id='aa180301-0000-4000-8000-000000000001'),(select machines from source_move_before),'Failed initial occupied setup creates no partial Hub');
+select is((select count(*) from reporting_locations where account_id='aa180301-0000-4000-8000-000000000001'),(select sites from source_move_before),'Failed initial occupied setup creates no partial site');
+select is((select to_jsonb(m) from reporting_machines m where id='aa180303-0000-4000-8000-000000000001'),(select owner from source_move_before),'Failed initial occupied setup preserves the complete former owner');
+select is((select jsonb_agg(to_jsonb(p) order by id) from sunze_unmapped_sales p where sunze_machine_id='reader-new-occupied-cotton'),(select pending from source_move_before),'Failed initial occupied setup rolls back source-order promotion');
+select is((select count(*) from admin_audit_log),(select audits from source_move_before),'Failed initial occupied setup commits no partial audit');
+set local role authenticated;
+select lives_ok($$insert into source_move_result select 'Sunze',(admin_setup_imported_machine_with_reader_change('Sunze',null,'reader-new-occupied-cotton','aa180301-0000-4000-8000-000000000001','Chosen occupied cotton machine','commercial','setup','America/Los_Angeles','aa180304-0000-4000-8000-000000000002',array[]::text[],'Reviewed new-source occupied reader move',(select cotton_owner_stamp from source_move_before),'2026-10-04','2026-10-04T19:00Z')->>'machineId')::uuid$$,'Sunze unbound source and occupied reader complete in one guarded save');
+select lives_ok($$insert into source_move_result select 'Kexiaozhan',(admin_setup_imported_machine_with_reader_change('Kexiaozhan','aa180309-0000-4000-8000-000000000001','reader-new-occupied-case','aa180301-0000-4000-8000-000000000001','Chosen occupied case machine','snapcase','setup','America/Los_Angeles','aa180304-0000-4000-8000-000000000006',array[]::text[],'Reviewed new-case occupied reader move',(select case_owner_stamp from source_move_before),'2026-10-05','2026-10-05T19:00Z')->>'machineId')::uuid$$,'Kex unbound source and occupied reader complete in one guarded save');
+reset role;
+select is((select count(*) from reporting_machines where account_id='aa180301-0000-4000-8000-000000000001'),(select machines+2 from source_move_before),'Successful new-source moves create one genuine Hub per exact provider identity');
+select is((select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where reporting_machine_id='aa180303-0000-4000-8000-000000000001'),(select owner_facts from source_move_before),'Occupied setup rewrites no previous-reader financial facts');
+select is((select sum(net_sales_cents) from private.financial_machine_sales_facts where reporting_machine_id=(select machine_id from source_move_result where platform='Sunze')),300::bigint,'Initial occupied Sunze setup contributes genuine cash once and no app-card duplicate');
+select ok((public.admin_get_machine_source_inventory()->'sources') @> '[{"sourceId":"reader-new-occupied-cotton","salesActivationPending":false}]','New occupied-source setup has no separate financial activation step');
+select is((select count(*) from private.snapcase_machine_mappings where provider_account_id='aa180309-0000-4000-8000-000000000001' and source_machine_id='reader-new-occupied-case' and reporting_machine_id=(select machine_id from source_move_result where platform='Kexiaozhan')),1::bigint,'Occupied Kex setup has one exact account/source mapping');
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001')->>'readerId','18030001','Moving a later reader leaves the old matched refund reader unchanged');
 -- The public native report path must still link the exact original purchase
 -- after replacement, without executing a refund or dispatching a message.
 select set_config('request.jwt.claim.role','service_role',true);
