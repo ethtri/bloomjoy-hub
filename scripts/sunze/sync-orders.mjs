@@ -685,11 +685,14 @@ const readMachineListDiagnostic = async (page) =>
       '.ant-table-pagination',
       '.ant-pagination-total-text',
       '[class*="pagination"]',
+      '[class*="pager"]',
+      'button[class*="next"]',
+      '[role="navigation"][aria-label*="pag" i]',
     ];
     return Array.from(document.querySelectorAll(selectors.join(',')))
-      .map((element) => (element.textContent || '').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 5);
+      .filter((element) => element.getClientRects().length > 0)
+      .slice(0, 12)
+      .map((element) => `${element.tagName.toLowerCase()}.${Array.from(element.classList).join('.')} ${element.getAttribute('aria-label') || element.getAttribute('title') || ''} ${(element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160)}`);
   });
 
 const readMachineListPagination = async (page) => {
@@ -727,6 +730,10 @@ const readVisibleSunzeMachines = async (page, baseUrl) => {
   const paginationDiagnostic = (await readMachineListDiagnostic(page))
     .map(sanitizeDiagnosticText)
     .join(' | ');
+
+  // Emit only bounded, sanitized navigation controls, never provider page HTML.
+  // An unrecognized paginator stays unverified until actual controls are reviewed.
+  inventory.coverage.paginationDiagnostic = paginationDiagnostic || null;
 
   updateDiagnostic({
     machineCoverage: {
