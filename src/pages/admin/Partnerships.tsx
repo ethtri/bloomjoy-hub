@@ -2911,14 +2911,14 @@ function FinancialTermsSection({
             value={splitEffectiveFrom} onChange={e => setSplitEffectiveFrom(e.target.value)} />
         </div>}
       </div>}
-      <Dialog open={isCorrectingTerms} onOpenChange={open => { if (!isSavingTerms) setIsCorrectingTerms(open); }}>
+      <Dialog open={isCorrectingTerms} onOpenChange={open => { if (!isSavingTerms) { setIsCorrectingTerms(open); if (!open) setForm(defaultRuleForm); } }}>
         <DialogContent className="min-w-0 max-h-[90dvh] overflow-x-hidden overflow-y-auto" style={{ width: 'calc(100vw - 2rem)', maxWidth: '32rem' }}><DialogHeader>
           <DialogTitle>Correct partnership terms</DialogTitle>
           <DialogDescription>Correct the current version and its preceding boundary together. Assignment dates and issued reports or payouts remain unchanged.</DialogDescription>
         </DialogHeader>
         <fieldset disabled={termsReviewed || isSavingTerms} className="min-w-0 space-y-3">
           <Label htmlFor="terms-effective-from">Corrected terms effective from</Label>
-          <Input id="terms-effective-from" type="date" className="h-11 min-w-0 w-full md:text-base" value={termsEffectiveFrom} onChange={e => setTermsEffectiveFrom(e.target.value)} />
+          <Input id="terms-effective-from" type="date" className="h-11 min-w-0 w-full text-base md:text-base" value={termsEffectiveFrom} onChange={e => setTermsEffectiveFrom(e.target.value)} />
           <Label htmlFor="terms-model">Calculation model</Label>
           <select id="terms-model" className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-base" value="post_tax_refunds_only" onChange={() => undefined}>
             <option value="post_tax_refunds_only">Sales after tax and refunds only</option>
@@ -2936,10 +2936,10 @@ function FinancialTermsSection({
             bloomjoy_share_basis_points: basisPointsFromPercent(form.bloomjoySharePercent)
           } as ReportingPartnershipFinancialRule, payoutParticipants)}</p>
           <p>Previous terms end the day before this date. The current {currentFinancialRule && formatDate(currentFinancialRule.effective_start_date)} breakpoint is replaced, not duplicated. Existing and future assigned machines inherit these terms; assignment dates stay unchanged.</p>
-          <p>September and October draft previews will recalculate. Issued reports and payouts stay as recorded; reconcile any required adjustment separately.</p>
+          <p>Affected draft previews will recalculate. Issued reports and payouts stay as recorded; reconcile any required adjustment separately.</p>
           <ul className="max-h-32 overflow-y-auto">{setup.assignments.filter(a => a.partnership_id === selectedPartnership.id && a.status === 'active' && (!a.effective_end_date || a.effective_end_date >= termsEffectiveFrom)).map(a => <li key={a.id}>{setup.machines.find(m => m.id === a.machine_id)?.machine_label ?? a.machine_id}</li>)}</ul>
         </div>}
-        <DialogFooter><Button variant="outline" disabled={isSavingTerms} onClick={() => termsReviewed ? setTermsReviewed(false) : setIsCorrectingTerms(false)}>Back</Button>
+        <DialogFooter><Button variant="outline" disabled={isSavingTerms} onClick={() => { if (termsReviewed) setTermsReviewed(false); else { setIsCorrectingTerms(false); setForm(defaultRuleForm); } }}>Back</Button>
           <Button disabled={isSavingTerms || !termsReason.trim() || !termsEffectiveFrom || allocationTotal !== 100 || additionalPayoutParticipants.length > 0 || (previousFinancialRule && termsEffectiveFrom <= previousFinancialRule.effective_start_date) || (currentFinancialRule?.effective_end_date != null && termsEffectiveFrom > currentFinancialRule.effective_end_date)} onClick={async () => {
             if (!termsReviewed) { setTermsReviewed(true); return; }
             if (!currentFinancialRule) return;
