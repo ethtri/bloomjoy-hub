@@ -45,7 +45,7 @@ export function MachineCashReporting({ machineId, canEdit, demo = false }: { mac
       <div className="min-w-0">
         <Label htmlFor={id} className="text-sm font-medium">Exclude cash from financial reporting</Label>
         <p id={`${id}-description`} className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Reported cash is excluded from revenue, commissions and revenue shares. Applies to all dates in recalculated reports. Card sales continue normally.
+          When enabled, reported cash is excluded from revenue, commissions and revenue shares. Applies to all dates in recalculated reports. Card sales continue normally.
         </p>
       </div>
       <Switch id={id} aria-describedby={`${id}-description`} checked={excluded}
