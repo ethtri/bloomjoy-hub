@@ -2779,7 +2779,9 @@ function FinancialTermsSection({
   const [isChangingSplit, setIsChangingSplit] = useState(false);
   const [splitEffectiveFrom, setSplitEffectiveFrom] = useState(today());
   const [isSplitReviewOpen, setIsSplitReviewOpen] = useState(false);
-  const saveDisabledReason = additionalPayoutParticipants.length > 0
+  const saveDisabledReason = isChangingSplit && (!splitEffectiveFrom || splitEffectiveFrom <= (currentFinancialRule?.effective_start_date ?? ''))
+      ? 'Choose a later effective-from date for the new split.'
+      : additionalPayoutParticipants.length > 0
       ? 'V1 supports two payout recipients plus Bloomjoy. Change extra payout recipients to another participant role before saving.'
       : allocationTotal !== 100
         ? 'Payout allocation must total exactly 100%.'
@@ -2887,11 +2889,11 @@ function FinancialTermsSection({
             partner_share_basis_points: basisPointsFromPercent(form.partnerSharePercent),
             bloomjoy_share_basis_points: basisPointsFromPercent(form.bloomjoySharePercent)
           } as ReportingPartnershipFinancialRule, payoutParticipants)} of {formatLabel(form.splitBase)}</p>
-          <p>Existing deductions are preserved. This partnership-wide split also applies to future assigned machines.</p>
-          <ul className="max-h-48 overflow-y-auto">{setup.assignments.filter(a => a.partnership_id === selectedPartnership.id && a.status === 'active').map(a =>
+          <p>Existing deductions are preserved: {currentFinancialRule?.fee_label} {formatMoney(currentFinancialRule?.fee_amount_cents ?? 0)} {formatFeeBasisLabel(currentFinancialRule?.fee_basis ?? 'none')}. This partnership-wide split also applies to future assigned machines.</p>
+          <ul className="max-h-48 overflow-y-auto">{setup.assignments.filter(a => a.partnership_id === selectedPartnership.id && a.status === 'active' && (!a.effective_end_date || a.effective_end_date >= splitEffectiveFrom)).map(a =>
             <li key={a.id}>{setup.machines.find(m => m.id === a.machine_id)?.machine_label ?? a.machine_id}</li>)}</ul>
           <DialogFooter><Button variant="outline" onClick={() => setIsSplitReviewOpen(false)}>Back</Button>
-            <Button onClick={saveRule} disabled={isSaving}>Confirm split change</Button></DialogFooter>
+            <Button onClick={saveRule} disabled={isSaving || Boolean(saveDisabledReason)}>Confirm split change</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <div className="rounded-lg border border-border bg-card p-5">
