@@ -16,6 +16,7 @@ const getArg = (name, fallback) => {
 };
 
 const appUrl = getArg('--app-url', 'http://127.0.0.1:8081');
+const partnershipOnly = process.argv.includes('--partnership-only');
 const debug = process.env.REPORTING_UAT_DEBUG === '1';
 const checks = [];
 const browserErrors = [];
@@ -374,6 +375,11 @@ const reportingAccessContext = (persona, freshness) => ({
 });
 
 const rpcResponse = (rpcName, persona, body, freshness) => {
+  if (rpcName === 'admin_get_machine_source_inventory') return { count: 1, sources: [{
+    sourceKey: 'Sunze:legacy-date-001', platform: 'Sunze', providerAccountId: null,
+    sourceId: 'legacy-date-001', sourceName: 'Legacy Date Kiosk',
+    reportingMachineId: 'machine-legacy-dates-uat', archivedMapping: false, mappingConflict: false,
+  }] };
   if (rpcName === 'get_refund_request_access') return { hasAccess: false, machines: [] };
   if (rpcName === 'get_refund_request') return null;
   switch (rpcName) {
@@ -617,7 +623,7 @@ const createPageForPersona = async (
       const body = parsePostBody(route.request());
       state.rpcCalls.push({ rpcName, body });
       if (debug) console.log(`[${persona.email}] rpc ${rpcName}`, body);
-      if (rpcName.startsWith('admin_upsert_reporting_')) {
+      if (rpcName.startsWith('admin_upsert_reporting_') || rpcName === 'admin_change_partnership_split') {
         state.adminRpcCalls.push({ rpcName, body });
       }
       return route.fulfill({
@@ -1424,7 +1430,7 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
   try {
     await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
     await waitForReport(page);
-    await check('Super Admin can open and leave a scoped partner machine drilldown', async () => {
+    if (!partnershipOnly) await check('Super Admin can open and leave a scoped partner machine drilldown', async () => {
       const partnerToggle = await visibleLocator(
         page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }),
         'Super Admin partner dashboard toggle',
@@ -1448,6 +1454,10 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
         'Super Admin returned all-machines action',
       );
     });
+    if (partnershipOnly) {
+      await page.getByRole('navigation', { name: 'Reporting views' }).getByRole('button', { name: 'Partners', exact: true }).click();
+      await page.getByRole('heading', { name: 'Partner performance summary' }).waitFor();
+    }
     await check('Super Admin report hides internal notes and explains an out-of-window period once', async () => {
       const bodyText = await textOf(page.locator('body'));
       for (const forbidden of ['Report notes', 'INTERNAL-ONLY', 'Open admin setup']) {
@@ -1493,17 +1503,14 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
         { waitUntil: 'networkidle' },
       );
       await page.getByRole('heading', { name: 'Assign Machines' }).waitFor();
-      await page
-        .getByRole('heading', { name: 'Machine reporting dates need synchronization' })
-        .waitFor();
       const bodyText = await textOf(page.locator('body'));
       assert(
         bodyText.includes('Saved assignment ended Jul 5, 2026'),
-        'Legacy assignment end date must be visible before synchronization.',
+        'Historical assignment end date must remain visible.',
       );
       assert(
-        bodyText.includes('1 legacy end date to sync'),
-        'Legacy assignment must remain selected and count toward the safe date sync.',
+        bodyText.includes('Historical dates are preserved.') && !bodyText.includes('legacy end date to sync'),
+        'Existing assignment history must not be silently cleared by lifecycle alignment.',
       );
       assert(
         bodyText.includes('Existing assignment start dates stay unchanged.'),
@@ -1511,33 +1518,29 @@ const assertSuperAdminPartnerDrilldown = async (browser) => {
       );
       assert(await page.getByRole('checkbox').first().isChecked(), 'Legacy assignment must remain selected.');
       await page.screenshot({ path: path.join(outputDir, 'admin-machine-date-sync-desktop.png'), fullPage: true });
-      await page.getByRole('button', { name: 'Save Machine Alignment' }).click();
-      await waitForRecordedRequest(page, state.adminRpcCalls, 'Machine assignment date sync');
-      const assignmentCall = state.adminRpcCalls[0];
-      assert(
-        assignmentCall.rpcName === 'admin_upsert_reporting_machine_assignment' &&
-          assignmentCall.body.p_assignment_id === 'assignment-legacy-dates-uat' &&
-          assignmentCall.body.p_effective_start_date === '2026-06-01' &&
-          assignmentCall.body.p_effective_end_date === null,
-        'Machine sync must update the existing assignment, preserve its actual start date, and clear only its legacy end date.',
-      );
+      assert(await page.getByRole('button', { name: 'Save Machine Alignment' }).isDisabled(),
+        'Unchanged historical assignment cannot invite an automatic date rewrite.');
+      assert(state.adminRpcCalls.length === 0, 'Viewing assignment history must perform no business write.');
     });
-    await check('Admin Partnerships explains the legacy payout-rule date sync', async () => {
+    await check('Admin Partnerships preserves payout history and requires a reviewed dated split', async () => {
       await page.goto(
         `${appUrl}/admin/partnerships?partnershipId=partnership-legacy-dates-uat&step=terms`,
         { waitUntil: 'networkidle' },
       );
-      await page
-        .getByRole('heading', { name: 'Payout rule dates need synchronization' })
-        .waitFor();
+      await page.getByRole('button', { name: 'Change split', exact: true }).waitFor();
       const bodyText = await textOf(page.locator('body'));
       assert(
-        bodyText.includes('legacy reporting dates and ended on Jul 5, 2026'),
-        'Payout Rules must identify the legacy end date that needs synchronization.',
+        bodyText.includes('2026-07-05') && !bodyText.includes('dates need synchronization'),
+        'Payout Rules must display the original version end without offering to erase it.',
       );
-      const syncButton = page.getByRole('button', { name: 'Save & Sync Payout Rules' });
-      await syncButton.waitFor();
-      assert(await syncButton.isEnabled(), 'Payout-rule date sync must be actionable.');
+      assert(await page.getByLabel('Bloomjoy payout share percentage').isDisabled(), 'Current financial version is read-only.');
+      await page.getByRole('button', { name: 'Change split', exact: true }).click();
+      await page.locator('#split-effective-from').fill('2026-10-01');
+      await page.getByRole('button', { name: 'Review split change', exact: true }).click();
+      const review = page.getByRole('dialog', { name: 'Review split change' });
+      const reviewText = await textOf(review);
+      assert(reviewText.includes('2026-10-01') && reviewText.includes('Bloomjoy 100.00%'), 'Dated preview retains the existing exact allocation.');
+      assert(state.adminRpcCalls.length === 0, 'Review before confirmation performs no financial or assignment write.');
       await page.screenshot({ path: path.join(outputDir, 'admin-payout-rule-date-sync-desktop.png'), fullPage: true });
     });
   } finally {
@@ -1630,6 +1633,7 @@ const writeResults = () => {
   fs.mkdirSync(outputDir, { recursive: true });
   const payload = {
     issues: [656, 657],
+    mode: partnershipOnly ? 'partnership-only' : 'full',
     appUrl,
     fixedNow: fixedNowIso,
     startedAt,
@@ -1679,6 +1683,9 @@ for (const artifactName of fs.readdirSync(outputDir)) {
 }
 const browser = await chromium.launch({ headless: true });
 try {
+  if (partnershipOnly) {
+    await assertSuperAdminPartnerDrilldown(browser);
+  } else {
   await assertOperatorDesktop(browser);
   await assertOperatorMobile(browser);
   await assertOperatorFreshnessVariants(browser);
@@ -1687,6 +1694,7 @@ try {
   await assertSuperAdminPartnerDrilldown(browser);
   await assertResponsiveBoundaryWidths(browser);
   await assertPermissionBoundaries(browser);
+  }
   await check('No unexpected browser errors occurred', async () => {
     assert(browserErrors.length === 0, `Unexpected browser errors:\n${browserErrors.join('\n')}`);
   });
