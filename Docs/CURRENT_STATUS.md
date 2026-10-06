@@ -12,6 +12,8 @@ Repo agents have standing business-Chrome authorization to self-serve and reuse 
 
 Machine name is the sole editable/display label for an individual machine. Location is retired from ordinary machine setup; internal location IDs/time zones and aggregate venue grouping remain for reporting/history. Effective-name precedence is nonblank `machine_display_name`, then legacy `refund_public_display_label`, then `machine_label` (legacy machine alias fallback). Original imported identities remain read-only. See the canonical decision in `DECISIONS.md`; app-wide consumer acceptance is tracked in #1760.
 
+Issue #1774 corrects machine inventory to originate from all authorized imported source identities, including unbound/historical imports, with one Manage workflow. Hub-only history records are not separate physical inventory. Eight specifically reviewed legacy records receive a reversible management marker; no financial history, operating/refund flags, or guessed source mappings are changed. Import coverage warnings preserve already imported records. Implementation and release acceptance remain tracked on the issue/board.
+
 ## Refund workflow (current)
 
 - P0 #1455: the October 5 repair broadens deterministic Info inquiry matching

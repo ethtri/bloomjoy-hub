@@ -17,6 +17,15 @@ begin
 end; $fn$;
 revoke all on function private.assert_machine_management_active(uuid) from public,anon,authenticated;
 
+create function private.assert_machine_management_choices(p_machine_ids uuid[])
+returns void language plpgsql security definer set search_path='' as $fn$
+begin
+  if exists(select 1 from public.reporting_machines where id=any(coalesce(p_machine_ids,array[]::uuid[])) and management_archived_at is not null) then
+    raise exception 'Archived machines cannot receive new management assignments. Restore them explicitly.' using errcode='22023';
+  end if;
+end; $fn$;
+revoke all on function private.assert_machine_management_choices(uuid[]) from public,anon,authenticated;
+
 create function private.guard_machine_management_archive()
 returns trigger language plpgsql security definer set search_path='' as $fn$
 begin
@@ -68,6 +77,10 @@ begin
     management_archived_by=case when p_archived then auth.uid() end,
     management_archive_reason=case when p_archived then btrim(p_reason) end
   where id=p_machine_id returning * into new_row;
+  if (to_jsonb(new_row)-array['management_archived_at','management_archived_by','management_archive_reason','updated_at'])
+    is distinct from (to_jsonb(old_row)-array['management_archived_at','management_archived_by','management_archive_reason','updated_at']) then
+    raise exception 'Archive must preserve machine identity and operating history' using errcode='22023';
+  end if;
   perform set_config('app.machine_management_archive','0',true);
   insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
     values(auth.uid(),case when p_archived then 'reporting_machine.management_archived' else 'reporting_machine.management_restored' end,
@@ -87,7 +100,7 @@ begin
       select coalesce(jsonb_agg(option.value || jsonb_build_object('managementArchivedAt',null) order by option.ordinality),'[]'::jsonb)
         into options from jsonb_array_elements(p_payload->option_key) with ordinality option(value,ordinality)
         where not exists(select 1 from public.reporting_machines m
-          where m.id::text=coalesce(option.value->>'id',option.value->>'machineId') and m.management_archived_at is not null);
+          where m.id::text=coalesce(option.value->>'reportingMachineId',option.value->>'id',option.value->>'machineId') and m.management_archived_at is not null);
       p_payload:=jsonb_set(p_payload,array[option_key],options);
     end if;
   end loop;
@@ -194,8 +207,9 @@ end; $patch$;
 
 -- Exact owner-reviewed retirement set. Missing IDs on fresh databases are harmless.
 -- Refuse to retire a record whose source connection changed after the review.
-do $archive$
-declare target public.reporting_machines; reference record; has_reference boolean;
+create function private.apply_reviewed_machine_retirements()
+returns integer language plpgsql security definer set search_path='' as $archive$
+declare target public.reporting_machines; reference record; has_reference boolean; archived_count integer:=0; updated public.reporting_machines;
 begin
   perform pg_catalog.pg_advisory_xact_lock(1746,1);
   for target in select * from public.reporting_machines where id=any(array[
@@ -207,7 +221,6 @@ begin
     if target.management_archived_at is not null then continue; end if;
     if nullif(btrim(target.sunze_machine_id),'') is not null or exists(
       select 1 from private.snapcase_machine_mappings map where map.reporting_machine_id=target.id
-        and map.effective_start_date<=current_date and (map.effective_end_date is null or map.effective_end_date>=current_date)
     ) then raise exception 'Retirement source connection changed for machine %',target.id; end if;
     if target.id in ('19f40178-711c-499d-bf51-c68374959f25','53efdc1f-4792-4065-a87d-800cbaad2eab',
       '7d0ccdfb-e758-4723-8e12-a525b03f6a35','233970ef-9ff8-4cd0-bc5c-6eafea7058bc',
@@ -230,13 +243,18 @@ begin
     end if;
     perform set_config('app.machine_management_archive','1',true);
     update public.reporting_machines set management_archived_at=now(),
-      management_archive_reason='Owner-reviewed legacy management retirement; #1774. History retained.' where id=target.id;
+      management_archive_reason='Owner-reviewed legacy management retirement; #1774. History retained.' where id=target.id returning * into updated;
+    if (to_jsonb(updated)-array['management_archived_at','management_archived_by','management_archive_reason','updated_at']) is distinct from (to_jsonb(target)-array['management_archived_at','management_archived_by','management_archive_reason','updated_at']) then raise exception 'Retirement must preserve all original machine fields'; end if;
+    archived_count:=archived_count+1;
     insert into public.admin_audit_log(action,entity_type,entity_id,before,after,meta)
       select 'reporting_machine.management_archived','reporting_machine',target.id::text,to_jsonb(target),to_jsonb(m),
         jsonb_build_object('reason','Owner-reviewed exact retirement set','issue',1774) from public.reporting_machines m where m.id=target.id;
     perform set_config('app.machine_management_archive','0',true);
   end loop;
+  return archived_count;
 end; $archive$;
+revoke all on function private.apply_reviewed_machine_retirements() from public,anon,authenticated,service_role;
+select private.apply_reviewed_machine_retirements();
 
 do $patch$
 declare definition text; anchor text:=$old$return result;$old$;
@@ -303,17 +321,16 @@ begin
       union all
       select jsonb_build_array('kexiaozhan',s.provider_account_id,s.source_machine_id)::text,'Kexiaozhan',
         s.provider_account_id,a.source_account_key,s.source_machine_id,s.source_label,s.source_status,
-        null::text,s.first_seen_at,s.last_seen_at,s.source_timezone,match.machine_ids,match.archived_ids,
-        (select max(occurred_at)::text from private.snapcase_sales_observations observation
+        null::text,s.first_seen_at,s.last_seen_at,case when s.source_timezone='UTC' or (strpos(s.source_timezone,'/')>0 and exists(select 1 from pg_catalog.pg_timezone_names zone where zone.name=s.source_timezone)) then s.source_timezone end,match.machine_ids,match.archived_ids,
+        (select to_jsonb(max(occurred_at))#>>'{}' from private.snapcase_sales_observations observation
           where observation.provider_account_id=s.provider_account_id and observation.source_machine_id=s.source_machine_id
             and amount_minor>0)
       from private.snapcase_source_machines s join private.snapcase_provider_accounts a on a.id=s.provider_account_id
       left join lateral (
-        select array_agg(distinct m.id order by m.id) filter(where m.management_archived_at is null) as machine_ids,
+        select array_agg(distinct m.id order by m.id) filter(where m.management_archived_at is null and map.effective_start_date<=current_date and (map.effective_end_date is null or map.effective_end_date>=current_date)) as machine_ids,
           array_agg(distinct m.id order by m.id) filter(where m.management_archived_at is not null) as archived_ids
         from private.snapcase_machine_mappings map join public.reporting_machines m on m.id=map.reporting_machine_id
         where map.provider_account_id=s.provider_account_id and map.source_machine_id=s.source_machine_id
-          and map.effective_start_date<=current_date and (map.effective_end_date is null or map.effective_end_date>=current_date)
       ) match on true
     )
     select jsonb_agg(jsonb_build_object(
@@ -328,7 +345,7 @@ begin
       'nayaxAccountKey',case when current_machine.nayax_machine_id is not null then upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB')) end,
       'nayaxName',inventory.machine_name,
       'mappingConflict',coalesce(cardinality(machine_ids)>1,false),
-      'archivedMapping',coalesce(cardinality(archived_ids)>0,false)
+      'archivedMapping',coalesce(cardinality(archived_ids)>0 and coalesce(cardinality(machine_ids),0)=0,false)
     ) order by platform,source_name nulls last,source_key)
     from source_inventory
     left join public.reporting_machines current_machine on current_machine.id=case when cardinality(machine_ids)=1 then machine_ids[1] end
@@ -336,7 +353,14 @@ begin
       and inventory.account_key=upper(coalesce(nullif(btrim(current_machine.nayax_account_key),''),'TGPACI_USA_DB'))
     where super_admin or (cardinality(machine_ids)=1 and machine_ids[1]=any(scoped_ids))
   ),'[]'::jsonb);
-  return jsonb_build_object('sources',inventory,'count',jsonb_array_length(inventory));
+  return jsonb_build_object('sources',inventory,'count',jsonb_array_length(inventory),
+    'importHealth',case when super_admin then coalesce((select jsonb_build_object(
+      'observedAt',coalesce(run.completed_at,run.created_at),
+      'verified',run.status='completed' and coalesce(run.meta->>'machine_coverage_verification_version','')='1' and coalesce(run.meta->>'machine_coverage_verified','')='true',
+      'status',run.status,
+      'issue',case when run.status<>'completed' then 'latest_import_not_completed' when coalesce(run.meta->>'machine_coverage_verification_version','')<>'1' then 'machine_coverage_proof_missing' else run.meta->>'machine_coverage_issue' end
+    ) from public.sales_import_runs run where run.source='sunze_browser'
+      order by greatest(run.created_at,run.completed_at) desc nulls last,run.id limit 1),jsonb_build_object('observedAt',null,'verified',false,'issue','import_history_unavailable')) end);
 end; $fn$;
 revoke all on function public.admin_get_machine_source_inventory() from public,anon;
 grant execute on function public.admin_get_machine_source_inventory() to authenticated;
@@ -348,7 +372,7 @@ create function public.admin_setup_imported_machine(
   p_machine_name text,p_machine_type text,p_operational_phase text,p_timezone text,
   p_inventory_id uuid,p_manager_emails text[],p_reason text
 ) returns jsonb language plpgsql security definer set search_path='' as $fn$
-declare machine public.reporting_machines; source_date date; mapped jsonb;
+declare machine public.reporting_machines; source_date date; authoritative_zone text; mapped jsonb;
 begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then
     raise exception 'Super Admin access required' using errcode='42501';
@@ -368,9 +392,12 @@ begin
       p_operational_phase,p_reason,null,null,'Unmapped Hub Source Sunze '||p_source_id,p_timezone,true);
   elsif p_platform='Kexiaozhan' then
     if p_machine_type<>'snapcase' then raise exception 'Kexiaozhan source requires SnapCase type' using errcode='22023'; end if;
-    select (first_seen_at at time zone 'UTC')::date into source_date from private.snapcase_source_machines
+    select (first_seen_at at time zone 'UTC')::date,source_timezone into source_date,authoritative_zone from private.snapcase_source_machines
       where provider_account_id=p_provider_account_id and source_machine_id=p_source_id for update;
     if not found then raise exception 'Imported source no longer exists. Reload Machines.' using errcode='22023'; end if;
+    if (authoritative_zone='UTC' or (strpos(authoritative_zone,'/')>0 and exists(select 1 from pg_catalog.pg_timezone_names zone where zone.name=authoritative_zone))) and authoritative_zone is distinct from p_timezone then
+      raise exception 'The imported machine time zone must be preserved. Reload Machines.' using errcode='22023';
+    end if;
     if exists(select 1 from private.snapcase_machine_mappings mapping join public.reporting_machines existing on existing.id=mapping.reporting_machine_id
       where mapping.provider_account_id=p_provider_account_id and mapping.source_machine_id=p_source_id
         and (existing.management_archived_at is not null or (mapping.effective_start_date<=current_date and coalesce(mapping.effective_end_date,'infinity'::date)>=current_date))) then
@@ -417,3 +444,109 @@ begin
 end; $fn$;
 revoke all on function public.admin_get_imported_machine_tax(uuid) from public,anon;
 grant execute on function public.admin_get_imported_machine_tax(uuid) to authenticated;
+
+do $patch$
+declare definition text; anchor text:=$old$  perform pg_advisory_xact_lock(hashtext('machine_manager:' || p_machine_id::text));$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_set_reporting_machine_refund_managers(uuid,text[],text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_set_reporting_machine_refund_managers(uuid,text[],text)'; end if;
+  execute replace(definition,anchor,$new$  perform private.assert_machine_management_active(p_machine_id);
+  perform pg_advisory_xact_lock(hashtext('machine_manager:' || p_machine_id::text));$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  normalized_reason := public.reporting_admin_assert_reason(p_reason);$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_map_snapcase_machine(uuid,text,uuid,uuid,uuid,text,text,uuid,date,date,text,text)'; end if;
+  execute replace(definition,anchor,$new$  normalized_reason := public.reporting_admin_assert_reason(p_reason);
+  perform private.assert_machine_management_active(p_reporting_machine_id);
+  if exists(select 1 from private.snapcase_machine_mappings archived_map join public.reporting_machines archived on archived.id=archived_map.reporting_machine_id where archived_map.provider_account_id=p_provider_account_id and archived_map.source_machine_id=normalized_source_machine_id and archived.management_archived_at is not null) then raise exception 'This source belongs to an archived machine. Restore it explicitly.' using errcode='22023'; end if;$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  where public.is_super_admin(actor_user_id)
+    or ($old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_get_refund_nayax_inventory()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_get_refund_nayax_inventory()'; end if;
+  execute replace(definition,anchor,$new$  where not exists(select 1 from public.reporting_machines archived where archived.id=inventory.reporting_machine_id and archived.management_archived_at is not null)
+    and (public.is_super_admin(actor_user_id)
+    or ($new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
+    );$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_get_refund_nayax_inventory()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: admin_get_refund_nayax_inventory()'; end if;
+  execute replace(definition,anchor,$new$      and public.can_manage_refund_machine(actor_user_id, inventory.reporting_machine_id)
+    ));$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$   and btrim(coalesce(reporting.nayax_machine_id, '')) = stage.nayax_machine_id$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)'; end if;
+  execute replace(definition,anchor,$new$   and btrim(coalesce(reporting.nayax_machine_id, '')) = stage.nayax_machine_id
+   and reporting.management_archived_at is null$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$    reconciliation_state = case
+      when public.refund_nayax_machine_inventory.reconciliation_state = 'excluded'$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive admission anchor changed: service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)'; end if;
+  execute replace(definition,anchor,$new$    reconciliation_state = case
+      when public.refund_nayax_machine_inventory.reconciliation_state <> 'published' and exists(select 1 from public.reporting_machines archived where archived.id=public.refund_nayax_machine_inventory.reporting_machine_id and archived.management_archived_at is not null) then public.refund_nayax_machine_inventory.reconciliation_state
+      when public.refund_nayax_machine_inventory.reconciliation_state = 'excluded'$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  where machine.status = 'active'$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.public_refund_machine_options()'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: public_refund_machine_options()'; end if;
+  execute replace(definition,anchor,$new$  where machine.management_archived_at is null and machine.status = 'active'$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  if existing_row.id is not null then$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_grant_machine_report_access(text,uuid,uuid,uuid,text,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: admin_grant_machine_report_access(text,uuid,uuid,uuid,text,text)'; end if;
+  execute replace(definition,anchor,$new$  perform private.assert_machine_management_active(normalized_machine_id);
+  if existing_row.id is not null then$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  for existing_row in$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_set_user_machine_reporting_access(text,uuid[],text,text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: admin_set_user_machine_reporting_access(text,uuid[],text,text)'; end if;
+  execute replace(definition,anchor,$new$  perform private.assert_machine_management_choices(array(select wanted from unnest(normalized_machine_ids) wanted where not exists(select 1 from public.reporting_machine_entitlements existing where existing.user_id=target_user_id and existing.machine_id=wanted and public.reporting_entitlement_is_active(existing.starts_at,existing.expires_at,existing.revoked_at))));
+  for existing_row in$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  select count(*)
+  into machine_count$old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.admin_set_operator_machine_assignments(uuid,uuid[],text)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: admin_set_operator_machine_assignments(uuid,uuid[],text)'; end if;
+  execute replace(definition,anchor,$new$  perform private.assert_machine_management_choices(array(select wanted from unnest(normalized_machine_ids) wanted where not exists(select 1 from public.operator_machine_assignments existing where existing.operator_profile_id=profile_row.id and existing.reporting_machine_id=wanted and existing.status='active' and existing.revoked_at is null)));
+  select count(*)
+  into machine_count$new$);
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text:=$old$  with revoked_assignments as ($old$;
+begin
+  definition:=replace(replace(pg_get_functiondef('public.technician_apply_machine_assignments(uuid,uuid[],text,uuid)'::regprocedure),E'\r\n',E'\n'),E'\r',E'\n');
+  if strpos(definition,anchor)=0 then raise exception 'Archive assignment anchor changed: technician_apply_machine_assignments(uuid,uuid[],text,uuid)'; end if;
+  execute replace(definition,anchor,$new$  perform private.assert_machine_management_choices(added_machine_ids);
+  with revoked_assignments as ($new$);
+end; $patch$;

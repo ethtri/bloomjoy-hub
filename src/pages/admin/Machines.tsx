@@ -1,4 +1,4 @@
-import { fetchMachineSourceInventory, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
+import { fetchMachineSourceInventorySnapshot, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -482,7 +482,7 @@ export default function AdminMachinesPage() {
   const isLocalDemoMode = isLocalUatDemoForced();
   const [selectedImportedSource, setSelectedImportedSource] = useState<MachineSourceInventoryItem | null>(null);
   const [completedSourceMachineId, setCompletedSourceMachineId] = useState<string | null>(null);
-  const importedInventory = useQuery({ queryKey: [...machineSourceInventoryQueryKey, user?.id], queryFn: fetchMachineSourceInventory, enabled: !isLocalDemoMode, staleTime: 30000, retry: false });
+  const importedInventory = useQuery({ queryKey: [...machineSourceInventoryQueryKey, user?.id], queryFn: fetchMachineSourceInventorySnapshot, enabled: !isLocalDemoMode, staleTime: 30000, retry: false });
   const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: !isLocalDemoMode, staleTime: 30000 });
   const metadataById = useMemo(() => new Map((workspaceMetadata.data ?? []).map((item) => [item.machineId, item])), [workspaceMetadata.data]);
   const isMachineIdentityEditable = isSuperAdmin;
@@ -854,7 +854,7 @@ export default function AdminMachinesPage() {
     if (importedInventory.isError) return [];
     const filteredHubIds = new Set(machineRows.map((row) => row.machine.id));
     const query = search.trim().toLowerCase();
-    return (importedInventory.data ?? []).flatMap((source) => {
+    return (importedInventory.data?.sources ?? []).filter((source) => !source.archivedMapping || !!source.reportingMachineId).flatMap((source) => {
       const hubRow = allMachineRows.find((row) => row.machine.id === source.reportingMachineId) ?? null;
       const sourceMatchesSearch = [source.platform, source.sourceName, source.sourceId, source.sourceAccountKey, source.machineName, source.nayaxName, source.nayaxMachineId, source.nayaxAccountKey].filter(Boolean).join(' ').toLowerCase().includes(query);
       if (source.reportingMachineId && hubRow && !filteredHubIds.has(source.reportingMachineId)) {
@@ -878,7 +878,7 @@ export default function AdminMachinesPage() {
   }, [isLocalDemoMode, machineRows, importedInventory.data, importedInventory.isError, allMachineRows, search, machineTypeFilter, taxFilter, assignmentFilter, refundFilter, activityFilter, sort, metadataById]);
   const sourceViewMatches = (item: { hubRow: MachineSetupRowViewModel | null; source: MachineSourceInventoryItem }, selectedView: MachineView) => {
     if (selectedView === 'review') return !item.source.reportingMachineId || item.source.mappingConflict;
-    if (selectedView === 'setup') return !item.hubRow || item.hubRow.machine.operational_phase === 'setup';
+    if (selectedView === 'setup') return !item.hubRow || item.hubRow.machine.operational_phase === 'setup' || item.hubRow.attentionReasons.length > 0;
     if (selectedView === 'attention') return !item.hubRow || item.hubRow.attentionReasons.length > 0;
     if (selectedView === 'ready') return !!item.hubRow && item.hubRow.machine.operational_phase !== 'setup' && item.hubRow.attentionReasons.length === 0;
     return true;
@@ -898,7 +898,7 @@ export default function AdminMachinesPage() {
   useEffect(() => {
     if (!completedSourceMachineId) return;
     const machine = setup.machines.find((item) => item.id === completedSourceMachineId);
-    if (machine) { setCompletedSourceMachineId(null); openEditMachine(machine); }
+    if (machine) { setCompletedSourceMachineId(null); setSelectedImportedSource(null); setEditingMachine(machine); setIsMachineDialogOpen(true); }
   }, [completedSourceMachineId, setup.machines]);
 
   const updateView = (nextView: MachineView) => {
@@ -1460,9 +1460,7 @@ export default function AdminMachinesPage() {
             {([
               ['all', 'Machines', portfolioCounts.all],
               ['setup', 'Setup needed', portfolioCounts.setup],
-              ['attention', 'Needs attention', portfolioCounts.attention],
               ['ready', 'Ready', portfolioCounts.ready],
-              ['review', 'Source setup', portfolioCounts.review],
             ] as const).map(([value, label, count]) => (
               <button
                 key={value}
@@ -1599,6 +1597,8 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
+          {isSuperAdmin && importedInventory.data && (!importedInventory.data.importHealth?.verified || importFreshnessLabel(importedInventory.data.importHealth?.observedAt ?? null) !== 'Recent import') && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-amber-800" aria-label="Import coverage warning"><span>Sunze import coverage needs review. Previously imported machines remain listed.</span><MachineHelp label="About import coverage">The latest import has not proved that every provider machine was covered. This warning never removes historical source records.{importedInventory.data.importHealth?.observedAt ? ` Latest import attempt: ${formatDate(importedInventory.data.importHealth.observedAt)}.` : ' Import history is unavailable.'}</MachineHelp></div>}
+
           {sourceVerificationIncomplete && (
             <div role="alert" className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
               <p>Imported machine inventory could not load. The list is unavailable until the source records can be verified.</p>
@@ -1701,7 +1701,7 @@ export default function AdminMachinesPage() {
         open={isMachineEditorOpen || !!selectedImportedSource}
         onOpenChange={(nextOpen) => { if (selectedImportedSource) { if (!nextOpen) setSelectedImportedSource(null); } else closeMachineDialog(nextOpen); }}
         importedSource={selectedImportedSource}
-        onImportedSourceSaved={(id) => { setSelectedImportedSource(null); setCompletedSourceMachineId(id); }}
+        onImportedSourceSaved={(id) => setCompletedSourceMachineId(id)}
         machine={selectedMachineForEditor}
         machineRow={allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)}
         machines={setup.machines}
@@ -1752,6 +1752,14 @@ function demoSourceIdentity(machine: PartnershipSetupMachine): MachineSourceInve
     mappingConflict: false, archivedMapping: false };
 }
 
+function sourceTransactionLabel(source: MachineSourceInventoryItem): string {
+  if (!source.lastSourceTransaction) return 'Unknown';
+  if (source.platform === 'Sunze') return source.lastSourceTransaction.slice(0, 10);
+  try {
+    return new Date(source.lastSourceTransaction).toLocaleString(undefined, { timeZone: source.sourceTimezone || 'UTC' });
+  } catch { return 'Unknown'; }
+}
+
 function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
   source: MachineSourceInventoryItem; canSetup: boolean; onSetup: () => void;
 }) {
@@ -1761,7 +1769,7 @@ function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
     <div role="cell"><CellLabel>Nayax match</CellLabel><p className="break-words">{source.nayaxMachineId ? `${source.nayaxName || 'Saved Nayax record'} · ID ${source.nayaxMachineId} · ${source.nayaxAccountKey}` : 'Not matched'}</p></div>
     <div role="cell"><CellLabel>Company</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Managers</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
-    <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? (source.platform === 'Sunze' ? source.lastSourceTransaction.slice(0, 10) : new Date(source.lastSourceTransaction).toLocaleDateString()) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
+    <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? sourceTransactionLabel(source) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
     <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
   </div>;
 }
@@ -1778,6 +1786,9 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
   const identities = source ? [{ platform: source.platform, account: source.sourceAccountKey, id: source.sourceId, name: source.sourceName }] : metadata?.sources;
   const refundIsReady = row.refundReadinessState === 'ready_to_refund' && globalRefunds.available;
   const refundStatus = globalRefunds.paused ? 'Paused globally' : refundIsReady ? 'Ready' : row.refundReadinessState === 'ready_to_refund' ? 'Direct API is unavailable' : refundReadinessLabel(row.refundReadinessState);
+  const nayaxId = metadata?.nayaxMachineId ?? source?.nayaxMachineId;
+  const nayaxName = metadata?.nayaxName ?? source?.nayaxName;
+  const nayaxAccount = metadata?.nayaxAccountKey ?? source?.nayaxAccountKey;
   return <div role="row" data-source-key={source?.sourceKey} className={cn('grid grid-cols-1 gap-4 px-4 py-5 text-sm hover:bg-muted/20 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-start', isHighlighted && 'bg-primary/5')}>
     <div role="cell" className="min-w-0 break-words">
       <CellLabel>Source machine</CellLabel>
@@ -1786,10 +1797,10 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
       {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive · history retained</Badge>}
       {machine.operational_phase === 'setup' && <Badge variant="outline" className="mt-2 border-amber-300 text-amber-900">Provisional</Badge>}
     </div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{metadata?.nayaxMachineId ? metadata.nayaxName || 'Unnamed Nayax record' : metadata ? 'Not matched' : 'Mapping data unavailable'}</p>{metadata?.nayaxMachineId && <p className="mt-1 text-xs text-muted-foreground">ID {metadata.nayaxMachineId}<br/>Account {metadata.nayaxAccountKey || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{nayaxId ? nayaxName || 'Unnamed Nayax record' : metadata || source ? 'Not matched' : 'Mapping data unavailable'}</p>{nayaxId && <p className="mt-1 text-xs text-muted-foreground">ID {nayaxId}<br/>Account {nayaxAccount || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}</div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}{source && <p className="mt-1 text-xs text-muted-foreground">{source.platform} · {source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {sourceTransactionLabel(source)}</p>}</div>
     <div role="cell" className="flex justify-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
   </div>;
 }
@@ -2597,7 +2608,7 @@ function MachineDialog({
     locationTimezone: machine.location_timezone ?? '',
   } : null;
   const [savedAssignment, setSavedAssignment] = useState<SavedCompanyAssignment | null>(currentAssignment);
-  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} internalLocationName={`Unmapped Hub ${machine?.id || newAssociationKeyRef.current}`} value={form} saved={savedAssignment} autoSelectSingleCompany={!machine} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
+  const assignmentFields = (id: string) => <CompanyAssignmentFields id={id} authoritativeTimezone={importedSource?.sourceTimezone} internalLocationName={`Unmapped Hub ${machine?.id || newAssociationKeyRef.current}`} value={form} saved={savedAssignment} autoSelectSingleCompany={!machine} enabled={open && canEditMachineIdentity} disabled={!canEditMachineIdentity || isSaving} onChange={(assignment) => setForm((current) => ({ ...current, ...assignment }))} />;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');
@@ -3100,7 +3111,13 @@ function MachineDialog({
     form.operationalPhase !== (machine.operational_phase ?? 'live')
   );
 
-  const hasUnsavedChanges = (!!importedSource && (form.machineLabel !== (importedSource.sourceName ?? '') || !!form.accountId || !!sourceInventoryId)) || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
+  const importedIdentityHasChanges = Boolean(importedSource) && (
+    form.machineLabel !== (importedSource?.sourceName ?? '') || Boolean(form.accountId) || Boolean(sourceInventoryId) ||
+    form.locationTimezone !== (importedSource?.sourceTimezone ?? '') ||
+    form.machineType !== (importedSource?.platform === 'Kexiaozhan' ? 'snapcase' : 'commercial') ||
+    form.operationalPhase !== 'setup'
+  );
+  const hasUnsavedChanges = importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
 
   const cancelMachineIdentityChanges = useCallback(() => {
     if (!machine) return;
@@ -3800,7 +3817,8 @@ null
                     )}
                   </div>
                 )}
-                <div className="mt-4 flex justify-end" hidden={!form.machineId}>
+                {!form.machineId && <p className="mt-2 text-xs text-muted-foreground">Managers are included when you save machine setup.</p>}
+                <div className={form.machineId ? "mt-4 flex justify-end" : "hidden"}>
                   <Button
                     type="button"
                     onClick={() => void saveMachineManagers()}

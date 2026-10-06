@@ -40,7 +40,10 @@ export const setupImportedMachine = async (source: MachineSourceInventoryItem, i
   return data.machineId;
 };
 
-export const fetchMachineSourceInventory = async (): Promise<MachineSourceInventoryItem[]> => {
+export const fetchMachineSourceInventorySnapshot = async (): Promise<{
+  sources: MachineSourceInventoryItem[];
+  importHealth: { observedAt: string | null; verified: boolean; issue: string | null } | null;
+}> => {
   if (!supabaseClient) throw new Error('Source inventory is unavailable.');
   const { data, error } = await supabaseClient.rpc('admin_get_machine_source_inventory');
   if (error) throw error;
@@ -49,7 +52,7 @@ export const fetchMachineSourceInventory = async (): Promise<MachineSourceInvent
   }
   const keys = new Set<string>();
   const identities = new Set<string>();
-  return data.sources.map((item: MachineSourceInventoryItem) => {
+  const sources = data.sources.map((item: MachineSourceInventoryItem) => {
     const identity = JSON.stringify([item?.platform, item?.providerAccountId ?? null, item?.sourceId]);
     if (!item?.sourceKey || !item.sourceId || !['Sunze', 'Kexiaozhan'].includes(item.platform) || keys.has(item.sourceKey) || identities.has(identity) || (item.platform === 'Kexiaozhan' && !item.providerAccountId)) {
       throw new Error('The imported machine inventory could not be verified. Retry loading it.');
@@ -58,4 +61,12 @@ export const fetchMachineSourceInventory = async (): Promise<MachineSourceInvent
     identities.add(identity);
     return item;
   });
+  return { sources, importHealth: data.importHealth ? {
+    observedAt: typeof data.importHealth.observedAt === 'string' ? data.importHealth.observedAt : null,
+    verified: data.importHealth.verified === true,
+    issue: typeof data.importHealth.issue === 'string' ? data.importHealth.issue : null,
+  } : null };
 };
+
+export const fetchMachineSourceInventory = async (): Promise<MachineSourceInventoryItem[]> =>
+  (await fetchMachineSourceInventorySnapshot()).sources;
