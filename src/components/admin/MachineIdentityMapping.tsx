@@ -102,7 +102,7 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
       {metadata.salesActivationPending && <p className="rounded-md border p-3 text-sm">Source connected for management. Sales activation awaits reconciliation; imported orders remain pending and existing sales history is unchanged.</p>}
       {dirty && <div className="space-y-3 rounded-md border p-3 text-sm">
         {readerPreview.isFetching ? <p role="status">Checking current and historical reader connections…</p> : readerPreview.isError ? <div role="alert">Reader connection unavailable. <Button variant="link" onClick={() => void readerPreview.refetch()}>Retry</Button></div> : preview && <>
-          <p>Selected reader: {preview.newReaderId} · {preview.newAccountKey}</p>
+          <p className="break-words">Current reader: {preview.currentReaderId || 'None'} · {preview.currentAccountKey || 'No current account'}<br />Selected reader: {preview.newReaderId} · {preview.newAccountKey}</p>
           {preview.ownerMachineId && <p>Connected machine: {preview.ownerMachineName || preview.ownerMachineId}{movingOwner && <> · <a className="underline" href={`/admin/machines/${preview.ownerMachineId}`}>Open machine</a></>}</p>}
           {preview.historicalOwnerConflict || preview.ownerArchived ? <p role="alert">This reader needs its historical ownership reconciled before it can move. Existing connections remain unchanged.</p> : needsReaderChange && <>
             <p>{movingOwner ? 'Review moving this reader between these two machines. Original transactions stay with their original machine.' : 'Change the reader on this same machine. Its source, company, managers and past transactions stay unchanged.'}</p>
