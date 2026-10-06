@@ -25,6 +25,7 @@ create table private.machine_nayax_reader_associations (
   effective_from timestamptz,
   effective_until timestamptz,
   closed_on date,
+  closed_timezone text,
   effective_from_date date,
   effective_timezone text,
   ownership_basis text not null check(ownership_basis in ('same_physical_machine_all_history','reviewed_physical_reader_change','reviewed_calendar_reader_change','original_transactions_only')),
@@ -34,7 +35,7 @@ create table private.machine_nayax_reader_associations (
   closed_at timestamptz,
   closed_by uuid references auth.users(id),
   close_reason text,
-  check((effective_until is null and closed_on is null and closed_at is null and closed_by is null and close_reason is null)
+  check((effective_until is null and closed_on is null and closed_timezone is null and closed_at is null and closed_by is null and close_reason is null)
     or ((effective_until is not null or closed_on is not null) and closed_at is not null and closed_by is not null and nullif(btrim(close_reason),'') is not null)),
   check(effective_until is null or effective_from is null or effective_until>effective_from),
   check((ownership_basis='same_physical_machine_all_history' and effective_from is null and effective_from_date is null and effective_timezone is null)
@@ -80,8 +81,8 @@ begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false)
     or old.closed_at is not null or new.closed_at is null
     or new.closed_by is distinct from auth.uid()
-    or (to_jsonb(new)-array['effective_until','closed_on','closed_at','closed_by','close_reason'])
-      is distinct from (to_jsonb(old)-array['effective_until','closed_on','closed_at','closed_by','close_reason']) then
+    or (to_jsonb(new)-array['effective_until','closed_on','closed_timezone','closed_at','closed_by','close_reason'])
+      is distinct from (to_jsonb(old)-array['effective_until','closed_on','closed_timezone','closed_at','closed_by','close_reason']) then
     raise exception 'Reader ownership history requires an explicit reviewed change' using errcode='22023';
   end if;
   return new;
@@ -157,6 +158,7 @@ returns uuid language sql stable security definer set search_path='' as $$
         and (p_authorized_at at time zone ownership.effective_timezone)::date>ownership.effective_from_date
         and (ownership.effective_until is null or p_authorized_at<ownership.effective_until))
     )
+    and (ownership.closed_on is null or (p_authorized_at at time zone ownership.closed_timezone)::date<ownership.closed_on)
     -- Missing purchase evidence cannot distinguish two different physical owners.
     and (p_authorized_at is not null or not exists(
       select 1 from private.machine_nayax_reader_associations other
@@ -343,6 +345,14 @@ begin
       perform public.admin_set_reporting_machine_nayax_config(owner.id,null,null,p_reason);
     end if;
   end if;
+  -- Retire a proved old interval at the reviewed instant or calendar day.
+  -- Exact original facts still win; an unseen switch-day purchase is unknown.
+  update private.machine_nayax_reader_associations set effective_until=p_changed_at,
+    closed_on=case when p_changed_at is null then p_changed_on end,
+    closed_timezone=case when p_changed_at is null then zone end,
+    closed_at=statement_timestamp(),closed_by=auth.uid(),close_reason=btrim(p_reason)
+    where reporting_machine_id=machine.id and account_key=old_account
+      and nayax_machine_id=machine.nayax_machine_id and closed_at is null;
   update public.refund_nayax_machine_inventory set reporting_machine_id=null,reconciliation_state='excluded',
     exclusion_reason='Retired reader after reviewed replacement',setup_reason='explicitly_excluded',
     decision_reason=btrim(p_reason),decided_by=auth.uid(),decided_at=statement_timestamp(),updated_at=statement_timestamp()
@@ -452,9 +462,11 @@ begin
 end; $original_reader_sales$;
 
 do $original_reader_refund$
-declare definition text; anchor text;
+declare signature text; definition text; anchor text;
 begin
-  definition:=replace(pg_get_functiondef('private.refund_original_source_tax_cents(uuid,bigint)'::regprocedure),E'\r\n',E'\n');
+  foreach signature in array array['private.refund_original_source_tax_cents(uuid,bigint)',
+    'private.provider_refund_original_source_tax_cents(uuid,bigint)'] loop
+  definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
   anchor:='cross join lateral private.reporting_retained_original_money(fact) money';
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original refund retained money anchor changed'; end if;
   definition:=replace(definition,anchor,anchor||$new$
@@ -479,6 +491,7 @@ begin
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original refund tax eligibility changed'; end if;
   definition:=replace(definition,anchor,'    and resolved_tax.original_tax_cents between 0 and money.original_amount_cents');
   execute definition;
+  end loop;
 end; $original_reader_refund$;
 
 create function private.normalize_refund_original_reader_amount_cents(
@@ -512,6 +525,11 @@ begin
     if cardinality(string_to_array(definition,anchor))<>5 then raise exception 'Original refund component call anchors changed: %',signature; end if;
     definition:=replace(definition,anchor,$new$private.normalize_refund_original_reader_amount_cents(
       event.reporting_machine_id$new$);
+    anchor:=$old$private.normalize_reporting_treated_amount_cents(
+      adjustment.reporting_machine_id$old$;
+    if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original paid adjustment anchor changed: %',signature; end if;
+    definition:=replace(definition,anchor,$new$private.normalize_refund_original_reader_amount_cents(
+      adjustment.reporting_machine_id$new$);
     execute definition;
   end loop;
 end; $original_reader_refund_components$;
@@ -530,6 +548,13 @@ begin
   definition:=replace(definition,anchor,$new$when p_platform='Kexiaozhan' and not private.snapcase_mapping_target_eligible(m) then 'This machine configuration is not eligible for this Kex source. Review the existing machine.'
       when m.nayax_card_sales_started_on is not null then 'This machine has existing dated financial authority. Review its current source connection.'
       when m.nayax_machine_id is distinct from i.nayax_machine_id$new$);
+  anchor:='join public.reporting_machines m on m.id=i.reporting_machine_id';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Reader reuse owner projection changed'; end if;
+  definition:=replace(definition,anchor,$new$join public.reporting_machines m on m.id=coalesce(i.reporting_machine_id,
+      (select history.reporting_machine_id from private.machine_nayax_reader_associations history
+        where history.account_key=i.account_key and history.nayax_machine_id=i.nayax_machine_id and history.closed_at is null),
+      case when cardinality(private.original_reader_machine_owners(i.account_key,i.nayax_machine_id))=1
+        then (private.original_reader_machine_owners(i.account_key,i.nayax_machine_id))[1] end)$new$);
   execute definition;
 end; $patch$;
 
@@ -737,7 +762,16 @@ begin
   definition:=replace(pg_get_functiondef('public.admin_save_machine_workspace_mapping(uuid,text,uuid,text,text,text)'::regprocedure),E'\r\n',E'\n');
   anchor:=$old$select * into current_inventory from public.refund_nayax_machine_inventory$old$;
   if strpos(definition,anchor)=0 then raise exception 'Workspace mapping reader anchor changed'; end if;
-  definition:=replace(definition,anchor,$new$if nullif(btrim(m.nayax_machine_id),'') is null then
+  definition:=replace(definition,anchor,$new$if nullif(btrim(m.nayax_machine_id),'') is not null
+      and (m.nayax_machine_id is distinct from i.nayax_machine_id
+        or upper(coalesce(m.nayax_account_key,'TGPACI_USA_DB')) is distinct from i.account_key) then
+      raise exception 'Use the reviewed reader change action with its actual change date' using errcode='22023';
+    end if;
+    if exists(select 1 from unnest(private.original_reader_machine_owners(i.account_key,i.nayax_machine_id)) historical_owner
+      where historical_owner<>m.id) then
+      raise exception 'This reader has prior machine ownership. Review the reader change instead.' using errcode='22023';
+    end if;
+    if nullif(btrim(m.nayax_machine_id),'') is null then
       perform private.establish_machine_card_financial_policy(m.id,'Explicit first imported reader selection; preserve existing source-card history');
     end if;
     select * into current_inventory from public.refund_nayax_machine_inventory$new$);
@@ -746,3 +780,121 @@ begin
   definition:=replace(definition,anchor,anchor||E'\n  perform private.record_same_machine_reader_association(m.id,''Explicit reviewed machine workspace reader selection'');');
   execute definition;
 end; $patch$;
+
+-- A case resolves its original reader inside its retained machine/location scope.
+-- Current configuration is used only when no reviewed ownership history exists.
+create function public.service_refund_case_reader_identity(p_case_id uuid,p_machine_id uuid)
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare refund_case public.refund_cases; machine public.reporting_machines;
+  original public.machine_sales_facts; receipt public.refund_authoritative_receipts; tuples jsonb; tuple_count integer;
+begin
+  select * into refund_case from public.refund_cases where id=p_case_id;
+  select * into machine from public.reporting_machines where id=p_machine_id;
+  if refund_case.id is null or machine.id is null
+    or (refund_case.reporting_machine_id is distinct from machine.id
+      and not(machine.id=any(coalesce(refund_case.intake_selection_machine_ids,'{}'::uuid[]))))
+    or refund_case.reporting_location_id is distinct from machine.location_id then
+    raise exception 'Refund machine/location scope changed' using errcode='22023';
+  end if;
+  select * into original from public.machine_sales_facts where id=refund_case.matched_sales_fact_id
+    and reporting_machine_id=machine.id and source='nayax_scheduled_report';
+  if original.id is not null and nullif(original.raw_payload->>'providerMachineId','') is not null then
+    return jsonb_build_object('readerId',original.raw_payload->>'providerMachineId','accountKey','TGPACI_USA_DB','basis','matched_original_transaction');
+  end if;
+  select * into receipt from public.refund_authoritative_receipts
+    where refund_case_id=refund_case.id and reporting_machine_id=machine.id
+      and original_transaction_id=refund_case.matched_nayax_transaction_id;
+  if receipt.id is not null then
+    return jsonb_build_object('readerId',receipt.provider_machine_id,'accountKey',receipt.account_scope,'basis','authoritative_original_receipt');
+  end if;
+  if not exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine.id) then
+    return jsonb_build_object('readerId',machine.nayax_machine_id,'accountKey',machine.nayax_account_key,'basis','legacy_current_configuration');
+  end if;
+  select count(*),jsonb_agg(candidate) into tuple_count,tuples from (
+    select distinct history.account_key,history.nayax_machine_id from private.machine_nayax_reader_associations history
+    where history.reporting_machine_id=machine.id
+      and private.resolve_machine_reader_purchase_owner(history.account_key,history.nayax_machine_id,refund_case.incident_at)=machine.id
+  ) candidate;
+  if tuple_count=1 then
+    return jsonb_build_object('readerId',tuples->0->>'nayax_machine_id','accountKey',tuples->0->>'account_key','basis','reviewed_purchase_ownership');
+  end if;
+  return jsonb_build_object('readerId',null,'accountKey',null,'basis','purchase_ownership_unverified');
+end; $fn$;
+revoke all on function public.service_refund_case_reader_identity(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.service_refund_case_reader_identity(uuid,uuid) to service_role;
+
+do $scheduled_refund_original_reader$
+declare definition text; anchor text;
+begin
+  definition:=replace(pg_get_functiondef('public.service_record_nayax_scheduled_report_pre_provider_refund_v1(text,timestamptz,text,jsonb)'::regprocedure),E'\r\n',E'\n');
+  anchor:='m.nayax_machine_id=receipt.provider_machine_id';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Scheduled receipt original reader anchor changed'; end if;
+  definition:=replace(definition,anchor,$new$public.service_refund_case_reader_identity(c.id,m.id)->>'readerId'=receipt.provider_machine_id$new$);
+  anchor:='m.nayax_account_key=receipt.account_scope';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Scheduled receipt original account anchor changed'; end if;
+  definition:=replace(definition,anchor,$new$public.service_refund_case_reader_identity(c.id,m.id)->>'accountKey'=receipt.account_scope$new$);
+  anchor:='m.nayax_machine_id=row_data->>''providerMachineId''';
+  if cardinality(string_to_array(definition,anchor))<>3 then raise exception 'Scheduled original reader branch anchors changed'; end if;
+  definition:=replace(definition,anchor,$new$public.service_refund_case_reader_identity(c.id,m.id)->>'readerId'=row_data->>'providerMachineId'$new$);
+  anchor:='m.nayax_account_key=''TGPACI_USA_DB''';
+  if cardinality(string_to_array(definition,anchor))<>3 then raise exception 'Scheduled original account branch anchors changed'; end if;
+  definition:=replace(definition,anchor,$new$public.service_refund_case_reader_identity(c.id,m.id)->>'accountKey'='TGPACI_USA_DB'$new$);
+  execute definition;
+end; $scheduled_refund_original_reader$;
+
+-- First setup plus a genuinely occupied-reader move commits as one reviewed
+-- action. A failure creates neither a partial Hub nor a partial ownership move.
+create function public.admin_setup_imported_machine_with_reader_change(
+  p_platform text,p_provider_account_id uuid,p_source_id text,p_account_id uuid,
+  p_machine_name text,p_machine_type text,p_operational_phase text,p_timezone text,
+  p_inventory_id uuid,p_manager_emails text[],p_reason text,
+  p_expected_owner_updated_at timestamptz,p_changed_on date,p_changed_at timestamptz
+) returns jsonb language plpgsql security definer set search_path='' as $fn$
+declare result jsonb; machine public.reporting_machines; changed jsonb;
+begin
+  if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then raise exception 'Super admin access required' using errcode='42501'; end if;
+  if p_inventory_id is null or p_expected_owner_updated_at is null or p_changed_at is null then
+    raise exception 'Review the occupied reader owner and actual change instant' using errcode='22023';
+  end if;
+  result:=public.admin_setup_imported_machine(p_platform,p_provider_account_id,p_source_id,p_account_id,
+    p_machine_name,p_machine_type,p_operational_phase,p_timezone,null,p_manager_emails,p_reason);
+  select * into machine from public.reporting_machines where id=(result->>'machineId')::uuid for update nowait;
+  if machine.id is null then raise exception 'Source setup returned no exact machine' using errcode='22023'; end if;
+  changed:=public.admin_change_machine_reader(machine.id,p_inventory_id,machine.updated_at,
+    p_expected_owner_updated_at,p_timezone,p_changed_on,p_changed_at,p_reason);
+  return result||jsonb_build_object('readerChange',changed);
+exception when lock_not_available then raise exception 'Source or reader is being updated. Reload and retry.' using errcode='40001';
+end; $fn$;
+revoke all on function public.admin_setup_imported_machine_with_reader_change(text,uuid,text,uuid,text,text,text,text,uuid,text[],text,timestamptz,date,timestamptz) from public,anon;
+grant execute on function public.admin_setup_imported_machine_with_reader_change(text,uuid,text,uuid,text,text,text,text,uuid,text[],text,timestamptz,date,timestamptz) to authenticated;
+
+create function public.admin_preview_imported_machine_reader_change(p_inventory_id uuid,p_timezone text,p_changed_at_local timestamp)
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare reader public.refund_nayax_machine_inventory; owner public.reporting_machines;
+  original_owners uuid[]; times jsonb; chosen timestamptz;
+begin
+  if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then raise exception 'Super admin access required' using errcode='42501'; end if;
+  if not exists(select 1 from pg_catalog.pg_timezone_names where name=p_timezone) then raise exception 'Choose the actual machine timezone' using errcode='22023'; end if;
+  select * into reader from public.refund_nayax_machine_inventory where id=p_inventory_id;
+  if reader.id is null then raise exception 'Imported reader required' using errcode='22023'; end if;
+  select * into owner from public.reporting_machines where id=coalesce(reader.reporting_machine_id,
+    (select reporting_machine_id from private.machine_nayax_reader_associations
+      where account_key=reader.account_key and nayax_machine_id=reader.nayax_machine_id and closed_at is null));
+  if owner.id is null then
+    original_owners:=private.original_reader_machine_owners(reader.account_key,reader.nayax_machine_id);
+    if cardinality(original_owners)=1 then select * into owner from public.reporting_machines where id=original_owners[1]; end if;
+  end if;
+  if p_changed_at_local is not null then
+    chosen:=p_changed_at_local at time zone p_timezone;
+    select coalesce(jsonb_agg(to_jsonb(candidate) order by candidate),'[]'::jsonb) into times
+      from pg_catalog.generate_series(chosen-interval '2 hours',chosen+interval '2 hours',interval '1 minute') candidate
+      where candidate at time zone p_timezone=p_changed_at_local;
+  end if;
+  return jsonb_build_object('inventoryId',reader.id,'newReaderId',reader.nayax_machine_id,'newAccountKey',reader.account_key,
+    'ownerMachineId',owner.id,'ownerMachineName',private.reporting_machine_display_name(owner),
+    'expectedOwnerUpdatedAt',owner.updated_at,'ownerArchived',owner.management_archived_at is not null,
+    'historicalOwnerConflict',coalesce(cardinality(original_owners)>1,false),'timezone',p_timezone,
+    'effectiveInstants',coalesce(times,'[]'::jsonb));
+end; $fn$;
+revoke all on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) from public,anon;
+grant execute on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) to authenticated;
