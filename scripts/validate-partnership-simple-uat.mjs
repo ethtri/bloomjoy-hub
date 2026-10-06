@@ -7,7 +7,8 @@ const app = process.env.PARTNERSHIP_UAT_APP_URL || 'http://127.0.0.1:8093';
 assert(/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(app), 'Synthetic localhost only');
 const engine = process.env.PARTNERSHIP_UAT_BROWSER || 'chromium';
 assert(['chromium', 'webkit'].includes(engine));
-const output = `output/partnership-simple-qa/${engine}`;
+const correctionMode = process.argv.includes('--terms-correction');
+const output = `output/partnership-simple-qa/${correctionMode ? 'terms-correction/' : ''}${engine}`;
 await mkdir(output, { recursive: true });
 const ids = { merlin: '11111111-aaaa-4111-8111-aaaaaaaaaaaa', bubble: '22222222-bbbb-4222-8222-bbbbbbbbbbbb',
   peppa: '33333333-cccc-4333-8333-cccccccccccc', la: '44444444-dddd-4444-8444-dddddddddddd',
@@ -83,6 +84,20 @@ async function install(context, state) {
       Object.assign(current, { effective_end_date: body.p_effective_end_date, effective_start_date: body.p_effective_start_date });
       return route.fulfill(json(current));
     }
+    if (name === 'admin_correct_partnership_terms') {
+      if (state.denied) return route.fulfill(json({ message: 'Super-admin permission required', code: '42501' }, 403));
+      if (state.stale) return route.fulfill(json({ message: 'Terms changed; reload before saving', code: '40001' }, 409));
+      const current = state.setup.financialRules.find(item => item.id === body.p_rule_id);
+      const previous = state.setup.financialRules.find(item => item.id === body.p_previous_rule_id);
+      assert.deepEqual(body.p_expected_rule, Object.fromEntries(Object.keys(body.p_expected_rule).map(key => [key, current[key]])), 'Exact current snapshot');
+      assert.deepEqual(body.p_expected_previous_rule, Object.fromEntries(Object.keys(body.p_expected_previous_rule).map(key => [key, previous[key]])), 'Exact previous snapshot');
+      previous.effective_end_date = '2026-08-31';
+      Object.assign(current, { effective_start_date: body.p_effective_from, calculation_model: 'post_tax_refunds_only',
+        split_base: 'net_sales', fee_amount_cents: 0, fee_basis: 'none', cost_amount_cents: 0, cost_basis: 'none',
+        fever_share_basis_points: body.p_primary_share, partner_share_basis_points: body.p_secondary_share,
+        bloomjoy_share_basis_points: body.p_bloomjoy_share });
+      return route.fulfill(json(current));
+    }
     if (name === 'admin_change_partnership_split') {
       if (state.stale) return route.fulfill(json({ message: 'Terms changed; reload before saving', code: '40001' }, 409));
       const old = state.setup.financialRules.find(item => item.id === body.p_expected_rule_id);
@@ -117,8 +132,95 @@ async function open(page, state, partnership, step) {
   await page.getByRole('heading', { name: 'Partnerships', exact: true, level: 1 }).waitFor();
   await page.locator(step === 'details' ? '#partnership-start' : step === 'terms' ? '[aria-label="Bloomjoy payout share percentage"]' : '#machine-assignment-search').waitFor();
 }
+async function runTermsCorrection() {
+  const state = createState();
+  state.setup.financialRules = [ids.bubble, ids.merlin].flatMap((id, index) => {
+    const name = index ? 'Merlin' : 'Bubble Planet';
+    const previous = rule(`old-${id}`, id, name, '2026-09-30', index ? 0 : 40);
+    previous.fever_share_basis_points = index ? 3000 : 6000;
+    previous.bloomjoy_share_basis_points = index ? 7000 : 4000;
+    const current = { ...previous, id: `new-${id}`, effective_start_date: '2026-10-01', effective_end_date: null,
+      fever_share_basis_points: 7000, bloomjoy_share_basis_points: 3000 };
+    return [previous, current];
+  });
+  const beforeAssignments = JSON.stringify(state.setup.assignments), beforeLifecycle = JSON.stringify(state.setup.partnerships);
+  const context = await browser.newContext(engine === 'webkit' ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : {});
+  await install(context, state); const page = await context.newPage();
+  page.on('pageerror', error => state.errors.push(error.message));
+  page.on('request', request => { if (request.url().includes('/rest/v1/')) state.pending.add(request); });
+  page.on('requestfinished', request => state.pending.delete(request));
+  page.on('requestfailed', request => { state.pending.delete(request); state.errors.push(request.failure()?.errorText); });
+  for (const [id, name] of [[ids.bubble, 'Bubble Planet'], [ids.merlin, 'Merlin']]) {
+    await open(page, state, id, 'terms');
+    await page.getByRole('button', { name: 'Correct terms', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Correct partnership terms' });
+    await dialog.getByLabel(`${name} payout share percentage`).fill('60');
+    await dialog.getByLabel('Bloomjoy payout share percentage').fill('40');
+    await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    check(`${name} canceled correction restores actual read-only allocation without writes`, Number(await page.getByLabel(`${name} payout share percentage`).inputValue()) === 70 && Number(await page.getByLabel('Bloomjoy payout share percentage').inputValue()) === 30 && !state.calls.some(c => c.name === 'admin_correct_partnership_terms' && c.body.p_rule_id === `new-${id}`));
+    for (const dismiss of ['Escape', 'Close']) {
+      await page.getByRole('button', { name: 'Correct terms', exact: true }).click();
+      await dialog.getByLabel(`${name} payout share percentage`).fill('60');
+      await dialog.getByLabel('Bloomjoy payout share percentage').fill('40');
+      if (dismiss === 'Escape') await dialog.press('Escape'); else await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      check(`${name} ${dismiss} discards correction draft with no writer`, Number(await page.getByLabel(`${name} payout share percentage`).inputValue()) === 70 && !state.calls.some(c => c.name === 'admin_correct_partnership_terms' && c.body.p_rule_id === `new-${id}`));
+    }
+    await page.getByRole('button', { name: 'Correct terms', exact: true }).click();
+    check(`${name} correction has explicit tax/refunds-only model`, await dialog.locator('#terms-model').inputValue() === 'post_tax_refunds_only'
+      && (await dialog.innerText()).includes('No stick deduction, processing fee or other configured cost'));
+    check(`${name} reason required before review`, await dialog.getByRole('button', { name: 'Review terms correction' }).isDisabled());
+    await dialog.locator('#terms-effective-from').fill('2026-01-01');
+    await dialog.locator('#terms-correction-reason').fill('Owner confirms September 1 tax/refunds-only 70/30 terms');
+    check(`${name} overlapping predecessor start rejected`, await dialog.getByRole('button', { name: 'Review terms correction' }).isDisabled());
+    await dialog.locator('#terms-effective-from').fill('2026-09-01');
+    await dialog.getByLabel(`${name} payout share percentage`).fill('70');
+    await dialog.getByLabel('Bloomjoy payout share percentage').fill('30');
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await delay(250); // Complete the existing dialog open/resize animation before measuring.
+      await page.screenshot({ path: `${output}/${name.replaceAll(' ', '-')}-${width}-controls.png` });
+      const bounds = await dialog.locator('#terms-effective-from').boundingBox();
+      check(`${name} date fits ${width} with readable full date`, bounds.x >= 0 && bounds.x + bounds.width <= width + 1 && bounds.height >= 44);
+      check(`${name} dialog no horizontal overflow ${width}`, await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+      await page.screenshot({ path: `${output}/${name.replaceAll(' ', '-')}-${width}-controls.png` });
+    }
+    const writesBefore = state.calls.filter(c => c.name === 'admin_correct_partnership_terms').length;
+    await dialog.getByRole('button', { name: 'Review terms correction' }).click();
+    const text = await dialog.innerText();
+    check(`${name} preview states Sep1 zero extras and exact named 70/30`, /2026-09-01/.test(text) && /All additional deductions: \$0/.test(text)
+      && text.includes(`${name} 70.00%`) && text.includes('Bloomjoy 30.00%'));
+    check(`${name} preview replaces breakpoint and preserves issued history`, text.includes('replaced, not duplicated') && text.includes('Issued reports and payouts stay as recorded') && text.includes('assignment dates stay unchanged'));
+    check(`${name} review performs no writer`, state.calls.filter(c => c.name === 'admin_correct_partnership_terms').length === writesBefore);
+    await page.screenshot({ path: `${output}/${name.replaceAll(' ', '-')}-390-review.png` });
+    const original = JSON.stringify(state.setup.financialRules);
+    state.stale = true; await dialog.getByRole('button', { name: 'Confirm terms correction' }).click();
+    await page.getByText('Terms changed; reload before saving', { exact: true }).waitFor();
+    check(`${name} stale save preserves all versions and review`, JSON.stringify(state.setup.financialRules) === original && await dialog.isVisible());
+    state.stale = false; state.denied = true; await dialog.getByRole('button', { name: 'Confirm terms correction' }).click();
+    await page.getByText('Super-admin permission required', { exact: true }).waitFor();
+    check(`${name} permission rejection retains review and unchanged versions`, JSON.stringify(state.setup.financialRules) === original && await dialog.isVisible());
+    state.denied = false; await dialog.getByRole('button', { name: 'Confirm terms correction' }).click();
+    await page.getByText('Partnership terms corrected. Review affected draft reports.', { exact: true }).waitFor();
+    const call = state.calls.filter(c => c.name === 'admin_correct_partnership_terms').at(-1).body;
+    check(`${name} exact snapshot/date/shares atomic contract`, call.p_rule_id === `new-${id}` && call.p_previous_rule_id === `old-${id}`
+      && Object.keys(call.p_expected_rule).length === 19 && Object.keys(call.p_expected_previous_rule).length === 19
+      && call.p_effective_from === '2026-09-01' && call.p_primary_share === 7000 && call.p_secondary_share === 0 && call.p_bloomjoy_share === 3000);
+    const versions = state.setup.financialRules.filter(r => r.partnership_id === id);
+    check(`${name} synthetic receipt Aug31 old, Sep1/Oct1 same new with no duplicate`, versions.length === 2
+      && versions[0].effective_end_date === '2026-08-31' && versions[0].fee_amount_cents === (id === ids.bubble ? 40 : 0)
+      && versions[0].fever_share_basis_points === (id === ids.bubble ? 6000 : 3000)
+      && versions[1].effective_start_date === '2026-09-01' && versions[1].fee_amount_cents === 0 && versions[1].cost_amount_cents === 0);
+  }
+  check('Financial correction leaves lifecycle and assignment dates byte-identical', beforeAssignments === JSON.stringify(state.setup.assignments) && beforeLifecycle === JSON.stringify(state.setup.partnerships));
+  check('Only reviewed correction writer used, no legacy upsert/new split/assignment writes', !state.calls.some(c => ['admin_upsert_reporting_partnership','admin_upsert_reporting_partnership_financial_rule','admin_change_partnership_split','admin_upsert_reporting_machine_assignment'].includes(c.name)));
+  check('Strict RPC provenance and browser/request failure ledger preserved', !state.errors.length && !state.unexpected.length);
+  await writeFile(`${output}/results.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, engine, physicalIPhoneTested: false, financialReceipts: 'synthetic; actual calculations verified by SQL release QA', assertions: results }, null, 2));
+}
 const browser = await (engine === 'webkit' ? webkit : chromium).launch();
 try {
+  if (correctionMode) { await runTermsCorrection(); } else {
   const state = createState(), context = await browser.newContext(engine === 'webkit'
     ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : {});
   await install(context, state);
@@ -280,4 +382,5 @@ try {
   await scopedPage.screenshot({ path: `${output}/390-scoped-assignment.png` });
   await writeFile(`${output}/results.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, engine,
     physicalIPhoneTested: false, assertions: results }, null, 2));
+  }
 } finally { await browser.close(); }
