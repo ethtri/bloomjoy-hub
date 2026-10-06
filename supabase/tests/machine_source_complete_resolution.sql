@@ -84,6 +84,8 @@ select lives_ok($$select admin_reuse_imported_source_machine('Sunze',null,'compl
 select lives_ok($$select admin_reuse_imported_source_machine('Kexiaozhan','aa180205-0000-4000-8000-000000000001','complete-case','aa180204-0000-4000-8000-000000000002','aa180203-0000-4000-8000-000000000002',(select updated_at from complete_expected where id='aa180203-0000-4000-8000-000000000002'),'America/Los_Angeles','Owner confirmed same physical case cabinet throughout')$$,'Kexiaozhan legacy association completes in one save');
 select lives_ok($$select admin_save_machine_workspace_mapping('aa180203-0000-4000-8000-000000000003',null,'aa180204-0000-4000-8000-000000000003',null,null,null)$$,'Existing counted source may select its first reader without losing history');
 reset role;
+select lives_ok($$set constraints source_management_association_completed immediate$$,'Both completed provider associations satisfy the actual deferred commit guard');
+set constraints source_management_association_completed deferred;
 select is((select count(*) from reporting_machines),(select machine_count from complete_before),'Legacy reuse creates no duplicate Hub');
 select is((select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where id::text like 'aa180206-%'),(select facts from complete_before),'All original Nayax and inherited source facts remain byte-identical');
 select is((select jsonb_agg(jsonb_build_object('id',id,'accountId',account_id,'locationId',location_id,'name',machine_label,'type',machine_type,'reader',nayax_machine_id,'readerAccount',nayax_account_key) order by id) from reporting_machines where id in('aa180203-0000-4000-8000-000000000001','aa180203-0000-4000-8000-000000000002')),(select configuration from complete_before),'Both provider adapters preserve canonical machine configuration and reader');
@@ -186,5 +188,15 @@ select is((select reporting_machine_id from machine_sales_facts where source_ord
 select is((service_ingest_nayax_scheduled_sales(repeat('4',64),jsonb_build_array(pg_temp.complete_native_sale('18020001','1802000101',repeat('12',32),true)))->>'duplicate')::boolean,true,'Same native report receipt is idempotent');
 select throws_ok($$delete from private.machine_preserved_source_card_facts where fact_id='aa180206-0000-4000-8000-000000000003'$$,'22023',null,'Inherited financial eligibility cannot be silently removed');
 select throws_ok($$update private.machine_card_financial_policies set reason='Rewrite previous policy' where reporting_machine_id='aa180203-0000-4000-8000-000000000001'$$,'22023',null,'Established same-machine policy cannot be silently rewritten');
+-- Reproduce an obsolete management-only writer resuming after rollout. The
+-- real deferred constraint is flushed inside the same rejected subtransaction.
+create function pg_temp.obsolete_source_management_save() returns void language plpgsql as $$
+begin
+ insert into private.machine_source_management_associations(platform,source_id,reporting_machine_id,created_by,reason)
+ values('Sunze','complete-obsolete-source','aa180203-0000-4000-8000-000000000006','aa180200-0000-4000-8000-000000000001','Synthetic obsolete management-only save');
+ set constraints source_management_association_completed immediate;
+end $$;
+select throws_ok($$select pg_temp.obsolete_source_management_save()$$,'22023',null,'Obsolete management-only save cannot commit after rollout');
+select ok(not exists(select 1 from private.machine_source_management_associations where source_id='complete-obsolete-source'),'Deferred rejection rolls back the obsolete association entirely');
 select * from finish();
 rollback;
