@@ -71,8 +71,8 @@ Deno.test("the three missed customer messages receive the intake form regardless
   ]) assertRoute(message(inquiry), "new_refund_inquiry");
 });
 
-Deno.test("plausible product complaints remain visible without requiring a pronoun", () => {
-  assertRoute(message({ subject: "Machine issue", body: "The machine is broken." }), "needs_review");
+Deno.test("plausible product complaints receive acknowledgment without purchase proof", () => {
+  assertRoute(message({ subject: "Machine issue", body: "The machine is broken." }), "new_refund_inquiry");
 });
 
 Deno.test("direct Info refund request is eligible for the form-link path", () => {
@@ -91,13 +91,19 @@ Deno.test("customer purchase descriptions receive the form without prescribed fa
   ]) assertRoute(message({ subject: "Transaction question", body }), "new_refund_inquiry");
 });
 
-Deno.test("general product payment questions and business purchases remain excluded", () => {
+Deno.test("general questions receive acknowledgment while business purchases remain excluded", () => {
   for (const body of [
     "How much does the cotton candy machine charge?",
     "Which payment methods does your machine accept?",
     "Where can I buy cotton candy?",
-    "I purchased cotton candy for our wholesale order and need an invoice.",
-  ]) assertRoute(message({ body }), "non_refund");
+    "Please help",
+    "Necesito ayuda",
+    "我的付款有问题",
+    "My account statement shows a charge I don't recognize.",
+    "Please see the receipt or invoice attached.",
+    "",
+  ]) assertRoute(message({ body }), "new_refund_inquiry");
+  assertRoute(message({ body: "I purchased cotton candy for our wholesale order and need an invoice." }), "non_refund");
   assertRoute(message({ body: "I paid at your machine and already submitted the refund form." }),
     "existing_case_question");
 });
@@ -282,8 +288,46 @@ Deno.test("quoted customer refund text cannot turn unrelated current mail into a
   "non_refund");
 });
 
-Deno.test("ambiguous personal product issue remains reviewable, not silently eligible", () => {
-  assertRoute(message({ body: "My cotton candy was bad." }), "needs_review");
+Deno.test("ambiguous personal product issue receives acknowledgment", () => {
+  assertRoute(message({ body: "My cotton candy was bad." }), "new_refund_inquiry");
+});
+
+Deno.test("spam, trash and notification senders cannot trigger broad acknowledgment", () => {
+  for (const label of ["SPAM", "TRASH"]) {
+    const excluded = message({ body: "Please help with my machine purchase" });
+    excluded.labelIds = [label];
+    assertRoute(excluded, "untrusted");
+  }
+  for (const from of ["noreply@example.test", "no-reply@example.test", "DoNotReply@example.test", "notifier@example.test", "notifications@example.test", "testflight_no_reply@example.test", "workspace-noreply@example.test", "UFAcctsReceivable@example.test"]) {
+    assertRoute(message({ from, body: "Payment receipt" }), "untrusted");
+  }
+  for (const subject of ["Automatic reply: Help", "Receipt for $5 payment to a carrier"]) {
+    assertRoute(message({ subject }), "untrusted");
+  }
+});
+
+Deno.test("routine business notifications and short business follow-ups stay excluded", () => {
+  for (const body of ["Accounts receivable notice", "USPS service update", "Please enter your timesheet", "Website design proposal"]) {
+    assertRoute(message({ body }), "non_refund");
+  }
+  const earlier = message({ body: "Please complete the vendor permit for our event." });
+  const later = message({ body: "Checking that you saw my message." });
+  const result = classifyRefundInfoInquiry({ messages: [earlier, later], mailboxIdentities: ["info@bloomjoysweets.com"] });
+  if (result.route !== "non_refund") throw new Error("A short vendor follow-up cannot become customer intake");
+});
+
+Deno.test("a photo-only customer inquiry does not need a plaintext part or subject", () => {
+  const photo = message({ subject: "", body: "" });
+  photo.payload = {
+    headers: photo.payload?.headers,
+    mimeType: "multipart/mixed",
+    parts: [{ mimeType: "image/jpeg", filename: "synthetic-photo.jpg", body: { attachmentId: "synthetic-photo" } }],
+  };
+  assertRoute(photo, "new_refund_inquiry");
+});
+
+Deno.test("quoted old status evidence does not hold a new short customer inquiry", () => {
+  assertRoute(message({ body: "Please help\nOn Tuesday, Customer wrote:\n> Status of my refund RF-ABC123" }), "new_refund_inquiry");
 });
 
 Deno.test("automated or spoof-suspected Info messages cannot trigger a customer reply", () => {

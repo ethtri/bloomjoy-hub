@@ -1,5 +1,7 @@
 import { renderBloomjoyRefundEmail } from "./refund-email-brand.ts";
 
+// Preserve the delivery identity across acknowledgment wording updates so
+// previously contacted customers never receive another first-contact reply.
 export const REFUND_FIRST_CONTACT_TEMPLATE_KEY = "refund_first_contact_v1";
 
 export type RefundFirstContactMode =
@@ -260,9 +262,9 @@ export const buildRefundFirstContactEmail = (
   const textParts = [
     greeting,
     "",
-    "Thank you for reaching out. We are sorry something went wrong with your Bloomjoy experience, and we want to make the next step as easy as possible.",
+    "Thank you for reaching out. We received your message and are here to help.",
     "",
-    "For a refund review, please use our short request form:",
+    "If you need a refund review, please use our short request form:",
     refundRequestUrl,
     "",
     "For troubleshooting or other support information, you can also visit:",
@@ -284,8 +286,8 @@ export const buildRefundFirstContactEmail = (
     headline: "We received your message",
     greeting,
     paragraphs: [
-      "Thank you for reaching out. We are sorry something went wrong with your Bloomjoy experience, and we want to make the next step as easy as possible.",
-      "For a refund review, please use our short request form.",
+      "Thank you for reaching out. We received your message and are here to help.",
+      "If you need a refund review, please use our short request form.",
       "If you already submitted a form, there is no need to submit it again. Reply in this same conversation and we will keep your information together.",
     ],
     details: safePublicReference

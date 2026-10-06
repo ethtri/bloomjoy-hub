@@ -32,12 +32,14 @@ authoritative limit that refund totals cannot exceed the original purchase.
 The ordinary flow is:
 
 1. The customer reports the problem once through the intake form and receives a
-   prompt, friendly acknowledgement. A genuine new refund or product-problem
-   inquiry to `info@bloomjoysweets.com`, `support@bloomjoysweets.com` or
+   prompt, friendly acknowledgement. Under the owner-approved #1789 policy,
+   every new direct customer email to `info@bloomjoysweets.com`, `support@bloomjoysweets.com` or
    `refunds@bloomjoysweets.com` receives one reply in its original thread
-   linking to `https://app.bloomjoyusa.com/refunds/request`; the case is created
-   only when that form is submitted. Unrelated, vendor and marketing mail gets no
-   refund response. Deduplicate inquiries received through multiple mailboxes.
+   conditionally linking to `https://app.bloomjoyusa.com/refunds/request` for a
+   refund review, without requiring purchase/failure words, English text or a
+   written body. The case is created only when the form is submitted. Known
+   business/internal, spam and automated mail gets no customer acknowledgment.
+   Deduplicate inquiries received through multiple mailboxes.
    An existing-case email stays with that case, with no new intake.
 2. Reuse the form's cash/card selection. Cash customers receive a gift-card
    offer; card customers can choose the recommended gift card or a refund to
