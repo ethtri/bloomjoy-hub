@@ -250,7 +250,8 @@ language sql stable security definer set search_path='' as $$
   select legacy.* from private.normalize_reporting_treated_amount_cents(
     p_machine_id,p_tender,p_purchase_date,p_amount_cents,p_amount_basis,
     p_tax_rate_percent,p_separate_tax_cents,p_preserve_basis) legacy
-  where p_source<>'nayax_scheduled_report'
+  where p_source not in ('nayax_scheduled_report','card_authority_daily') or not exists(
+    select 1 from private.machine_nayax_reader_associations history where history.reporting_machine_id=p_machine_id)
   union all
   select normalized.* from (select 1) singleton
   left join lateral (
@@ -270,7 +271,8 @@ language sql stable security definer set search_path='' as $$
         and original_tax.rate_percent is null then 'unknown' else p_amount_basis end,
     case when p_tender='cash' then 0 else original_tax.rate_percent end,
     case when p_tender='cash' then null else p_separate_tax_cents end) normalized
-  where p_source='nayax_scheduled_report';
+  where p_source in ('nayax_scheduled_report','card_authority_daily') and exists(
+    select 1 from private.machine_nayax_reader_associations history where history.reporting_machine_id=p_machine_id);
 $$;
 revoke all on function private.normalize_original_reader_amount_cents(uuid,text,date,bigint,text,numeric,bigint,boolean,text,text) from public,anon,authenticated;
 
@@ -283,7 +285,20 @@ begin
     definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
     anchor:='fact.source,';
     if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original reader sales source anchor changed: %',signature; end if;
-    definition:=replace(definition,anchor,anchor||E'\n      case when fact.source=''nayax_scheduled_report'' then nullif(btrim(fact.raw_payload->>''providerMachineId''),'''') end as original_reader_id,');
+    definition:=replace(definition,anchor,anchor||$reader$
+      case when fact.source='nayax_scheduled_report' and exists(select 1 from private.machine_nayax_reader_associations history
+          where history.reporting_machine_id=fact.reporting_machine_id) then nullif(btrim(fact.raw_payload->>'providerMachineId'),'')
+        when fact.source='card_authority_daily' and exists(select 1 from private.machine_nayax_reader_associations history
+          where history.reporting_machine_id=fact.reporting_machine_id) then (
+          select case when count(distinct nullif(btrim(original.raw_payload->>'providerMachineId'),''))=1
+            and count(*)=count(nullif(btrim(original.raw_payload->>'providerMachineId'),''))
+            then min(original.raw_payload->>'providerMachineId') end
+          from public.machine_sales_facts original
+          cross join lateral private.reporting_retained_original_money(original) retained
+          where original.reporting_machine_id=fact.reporting_machine_id and original.sale_date=fact.sale_date
+            and original.source='nayax_scheduled_report' and original.payment_method='credit'
+            and retained.original_amount_cents>0
+        ) end as original_reader_id,$reader$);
     anchor:='scoped.source,';
     if cardinality(string_to_array(definition,anchor))<>3 then raise exception 'Original reader grouped source anchors changed: %',signature; end if;
     definition:=replace(definition,anchor,anchor||E'\n      scoped.original_reader_id,');
@@ -319,7 +334,8 @@ begin
       or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
       or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax')
       then money.original_tax_cents
-    when fact.source='nayax_scheduled_report' then original_reader.tax_cents
+    when fact.source='nayax_scheduled_report' and exists(select 1 from private.machine_nayax_reader_associations history
+      where history.reporting_machine_id=fact.reporting_machine_id) then original_reader.tax_cents
     else null end as original_tax_cents) resolved_tax$new$);
   anchor:='money.original_tax_cents/money.original_amount_cents';
   if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original refund tax numerator changed'; end if;
