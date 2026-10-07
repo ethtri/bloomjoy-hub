@@ -157,6 +157,17 @@ insert into private.machine_nayax_reader_associations(account_key,nayax_machine_
 set local session_replication_role=origin;
 select is(public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000001','aa181503-0000-4000-8000-000000000002')->>'readerId',null::text,'Multiple historical readers cannot use the single duplicate-reader fallback');
 select throws_ok($$select public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000001','aa181503-0000-4000-8000-000000000003')$$,'22023',null,'Unrelated machine cannot adopt the retained case');
+create function pg_temp.retired_reader_after_real_replacement() returns boolean language plpgsql as $$
+declare identity jsonb;
+begin
+  execute 'set local session_replication_role=replica';
+  update private.machine_nayax_reader_associations set closed_at=now(),closed_on=current_date,closed_timezone='America/New_York',closed_by='aa181500-0000-4000-8000-000000000001',close_reason='Synthetic later actual reader replacement'
+    where reporting_machine_id='aa181503-0000-4000-8000-000000000004' and ownership_basis='same_physical_machine_all_history' and closed_at is null;
+  execute 'set local session_replication_role=origin';
+  identity:=public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000002','aa181503-0000-4000-8000-000000000005');
+  raise exception '%',coalesce(identity->>'readerId','blocked') using errcode='P1816';
+exception when sqlstate 'P1816' then return sqlerrm='blocked';
+end $$;
 create temporary table sunze_join_before as select
  (select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where source_row_hash like '1815-sunze-%') facts,
  (select to_jsonb(d) from sunze_machine_discoveries d where sunze_machine_id='1815-sunze-current') discovery,
@@ -174,5 +185,6 @@ select is((select jsonb_agg(to_jsonb(c) order by booking_date,tender) from priva
 select is((select jsonb_agg(to_jsonb(c) order by booking_date,tender) from private.machine_sales_daily_components('aa181503-0000-4000-8000-000000000005','2026-09-01','2026-09-30') c),(select card_components from sunze_join_before),'Sunze retired reader historical card components retain their original company and totals');
 select is(public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000002','aa181503-0000-4000-8000-000000000005')->>'readerId','18150003','Sunze historical refund case keeps the original reader after correction');
 select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18150003',now()),'aa181503-0000-4000-8000-000000000004'::uuid,'Sunze future native-card purchases resolve only to the current source machine');
+select ok(pg_temp.retired_reader_after_real_replacement(),'A later real replacement closes the active attestation and blocks unmatched old-case fallback');
 select * from finish();
 rollback;

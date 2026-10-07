@@ -12,14 +12,14 @@ const json = value => ({ contentType: 'application/json', body: JSON.stringify(v
 const browser = await engine.launch();
 const checks = [];
 try {
-  for (const width of [1440, 390]) {
+  for (const platform of ['Kexiaozhan', 'Sunze']) for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, hasTouch: width === 390 });
     const state = { machineType: 'snapcase', managerEmails: ['manager-two@example.test'], rpcCalls: [], accessInviteBodies: [], inviteDeliveries: [], refundSetup: { refundIntakeEnabled: false, nayaxMachineId: null, nayaxAccountKey: null } };
     await installMockSupabaseRoutes(context, state);
     const base = buildMockSetup(state); base.machines = base.machines.slice(0, 1);
     Object.assign(base.machines[0], { machine_label: 'SnapCase Capital City', operational_phase: 'live', location_timezone: 'America/New_York', nayax_machine_id: null, nayax_account_key: null });
     const owner = 'bbbbbbbb-1815-4111-8111-111111111111', inventory = '55555555-5555-4555-8555-555555555554';
-    const source = { sourceKey: 'Kexiaozhan:join-fixture', platform: 'Kexiaozhan', sourceId: '1000990', sourceName: 'Capital City', providerAccountId: '096ca52a-444a-4d4f-9a2b-8844ddd16a95', sourceAccountKey: 'synthetic-production', reportingMachineId: machineId, sourceTimezone: 'America/New_York', mappingConflict: false, archivedMapping: false, catalogueInactiveAt: null };
+    const source = { sourceKey: `${platform}:join-fixture`, platform, sourceId: platform === 'Sunze' ? '1815-sunze-current' : '1000990', sourceName: 'Capital City', providerAccountId: platform === 'Sunze' ? null : '096ca52a-444a-4d4f-9a2b-8844ddd16a95', sourceAccountKey: platform === 'Sunze' ? null : 'synthetic-production', reportingMachineId: machineId, sourceTimezone: 'America/New_York', mappingConflict: false, archivedMapping: false, catalogueInactiveAt: null };
     const preview = { eligible: true, reason: null, machineId, machineName: 'SnapCase Capital City', companyId: base.machines[0].company_id, inventoryId: inventory, readerId: '494088271', accountKey: 'TGPACI_USA_DB', historicalMachineId: owner, historicalMachineName: 'Preit-0990Capital city', expectedMachineUpdatedAt: '2026-10-01T00:00:00Z', expectedHistoricalMachineUpdatedAt: '2026-10-01T00:00:00Z', expectedInventoryUpdatedAt: '2026-10-01T00:00:00Z', expectedSourceIdentityDigest: 'fixture-source-snapshot', historicalCardTransactionCount: 317, historicalRefundCaseCount: 1 };
     let joined = false, stale = false, readFailure = false, refreshFailure = false;
     const writes = [], unexpected = [], errors = [], failed = [];
@@ -41,7 +41,7 @@ try {
     page.on('pageerror', e => errors.push(e.message));
     page.on('requestfailed', r => failed.push(new URL(r.url()).pathname));
     page.on('request', r => { const name = new URL(r.url()).pathname.split('/').pop(); if (r.method() === 'POST' && /^admin_(set|save|upsert|setup|reuse|change|archive|restore|reconcile|link)/.test(name)) unexpected.push(name); });
-    const pass = (label, condition) => { assert(condition, `${engine.name()}/${width}: ${label}`); checks.push(`${engine.name()}/${width}: ${label}`); };
+    const pass = (label, condition) => { assert(condition, `${engine.name()}/${platform}/${width}: ${label}`); checks.push(`${engine.name()}/${platform}/${width}: ${label}`); };
     try {
       await page.goto(origin + '/admin/machines'); await page.locator('#email-password').fill(mockUser.email); await page.locator('#password').fill('synthetic-password'); await page.getByRole('button', { name: /sign in/i }).click();
       await page.getByRole('button', { name: 'Manage', exact: true }).first().click();
@@ -49,7 +49,7 @@ try {
       await mapping.getByRole('combobox', { name: 'Nayax machine', exact: true }).click(); await page.getByRole('combobox', { name: 'Search Nayax machines', exact: true }).fill('494088271'); await page.getByRole('option').filter({ hasText: '494088271' }).click();
       const review = mapping.getByRole('region', { name: 'Review same machine connection' }), confirm = review.getByRole('checkbox', { name: 'These are the same physical machine', exact: true }), connect = mapping.getByRole('button', { name: 'Connect this reader', exact: true });
       await confirm.waitFor(); await page.getByText('Signed in. Redirecting...', { exact: true }).waitFor({ state: 'hidden' });
-      pass('canonical source and reader identity, not retired product alias', (await mapping.innerText()).includes('1000990') && (await mapping.innerText()).includes('494088271') && (await mapping.innerText()).includes('Preit-0990Capital city') && !(await mapping.innerText()).includes('Cotton Candy'));
+      pass('canonical source and reader identity, not retired product alias', (await mapping.innerText()).includes(source.sourceId) && (await mapping.innerText()).includes('494088271') && (await mapping.innerText()).includes('Preit-0990Capital city') && !(await mapping.innerText()).includes('Cotton Candy'));
       pass('one confirmation, no manufactured hardware date, disabled until intent', await connect.count() === 1 && !await connect.isEnabled() && await mapping.getByLabel('Actual reader change date', { exact: true }).count() === 0 && !await confirm.isChecked() && writes.length === 0);
       await review.locator('summary').press('Enter'); pass('accessible retained history with original company and processing distinction', (await review.innerText()).includes('317 card transactions and 1 refund cases') && (await review.innerText()).includes('original company') && (await review.innerText()).includes('does not enable customer refunds'));
       await review.locator('summary').press('Enter');
@@ -59,14 +59,14 @@ try {
       await confirm.check(); readFailure = true; await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange'))); await mapping.getByText('Connection details unavailable. Reload before reviewing this reader.', { exact: false }).waitFor(); pass('cached eligibility cannot save after read failure', !await mapping.getByRole('button', { name: /Connect this reader|Save reader change/ }).isEnabled() && writes.length === 0);
       readFailure = false; await mapping.getByRole('button', { name: 'Reload connection details', exact: true }).click(); await confirm.waitFor(); pass('recovery requires new confirmation', !await confirm.isChecked());
       await confirm.check(); stale = true; await connect.click(); await page.getByText('Synthetic stale connection; reload', { exact: true }).waitFor(); await page.waitForLoadState('networkidle'); pass('stale writer retains source and resets attestation', !await confirm.isChecked() && writes.length === 0);
-      stale = false; await confirm.check(); await page.screenshot({ path: `${output}/review-${width}.png`, fullPage: true });
+      stale = false; await confirm.check(); await page.getByText('Synthetic stale connection; reload', { exact: true }).waitFor({ state: 'hidden' }); await mapping.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${output}/review-${platform}-${width}.png`, fullPage: false });
       const dimensions = await connect.evaluate(e => ({ height: e.getBoundingClientRect().height, right: e.getBoundingClientRect().right, left: e.getBoundingClientRect().left })); pass('connection action fits mobile and desktop with44px target', dimensions.height >= 44 && dimensions.left >= 0 && dimensions.right <= width);
       await connect.click(); await mapping.getByText('Reader connection saved', { exact: true }).waitFor(); pass('failed successful refresh cannot repeat join', writes.length === 1 && await mapping.getByRole('button', { name: 'Connect this reader', exact: true }).count() === 0);
-      refreshFailure = false; const retry = mapping.getByRole('button', { name: 'Retry loading', exact: true }); await retry.click(); await mapping.getByRole('combobox', { name: 'Nayax machine', exact: true }).filter({ hasText: '494088271' }).waitFor(); await page.waitForLoadState('networkidle');
+      const retry = mapping.getByRole('button', { name: 'Retry loading', exact: true }); await page.waitForFunction(() => Array.from(document.querySelectorAll('button')).some(e => e.textContent.trim() === 'Retry loading' && !e.disabled)); refreshFailure = false; await retry.click(); await mapping.getByRole('combobox', { name: 'Nayax machine', exact: true }).filter({ hasText: '494088271' }).waitFor(); await page.waitForLoadState('networkidle');
       pass('same saved machine refreshes exact reader without unrelated writers', writes.length === 1 && unexpected.length === 0 && errors.length === 0 && failed.length === 0);
-      await page.screenshot({ path: `${output}/saved-${width}.png`, fullPage: true });
-      await writeFile(`${output}/receipt-${width}.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, physicalIPhoneTested: false, writes, unexpected, errors, failed }, null, 2));
-    } catch (error) { await page.screenshot({ path: `${output}/failure-${width}.png`, fullPage: true }); await writeFile(`${output}/failure-${width}.json`, JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), writes, unexpected, errors, failed }, null, 2)); throw error; }
+      await page.screenshot({ path: `${output}/saved-${platform}-${width}.png`, fullPage: true });
+      await writeFile(`${output}/receipt-${platform}-${width}.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, physicalIPhoneTested: false, writes, unexpected, errors, failed }, null, 2));
+    } catch (error) { await page.screenshot({ path: `${output}/failure-${platform}-${width}.png`, fullPage: true }); await writeFile(`${output}/failure-${platform}-${width}.json`, JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), writes, unexpected, errors, failed }, null, 2)); throw error; }
     finally { await page.waitForLoadState('networkidle'); await context.close(); }
   }
 } finally { await browser.close(); }

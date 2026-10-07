@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-10-07 - Correct an already-bound source and historical reader duplicate (#1815)
+
+- The user-selected source machine, its current Machine name, company and Managers govern future configuration. A separate source-free historical Hub holding the exact selected reader can be retired from management after one explicit same-physical-machine confirmation. This administrative identity correction has no physical installation or move date. Actual reader replacements and moves retain the existing dated review.
+- Reuse the existing reader ownership and financial-preservation ledgers. Original fact/case IDs, dated companies, reporting assignments, tax, Manager permissions and refund routes stay with their original record; new card observations resolve to the current source machine. An archived management duplicate is still a historical financial owner, not a second machine in inventory.
+- Original matched transaction/receipt evidence outranks current configuration. An unmatched legacy case may reuse only one exact retired duplicate reader tuple with an active same-machine attestation; multiple readers, a later replacement or conflicting purchase evidence remain blocked.
+- The connection moves the selected inventory record to needs setup with the saved machine family. Customer request publication remains the existing explicit Refunds action; payment processing capability is unchanged. Never infer the join from similar names or run a real production join during verification.
+
 ## 2026-10-06 - Complete same-machine source mapping and reviewed reader history (#1802)
 
 - An explicitly confirmed Sunze/Kex source and existing physical machine use the same Hub, company, name, managers and saved site configuration. One Manage save completes the mapping; a separate sales-activation state is not the finished workflow.

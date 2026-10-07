@@ -162,7 +162,7 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
       </div>}
 
       <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} · {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
-      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" className="min-h-11" onClick={() => void save()} disabled={saving || !verifiedPreview || checkingSameMachine || sameMachinePreviewFailed || (joiningSameMachine ? !confirmedSameMachine : Boolean(preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))))}>{saving ? 'Saving…' : joiningSameMachine ? 'Connect this reader' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
+      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" className="min-h-11 text-base" onClick={() => void save()} disabled={saving || !verifiedPreview || checkingSameMachine || sameMachinePreviewFailed || (joiningSameMachine ? !confirmedSameMachine : Boolean(preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))))}>{saving ? 'Saving…' : joiningSameMachine ? 'Connect this reader' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
     </>}
   </section>;
 }
