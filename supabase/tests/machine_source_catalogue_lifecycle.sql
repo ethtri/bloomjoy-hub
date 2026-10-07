@@ -94,7 +94,7 @@ select throws_ok($$select admin_set_machine_source_catalogue_inactive('Sunze',nu
 select throws_ok($$select admin_set_machine_source_catalogue_inactive('Sunze',null,'missing-catalogue',true,null,'Missing source')$$,'22023',null,'Missing source cannot be invented by state action');
 select throws_ok($$select admin_set_machine_source_catalogue_inactive('Sunze',null,'catalogue-bound',false,(select marker from catalogue_markers where source_id='catalogue-bound'),' ')$$,'P0001',null,'Visibility change requires an audit reason');
 select throws_ok($$select admin_set_machine_source_catalogue_inactive('Sunze',null,'catalogue-archived',false,null,'Archive restore attempt')$$,'22023',null,'Catalogue restore cannot revive a historical archived Hub');
-select is((with changed as(update sunze_machine_discoveries set catalogue_inactive_at=null where sunze_machine_id='catalogue-bound' returning 1) select count(*) from changed),0::bigint,'Even authenticated superadmin cannot bypass audited RPC through direct source UPDATE');
+with changed as(update sunze_machine_discoveries set catalogue_inactive_at=null where sunze_machine_id='catalogue-bound' returning 1) select is(count(*),0::bigint,'Even authenticated superadmin cannot bypass audited RPC through direct source UPDATE') from changed;
 reset role;
 create temporary table catalogue_noop_before as select to_jsonb(d)source,(select count(*) from admin_audit_log)audits from sunze_machine_discoveries d where sunze_machine_id='catalogue-bound';
 set local role authenticated;
