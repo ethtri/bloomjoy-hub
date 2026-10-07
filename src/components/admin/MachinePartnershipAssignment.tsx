@@ -97,7 +97,7 @@ export function MachinePartnershipAssignment({ machineId, machineName, setup, ca
       <div className="flex flex-wrap gap-2"><Button type="button" className="min-h-11 text-base" onClick={() => void add()} disabled={!canManage || !selected || !validAssignmentDate(startDate) || overlaps.length > 0 || saving || busy || machineDirty || readBlocked || demo || refreshNeeded}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add to partnership</Button><Button type="button" variant="outline" className="min-h-11 text-base" aria-label="Cancel partnership change" onClick={cancel} disabled={saving}>Cancel</Button></div>
     </div>}
     {error && <p className="mt-3 text-sm" role="alert">{error}</p>}
-    {(refreshNeeded || readError) && canManage && <Button type="button" variant="outline" className="mt-2 min-h-11 text-base" disabled={saving} onClick={() => { setSaving(true); onSavingChange(true); void refresh().catch(() => setError('Partnership assignments could not be refreshed. Try again.')).finally(() => { setSaving(false); onSavingChange(false); }); }}>Refresh assignments</Button>}
+    {(refreshNeeded || readError) && canManage && <Button type="button" variant="outline" className="mt-2 min-h-11 text-base" disabled={saving} onClick={() => { setSaving(true); onSavingChange(true); void refresh().then(() => setError('')).catch(() => setError('Partnership assignments could not be refreshed. Try again.')).finally(() => { setSaving(false); onSavingChange(false); }); }}>Refresh assignments</Button>}
     {canManage && !editing && <Button type="button" variant="link" className="mt-2 min-h-11 px-0 text-base" asChild><Link to="/admin/partnerships">Manage partnerships</Link></Button>}
   </div>;
 }
