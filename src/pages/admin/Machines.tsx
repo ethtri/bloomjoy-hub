@@ -482,6 +482,7 @@ export default function AdminMachinesPage() {
   const isLocalDemoMode = isLocalUatDemoForced();
   const [selectedImportedSource, setSelectedImportedSource] = useState<MachineSourceInventoryItem | null>(null);
   const [completedSourceMachineId, setCompletedSourceMachineId] = useState<string | null>(null);
+  const [completedSourceSetupVersion, setCompletedSourceSetupVersion] = useState(0);
   const importedInventory = useQuery({ queryKey: [...machineSourceInventoryQueryKey, user?.id], queryFn: fetchMachineSourceInventorySnapshot, enabled: !isLocalDemoMode, staleTime: 30000, retry: false });
   const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: !isLocalDemoMode, staleTime: 30000 });
   const metadataById = useMemo(() => new Map((workspaceMetadata.data ?? []).map((item) => [item.machineId, item])), [workspaceMetadata.data]);
@@ -638,7 +639,7 @@ export default function AdminMachinesPage() {
   const selectedMachineForEditor =
     (routeMachineId
       ? setup.machines.find((machine) => machine.id === routeMachineId) ?? null
-      : editingMachine) ??
+      : editingMachine ? setup.machines.find((item) => item.id === editingMachine.id) ?? editingMachine : null) ??
     (highlightedMachineId
       ? setup.machines.find((machine) => machine.id === highlightedMachineId) ?? null
       : null);
@@ -900,10 +901,13 @@ export default function AdminMachinesPage() {
   };
 
   useEffect(() => {
-    if (!completedSourceMachineId) return;
+    if (!completedSourceMachineId || !selectedImportedSource || setupUpdatedAt <= completedSourceSetupVersion) return;
+    const source = importedInventory.data?.sources.find((item) => item.sourceKey === selectedImportedSource.sourceKey);
+    if (importedInventory.isError || source?.reportingMachineId !== completedSourceMachineId) return;
     const machine = setup.machines.find((item) => item.id === completedSourceMachineId);
+    if (selectedImportedSource.platform === 'Sunze' && machine?.sunze_machine_id !== selectedImportedSource.sourceId) return;
     if (machine) { setCompletedSourceMachineId(null); setSelectedImportedSource(null); setEditingMachine(machine); setIsMachineDialogOpen(true); }
-  }, [completedSourceMachineId, setup.machines]);
+  }, [completedSourceMachineId, completedSourceSetupVersion, selectedImportedSource, setupUpdatedAt, setup.machines, importedInventory.data, importedInventory.isError]);
 
   const updateView = (nextView: MachineView) => {
     setView(nextView);
@@ -1705,7 +1709,7 @@ export default function AdminMachinesPage() {
         open={isMachineEditorOpen || !!selectedImportedSource}
         onOpenChange={(nextOpen) => { if (selectedImportedSource) { if (!nextOpen) { setSelectedImportedSource(null); setCompletedSourceMachineId(null); } } else closeMachineDialog(nextOpen); }}
         importedSource={selectedImportedSource}
-        onImportedSourceSaved={(id) => setCompletedSourceMachineId(id)}
+        onImportedSourceSaved={(id) => { setCompletedSourceSetupVersion(setupUpdatedAt); setCompletedSourceMachineId(id); }}
         committedImportedMachineId={selectedImportedSource ? completedSourceMachineId : null}
         machine={selectedMachineForEditor}
         machineRow={allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)}
@@ -2850,7 +2854,7 @@ function MachineDialog({
           expectedLocationId: savedAssignment?.locationId || null,
           machineLabel,
           expectedDisplayName: machine?.machine_label ?? null,
-          sunzeMachineId: sunzeMachineId || null,
+          sunzeMachineId: machine ? machine.sunze_machine_id : sunzeMachineId || null,
           reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
         });
         loadedIdentityKeyRef.current = '';

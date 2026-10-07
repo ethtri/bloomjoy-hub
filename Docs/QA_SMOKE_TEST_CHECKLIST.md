@@ -1291,3 +1291,5 @@ npm run refunds:validate-portal-uat-lifecycle
 - Same-machine source connection (Sunze/Kex): verify exact source and reader IDs, one Save disabled until “These are the same machine” is checked, tap/keyboard Connection details, and one write followed by reopen or reads-only retry at 390px. Do not save a production pairing during smoke verification.
 
 - New source setup: with no trusted time zone, verify the required searchable city/time-zone selector is blank, shows why Save is unavailable, and supports keyboard/touch selection and clearing. Select a valid zone to verify reader ownership; managers remain optional. A failed check offers a reads-only Retry reader check.
+
+- Completed same-machine source connection: keep the existing machine visible in the initial setup cache with no source; delay refreshed setup after connection. Continue only after exact source identity arrives, change the machine name, save/reopen, and verify the same source ID persists. No production save in smoke tests.
