@@ -206,6 +206,7 @@ select set_config('request.jwt.claim.sub','aa181500-0000-4000-8000-000000000002'
 set local role authenticated;
 select is((select item->'retainedHistory' from jsonb_array_elements(public.admin_get_machine_workspace_metadata()) item where item->>'machineId'='aa181503-0000-4000-8000-000000000001'),'[]'::jsonb,'Current-source administrator cannot learn or open another company historical sales through a join');
 select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') item where item->>'machineId'='aa181503-0000-4000-8000-000000000002'),'Correction grants no additional historical reporting access');
+select throws_ok($$select * from public.get_company_sales_report('aa181501-0000-4000-8000-000000000002','2026-09-01','2026-09-30','day',array['aa181503-0000-4000-8000-000000000002'::uuid],null,array['credit'])$$,'42501',null,'Current-only administrator cannot request the original company Sales report');
 reset role;
 select * from finish();
 rollback;
