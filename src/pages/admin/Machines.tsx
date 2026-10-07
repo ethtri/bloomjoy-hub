@@ -486,8 +486,9 @@ export default function AdminMachinesPage() {
   const [completedSourceMachineId, setCompletedSourceMachineId] = useState<string | null>(null);
   const [completedSourceSetupVersion, setCompletedSourceSetupVersion] = useState(0);
   const importedInventory = useQuery({ queryKey: [...machineSourceInventoryQueryKey, user?.id], queryFn: fetchMachineSourceInventorySnapshot, enabled: !isLocalDemoMode, staleTime: 30000, retry: false });
-  const selectedImportedSource = routeSourceKey
-    ? importedInventory.data?.sources.find((source) => source.sourceKey === routeSourceKey && !source.archivedMapping) ?? null
+  const requestedSourceKey = routeSourceKey ?? searchParams.get('source');
+  const selectedImportedSource = requestedSourceKey
+    ? importedInventory.data?.sources.find((source) => source.sourceKey === requestedSourceKey && !source.archivedMapping) ?? null
     : null;
   const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: !isLocalDemoMode, staleTime: 30000 });
   const metadataById = useMemo(() => new Map((workspaceMetadata.data ?? []).map((item) => [item.machineId, item])), [workspaceMetadata.data]);
@@ -1025,11 +1026,12 @@ export default function AdminMachinesPage() {
     setIsMachineDialogOpen(true);
   };
 
-  const openEditMachine = (machine: PartnershipSetupMachine, tab: MachineDetailTab = 'overview') => {
+  const openEditMachine = (machine: PartnershipSetupMachine, tab: MachineDetailTab = 'overview', source?: MachineSourceInventoryItem) => {
     const returnParams = new URLSearchParams(searchParams);
     returnParams.set('selected', machine.id);
     returnParams.set('scroll', String(Math.round(window.scrollY)));
     const detailParams = new URLSearchParams();
+    if (source) detailParams.set('source', source.sourceKey);
     if (returnParams.size) detailParams.set('return', returnParams.toString());
     if (tab !== 'overview') detailParams.set('tab', tab);
     if (searchParams.get('demo') === 'on') detailParams.set('demo', 'on');
@@ -1397,7 +1399,7 @@ export default function AdminMachinesPage() {
                 backHref={machinesReturnHref}
                 onOpenChange={(open) => !open && navigate(machinesReturnHref)}
                 machine={selectedMachineForEditor}
-                importedSource={selectedMachineForEditor ? null : selectedImportedSource}
+                importedSource={selectedImportedSource}
                 onImportedSourceSaved={(id) => { setCompletedSourceSetupVersion(setupUpdatedAt); setCompletedSourceMachineId(id); }}
                 committedImportedMachineId={completedSourceMachineId}
                 machineRow={detailRow}
@@ -1729,7 +1731,7 @@ export default function AdminMachinesPage() {
                     <MachinePortfolioRow key={source.sourceKey} row={hubRow} source={source}
                       metadata={metadataById.get(hubRow.machine.id)}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(hubRow.machine.id)}
-                      onEdit={openEditMachine} globalRefunds={refundManagerSetup.globalRefunds} refundSetup={refundManagerSetupByMachineId.get(hubRow.machine.id) ?? null}/>
+                      onEdit={(machine, tab) => openEditMachine(machine, tab, isLocalDemoMode ? undefined : source)} globalRefunds={refundManagerSetup.globalRefunds} refundSetup={refundManagerSetupByMachineId.get(hubRow.machine.id) ?? null}/>
                   ) : <ImportedSourcePortfolioRow key={source.sourceKey} source={source} canSetup={isSuperAdmin}
                     onSetup={() => openImportedSource(source)}/>)}
                 </div>
@@ -3178,7 +3180,7 @@ function MachineDialog({
     form.operationalPhase !== (machine.operational_phase ?? 'live')
   );
 
-  const importedIdentityHasChanges = Boolean(importedSource) && (
+  const importedIdentityHasChanges = Boolean(importedSource && !machine) && (
     sourceStateDraft !== savedSourceState ||
     form.machineLabel !== (importedSource?.sourceName ?? '') || Boolean(form.accountId) || Boolean(sourceInventoryId) ||
     form.locationTimezone !== (importedSource?.sourceTimezone ?? '') ||
