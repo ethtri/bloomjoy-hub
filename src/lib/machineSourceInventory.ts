@@ -22,6 +22,7 @@ export type MachineSourceInventoryItem = {
   archivedMapping: boolean;
   salesActivationPending?: boolean;
   catalogueInactiveAt?: string | null;
+  machineUpdatedAt?: string | null;
   companyId?: string | null;
   companyName?: string | null;
 };
@@ -32,6 +33,17 @@ export async function setMachineSourceCatalogueInactive(source: MachineSourceInv
     p_source_id: source.sourceId, p_inactive: inactive,
     p_expected_inactive_at: source.catalogueInactiveAt ?? null,
     p_reason: inactive ? 'Machine source marked inactive from Machines' : 'Machine source restored from Inactive',
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setMachineSourceState(source: MachineSourceInventoryItem, state: 'setup' | 'live' | 'inactive', expectedMachineUpdatedAt: string | null): Promise<void> {
+  const { error } = await supabaseClient.rpc('admin_set_machine_source_state', {
+    p_platform: source.platform, p_provider_account_id: source.providerAccountId,
+    p_source_id: source.sourceId, p_state: state,
+    p_expected_inactive_at: source.catalogueInactiveAt ?? null,
+    p_expected_machine_updated_at: expectedMachineUpdatedAt,
+    p_reason: 'Machine State saved from Manage',
   });
   if (error) throw new Error(error.message);
 }

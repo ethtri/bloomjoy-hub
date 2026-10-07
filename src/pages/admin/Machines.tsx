@@ -1,4 +1,4 @@
-import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, previewImportedReaderChange, setMachineSourceCatalogueInactive, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
+import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, previewImportedReaderChange, setMachineSourceState, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
@@ -436,7 +436,6 @@ export default function AdminMachinesPage() {
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [view, setView] = useState<MachineView>(() => parseMachineView(searchParams.get('view')));
   const [companyFilter, setCompanyFilter] = useState(() => searchParams.get('company') ?? 'all');
-  const [savingSourceState, setSavingSourceState] = useState<string | null>(null);
   const [taxFilter, setTaxFilter] = useState<MachineTaxFilter>(() => parseTaxFilter(searchParams.get('tax')));
   const [assignmentFilter, setAssignmentFilter] = useState<MachineAssignmentFilter>(() =>
     parseAssignmentFilter(searchParams.get('assignment'))
@@ -911,18 +910,6 @@ export default function AdminMachinesPage() {
   const catalogueCompanies = [...new Map((importedInventory.data?.sources ?? []).filter((source) => source.companyId)
     .map((source) => [source.companyId!, source.companyName || 'Unnamed company'])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const saveSourceState = async (source: MachineSourceInventoryItem, inactive: boolean) => {
-    if (savingSourceState || importedInventory.isError || isLocalDemoMode) return;
-    setSavingSourceState(source.sourceKey);
-    try {
-      await setMachineSourceCatalogueInactive(source, inactive);
-      await importedInventory.refetch();
-      toast.success(inactive ? 'Machine moved to Inactive' : 'Machine restored');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save machine state');
-      void importedInventory.refetch();
-    } finally { setSavingSourceState(null); }
-  };
 
   useEffect(() => {
     if (!completedSourceMachineId || !selectedImportedSource || setupUpdatedAt <= completedSourceSetupVersion) return;
@@ -1718,12 +1705,10 @@ export default function AdminMachinesPage() {
                 <div role="rowgroup" className="divide-y divide-border bg-background">
                   {renderedSourceRows.map(({ source, hubRow }) => hubRow ? (
                     <MachinePortfolioRow key={source.sourceKey} row={hubRow} source={source}
-                      sourceStateControl={<SourceCatalogueState source={source} disabled={!!savingSourceState || isLocalDemoMode || importedInventory.isFetching} onChange={(inactive) => void saveSourceState(source, inactive)} />}
                       metadata={metadataById.get(hubRow.machine.id)}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(hubRow.machine.id)}
                       onEdit={openEditMachine} globalRefunds={refundManagerSetup.globalRefunds}/>
                   ) : <ImportedSourcePortfolioRow key={source.sourceKey} source={source} canSetup={isSuperAdmin}
-                    sourceStateControl={<SourceCatalogueState source={source} disabled={!!savingSourceState || isLocalDemoMode || importedInventory.isFetching} onChange={(inactive) => void saveSourceState(source, inactive)} />}
                     onSetup={() => setSelectedImportedSource(source)}/>)}
                 </div>
                 {renderedSourceRows.length < visibleSourceRows.length && (
@@ -1807,35 +1792,24 @@ function sourceTransactionLabel(source: MachineSourceInventoryItem): string {
   } catch { return 'Unknown'; }
 }
 
-function SourceCatalogueState({ source, disabled, onChange }: { source: MachineSourceInventoryItem; disabled: boolean; onChange: (inactive: boolean) => void }) {
-  const id = `source-state-${encodeURIComponent(source.sourceKey)}`;
-  return <div className="mt-3 max-w-48"><Label htmlFor={id}>Visibility</Label>
-    <select id={id} className="mt-1 min-h-11 w-full rounded-md border border-input bg-background px-3 text-base"
-      value={source.catalogueInactiveAt ? 'inactive' : 'active'} disabled={disabled || source.archivedMapping}
-      onChange={(event) => onChange(event.target.value === 'inactive')}>
-      <option value="active">Visible</option><option value="inactive">Inactive</option>
-    </select></div>;
-}
-
-function ImportedSourcePortfolioRow({ source, canSetup, onSetup, sourceStateControl }: {
-  source: MachineSourceInventoryItem; canSetup: boolean; onSetup: () => void; sourceStateControl?: ReactNode;
+function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
+  source: MachineSourceInventoryItem; canSetup: boolean; onSetup: () => void;
 }) {
   const blocked = source.mappingConflict || source.archivedMapping || Boolean(source.reportingMachineId);
   return <div role="row" data-source-key={source.sourceKey} className="grid grid-cols-1 gap-4 px-4 py-5 text-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · ID {source.sourceId}{source.sourceAccountKey ? ` · ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{blocked ? 'Setup needs review' : 'Setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">Operating state unknown</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · ID {source.sourceId}{source.sourceAccountKey ? ` · ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{source.catalogueInactiveAt ? 'Inactive' : blocked ? 'Setup needs review' : 'Setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">State: {source.catalogueInactiveAt ? 'Inactive' : 'Setup — provisional'}</p></div>
     <div role="cell"><CellLabel>Nayax match</CellLabel><p className="break-words">{source.nayaxMachineId ? `${source.nayaxName || 'Saved Nayax record'} · ID ${source.nayaxMachineId} · ${source.nayaxAccountKey}` : 'Not matched'}</p></div>
     <div role="cell"><CellLabel>Company</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Managers</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? sourceTransactionLabel(source) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
-    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{sourceStateControl}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
+    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
   </div>;
 }
 
-function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefunds, onEdit, sourceStateControl }: {
+function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefunds, onEdit }: {
   row: MachineSetupRowViewModel;
   metadata?: MachineWorkspaceMetadata;
   source?: MachineSourceInventoryItem;
-  sourceStateControl?: ReactNode;
   isHighlighted: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
@@ -1854,14 +1828,14 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
       {metadata?.excludeCashFromFinancialReporting && <Badge variant="outline" className="mt-2 mr-2">Cash excluded</Badge>}
       {identities?.length ? identities.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-2"><p className="text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform}: {source.name || 'Unnamed source machine'} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="mt-1 text-xs text-muted-foreground">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
       {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive · history retained</Badge>}
-      <Badge variant="outline" className="mt-2">{source?.salesActivationPending || machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
+      <Badge variant="outline" className="mt-2">{source?.catalogueInactiveAt ? 'Inactive' : source?.salesActivationPending || machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
       {source?.salesActivationPending && <p className="mt-2 text-xs text-muted-foreground">Source connected for management. Sales activation awaits reconciliation; existing sales history is unchanged.</p>}
     </div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{nayaxId ? nayaxName || 'Unnamed Nayax record' : metadata || source ? 'Not matched' : 'Mapping data unavailable'}</p>{nayaxId && <p className="mt-1 text-xs text-muted-foreground">ID {nayaxId}<br/>Account {nayaxAccount || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">State: {source?.catalogueInactiveAt ? 'Inactive' : machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}{source && <p className="mt-1 text-xs text-muted-foreground">{source.platform} · {source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {sourceTransactionLabel(source)}</p>}</div>
-    <div role="cell" className="flex flex-col items-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button>{sourceStateControl}</div>
+    <div role="cell" className="flex flex-col items-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
   </div>;
 }
 
@@ -2539,6 +2513,16 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const [sourceStateDraft, setSourceStateDraft] = useState<'setup' | 'live' | 'inactive'>('setup');
+  const stateInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, enabled: open && !isLocalDemoMode, retry: false });
+  const stateSourceMatches = stateInventory.data?.sources.filter((source) => importedSource ? source.sourceKey === importedSource.sourceKey : source.reportingMachineId === machine?.id) ?? [];
+  const stateSource = stateSourceMatches.length === 1 ? stateSourceMatches[0] : null;
+  const savedSourceState = stateSource?.catalogueInactiveAt ? 'inactive' : machine?.operational_phase ?? 'setup';
+  const sourceStateNotice = stateInventory.isError ? 'State could not be loaded. Retry before saving.' : stateInventory.isFetching ? 'Loading State…' : !stateSource ? stateSourceMatches.length > 1 ? 'Choose the exact imported source to change State.' : 'State is unavailable until the imported source is verified.' : !machine && stateSource.catalogueInactiveAt ? 'Restore Setup first, then complete setup to go Live.' : null;
+  const stateReadHelp = sourceStateNotice ? <div className="mt-2 text-sm" role="status">{sourceStateNotice}{stateInventory.isError && <Button type="button" variant="outline" className="ml-2 min-h-11 text-base" onClick={() => void stateInventory.refetch()}>Retry State</Button>}</div> : null;
+  const stateOnlySave = !!stateSource && sourceStateDraft !== savedSourceState && (!!machine || sourceStateDraft !== 'live');
+  useEffect(() => { if (open) setSourceStateDraft(savedSourceState); }, [open, stateSource?.sourceKey, savedSourceState]);
+
   const [mappingHasChanges, setMappingHasChanges] = useState(false);
   const [sourceInventoryId, setSourceInventoryId] = useState('');
   const sourceNayaxInventory = useQuery({ queryKey: ['admin-refund-nayax-inventory'], queryFn: fetchRefundNayaxInventory, enabled: open && !!importedSource && !machine, staleTime: 30000 });
@@ -2815,6 +2799,17 @@ function MachineDialog({
     if (committedImportedMachineId) {
       setIsSaving(true);
       try { await onSaved(); } catch { toast.error('Machine setup is saved. Retry loading its details.'); }
+      finally { setIsSaving(false); }
+      return;
+    }
+    if (scope !== 'refund' && stateOnlySave) {
+      if (!stateSource || stateInventory.isError || stateInventory.isFetching) { toast.error('Reload the source before saving its state.'); return; }
+      setIsSaving(true);
+      try {
+        await setMachineSourceState(stateSource, sourceStateDraft, stateSource.machineUpdatedAt ?? null);
+        await onSaved();
+        toast.success('State saved.');
+      } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to save state.'); }
       finally { setIsSaving(false); }
       return;
     }
@@ -3119,6 +3114,7 @@ function MachineDialog({
     selectedMachineManagerEmails.join('|') !== savedMachineManagerEmails.join('|');
 
   const machineIdentityHasChanges = Boolean(machine) && (
+    sourceStateDraft !== savedSourceState ||
     form.machineLabel.trim() !== machine.machine_label ||
     form.accountId !== (machine.account_id ?? '') ||
     form.locationId !== (machine.location_id ?? '') ||
@@ -3129,6 +3125,7 @@ function MachineDialog({
   );
 
   const importedIdentityHasChanges = Boolean(importedSource) && (
+    sourceStateDraft !== savedSourceState ||
     form.machineLabel !== (importedSource?.sourceName ?? '') || Boolean(form.accountId) || Boolean(sourceInventoryId) ||
     form.locationTimezone !== (importedSource?.sourceTimezone ?? '') ||
     form.machineType !== (importedSource?.platform === 'Kexiaozhan' ? 'snapcase' : 'commercial') ||
@@ -3137,6 +3134,7 @@ function MachineDialog({
   const hasUnsavedChanges = !committedImportedMachineId && (importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges);
 
   const cancelMachineIdentityChanges = useCallback(() => {
+    setSourceStateDraft(savedSourceState);
     if (!machine) return;
     setSavedAssignment({
       accountId: machine.account_id ?? '', accountName: machine.account_name,
@@ -3155,7 +3153,7 @@ function MachineDialog({
       sunzeMachineId: machine.sunze_machine_id ?? '',
       operationalPhase: machine.operational_phase ?? 'live',
     });
-  }, [machine]);
+  }, [machine, savedSourceState]);
 
   const cancelMachineManagerChanges = useCallback(() => {
     setSelectedMachineManagerEmails(savedMachineManagerEmails);
@@ -3178,7 +3176,7 @@ function MachineDialog({
   }, [cancelMachineIdentityChanges, cancelMachineManagerChanges, cancelRefundReadinessChanges]);
 
   const confirmDiscardPendingChanges = () =>
-    !hasUnsavedChanges || window.confirm('Discard the unsaved changes on this machine?');
+    !(hasUnsavedChanges || sourceStateDraft !== savedSourceState) || window.confirm('Discard the unsaved changes on this machine?');
 
   const requestTabChange = (nextTab: MachineDetailTab) => {
     if (nextTab === activeTab) return;
@@ -3361,17 +3359,18 @@ function MachineDialog({
                     {!form.machineType && <p className="mt-1 text-xs text-amber-700">This legacy record is unverified. Choose its correct type before saving.</p>}
                   </div>
                   <div>
-                    <div className="flex items-center justify-between"><Label htmlFor="page-machine-phase">State</Label><MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp></div>
-                    <select id="page-machine-phase" value={form.operationalPhase} onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
-                      <option value="setup">Setup — provisional</option>
-                      <option value="live">Live</option>
+                    <div className="flex items-center justify-between"><Label htmlFor="page-machine-phase">State</Label><MachineHelp label="About operating state">Setup permits timekeeping before setup is finished. Inactive removes the machine from ordinary lists and retains its history; it does not change refund settings.</MachineHelp></div>
+                    <select id="page-machine-phase" disabled={isSavingMachineChanges} value={stateSource ? sourceStateDraft : form.operationalPhase} onChange={(event) => { const state = event.target.value as 'setup' | 'live' | 'inactive'; setSourceStateDraft(state); if (state !== 'inactive') setForm({ ...form, operationalPhase: state }); }} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
+                      <option value="setup" disabled={Boolean(machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'setup')}>Setup — provisional</option>
+                      <option value="live" disabled={Boolean((!machine && stateSource?.catalogueInactiveAt) || (machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'live'))}>Live</option>
+                      <option value="inactive" disabled={!stateSource || stateInventory.isError || stateInventory.isFetching}>Inactive</option>
                     </select>
-                    <p className="mt-1 text-xs text-muted-foreground">Setup machines can be assigned for Timekeeping before Nayax or Sunzee is connected.</p>
+                    {stateReadHelp}
                   </div>
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
                   <Button variant="outline" onClick={cancelMachineIdentityChanges} disabled={!machineIdentityHasChanges || isSavingMachineChanges}>Cancel</Button>
-                  <Button onClick={() => void saveMachine('identity')} disabled={isSavingMachineChanges || !machineIdentityHasChanges || !form.machineType || isLocalDemoMode}>
+                  <Button onClick={() => void saveMachine('identity')} disabled={isSavingMachineChanges || !machineIdentityHasChanges || (stateOnlySave ? stateInventory.isError || stateInventory.isFetching : !form.machineType) || isLocalDemoMode}>
                     {isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save changes
                   </Button>
@@ -3382,7 +3381,7 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine name</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">State</dt><dd className="font-medium">{savedSourceState === 'inactive' ? 'Inactive' : savedSourceState === 'setup' ? 'Setup — provisional' : 'Live'}</dd></div>
               </dl>
             )}
             {taxRateSetup}
@@ -3668,17 +3667,19 @@ function MachineDialog({
             </select>
           </div>
           <div>
-            <div className="flex items-center justify-between"><Label htmlFor="machine-phase">State</Label><MachineHelp label="About operating state">Setup permits technician timekeeping before external machine setup is finished. This does not activate refunds.</MachineHelp></div>
+            <div className="flex items-center justify-between"><Label htmlFor="machine-phase">State</Label><MachineHelp label="About operating state">Setup permits timekeeping before setup is finished. Inactive removes the machine from ordinary lists and retains its history; it does not change refund settings.</MachineHelp></div>
             <select
               id="machine-phase"
-              value={form.operationalPhase}
-              onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })}
-              disabled={!canEditMachineIdentity}
+              value={stateSource ? sourceStateDraft : form.operationalPhase}
+              onChange={(event) => { const state = event.target.value as 'setup' | 'live' | 'inactive'; setSourceStateDraft(state); if (state !== 'inactive') setForm({ ...form, operationalPhase: state }); }}
+              disabled={isSavingMachineChanges || (!canEditMachineIdentity && !stateSource)}
               className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
             >
-              <option value="setup">Setup — provisional</option>
-              <option value="live">Live</option>
+              <option value="setup" disabled={Boolean(machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'setup')}>Setup — provisional</option>
+              <option value="live" disabled={Boolean((!machine && stateSource?.catalogueInactiveAt) || (machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'live'))}>Live</option>
+              <option value="inactive" disabled={!stateSource || stateInventory.isError || stateInventory.isFetching}>Inactive</option>
             </select>
+            {stateReadHelp}
           </div>
         </div>
         {taxRateSetup}
@@ -4005,20 +4006,20 @@ null
         )}
         </>}
         </>}
-        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && <p role="status" className="mt-4 text-sm text-muted-foreground">{!form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry before saving.' : 'Checking reader ownership before saving…' : ''}</p>}
-        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && sourceInventoryId && form.locationTimezone && sourceReaderPreview.isError && <Button variant="outline" className="min-h-11 text-base" onClick={() => void sourceReaderPreview.refetch()}>Retry reader check</Button>}
-        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && form.accountId && !form.locationTimezone.trim() && <Button variant="outline" className="min-h-11 text-base" onClick={() => { const field = document.getElementById('machine-timezone'); field?.scrollIntoView({ block: 'center' }); field?.focus(); field?.click(); }}>Choose time zone</Button>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && sourceStateDraft !== 'inactive' && <p role="status" className="mt-4 text-sm text-muted-foreground">{stateOnlySave ? '' : !form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry before saving.' : 'Checking reader ownership before saving…' : ''}</p>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && !stateOnlySave && sourceStateDraft !== 'inactive' && sourceInventoryId && form.locationTimezone && sourceReaderPreview.isError && <Button variant="outline" className="min-h-11 text-base" onClick={() => void sourceReaderPreview.refetch()}>Retry reader check</Button>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && !stateOnlySave && sourceStateDraft !== 'inactive' && form.accountId && !form.locationTimezone.trim() && <Button variant="outline" className="min-h-11 text-base" onClick={() => { const field = document.getElementById('machine-timezone'); field?.scrollIntoView({ block: 'center' }); field?.focus(); field?.click(); }}>Choose time zone</Button>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button className="min-h-11 text-base" key={committedImportedMachineId ? 'retry-source-load' : sourceReaderOccupied && !reviewSourceReaderMove ? 'save-existing-machine' : 'save-machine'} onClick={() => void (sourceReaderOccupied && !reviewSourceReaderMove && !committedImportedMachineId ? reuseExistingMachine() : saveMachine('all'))} disabled={committedImportedMachineId ? isSavingMachineChanges : sourceReaderOccupied && !reviewSourceReaderMove ? !sourceReuseVerified || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving : (sourceReaderOccupied && (!reviewSourceReaderMove || !sourceMoveVerified || !sourceReaderMoveConfirmed || !sourceReaderChangedAt)) || (Boolean(importedSource && !machine && sourceInventoryId) && !sourceMoveVerified) || mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button className="min-h-11 text-base" key={committedImportedMachineId ? 'retry-source-load' : stateOnlySave ? 'save-source-state' : sourceReaderOccupied && !reviewSourceReaderMove ? 'save-existing-machine' : 'save-machine'} onClick={() => void (sourceReaderOccupied && !reviewSourceReaderMove && !committedImportedMachineId && !stateOnlySave ? reuseExistingMachine() : saveMachine('all'))} disabled={committedImportedMachineId ? isSavingMachineChanges : stateOnlySave ? isSavingMachineChanges || stateInventory.isError || stateInventory.isFetching : sourceReaderOccupied && !reviewSourceReaderMove ? !sourceReuseVerified || !sourceReuseOption?.eligible || !reuseConfirmed || isSaving : (sourceReaderOccupied && (!reviewSourceReaderMove || !sourceMoveVerified || !sourceReaderMoveConfirmed || !sourceReaderChangedAt)) || (Boolean(importedSource && !machine && sourceInventoryId) && !sourceMoveVerified) || mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <CheckCircle2 className="mr-2 h-4 w-4" />
             )}
-            {committedImportedMachineId ? 'Retry loading' : canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
+            {committedImportedMachineId ? 'Retry loading' : stateOnlySave ? 'Save' : canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
           </Button>
         </SheetFooter>
         {mappingHasChanges && <p className="mt-2 text-sm text-muted-foreground">Save Nayax match above before saving other machine changes.</p>}
