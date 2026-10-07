@@ -196,6 +196,22 @@ insert into refund_cases(id,public_reference,reporting_machine_id,reporting_loca
  values('aa180306-0000-4000-8000-000000000006','RF-1803-UNIQUE-HISTORY','aa180303-0000-4000-8000-000000000004','aa180302-0000-4000-8000-000000000001','reader-all-history@example.invalid','Synthetic rough time with one proved reader','2026-09-01T19:00Z','exact','rough','card',1100,'needs_review','2026-10-04T20:00Z','hosted_refund_intake');
 set local session_replication_role=origin;
 select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000006','aa180303-0000-4000-8000-000000000004')->>'readerId','18030005','A single attested all-history reader resolves without pretending a rough customer time is exact');
+-- Restoring the identical proved reader is configuration restoration, not a
+-- hardware replacement or a new financial installation date.
+create function pg_temp.restore_cleared_same_reader() returns void language plpgsql security definer set search_path='' as $$
+declare before_history jsonb; result jsonb; before_changes bigint;
+begin
+ select jsonb_agg(to_jsonb(h) order by id) into before_history from private.machine_nayax_reader_associations h where reporting_machine_id='aa180303-0000-4000-8000-000000000004';
+ select count(*) into before_changes from public.admin_audit_log where action='reporting_machine.reader_changed';
+ perform public.admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000004',null,null,'Explicit clear before same-reader restoration');
+ result:=public.admin_change_machine_reader('aa180303-0000-4000-8000-000000000004','aa180304-0000-4000-8000-000000000005',(select updated_at from public.reporting_machines where id='aa180303-0000-4000-8000-000000000004'),null,'America/Los_Angeles','2026-10-02',null,'Restore the identical proved existing reader');
+ if result->>'configurationRestored' is distinct from 'true' or (select nayax_machine_id from public.reporting_machines where id='aa180303-0000-4000-8000-000000000004') is distinct from '18030005' then raise exception 'Identical reader configuration was not restored'; end if;
+ if (select jsonb_agg(to_jsonb(h) order by id) from private.machine_nayax_reader_associations h where reporting_machine_id='aa180303-0000-4000-8000-000000000004') is distinct from before_history or (select count(*) from public.admin_audit_log where action='reporting_machine.reader_changed')<>before_changes then raise exception 'Same reader restoration fabricated a replacement interval or audit'; end if;
+ raise exception 'Same-reader restoration preserves all existing ownership history' using errcode='Z1804';
+end $$;
+set local role authenticated;
+select throws_ok($$select pg_temp.restore_cleared_same_reader()$$,'Z1804','Same-reader restoration preserves all existing ownership history','Restoring an identical exact reader/account preserves its interval and adds no replacement date');
+reset role;
 -- An explicit clear must not leave a proved old interval open when the next
 -- reviewed replacement is saved. Roll back this isolated synthetic rehearsal.
 create function pg_temp.cleared_attested_reader_change() returns void language plpgsql security definer set search_path='' as $$
