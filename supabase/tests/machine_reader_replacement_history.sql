@@ -75,9 +75,16 @@ create temporary table alternate_reader_before as select
  (select jsonb_agg(to_jsonb(i) order by id) from refund_nayax_machine_inventory i where id::text like 'aa180304-%') inventory,
  (select jsonb_agg(to_jsonb(h) order by id) from private.machine_nayax_reader_associations h where reporting_machine_id='aa180303-0000-4000-8000-000000000001') history,
  (select count(*) from admin_audit_log) audit_count;
+create function pg_temp.clear_then_obsolete_reader_assignment() returns void language plpgsql as $$
+begin
+ perform admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000001',null,null,'Explicit reader clearing remains available');
+ if (select nayax_machine_id from reporting_machines where id='aa180303-0000-4000-8000-000000000001') is not null then raise exception 'Explicit clear was not retained'; end if;
+ perform admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000001','18030001','TGPACI_USA_DB','Attempt obsolete reader assignment after clearing');
+end $$;
 set local role authenticated;
 select throws_ok($$select admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000001','18030001','TGPACI_USA_DB','Attempt obsolete undated direct reader setter')$$,'22023',null,'Direct setter cannot bypass reviewed ownership history');
 select throws_ok($$select admin_replace_refund_nayax_machine('aa180303-0000-4000-8000-000000000001','aa180304-0000-4000-8000-000000000001','Attempt obsolete inventory reader replacement')$$,'22023',null,'Legacy replacement cannot bypass reviewed ownership history');
+select throws_ok($$select pg_temp.clear_then_obsolete_reader_assignment()$$,'22023',null,'Explicit clear cannot be used to bypass the dated reader writer on reassignment');
 reset role;
 select ok((select to_jsonb(m) from reporting_machines m where id='aa180303-0000-4000-8000-000000000001')=(select machine from alternate_reader_before)
  and (select jsonb_agg(to_jsonb(i) order by id) from refund_nayax_machine_inventory i where id::text like 'aa180304-%')=(select inventory from alternate_reader_before)
@@ -189,6 +196,23 @@ insert into refund_cases(id,public_reference,reporting_machine_id,reporting_loca
  values('aa180306-0000-4000-8000-000000000006','RF-1803-UNIQUE-HISTORY','aa180303-0000-4000-8000-000000000004','aa180302-0000-4000-8000-000000000001','reader-all-history@example.invalid','Synthetic rough time with one proved reader','2026-09-01T19:00Z','exact','rough','card',1100,'needs_review','2026-10-04T20:00Z','hosted_refund_intake');
 set local session_replication_role=origin;
 select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000006','aa180303-0000-4000-8000-000000000004')->>'readerId','18030005','A single attested all-history reader resolves without pretending a rough customer time is exact');
+-- An explicit clear must not leave a proved old interval open when the next
+-- reviewed replacement is saved. Roll back this isolated synthetic rehearsal.
+create function pg_temp.cleared_attested_reader_change() returns void language plpgsql security definer set search_path='' as $$
+begin
+ perform public.admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000004',null,null,'Explicit clear before dated replacement rehearsal');
+ perform public.admin_change_machine_reader('aa180303-0000-4000-8000-000000000004','aa180304-0000-4000-8000-000000000006',(select updated_at from public.reporting_machines where id='aa180303-0000-4000-8000-000000000004'),null,'America/Los_Angeles','2026-10-02',null,'Actual replacement after explicit clearing');
+ if not exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id='aa180303-0000-4000-8000-000000000004' and nayax_machine_id='18030005' and closed_on='2026-10-02' and effective_until is null) then raise exception 'Former proved interval was not closed at the actual calendar day'; end if;
+ if private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030005','2026-10-03T19:00Z') is not null then raise exception 'Former reader still owns future purchases'; end if;
+ if private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18030006','2026-10-03T19:00Z') is distinct from 'aa180303-0000-4000-8000-000000000004'::uuid then raise exception 'New reader does not own the proved future purchase'; end if;
+ if not exists(select 1 from public.admin_audit_log where action='reporting_machine.reader_changed' and entity_id='aa180303-0000-4000-8000-000000000004' and before->'readerId'='null'::jsonb and meta->>'previousReaderId'='18030005') then raise exception 'Reviewed change audit did not retain actual cleared configuration and previous-reader provenance'; end if;
+ raise exception 'Cleared reviewed replacement proof restores all original state' using errcode='Z1803';
+end $$;
+set local role authenticated;
+select throws_ok($$select pg_temp.cleared_attested_reader_change()$$,'Z1803','Cleared reviewed replacement proof restores all original state','After an explicit clear the dated writer closes only the unique proved previous interval and routes future purchases to the new reader');
+reset role;
+select ok((select updated_at from public.reporting_machines where id='aa180303-0000-4000-8000-000000000004')=(select updated_at from attested_change_expected)
+ and exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id='aa180303-0000-4000-8000-000000000004' and nayax_machine_id='18030005' and closed_at is null),'The cleared-reader rehearsal rolls back before the ordinary replacement proof');
 grant select on attested_change_expected to authenticated;
 set local role authenticated;
 select lives_ok($$select admin_change_machine_reader('aa180303-0000-4000-8000-000000000004','aa180304-0000-4000-8000-000000000006',(select updated_at from attested_change_expected),null,'America/Los_Angeles','2026-10-02',null,'Actual later broken-reader replacement')$$,'Normal replacement closes the proved former interval without a fabricated UTC instant');
