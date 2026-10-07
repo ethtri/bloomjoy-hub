@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 
-const [appSource, machinesSource, machineUatSource, refundPortalUatSource, ambiguousSelectionUatSource] = await Promise.all([
+const [appSource, machinesSource, machineUatSource, refundPortalUatSource, ambiguousSelectionUatSource, refundAvailabilitySource] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/admin/Machines.tsx', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/validate-machine-manager-uat.mjs', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/validate-refund-portal-uat.mjs', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/portal-uat/journeys/ambiguous-selection.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../src/lib/machineRefundReadiness.ts', import.meta.url), 'utf8'),
 ]);
 
 const refundPortalUatSources = `${refundPortalUatSource}\n${ambiguousSelectionUatSource}`;
@@ -17,16 +18,16 @@ const checks = [
   ['attention-first portfolio view', machinesSource.includes("useState<MachineView>(() => parseMachineView(searchParams.get('view')))" )],
   ['task-focused machine workspace', machinesSource.includes("mode === 'page' && machine")],
   ['machine detail tabs', ['overview', 'refunds', 'managers', 'reporting', 'activity'].every((tab) => machinesSource.includes(`value: '${tab}'`))],
-  ['explicit Machine Manager save and cancel', machinesSource.includes('Save managers') && machinesSource.includes('cancelMachineManagerChanges')],
+  ['one explicit machine save includes manager drafts and cancel', machinesSource.includes("saveMachine('all')") && machinesSource.includes('const shouldSaveManagers') && machinesSource.includes('cancelMachineManagerChanges')],
   ['manager assignment and invitation are separate', machinesSource.includes("managerFlow === 'assign'") && machinesSource.includes("managerFlow === 'invite'")],
-  ['detail uses unfiltered machine data', machinesSource.includes('allMachineRows.find((row) => row.machine.id === routeMachineId)')],
+  ['detail uses unfiltered machine data', machinesSource.includes('allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)')],
   ['sort persists in the URL', machinesSource.includes("nextParams.set('sort', nextSort)")],
   ['long portfolios load incrementally', machinesSource.includes('Load 20 more')],
   ['reporting uses source tax diagnostics instead of manual tax controls', machinesSource.includes("rpc('admin_reporting_machine_source_tax'") && machinesSource.includes('Tax source diagnostics') && !machinesSource.includes('Change tax rate</Button>')],
   ['source diagnostics preserve independent identity authority', machinesSource.includes('const isMachineIdentityEditable = isSuperAdmin;') && machinesSource.includes('Cash has no tax deduction.')],
   ['no manager autosave copy', !machinesSource.includes('assignments autosave')],
   ['exceptions-first Nayax review', machinesSource.includes("inventoryView === 'attention'") && machinesSource.includes('No Nayax setup needs attention')],
-  ['Ready refund rows require live global availability', machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && globalRefunds.available") && machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && refundManagerSetup.globalRefunds.available")],
+  ['Ready refund rows require live global availability', machinesSource.includes('machineRefundAvailability(refundSetup, globalRefunds)') && refundAvailabilitySource.includes('if (!global.available)') && machinesSource.includes("row.refundReadinessState === 'ready_to_refund' && refundManagerSetup.globalRefunds.available")],
   ['retired balance gate does not label enabled machines as portal-only', !machinesSource.includes("globalRefunds.blockReason === 'provider_remaining_value_unverified'") && !machinesSource.includes("'Manual portal only'") && machinesSource.includes('Direct API is unavailable')],
   ['blocked direct API has a dedicated refund filter', machinesSource.includes("value=\"direct_blocked\"") && machinesSource.includes("refundFilter === 'direct_blocked'")],
   ['machine capability, intake, and lookup remain separate facts', machinesSource.includes('Card-refund capability') && machinesSource.includes('Customer requests') && machinesSource.includes('Transaction lookup') && machinesSource.includes('Direct API')],
