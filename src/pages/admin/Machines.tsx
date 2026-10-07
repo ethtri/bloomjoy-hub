@@ -3381,7 +3381,7 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine name</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">State</dt><dd className="font-medium">{savedSourceState === 'inactive' ? 'Inactive' : savedSourceState === 'setup' ? 'Setup — provisional' : 'Live'}</dd></div>
               </dl>
             )}
             {taxRateSetup}
