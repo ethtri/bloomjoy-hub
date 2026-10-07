@@ -168,6 +168,7 @@ begin
   end if;
   return jsonb_build_object('machineId',machine.id,'machineName',private.reporting_machine_display_name(machine),
     'expectedMachineUpdatedAt',machine.updated_at,'currentReaderId',machine.nayax_machine_id,'currentAccountKey',machine.nayax_account_key,
+    'hasReaderHistory',exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine.id),
     'inventoryId',reader.id,'newReaderId',reader.nayax_machine_id,'newAccountKey',reader.account_key,
     'ownerMachineId',owner.id,'ownerMachineName',private.reporting_machine_display_name(owner),'expectedOwnerUpdatedAt',owner.updated_at,
     'historicalOwnerConflict',coalesce(cardinality(original_owners)>1,false),
@@ -1120,10 +1121,10 @@ begin
   definition:=replace(pg_get_functiondef('public.admin_set_reporting_machine_nayax_config(uuid,text,text,text)'::regprocedure),E'\r\n',E'\n');
   anchor:=E'  update public.reporting_machines\n  set';
   if (length(definition)-length(replace(definition,anchor,'')))/length(anchor)<>1 then raise exception 'Canonical reader setter anchor changed'; end if;
-  definition:=replace(definition,anchor,$guard$  if normalized_machine_id is not null and before_row.nayax_machine_id is not null
+  definition:=replace(definition,anchor,$guard$  if normalized_machine_id is not null
     and (normalized_machine_id is distinct from before_row.nayax_machine_id
       or normalized_account_key is distinct from before_row.nayax_account_key)
-    and (exists(select 1 from private.machine_card_financial_policies where reporting_machine_id=p_machine_id)
+    and ((before_row.nayax_machine_id is not null and exists(select 1 from private.machine_card_financial_policies where reporting_machine_id=p_machine_id))
       or exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=p_machine_id))
     and coalesce(current_setting('app.machine_reader_change',true),'')<>'1' then
     raise exception 'Open Manage and review the reader change date and ownership' using errcode='22023';

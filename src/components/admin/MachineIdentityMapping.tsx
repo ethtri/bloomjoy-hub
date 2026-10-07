@@ -45,7 +45,7 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   });
   const preview = readerPreview.data;
   const movingOwner = Boolean(preview?.ownerMachineId && preview.ownerMachineId !== machineId);
-  const needsReaderChange = Boolean(preview?.currentReaderId || movingOwner);
+  const needsReaderChange = Boolean(preview?.currentReaderId || preview?.hasReaderHistory || movingOwner);
   const verifiedPreview = Boolean(preview && !readerPreview.isError && !readerPreview.isFetching);
   useEffect(() => { setConfirmedChange(false); setChangedAt(''); }, [inventoryId, preview?.expectedMachineUpdatedAt, preview?.expectedOwnerUpdatedAt, preview?.timezone, changedOn, changedAtLocal]);
   useEffect(() => { if (metadata && (!draftMetadata || draftMetadata.machineId !== machineId || !dirty)) { setDraftMetadata(metadata); setInventoryId(''); } }, [machineId, metadata, draftMetadata, dirty]);
