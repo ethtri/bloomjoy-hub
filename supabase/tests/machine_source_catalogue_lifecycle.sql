@@ -65,7 +65,7 @@ create temporary table catalogue_markers(platform text,account_id uuid,source_id
 create temporary table catalogue_expected as select jsonb_build_array('Sunze',null::text,sunze_machine_id)identity from sunze_machine_discoveries union all select jsonb_build_array('Kexiaozhan',provider_account_id::text,source_machine_id) from private.snapcase_source_machines;
 grant select on catalogue_before,catalogue_expected to authenticated;
 grant select,insert on catalogue_markers to authenticated;
-select is((select net_sales_cents from private.financial_machine_sales_facts where id='aa181107-0000-4000-8000-000000000001'),1100::bigint,'Parity baseline includes a positive eligible native card sale');
+select is((select net_sales_cents from private.financial_machine_sales_facts where id='aa181107-0000-4000-8000-000000000001'),1100::integer,'Parity baseline includes a positive eligible native card sale');
 select ok(not has_function_privilege('anon','public.admin_set_machine_source_catalogue_inactive(text,uuid,text,boolean,timestamptz,text)','execute'),'Anonymous cannot change source visibility');
 set local role authenticated;
 select set_config('request.jwt.claim.role','authenticated',true),set_config('request.jwt.claim.sub','aa181100-0000-4000-8000-000000000003',true);
