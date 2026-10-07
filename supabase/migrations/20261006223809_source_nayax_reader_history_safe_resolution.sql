@@ -313,7 +313,7 @@ create function public.admin_change_machine_reader(
 ) returns jsonb language plpgsql security definer set search_path='' as $fn$
 declare machine public.reporting_machines; owner public.reporting_machines;
   reader public.refund_nayax_machine_inventory; history private.machine_nayax_reader_associations;
-  zone text; old_account text; prior_guard text; ownership_basis text; original_owners uuid[];
+  zone text; old_account text; prior_guard text; prior_change_guard text; ownership_basis text; original_owners uuid[];
 begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then raise exception 'Super admin access required' using errcode='42501'; end if;
   perform public.reporting_admin_assert_reason(p_reason);
@@ -363,6 +363,8 @@ begin
         p_changed_on,'original_transactions_only',auth.uid(),btrim(p_reason),statement_timestamp(),auth.uid(),btrim(p_reason));
   end if;
   old_account:=upper(coalesce(nullif(btrim(machine.nayax_account_key),''),'TGPACI_USA_DB'));
+  prior_change_guard:=current_setting('app.machine_reader_change',true);
+  perform set_config('app.machine_reader_change','1',true);
   prior_guard:=current_setting('app.nayax_reader_replacement',true);
   perform set_config('app.nayax_reader_replacement','1',true);
   if owner.id is not null and owner.id<>machine.id then
@@ -403,6 +405,7 @@ begin
       values(reader.account_key,reader.nayax_machine_id,machine.id,p_changed_at,p_changed_on,zone,ownership_basis,auth.uid(),btrim(p_reason));
   else ownership_basis:=history.ownership_basis; end if;
   perform set_config('app.nayax_reader_replacement',coalesce(prior_guard,''),true);
+  perform set_config('app.machine_reader_change',coalesce(prior_change_guard,''),true);
   insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
     values(auth.uid(),'reporting_machine.reader_changed','reporting_machine',machine.id::text,
       jsonb_build_object('readerId',machine.nayax_machine_id,'accountKey',machine.nayax_account_key,'previousOwnerMachineId',owner.id),
@@ -943,7 +946,7 @@ begin
     if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
       raise exception 'Candidate original reader anchor changed: %',signature;
     end if;
-    definition:=replace(definition,anchor,anchor||E'\n  machine_row.nayax_account_key:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''accountKey'';\n  machine_row.nayax_machine_id:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''readerId'';\n  if machine_row.nayax_account_key is null or machine_row.nayax_machine_id is null then return ''refresh''; end if;\n  if p_evidence->''machine_clock_context'' is not null and p_evidence->''machine_clock_context''<>''null''::jsonb and private.refund_case_reader_clock_context_matches(case_row.id,machine_row.id,p_evidence->''machine_clock_context'') is not true then return ''refresh''; end if;');
+    definition:=replace(definition,anchor,anchor||E'\n  if exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine_row.id) then\n    begin\n      machine_row.nayax_account_key:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''accountKey'';\n      machine_row.nayax_machine_id:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''readerId'';\n    exception when sqlstate ''22023'' then return ''invalid''; end;\n    if machine_row.nayax_account_key is null or machine_row.nayax_machine_id is null then return ''refresh''; end if;\n    if p_evidence->''machine_clock_context'' is not null and p_evidence->''machine_clock_context''<>''null''::jsonb and private.refund_case_reader_clock_context_matches(case_row.id,machine_row.id,p_evidence->''machine_clock_context'') is not true then return ''refresh''; end if;\n  end if;');
     anchor:=E'on inventory.reporting_machine_id = machine_row.id\n    and inventory.account_key = machine_row.nayax_account_key';
     if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
       raise exception 'Candidate retained inventory anchor changed: %',signature;
@@ -1109,4 +1112,32 @@ begin
 end; $fn$;
 revoke all on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) from public,anon;
 grant execute on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) to authenticated;
+
+-- Retired entry points cannot bypass the reviewed date/ownership writer.
+do $patch$
+declare definition text; anchor text;
+begin
+  definition:=replace(pg_get_functiondef('public.admin_set_reporting_machine_nayax_config(uuid,text,text,text)'::regprocedure),E'\r\n',E'\n');
+  anchor:=E'  update public.reporting_machines\n  set';
+  if (length(definition)-length(replace(definition,anchor,'')))/length(anchor)<>1 then raise exception 'Canonical reader setter anchor changed'; end if;
+  definition:=replace(definition,anchor,$guard$  if normalized_machine_id is not null and before_row.nayax_machine_id is not null
+    and (normalized_machine_id is distinct from before_row.nayax_machine_id
+      or normalized_account_key is distinct from before_row.nayax_account_key)
+    and (exists(select 1 from private.machine_card_financial_policies where reporting_machine_id=p_machine_id)
+      or exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=p_machine_id))
+    and coalesce(current_setting('app.machine_reader_change',true),'')<>'1' then
+    raise exception 'Open Manage and review the reader change date and ownership' using errcode='22023';
+  end if;
+$guard$||anchor);
+  execute definition;
+  definition:=replace(pg_get_functiondef('public.admin_replace_refund_nayax_machine(uuid,uuid,text)'::regprocedure),E'\r\n',E'\n');
+  anchor:='  if machine.status <> ''active'' then';
+  if (length(definition)-length(replace(definition,anchor,'')))/length(anchor)<>1 then raise exception 'Legacy replacement guard anchor changed'; end if;
+  definition:=replace(definition,anchor,$guard$  if exists(select 1 from private.machine_card_financial_policies where reporting_machine_id=p_reporting_machine_id)
+    or exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=p_reporting_machine_id) then
+    raise exception 'Open Manage and review the reader change date and ownership' using errcode='22023';
+  end if;
+$guard$||anchor);
+  execute definition;
+end; $patch$;
 commit;

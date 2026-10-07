@@ -78,7 +78,6 @@ import {
   fetchRefundNayaxInventory,
   isLocalUatDemoForced,
   reconcileRefundNayaxMachineAdmin,
-  replaceRefundNayaxMachineAdmin,
   setMachineRefundManagersAdmin,
   setRefundMachineCardActivationAdmin,
   type RefundManagerSetup,
@@ -2044,7 +2043,6 @@ function RefundNayaxInventoryPanel({
 
 function RefundNayaxInventoryRow({
   inventoryMachine,
-  inventoryMachines,
   reportingMachines,
   canReconcile,
   onSaved,
@@ -2066,24 +2064,11 @@ function RefundNayaxInventoryRow({
   const [exclusionReason, setExclusionReason] = useState(inventoryMachine.exclusionReason ?? '');
   const [auditReason, setAuditReason] = useState('');
   const [mode, setMode] = useState<'replace' | 'reconcile'>('reconcile');
-  const [replacementInventoryId, setReplacementInventoryId] = useState('');
   const [saveNotice, setSaveNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const replacementCandidates = inventoryMachines.filter((candidate) =>
-    candidate.id !== inventoryMachine.id
-      && candidate.accountKey === inventoryMachine.accountKey
-      && candidate.providerActive
-      && candidate.missingSuccessfulSnapshots === 0
-      && !candidate.reportingMachineId
-  );
   const canReplace = inventoryMachine.state === 'published'
     && Boolean(inventoryMachine.reportingMachineId);
-  const soleReplacementInventoryId = replacementCandidates.length === 1
-    && replacementCandidates[0].state !== 'excluded'
-    ? replacementCandidates[0].id
-    : '';
-  const selectedReplacement = replacementCandidates.find((candidate) => candidate.id === replacementInventoryId);
 
   useEffect(() => {
     setState(inventoryMachine.state);
@@ -2095,8 +2080,7 @@ function RefundNayaxInventoryRow({
 
   useEffect(() => {
     setMode(canReplace ? 'replace' : 'reconcile');
-    setReplacementInventoryId(soleReplacementInventoryId);
-  }, [canReplace, inventoryMachine.id, soleReplacementInventoryId]);
+  }, [canReplace, inventoryMachine.id]);
 
   const reportError = (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : fallback;
@@ -2142,44 +2126,6 @@ function RefundNayaxInventoryRow({
     }
   };
 
-  const replaceReader = async () => {
-    if (!inventoryMachine.reportingMachineId) {
-      reportError(null, 'The current reader must be linked before it can be replaced.');
-      return;
-    }
-    if (!replacementInventoryId) {
-      reportError(null, 'Choose the verified replacement reader.');
-      return;
-    }
-    if (auditReason.trim().length < 8) {
-      reportError(null, 'Add a short audit reason before replacing the reader.');
-      return;
-    }
-    setSaveNotice(null);
-    setIsSaving(true);
-    try {
-      const result = await replaceRefundNayaxMachineAdmin({
-        reportingMachineId: inventoryMachine.reportingMachineId,
-        replacementInventoryId,
-        reason: auditReason.trim(),
-      });
-      const successMessage = `Reader replaced and verified ready with Nayax ID ${result.replacementNayaxMachineId}.`;
-      setSaveNotice({ kind: 'success', message: successMessage });
-      onOperationNotice({ kind: 'success', message: successMessage });
-      toast.success(successMessage);
-      setAuditReason('');
-      try {
-        await onSaved();
-      } catch {
-        setSaveNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
-        onOperationNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
-      }
-    } catch (saveError) {
-      reportError(saveError, 'Unable to replace the Nayax reader.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   return (
     <div className={cn('p-4', isReviewing && 'bg-muted/15')}>
@@ -2219,52 +2165,9 @@ function RefundNayaxInventoryRow({
         )}
 
         {mode === 'replace' && canReplace ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-start">
-            <div className="rounded-md border border-border bg-background p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current reader</div>
-              <div className="mt-1 font-medium">{inventoryMachine.machineName || 'Unnamed Nayax machine'}</div>
-              <div className="mt-1 text-sm text-muted-foreground">Nayax ID {inventoryMachine.nayaxMachineId}</div>
-              <div className="mt-2 text-sm">Bloomjoy machine: {reportingMachines.find((machine) => machine.id === inventoryMachine.reportingMachineId)?.machine_label ?? 'Linked machine'}</div>
-            </div>
-            <ArrowRightLeft className="hidden h-5 w-5 text-muted-foreground lg:mt-10 lg:block" aria-hidden="true" />
-            <div>
-              <Label htmlFor={`inventory-replacement-${inventoryMachine.id}`}>Replacement reader</Label>
-              <select id={`inventory-replacement-${inventoryMachine.id}`} value={replacementInventoryId} onChange={(event) => { setReplacementInventoryId(event.target.value); setSaveNotice(null); }} disabled={isSaving} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
-                <option value="">Choose replacement</option>
-                {replacementCandidates.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.machineName || 'Unnamed Nayax machine'} — ID {candidate.nayaxMachineId}{candidate.state === 'excluded' ? ' — excluded' : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">Only active, current, unlinked readers from the same provider account are listed. Verify the physical reader's printed Nayax ID before saving.</p>
-              {replacementCandidates.length === 0 && (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
-                  No eligible replacement is in the latest inventory. Refresh after the new reader appears in Nayax, then verify its ID here.
-                </div>
-              )}
-              {selectedReplacement?.state === 'excluded' && (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
-                  This reader was excluded: {selectedReplacement.exclusionReason || 'no exclusion reason available'}. Confirm it is the physical replacement before continuing.
-                </div>
-              )}
-              {selectedReplacement && (
-                <div className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium">
-                  Confirm Nayax ID change: {inventoryMachine.nayaxMachineId} &rarr; {selectedReplacement.nayaxMachineId}.
-                </div>
-              )}
-            </div>
-            <div className="lg:col-span-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
-              The old reader stays attached to its historical sales and refund records. New lookups switch to the selected reader after this verified save.
-            </div>
-            <div className="lg:col-span-2">
-              <Label htmlFor={`inventory-replacement-reason-${inventoryMachine.id}`}>Why is this reader being replaced?</Label>
-              <Input id={`inventory-replacement-reason-${inventoryMachine.id}`} value={auditReason} onChange={(event) => { setAuditReason(event.target.value); setSaveNotice(null); }} placeholder="Failed reader replaced at the same machine" disabled={isSaving} />
-            </div>
-            <Button className="min-h-10 lg:self-end" onClick={() => void replaceReader()} disabled={isSaving}>
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Replace reader
-            </Button>
+          <div className="space-y-3 rounded-md border border-border bg-background p-3">
+            <p className="text-sm">Change the reader in Manage to review the current and replacement IDs, the actual change date, and preserved history.</p>
+            <Button asChild className="min-h-11"><Link to={`/admin/machines/${encodeURIComponent(inventoryMachine.reportingMachineId!)}`}>Open Manage to change reader</Link></Button>
           </div>
         ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] xl:items-end">
