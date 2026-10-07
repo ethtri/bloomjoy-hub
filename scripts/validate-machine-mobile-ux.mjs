@@ -86,6 +86,7 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     await settleEditor();
     const backBounds = await editor.getByRole('link', { name: 'Back to machines', exact: true }).boundingBox();
     const headerBounds = await page.locator('[data-app-shell-content-header]').boundingBox();
+    if (backBounds.y < headerBounds.y + headerBounds.height) console.error(JSON.stringify({ engine, backBounds, headerBounds, scrollY: await page.evaluate(() => scrollY) }));
     check('settled Back link clears the sticky application header', backBounds.y >= headerBounds.y + headerBounds.height);
     check('bound Manage opens a full page with no machine dialog', new URL(page.url()).pathname.endsWith(`/${machineId}`) && await page.getByRole('dialog').count() === 0);
     check('full editor retains one State with Inactive available', await editor.getByLabel('State', { exact: true }).locator('option[value=inactive]').count() === 1);
@@ -129,8 +130,31 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     check('current Inactive State remains visible while history stays available', (await row.innerText()).includes('Inactive') && await row.getByRole('button', { name: 'Manage', exact: true }).isEnabled());
     await row.screenshot({ path: `${output}/${engine}-inactive-390.png` });
     check('browsing and disclosures produce zero mutations and page errors', writers.length === 0 && errors.length === 0);
+    check('untouched bound and imported pages do not prompt to discard changes', discardPrompts.length === 0);
+    if (process.argv.includes('--publish-synthetic')) {
+      source.catalogueInactiveAt = null;
+      await context.route('**/rest/v1/rpc/admin_reconcile_refund_nayax_machine', route => {
+        const body = route.request().postDataJSON();
+        assert.equal(body.p_inventory_id, state.nayaxInventory.machines[0].id);
+        assert.equal(body.p_reporting_machine_id, machineId);
+        assert.equal(body.p_reconciliation_state, 'published');
+        assert.equal(body.p_refund_category, 'cotton_candy');
+        Object.assign(state.nayaxInventory.machines[0], { state: 'published', category: 'cotton_candy', exclusionReason: null });
+        state.refundSetup.customerIntakeAccepting = true;
+        return route.fulfill(json({ ok: true }));
+      });
+      await page.goto(`${origin}/admin/machines/${machineId}?tab=refunds`);
+      await editor.waitFor();
+      await settleEditor();
+      await editor.getByRole('button', { name: 'Enable customer refund requests', exact: true }).click();
+      await page.waitForFunction(() => document.body.innerText.includes('Customer requests are enabled. Card-refund processing awaits activation.'));
+      check('explicit synthetic publication enables only customer requests on the exact saved reader', writers.length === 1 && writers[0] === 'admin_reconcile_refund_nayax_machine' && state.refundSetup.customerIntakeAccepting && !state.refundSetup.cardRefundsEnabled && state.refundSetup.nayaxMachineId === '361844295' && state.refundSetup.nayaxAccountKey === 'TGPACI_USA_DB');
+      check('post-publication explains processing remains off without automatic activation', (await editor.innerText()).includes('Card refunds off') && await editor.getByRole('button', { name: 'Enable customer refund requests', exact: true }).count() === 0);
+      await page.screenshot({ path: `${output}/${engine}-synthetic-published-viewport-390.png` });
+    }
     await writeFile(`${output}/${engine}-evidence.json`, JSON.stringify({ testedSha: process.env.TESTED_SHA ?? null, rowHeight: bounds.height, manageOffset: manage.y - bounds.y, writers, errors, discardPrompts, physicalIPhoneTested: false }, null, 2));
   } catch (error) {
+    await page.screenshot({ path: `${output}/${engine}-failure-viewport-390.png` });
     await page.screenshot({ path: `${output}/${engine}-failure-390.png`, fullPage: true });
     console.error(JSON.stringify({ errors, body: await page.locator('body').innerText() }));
     throw error;
