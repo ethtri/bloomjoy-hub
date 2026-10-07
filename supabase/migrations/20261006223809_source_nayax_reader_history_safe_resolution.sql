@@ -954,6 +954,7 @@ begin
     ('public.can_prepare_nayax_refund_execution(uuid,uuid)','refund_case.id','machine',0,2,false),
     ('public.refund_nayax_retry_safe_case_is_current(public.refund_cases)','p_case.id','machine',0,2,false),
     ('public.service_claim_due_nayax_refund_attempts_v1(text,text,text,text,integer)','refund_case.id','machine',3,2,false),
+    ('public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','refund_case.id','machine',3,2,false),
     ('public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','case_row.id','machine_row',1,1,false),
     ('public.guard_refund_nayax_execution_context_stage()','c.id','machine',1,1,true),
     ('public.refund_receipt_verified_api_attempt(uuid,uuid)','c.id','m',1,1,false)
@@ -968,6 +969,14 @@ begin
       raise exception 'Original execution reader anchors changed: %',item.signature;
     end if;
     identity:='public.service_refund_case_reader_identity('||item.case_expression||','||item.machine_alias||'.id)';
+    if item.signature='public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)' then
+      account_anchor:=E'machine.nayax_account_key,\n      machine.nayax_machine_id,';
+      if length(definition)-length(replace(definition,account_anchor,''))<>length(account_anchor) then
+        raise exception 'Continuation reader output aliases changed';
+      end if;
+      definition:=replace(definition,account_anchor,E'machine.nayax_account_key as nayax_account_key,\n      machine.nayax_machine_id as nayax_machine_id,');
+      account_anchor:=item.machine_alias||'.nayax_account_key';
+    end if;
     definition:=replace(definition,account_anchor,case when item.nonnull_comparison then 'coalesce('||identity||'->>''accountKey'','''')' else '('||identity||'->>''accountKey'')' end);
     definition:=replace(definition,reader_anchor,case when item.nonnull_comparison then 'coalesce('||identity||'->>''readerId'','''')' else '('||identity||'->>''readerId'')' end);
     execute definition;

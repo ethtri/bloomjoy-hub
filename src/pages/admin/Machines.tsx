@@ -3665,7 +3665,7 @@ function MachineDialog({
               <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
               {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}
               <Button variant="outline" className="min-h-11" onClick={() => void sourceReuseOptions.refetch()}>Reload connection details</Button>
-              <Button variant="outline" className="min-h-11" disabled={sourceReuseOptions.isError || sourceReuseOptions.isFetching} onClick={() => setReviewSourceReaderMove(true)}>Review moving this reader to the selected source</Button>
+              <Button variant="outline" className="min-h-11 h-auto w-full min-w-0 whitespace-normal px-3 py-2 text-center" disabled={sourceReuseOptions.isError || sourceReuseOptions.isFetching} onClick={() => setReviewSourceReaderMove(true)}>Review moving this reader to the selected source</Button>
 
             </>}
           </div>}
