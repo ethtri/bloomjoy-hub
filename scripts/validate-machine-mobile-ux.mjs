@@ -16,8 +16,14 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
   const state = {
     machineType: 'commercial', managerEmails: ['machine-manager-one@example.test', 'machine-manager-two@example.test'],
     rpcCalls: [], accessInviteBodies: [], inviteDeliveries: [], globalRefundsAvailable: true, globalRefundsPaused: false,
-    refundSetup: { refundIntakeEnabled: true, nayaxMachineId: '361844295', nayaxAccountKey: 'TGPACI_USA_DB', readinessState: 'setup_needed', readinessBlockReason: 'awaiting_reviewed_activation' },
+    refundSetup: { customerIntakeAccepting: false, refundIntakeEnabled: true, nayaxMachineId: '361844295', nayaxAccountKey: 'TGPACI_USA_DB', readinessState: 'setup_needed', readinessBlockReason: 'awaiting_reviewed_activation' },
   };
+  state.nayaxInventory = { lastRun: null, machines: [{
+    id: '55555555-5555-4555-8555-555555555551', reportingMachineId: machineId,
+    nayaxMachineId: '361844295', accountKey: 'TGPACI_USA_DB', machineName: 'BubblePlanetLA',
+    state: 'excluded', exclusionReason: 'Synthetic legacy test exclusion', category: null,
+    providerActive: true, missingSuccessfulSnapshots: 0, lastSeenAt: new Date().toISOString(),
+  }] };
   await installMockSupabaseRoutes(context, state);
   const setup = buildMockSetup(state);
   setup.machines = setup.machines.slice(0, 1);
@@ -45,6 +51,10 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     if (request.method() === 'POST' && /^admin_(save|set|upsert|change|link|setup|archive|restore|reconcile)/.test(rpc)) writers.push(rpc);
   });
   const check = (label, value) => { assert(value, `${engine}: ${label}`); checks.push(`${engine}: ${label}`); };
+  const settleEditor = async () => {
+    await page.waitForLoadState('networkidle');
+    await page.waitForFunction(() => !/Loading State|Checking source tax/.test(document.body.innerText));
+  };
   try {
     await page.goto(`${origin}/admin/machines`);
     await page.locator('#email-password').fill(mockUser.email);
@@ -56,7 +66,7 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     const bounds = await row.boundingBox(), manage = await row.getByRole('button', { name: 'Manage', exact: true }).boundingBox();
     check('collapsed bound machine is at most 300px tall', bounds.height <= 300);
     check('Manage starts beside the name with a 44px touch target', manage.y - bounds.y <= 24 && manage.height >= 44);
-    check('literal Live State remains independent of refund setup', (await row.innerText()).includes('Live') && (await row.innerText()).includes('Refunds: Setup needed'));
+    check('literal Live State remains independent of refund availability', (await row.innerText()).includes('Live') && (await row.innerText()).includes('Refunds: Customer refunds off'));
     check('reader match is visibly connected independently from refunds', /Reader:\s*Connected/.test(await row.innerText()));
     const company = await page.locator('#machine-company-filter').boundingBox(), search = await page.locator('#machine-search').boundingBox();
     check('Company and Search are equal 44px controls with Company first', company.height >= 44 && company.height === search.height && company.y < search.y);
@@ -73,15 +83,28 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     await row.getByRole('button', { name: 'Manage', exact: true }).click();
     const editor = page.locator('[data-machine-editor="page"]');
     await editor.waitFor();
+    await settleEditor();
+    const backBounds = await editor.getByRole('link', { name: 'Back to machines', exact: true }).boundingBox();
+    const headerBounds = await page.locator('[data-app-shell-content-header]').boundingBox();
+    check('settled Back link clears the sticky application header', backBounds.y >= headerBounds.y + headerBounds.height);
     check('bound Manage opens a full page with no machine dialog', new URL(page.url()).pathname.endsWith(`/${machineId}`) && await page.getByRole('dialog').count() === 0);
     check('full editor retains one State with Inactive available', await editor.getByLabel('State', { exact: true }).locator('option[value=inactive]').count() === 1);
     await page.screenshot({ path: `${output}/${engine}-bound-overview-390.png`, fullPage: true });
+    await page.screenshot({ path: `${output}/${engine}-bound-overview-viewport-390.png` });
+    await editor.getByLabel('State', { exact: true }).scrollIntoViewIfNeeded();
+    const stateBounds = await editor.getByLabel('State', { exact: true }).boundingBox(), actionBounds = await editor.locator('[aria-label="Machine changes"]').boundingBox();
+    check('scrolled State control clears the persistent Save bar', stateBounds.y >= headerBounds.height && stateBounds.y + stateBounds.height <= actionBounds.y);
+    await page.screenshot({ path: `${output}/${engine}-bound-state-viewport-390.png` });
     await editor.getByRole('button', { name: 'Refunds', exact: true }).click();
     await page.waitForTimeout(250); // Allow the section marker's CSS transition to settle before capture.
     check('Refunds tab opens without a modal', await page.getByRole('heading', { name: /refund/i }).count() > 0 && await page.getByRole('dialog').count() === 0);
+    await settleEditor();
+    check('refund cause identifies the exact connected excluded reader with explicit remedy', (await editor.innerText()).includes('This connected reader is excluded from customer refund requests.') && await editor.getByRole('button', { name: 'Enable customer refund requests', exact: true }).isVisible());
     await page.screenshot({ path: `${output}/${engine}-bound-refunds-390.png`, fullPage: true });
+    await page.screenshot({ path: `${output}/${engine}-bound-refunds-viewport-390.png` });
     await editor.getByRole('link', { name: 'Back to machines', exact: true }).click();
     await page.locator('#machine-search').waitFor();
+    await page.waitForFunction(id => document.querySelector('#machine-search')?.value === id, source.sourceId, { timeout: 3000 });
     check('Back retains full source search', await page.locator('#machine-search').inputValue() === source.sourceId);
     await page.locator('#machine-search').fill('');
     await page.locator('#machine-company-filter').selectOption('unassigned');
@@ -91,6 +114,7 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
     await unbound.screenshot({ path: `${output}/${engine}-unassigned-390.png` });
     await unbound.getByRole('button', { name: 'Manage', exact: true }).click();
     await editor.waitFor();
+    await settleEditor();
     check('unbound Manage opens a full source page', new URL(page.url()).pathname.includes('/admin/machines/source/') && await page.getByRole('dialog').count() === 0);
     await page.screenshot({ path: `${output}/${engine}-unbound-overview-390.png`, fullPage: true });
     await editor.getByRole('link', { name: 'Back to machines', exact: true }).click();
