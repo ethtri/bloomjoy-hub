@@ -52,7 +52,9 @@ export function MachinePartnershipAssignment({ machineId, machineName, setup, ca
   useEffect(() => { setEditing(false); setPickerOpen(false); setPartnershipId(''); setError(''); }, [resetVersion]);
 
   const refresh = async () => {
-    await queryClient.fetchQuery({ queryKey: setupKey, queryFn: fetchPartnershipReportingSetup, staleTime: 0, retry: false });
+    // Keep a failed post-write read local, so the page's shared query stays usable.
+    const refreshed = await fetchPartnershipReportingSetup();
+    queryClient.setQueryData(setupKey, refreshed);
     setRefreshNeeded(false);
   };
   const add = async () => {
