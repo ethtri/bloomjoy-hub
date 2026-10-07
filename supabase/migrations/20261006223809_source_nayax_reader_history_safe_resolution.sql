@@ -993,6 +993,7 @@ begin
     ('public.refund_receipt_verified_api_attempt(uuid,uuid)','c.id','m',1,1,false)
     ,('public.refund_case_nayax_manager_readiness(uuid,uuid)','c.id','machine',1,1,false)
     ,('public.refund_nayax_api_terminal_evidence_proved(uuid,uuid)','c.id','machine',1,1,false)
+    ,('public.refund_nayax_unsettled_api_success_journal_proved(uuid,uuid)','refund_case.id','machine',1,1,false)
   ) patches(signature,case_expression,machine_alias,account_count,reader_count,nonnull_comparison) loop
     definition:=replace(pg_get_functiondef(item.signature::regprocedure),E'\r\n',E'\n');
     account_anchor:=item.machine_alias||'.nayax_account_key';
