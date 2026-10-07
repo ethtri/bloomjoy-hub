@@ -6,7 +6,7 @@ const origin = process.env.MACHINE_SOURCE_UAT_APP_URL || 'http://127.0.0.1:8091'
 assert(['localhost','127.0.0.1'].includes(new URL(origin).hostname));
 const output='output/playwright/machine-source-manage'; await mkdir(output,{recursive:true});
 const json=value=>({contentType:'application/json',body:JSON.stringify(value)});
-const reuseMode=process.argv.includes('--existing-reader'),readerChangeMode=process.argv.includes('--reader-change');
+const reuseMode=process.argv.includes('--existing-reader'),readerChangeMode=process.argv.includes('--reader-change'),unboundMoveMode=process.argv.includes('--unbound-reader-change');
 const checks=[],browser=await chromium.launch();
 async function runReaderChange() { for(const platform of ['Sunze','Kexiaozhan']) for(const width of [1440,390]) {
  const context=await browser.newContext({viewport:{width,height:1000},hasTouch:width===390});
@@ -46,7 +46,7 @@ async function runReaderChange() { for(const platform of ['Sunze','Kexiaozhan'])
   await mapping.getByRole('radio').nth(1).check();await mapping.getByLabel('Reason for this change',{exact:true}).fill('Owner confirmed reviewed physical reader move');await confirm.check();
   previewFailure=true;await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await mapping.getByText('Reader connection unavailable.',{exact:false}).waitFor();pass('cached successful preview cannot authorize after refresh failure',!await mapping.getByRole('button',{name:'Save reader change',exact:true}).isEnabled()&&writes.length===0);
   previewFailure=false;await mapping.getByRole('button',{name:'Retry',exact:true}).click();await mapping.getByRole('radio').nth(1).waitFor();await mapping.getByRole('radio').nth(1).check();await confirm.check();
-  ownerStamp='2026-10-02T00:00:00Z';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await page.waitForLoadState('networkidle');await page.waitForFunction(()=>Array.from(document.querySelectorAll('input[type=checkbox]')).some(e=>e.parentElement.textContent.includes('two reader IDs')&&!e.checked));pass('owner snapshot change resets attestation and UTC selection',!await confirm.isChecked()&&!await mapping.getByRole('radio').nth(1).isChecked());
+  await page.waitForLoadState('networkidle');ownerStamp='2026-10-02T00:00:00Z';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await page.waitForLoadState('networkidle');await page.waitForFunction(()=>Array.from(document.querySelectorAll('input[type=checkbox]')).some(e=>e.parentElement.textContent.includes('two reader IDs')&&!e.checked));pass('owner snapshot change resets attestation and UTC selection',!await confirm.isChecked()&&!await mapping.getByRole('radio').nth(1).isChecked());
   await mapping.getByRole('radio').nth(1).check();await confirm.check();await page.getByText('Signed in. Redirecting...',{exact:true}).waitFor({state:'hidden'});await page.screenshot({path:`${output}/reader-change-${platform}-${width}-review.png`,fullPage:true});
   stale=true;await mapping.getByRole('button',{name:'Save reader change',exact:true}).click();await page.getByText('Synthetic ownership changed; reload preview',{exact:true}).waitFor();pass('stale write leaves exact original Hub rows and reader unchanged',writes.length===0&&currentReader==='OLD-READER-001'&&JSON.stringify(base)===original);
   stale=false;await mapping.getByRole('button',{name:'Save reader change',exact:true}).click();await mapping.getByText('Reader connection saved',{exact:true}).waitFor();pass('successful move shows committed new reader and reads-only retry after metadata500',writes.length===1&&await mapping.getByRole('button',{name:'Save reader change',exact:true}).count()===0&&(await mapping.innerText()).includes('OCCUPIED-READER-002'));
@@ -125,7 +125,9 @@ try { if(readerChangeMode) await runReaderChange(); else if(reuseMode) await run
  const state={machineType:platform==='Sunze'?'commercial':'snapcase',managerEmails:[],rpcCalls:[],accessInviteBodies:[],inviteDeliveries:[],refundSetup:{refundIntakeEnabled:false,refundPublicDisplayLabel:'Synthetic cabinet',nayaxMachineId:null,nayaxAccountKey:null}};
  await installMockSupabaseRoutes(context,state);
  const base=buildMockSetup(state),seed=base.machines[0]; base.machines=[];
- await context.route('**/rest/v1/rpc/admin_get_imported_source_reuse_options',r=>r.fulfill(json([])));
+ const occupiedOwner='bbbbbbbb-1111-4111-8111-111111111111';let previewFailure=false,ownerStamp='2026-10-01T00:00:00Z';
+ await context.route('**/rest/v1/rpc/admin_get_imported_source_reuse_options',r=>r.fulfill(json(unboundMoveMode?[{inventoryId:'55555555-5555-4555-8555-555555555552',machineId:occupiedOwner,machineName:'Original reader owner',companyId:'aa990000-0000-4000-8000-000000000001',companyName:'Other synthetic company',timezone:'America/Los_Angeles',expectedMachineUpdatedAt:ownerStamp,eligible:false,reason:'Already connected to a different exact source'}]:[])));
+ await context.route('**/rest/v1/rpc/admin_preview_imported_machine_reader_change',r=>{const body=r.request().postDataJSON();assert.equal(body.p_inventory_id,'55555555-5555-4555-8555-555555555552');return r.fulfill(previewFailure?{...json({message:'Synthetic ownership unavailable'}),status:500}:json({inventoryId:body.p_inventory_id,newReaderId:'UAT-NAYAX-002',newAccountKey:'UAT_ACCOUNT',ownerMachineId:unboundMoveMode?occupiedOwner:null,ownerMachineName:unboundMoveMode?'Original reader owner':null,expectedOwnerUpdatedAt:unboundMoveMode?ownerStamp:null,ownerArchived:false,historicalOwnerConflict:false,timezone:body.p_timezone,effectiveInstants:body.p_changed_at_local==='2026-11-01T01:30'?['2026-11-01T05:30:00Z','2026-11-01T06:30:00Z']:[]}));});
  await context.route('**/rest/v1/rpc/admin_get_reporting_company_choices',r=>r.fulfill(json({canCreateCompany:true,companies:[
   {accountId:seed.account_id,accountName:'Bloomjoy UAT',status:'active',archivedAt:null,locations:[]},
   {accountId:'aa990000-0000-4000-8000-000000000001',accountName:'Other synthetic company',status:'active',archivedAt:null,locations:[]},
@@ -145,11 +147,12 @@ try { if(readerChangeMode) await runReaderChange(); else if(reuseMode) await run
   const body=r.request().postDataJSON();assert.equal(body.p_machine_id,machineId);assert.equal(body.p_expected_nayax_machine_id,'UAT-NAYAX-002');assert.equal(body.p_expected_nayax_account_key,'UAT_ACCOUNT');assert.equal(body.p_inventory_id,'55555555-5555-4555-8555-555555555554');
   mappingBodies.push(body);readerId='UAT-NAYAX-TEST';taxRate=7.25;return r.fulfill(json({ok:true}));
  });
- await context.route('**/rest/v1/rpc/admin_setup_imported_machine',r=>{
+ await context.route(`**/rest/v1/rpc/${unboundMoveMode?'admin_setup_imported_machine_with_reader_change':'admin_setup_imported_machine'}`,r=>{
   const body=r.request().postDataJSON();
   assert.equal(body.p_platform,platform); assert.equal(body.p_source_id,source.sourceId); assert.equal(body.p_provider_account_id,source.providerAccountId);
   assert.equal(body.p_machine_name,'Concise cabinet name'); assert.equal(body.p_timezone,'America/New_York'); assert.equal(body.p_inventory_id,'55555555-5555-4555-8555-555555555552');
   assert.deepEqual(body.p_manager_emails,['manager-two@example.test']); assert(body.p_account_id);
+  assert.equal(Object.keys(body).length,unboundMoveMode?14:11);if(unboundMoveMode){assert.equal(body.p_expected_owner_updated_at,ownerStamp);assert.equal(body.p_changed_on,'2026-11-01');assert.equal(body.p_changed_at,'2026-11-01T06:30:00Z');}
   if(!rejectedOnce){rejectedOnce=true;return r.fulfill({...json({message:'Synthetic setup rejected'}),status:400});}
   bodies.push(body);
   state.managerEmails=body.p_manager_emails;state.refundSetup.refundPublicDisplayLabel=body.p_machine_name;
@@ -179,10 +182,21 @@ try { if(readerChangeMode) await runReaderChange(); else if(reuseMode) await run
   await page.getByText('Signed in. Redirecting...',{exact:true}).waitFor({state:'hidden'});
   await page.screenshot({path:`${output}/${platform}-${width}-picker.png`,fullPage:true});
   await page.getByRole('option').filter({hasText:'UAT-NAYAX-002'}).click();await search.waitFor({state:'hidden'});
+  if(unboundMoveMode)await editor.getByRole('button',{name:'Review moving this reader to the selected source',exact:true}).click();
   pass('single combined picker retains exact selected identity',await picker.count()===1&&(await picker.innerText()).includes('UAT-NAYAX-002'));
   await editor.getByText(/8.875%/).waitFor();pass('numeric source tax uses selected exact inventory',taxReads.some(x=>x.body.p_inventory_id==='55555555-5555-4555-8555-555555555552'));
   await editor.getByLabel('People',{exact:true}).fill('manager-two@example.test');await editor.getByRole('button',{name:'Add',exact:true}).click();await editor.getByRole('button',{name:'Remove manager-two@example.test',exact:true}).waitFor();
   pass('manager selection is draft until atomic save',bodies.length===0&&!state.rpcCalls.some(c=>c.rpcName==='admin_set_reporting_machine_refund_managers'));
+  if(unboundMoveMode){
+   const review=editor.getByRole('region',{name:'Review reader reassignment',exact:true}),date=review.getByLabel('Actual change date',{exact:true}),time=review.getByLabel('Actual local change time (America/New_York)',{exact:true}),attestation=review.getByRole('checkbox');
+   await date.waitFor();pass('occupied owner is reviewed against chosen new site timezone without invented time',(await review.innerText()).includes('Original reader owner')&&(await review.innerText()).includes(source.sourceId)&&await date.inputValue()===''&&await time.inputValue()==='');
+   await date.fill('2026-11-01');await time.fill('2026-03-08T02:30');await review.getByText('This local time does not exist. Review the actual change time.',{exact:true}).waitFor();pass('unbound move blocks nonexistent local time',!await attestation.isEnabled()&&bodies.length===0);
+   await time.fill('2026-11-01T01:30');await review.getByRole('radio').nth(1).check();await attestation.check();
+   previewFailure=true;await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await review.getByText('Reader ownership unavailable.',{exact:false}).waitFor();pass('cached preview failure cannot authorize atomic setup',!await editor.getByRole('button',{name:'Save machine changes',exact:true}).isEnabled()&&bodies.length===0);
+   previewFailure=false;await review.getByRole('button',{name:'Retry',exact:true}).click();await review.getByRole('radio').nth(1).check();await attestation.check();
+   await page.waitForLoadState('networkidle');ownerStamp='2026-10-02T00:00:00Z';await page.evaluate(()=>window.dispatchEvent(new Event('visibilitychange')));await page.waitForLoadState('networkidle');await page.waitForFunction(element=>!element.checked,await attestation.elementHandle(),{timeout:5000});pass('fresh owner snapshot resets reviewed instant and attestation',!await attestation.isChecked());
+   await review.getByRole('radio').nth(1).check();await attestation.check();
+  }
   await page.keyboard.press('Escape');
   pass('Escape protects source draft',closePrompts===2&&await editor.isVisible());
   pass('unbound manager assignment has no ineffective separate save',!await editor.getByRole('button',{name:'Save Machine Managers',exact:true}).isVisible());
@@ -193,6 +207,7 @@ try { if(readerChangeMode) await runReaderChange(); else if(reuseMode) await run
   await editor.evaluate(e=>{e.scrollTop=0;});
   await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:`${output}/${platform}-${width}-draft.png`,fullPage:true});
+  if(unboundMoveMode){const bounds=await editor.getByRole('button',{name:'Review moving this reader to the selected source',exact:true}).evaluate(e=>({left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right,height:e.getBoundingClientRect().height}));pass('occupied-reader review action fits the viewport with a usable touch height',bounds.left>=0&&bounds.right<=width&&bounds.height>=44);}
   await editor.getByRole('button',{name:'Save machine changes',exact:true}).click();
   await page.getByText('Synthetic setup rejected',{exact:true}).waitFor();
   pass('failed setup preserves exact source and all pending draft values',bodies.length===0&&source.reportingMachineId===null&&await editor.getByLabel('Machine name',{exact:true}).inputValue()==='Concise cabinet name'&&(await picker.innerText()).includes('UAT-NAYAX-002')&&await editor.getByRole('button',{name:'Remove manager-two@example.test',exact:true}).isVisible());
@@ -229,4 +244,4 @@ try { if(readerChangeMode) await runReaderChange(); else if(reuseMode) await run
   pass('no app exceptions or aborted requests',errors.length===0&&requestFailures.length===0);pass('controls actual44px/16px',controlDimensions.every(x=>x.height>=44&&x.font>=16));
  }catch(error){await page.screenshot({path:`${output}/failure-${platform}-${width}.png`,fullPage:true});await writeFile(`${output}/failure-${platform}-${width}.json`,JSON.stringify({url:page.url(),dialogs:await page.getByRole('dialog').allTextContents(),bodies,mappingBodies,taxReads,machineSavePayload:state.machineSavePayload,rpcCalls:state.rpcCalls,errors,requestFailures},null,2));throw error;}finally{await page.waitForLoadState('networkidle');await context.close();}
 } }finally{await browser.close();}
-await writeFile(`${output}/${readerChangeMode?'reader-change-results':reuseMode?'reuse-results':process.env.MACHINE_SOURCE_CONTINUATION_FAILURE==='true'?'continuation-results':'results'}.json`,JSON.stringify((reuseMode||readerChangeMode)?{candidate:process.env.TESTED_SHA,physicalIPhoneTested:false,financialParity:'Actual SQL release-owned; browser uses synthetic history-facing rows',checks}:checks,null,2));console.log(`${checks.length} source Manage checks PASS`);
+await writeFile(`${output}/${unboundMoveMode?'unbound-reader-change-results':readerChangeMode?'reader-change-results':reuseMode?'reuse-results':process.env.MACHINE_SOURCE_CONTINUATION_FAILURE==='true'?'continuation-results':'results'}.json`,JSON.stringify((reuseMode||readerChangeMode||unboundMoveMode)?{candidate:process.env.TESTED_SHA,physicalIPhoneTested:false,financialParity:'Actual SQL release-owned; browser uses synthetic history-facing rows',checks}:checks,null,2));console.log(`${checks.length} source Manage checks PASS`);
