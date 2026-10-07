@@ -54,17 +54,19 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   });
   const canJoinSameMachine = sameMachinePreview.data?.eligible === true && !sameMachinePreview.isError && !sameMachinePreview.isFetching;
   const joiningSameMachine = canJoinSameMachine && !physicalMoveSelected;
-  const checkingSameMachine = dirty && Boolean(selected?.reportingMachineId && selected.reportingMachineId !== machineId) && Boolean(metadata?.sources.length) && sameMachinePreview.isPending;
+  const requiresSameMachinePreview = dirty && Boolean(selected?.reportingMachineId && selected.reportingMachineId !== machineId) && Boolean(metadata?.sources.length);
+  const checkingSameMachine = requiresSameMachinePreview && sameMachinePreview.isFetching;
+  const sameMachinePreviewFailed = requiresSameMachinePreview && sameMachinePreview.isError;
   const movingOwner = Boolean(preview?.ownerMachineId && preview.ownerMachineId !== machineId);
   const restoringSameReader = !preview?.currentReaderId && preview?.previousReaderId === preview?.newReaderId && preview?.previousAccountKey === preview?.newAccountKey;
   const needsReaderChange = Boolean(preview?.currentReaderId || (preview?.hasReaderHistory && !restoringSameReader) || movingOwner);
   const verifiedPreview = Boolean(preview && !readerPreview.isError && !readerPreview.isFetching);
   useEffect(() => { setConfirmedChange(false); setChangedAt(''); }, [inventoryId, preview?.expectedMachineUpdatedAt, preview?.expectedOwnerUpdatedAt, preview?.timezone, changedOn, changedAtLocal]);
-  useEffect(() => { setConfirmedSameMachine(false); setPhysicalMoveSelected(false); }, [inventoryId, sameMachinePreview.data?.expectedMachineUpdatedAt, sameMachinePreview.data?.expectedHistoricalMachineUpdatedAt, sameMachinePreview.data?.expectedInventoryUpdatedAt, sameMachinePreview.data?.expectedSourceIdentityDigest]);
+  useEffect(() => { setConfirmedSameMachine(false); setPhysicalMoveSelected(false); }, [inventoryId, sameMachinePreview.isError, sameMachinePreview.data?.expectedMachineUpdatedAt, sameMachinePreview.data?.expectedHistoricalMachineUpdatedAt, sameMachinePreview.data?.expectedInventoryUpdatedAt, sameMachinePreview.data?.expectedSourceIdentityDigest]);
   useEffect(() => { if (metadata && (!draftMetadata || draftMetadata.machineId !== machineId || !dirty)) { setDraftMetadata(metadata); setInventoryId(''); } }, [machineId, metadata, draftMetadata, dirty]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   async function save() {
-    if (!draftMetadata || saving || committedReader || !verifiedPreview || checkingSameMachine || (!joiningSameMachine && (preview?.historicalOwnerConflict || preview?.ownerArchived))) return;
+    if (!draftMetadata || saving || committedReader || !verifiedPreview || checkingSameMachine || sameMachinePreviewFailed || (!joiningSameMachine && (preview?.historicalOwnerConflict || preview?.ownerArchived))) return;
     setSaving(true);
     try {
       if (joiningSameMachine) {
@@ -84,7 +86,12 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
         queryClient.invalidateQueries({ queryKey: ['admin-machine-source-inventory'] }),
         onSaved(),
       ]);
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.'); }
+    } catch (error) {
+      setConfirmedSameMachine(false); setConfirmedChange(false);
+      void readerPreview.refetch();
+      if (requiresSameMachinePreview) void sameMachinePreview.refetch();
+      toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.');
+    }
     finally { setSaving(false); }
   }
   useEffect(() => {
@@ -123,9 +130,17 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
       </div>
       {metadata.salesActivationPending && <p className="rounded-md border p-3 text-sm">Source connected for management. Sales activation awaits reconciliation; imported orders remain pending and existing sales history is unchanged.</p>}
       {dirty && <div className="space-y-3 rounded-md border p-3 text-sm">
-        {readerPreview.isFetching ? <p role="status">Checking current and historical reader connections…</p> : readerPreview.isError ? <div role="alert">Reader connection unavailable. <Button variant="link" onClick={() => void readerPreview.refetch()}>Retry</Button></div> : preview && <>
+        {readerPreview.isFetching || checkingSameMachine ? <p role="status">Checking current and historical reader connections…</p> : readerPreview.isError ? <div role="alert">Reader connection unavailable. <Button variant="link" onClick={() => void readerPreview.refetch()}>Retry</Button></div> : sameMachinePreviewFailed ? <div role="alert">Connection details unavailable. Reload before reviewing this reader. <Button type="button" variant="link" onClick={() => void sameMachinePreview.refetch()}>Reload connection details</Button></div> : preview && <>
           <p className="break-words">Current reader: {preview.currentReaderId || 'None'} · {preview.currentAccountKey || 'No current account'}{!preview.currentReaderId && preview.previousReaderId && <> · Previous reader: {preview.previousReaderId}</>}<br />Selected reader: {preview.newReaderId} · {preview.newAccountKey}</p>
-          {preview.ownerMachineId && <p>Connected machine: {preview.ownerMachineName || preview.ownerMachineId}{movingOwner && <> · <a className="underline" href={`/admin/machines/${preview.ownerMachineId}`}>Open machine</a></>}</p>}
+          {preview.ownerMachineId && <p className="break-words">Already connected to: {sameMachinePreview.data?.historicalMachineName || preview.ownerMachineName || preview.ownerMachineId}</p>}
+          {joiningSameMachine && sameMachinePreview.data ? <div className="space-y-3" role="region" aria-label="Review same machine connection">
+            <p>Connect this reader to {sameMachinePreview.data.machineName}. Keep this machine’s company and Managers.</p>
+            <label className="flex min-h-11 items-start gap-2"><input type="checkbox" className="mt-1" checked={confirmedSameMachine} onChange={event => setConfirmedSameMachine(event.target.checked)} disabled={saving || !verifiedPreview} />These are the same physical machine</label>
+            <details><summary className="cursor-pointer py-2 underline">Historical transactions and refunds</summary><p className="mt-2">{sameMachinePreview.data.historicalCardTransactionCount} card transactions and {sameMachinePreview.data.historicalRefundCaseCount} refund cases remain with {sameMachinePreview.data.historicalMachineName}, under their original company. Its historical record remains available in reporting. This connection does not enable customer refunds or automatic card refunds.</p></details>
+            <Button type="button" variant="link" className="min-h-11 h-auto whitespace-normal px-0 text-left" disabled={saving} onClick={() => { setPhysicalMoveSelected(true); setConfirmedSameMachine(false); }}>This reader physically moved between machines</Button>
+          </div> : <>
+          {canJoinSameMachine && <Button type="button" variant="link" className="min-h-11 h-auto whitespace-normal px-0 text-left" disabled={saving} onClick={() => { setPhysicalMoveSelected(false); setConfirmedChange(false); }}>These records are the same physical machine</Button>}
+          {requiresSameMachinePreview && sameMachinePreview.data?.reason && <p className="text-muted-foreground">{sameMachinePreview.data.reason}</p>}
           {preview.historicalOwnerConflict || preview.ownerArchived ? <p role="alert">This reader needs its historical ownership reconciled before it can move. Existing connections remain unchanged.</p> : needsReaderChange && <>
             <p>{movingOwner ? 'Review moving this reader between these two machines. Original transactions stay with their original machine.' : 'Change the reader on this same machine. Its source, company, managers and past transactions stay unchanged.'}</p>
             <Label htmlFor={`reader-change-date-${machineId}`}>Actual reader change date</Label>
@@ -142,11 +157,12 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
             <p className="text-muted-foreground">Old reader evidence remains available. Imports without enough purchase-time evidence stay pending for review; refunds are not automatically enabled.</p>
             <label className="flex min-h-11 items-start gap-2"><input type="checkbox" checked={confirmedChange} onChange={event => setConfirmedChange(event.target.checked)} disabled={saving || !verifiedPreview || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)} />I reviewed the two reader IDs, ownership and actual change date.</label>
           </>}
+          </>}
         </>}
       </div>}
 
       <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} · {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
-      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" onClick={() => void save()} disabled={saving || !verifiedPreview || preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))}>{saving ? 'Saving…' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
+      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" className="min-h-11" onClick={() => void save()} disabled={saving || !verifiedPreview || checkingSameMachine || sameMachinePreviewFailed || (joiningSameMachine ? !confirmedSameMachine : Boolean(preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))))}>{saving ? 'Saving…' : joiningSameMachine ? 'Connect this reader' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
     </>}
   </section>;
 }

@@ -64,9 +64,9 @@ grant select on join_before to authenticated;
 create function pg_temp.join_candidate_rejects(mutation text) returns boolean language plpgsql as $$
 declare rejected boolean;
 begin
-  perform set_config('session_replication_role','replica',true);
+  execute 'set local session_replication_role=replica';
   execute mutation;
-  perform set_config('session_replication_role','origin',true);
+  execute 'set local session_replication_role=origin';
   rejected:=private.same_physical_reader_join_blocker('aa181503-0000-4000-8000-000000000001','aa181504-0000-4000-8000-000000000001') is not null;
   raise exception '%',case when rejected then 'rejected' else 'admitted' end using errcode='P1815';
 exception when sqlstate 'P1815' then return sqlerrm='rejected';
