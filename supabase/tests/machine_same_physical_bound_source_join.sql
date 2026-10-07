@@ -90,7 +90,7 @@ begin
 exception when sqlstate 'P1815' then return sqlerrm='rejected';
 end $$;
 select ok(pg_temp.join_candidate_rejects($$update reporting_machines set status='inactive' where id='aa181503-0000-4000-8000-000000000002'$$),'Inactive historical machine cannot be joined');
-select ok(pg_temp.join_candidate_rejects($$update reporting_machines set operational_phase='inactive' where id='aa181503-0000-4000-8000-000000000001'$$),'Inactive current source machine cannot be joined');
+select ok(pg_temp.join_candidate_rejects($$update reporting_machines set status='inactive' where id='aa181503-0000-4000-8000-000000000001'$$),'Inactive current source machine cannot be joined');
 select ok(pg_temp.join_candidate_rejects($$update refund_nayax_machine_inventory set provider_is_active=false where id='aa181504-0000-4000-8000-000000000001'$$),'Inactive provider reader cannot be joined');
 select ok(pg_temp.join_candidate_rejects($$update refund_nayax_machine_inventory set missing_successful_snapshots=2 where id='aa181504-0000-4000-8000-000000000001'$$),'Stale missing reader snapshots cannot be joined');
 select ok(pg_temp.join_candidate_rejects($$update reporting_locations set timezone='America/Los_Angeles' where id='aa181502-0000-4000-8000-000000000002'$$),'Different saved time zones require review');
