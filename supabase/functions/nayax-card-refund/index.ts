@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
+import { resolveRefundExecutionReader } from "../_shared/nayax-lookup.ts";
 import { parseNayaxRefundExecutionContext } from "../_shared/nayax-refund-context.ts";
 import {
   parseReviewedFinalDecisionReceipt,
@@ -229,9 +230,9 @@ const resolveCaseRefundReadiness = async ({
   const databaseReadiness = parseDatabaseRefundReadiness(databaseValue);
   if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
 
-  const accountKey = normalizeNayaxRefundAccountKey(
-    refundCase.reporting_machines?.nayax_account_key ?? "",
-  );
+  if (!refundCase.reporting_machines?.id) throw new Error("Refund machine identity unavailable.");
+  const originalReader = await resolveRefundExecutionReader(supabase, refundCase.id, refundCase.reporting_machines.id);
+  const accountKey = normalizeNayaxRefundAccountKey(originalReader.accountKey ?? "");
   const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
     readEnv: (name) => Deno.env.get(name),
     requiredAccountKey: accountKey,
@@ -636,13 +637,15 @@ serve(async (req) => {
         },
       );
       if (!verificationError) {
+        if (!refundCase.reporting_machines?.id) throw new Error("Refund machine identity unavailable.");
+        const originalReader = await resolveRefundExecutionReader(supabase, refundCase.id, refundCase.reporting_machines.id);
         refundCase.executionContext = parseNayaxRefundExecutionContext(verificationData, {
           caseId: refundCase.id, caseVersion: refundCase.official_action_version,
           attemptGeneration: refundCase.nayax_refund_attempt_generation,
           transactionId: refundCase.matched_nayax_transaction_id,
           siteId: refundCase.matched_nayax_site_id, amountCents: refundCase.matched_nayax_amount_cents,
-          accountScope: refundCase.reporting_machines?.nayax_account_key ?? null,
-          providerMachineId: refundCase.reporting_machines?.nayax_machine_id ?? null,
+          accountScope: originalReader.accountKey,
+          providerMachineId: originalReader.readerId,
           machineAuthorizationInstant:
             refundCase.matched_nayax_machine_auth_time,
         });

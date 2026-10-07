@@ -16,6 +16,39 @@ create table private.machine_preserved_source_card_facts (
 );
 create index machine_preserved_source_card_facts_machine_idx
   on private.machine_preserved_source_card_facts(reporting_machine_id);
+-- Hold obsolete management-only writers while validating the rollout state.
+lock table private.machine_source_management_associations in share mode;
+do $completed_association_rollout$
+begin
+  if exists(select 1 from private.machine_source_management_associations association
+    join public.reporting_machines machine on machine.id=association.reporting_machine_id
+    where not exists(select 1 from private.machine_card_financial_policies policy where policy.reporting_machine_id=machine.id)
+      or not(case when association.platform='Sunze' then machine.sunze_machine_id is not distinct from association.source_id
+        else exists(select 1 from private.snapcase_machine_mappings mapping
+          where mapping.reporting_machine_id=machine.id and mapping.provider_account_id=association.provider_account_id
+            and mapping.source_machine_id=association.source_id) end)) then
+    raise exception 'A source has an incomplete management-only association. Review and complete it before this release.' using errcode='22023';
+  end if;
+end; $completed_association_rollout$;
+create function private.require_completed_source_management_association()
+returns trigger language plpgsql security definer set search_path='' as $fn$
+begin
+  if not exists(select 1 from public.reporting_machines machine
+    join private.machine_card_financial_policies policy on policy.reporting_machine_id=machine.id
+    where machine.id=new.reporting_machine_id and
+      (case when new.platform='Sunze' then machine.sunze_machine_id is not distinct from new.source_id
+        else exists(select 1 from private.snapcase_machine_mappings mapping
+          where mapping.reporting_machine_id=machine.id and mapping.provider_account_id=new.provider_account_id
+            and mapping.source_machine_id=new.source_id) end)) then
+    raise exception 'Source mapping must complete in the same reviewed save; reload this machine.' using errcode='22023';
+  end if;
+  return new;
+end; $fn$;
+revoke all on function private.require_completed_source_management_association() from public,anon,authenticated;
+create constraint trigger source_management_association_completed
+  after insert on private.machine_source_management_associations
+  deferrable initially deferred for each row execute function private.require_completed_source_management_association();
+
 -- Reader ownership provenance only: no amounts, refund actions or sale ledger.
 create table private.machine_nayax_reader_associations (
   id uuid primary key default gen_random_uuid(),
@@ -799,6 +832,11 @@ begin
   select * into original from public.machine_sales_facts where id=refund_case.matched_sales_fact_id
     and reporting_machine_id=machine.id and source='nayax_scheduled_report';
   if original.id is not null and nullif(original.raw_payload->>'providerMachineId','') is not null then
+    if refund_case.matched_nayax_transaction_id is not null and
+      (original.raw_payload->>'transactionId' is distinct from refund_case.matched_nayax_transaction_id
+        or (refund_case.matched_nayax_site_id is not null and original.raw_payload->>'siteId' is distinct from refund_case.matched_nayax_site_id::text)) then
+      return jsonb_build_object('readerId',null,'accountKey',null,'basis','original_transaction_conflict');
+    end if;
     return jsonb_build_object('readerId',original.raw_payload->>'providerMachineId','accountKey','TGPACI_USA_DB','basis','matched_original_transaction');
   end if;
   select * into receipt from public.refund_authoritative_receipts
@@ -822,6 +860,157 @@ begin
 end; $fn$;
 revoke all on function public.service_refund_case_reader_identity(uuid,uuid) from public,anon,authenticated;
 grant execute on function public.service_refund_case_reader_identity(uuid,uuid) to service_role;
+
+create function public.service_refund_case_reader_clock(p_case_id uuid,p_machine_id uuid)
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare identity jsonb; clock_row public.refund_nayax_machine_inventory;
+begin
+  identity:=public.service_refund_case_reader_identity(p_case_id,p_machine_id);
+  if identity->>'readerId' is null or identity->>'accountKey' is null then
+    raise exception 'Original reader clock identity unavailable' using errcode='22023';
+  end if;
+  select * into clock_row from public.refund_nayax_machine_inventory
+    where account_key=identity->>'accountKey' and nayax_machine_id=identity->>'readerId';
+  return jsonb_build_object('provider_clock_timezone',clock_row.provider_clock_timezone,
+    'provider_clock_source',clock_row.provider_clock_source,
+    'provider_clock_observed_at',clock_row.provider_clock_observed_at,
+    'provider_clock_daylight_saving',clock_row.provider_clock_daylight_saving);
+end; $fn$;
+revoke all on function public.service_refund_case_reader_clock(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.service_refund_case_reader_clock(uuid,uuid) to service_role;
+
+-- Candidate identity and its signed execution context follow the proved original
+-- reader. The retained Hub row still supplies status, caps and authorization.
+do $patch$
+declare definition text; anchor text;
+begin
+  definition:=pg_get_functiondef('public.refund_nayax_selected_execution_context(uuid)'::regprocedure);
+  anchor:='select * into m from public.reporting_machines where id=c.reporting_machine_id;';
+  if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+    raise exception 'Selected execution context reader anchor changed';
+  end if;
+  definition:=replace(definition,anchor,anchor||E'\n  if c.id is null or m.id is null then return null; end if;\n  m.nayax_account_key:=public.service_refund_case_reader_identity(c.id,m.id)->>''accountKey'';\n  m.nayax_machine_id:=public.service_refund_case_reader_identity(c.id,m.id)->>''readerId'';\n  if m.nayax_account_key is null or m.nayax_machine_id is null then return null; end if;');
+  execute definition;
+end; $patch$;
+
+create function private.refund_case_reader_clock_context_matches(p_case_id uuid,p_machine_id uuid,p_context jsonb)
+returns boolean language plpgsql security definer set search_path='' as $fn$
+declare clock_row public.refund_nayax_machine_inventory; identity jsonb;
+begin
+  if jsonb_typeof(p_context) is distinct from 'object'
+    or (select count(*) from jsonb_object_keys(p_context))<>4
+    or not p_context ?& array['reportingMachineId','timezone','source','observedAt']
+    or p_context->>'reportingMachineId' is distinct from p_machine_id::text then return false; end if;
+  identity:=public.service_refund_case_reader_identity(p_case_id,p_machine_id);
+  if identity->>'readerId' is null or identity->>'accountKey' is null then return false; end if;
+  select * into clock_row from public.refund_nayax_machine_inventory
+    where account_key=identity->>'accountKey' and nayax_machine_id=identity->>'readerId' for share;
+  if clock_row.id is null then return false; end if;
+  if clock_row.provider_clock_timezone is null then
+    return p_context->'timezone'='null'::jsonb and p_context->>'source'='unknown'
+      and p_context->'observedAt'='null'::jsonb;
+  end if;
+  return jsonb_typeof(p_context->'timezone')='string' and jsonb_typeof(p_context->'observedAt')='string'
+    and p_context->>'timezone'=clock_row.provider_clock_timezone
+    and p_context->>'source'=clock_row.provider_clock_source
+    and (p_context->>'observedAt')::timestamptz=clock_row.provider_clock_observed_at;
+exception when invalid_datetime_format or datetime_field_overflow or sqlstate '22023' then return false;
+end; $fn$;
+revoke all on function private.refund_case_reader_clock_context_matches(uuid,uuid,jsonb) from public,anon,authenticated,service_role;
+
+do $patch$
+declare signature text; definition text; anchor text;
+begin
+  foreach signature in array array[
+    'public.refund_nayax_candidate_id_state_pre_time_v1(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)',
+    'public.refund_nayax_candidate_id_state_time_v1(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)'
+  ] loop
+    definition:=pg_get_functiondef(signature::regprocedure);
+    anchor:=E'select m.* into machine_row from public.reporting_machines m where m.id = p_reporting_machine_id;\n  if not found then return ''invalid''; end if;';
+    if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+      raise exception 'Candidate original reader anchor changed: %',signature;
+    end if;
+    definition:=replace(definition,anchor,anchor||E'\n  machine_row.nayax_account_key:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''accountKey'';\n  machine_row.nayax_machine_id:=public.service_refund_case_reader_identity(case_row.id,machine_row.id)->>''readerId'';\n  if machine_row.nayax_account_key is null or machine_row.nayax_machine_id is null then return ''refresh''; end if;\n  if p_evidence->''machine_clock_context'' is not null and p_evidence->''machine_clock_context''<>''null''::jsonb and private.refund_case_reader_clock_context_matches(case_row.id,machine_row.id,p_evidence->''machine_clock_context'') is not true then return ''refresh''; end if;');
+    anchor:=E'on inventory.reporting_machine_id = machine_row.id\n    and inventory.account_key = machine_row.nayax_account_key';
+    if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+      raise exception 'Candidate retained inventory anchor changed: %',signature;
+    end if;
+    definition:=replace(definition,anchor,'on inventory.account_key = machine_row.nayax_account_key');
+    execute definition;
+  end loop;
+end; $patch$;
+
+-- Keep each authorization/case/money guard, replacing only the reader identity
+-- comparisons in the installed ordinary manager execution paths. Pilot hashes
+-- and authorizations are deliberately not migrated to a different configuration.
+do $patch$
+declare item record; definition text; account_anchor text; reader_anchor text; identity text;
+begin
+  for item in select * from (values
+    ('public.admin_approve_selected_nayax_refund_for_system_v1(uuid,bigint)','c.id','machine',1,1,false),
+    ('public.admin_approve_selected_nayax_refund_for_system_v2(uuid,bigint,integer)','c.id','machine',1,1,false),
+    ('public.can_prepare_nayax_refund_execution(uuid,uuid)','refund_case.id','machine',0,2,false),
+    ('public.refund_nayax_retry_safe_case_is_current(public.refund_cases)','p_case.id','machine',0,2,false),
+    ('public.service_claim_due_nayax_refund_attempts_v1(text,text,text,text,integer)','refund_case.id','machine',3,2,false),
+    ('public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','case_row.id','machine_row',1,1,false),
+    ('public.guard_refund_nayax_execution_context_stage()','c.id','machine',1,1,true),
+    ('public.refund_receipt_verified_api_attempt(uuid,uuid)','c.id','m',1,1,false)
+    ,('public.refund_case_nayax_manager_readiness(uuid,uuid)','c.id','machine',1,1,false)
+    ,('public.refund_nayax_api_terminal_evidence_proved(uuid,uuid)','c.id','machine',1,1,false)
+  ) patches(signature,case_expression,machine_alias,account_count,reader_count,nonnull_comparison) loop
+    definition:=pg_get_functiondef(item.signature::regprocedure);
+    account_anchor:=item.machine_alias||'.nayax_account_key';
+    reader_anchor:=item.machine_alias||'.nayax_machine_id';
+    if (length(definition)-length(replace(definition,account_anchor,'')))/length(account_anchor)<>item.account_count
+      or (length(definition)-length(replace(definition,reader_anchor,'')))/length(reader_anchor)<>item.reader_count then
+      raise exception 'Original execution reader anchors changed: %',item.signature;
+    end if;
+    identity:='public.service_refund_case_reader_identity('||item.case_expression||','||item.machine_alias||'.id)';
+    definition:=replace(definition,account_anchor,case when item.nonnull_comparison then 'coalesce('||identity||'->>''accountKey'','''')' else '('||identity||'->>''accountKey'')' end);
+    definition:=replace(definition,reader_anchor,case when item.nonnull_comparison then 'coalesce('||identity||'->>''readerId'','''')' else '('||identity||'->>''readerId'')' end);
+    execute definition;
+  end loop;
+end; $patch$;
+
+do $patch$
+declare definition text; anchor text;
+begin
+  definition:=pg_get_functiondef('public.guard_refund_receipt_exact_original()'::regprocedure);
+  anchor:='else m.nayax_account_key end';
+  if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+    raise exception 'Receipt original-account lock anchor changed';
+  end if;
+  execute replace(definition,anchor,'else public.service_refund_case_reader_identity(c.id,m.id)->>''accountKey'' end');
+
+  definition:=pg_get_functiondef('public.refund_ensure_proved_nayax_api_terminal_receipt(uuid,uuid)'::regprocedure);
+  anchor:='c.id,attempt.id,machine.id,machine.nayax_account_key,machine.nayax_machine_id,';
+  if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+    raise exception 'Terminal original receipt tuple anchor changed';
+  end if;
+  execute replace(definition,anchor,'c.id,attempt.id,machine.id,(select context->>''accountScope'' from public.refund_nayax_execution_contexts where attempt_id=attempt.id),(select context->>''providerMachineId'' from public.refund_nayax_execution_contexts where attempt_id=attempt.id),');
+end; $patch$;
+
+do $patch$
+declare item record; definition text;
+begin
+  for item in select * from (values
+    ('public.guard_refund_nayax_candidate_provider_clock()',
+      'public.refund_nayax_provider_clock_context_matches(new.reporting_machine_id,new.evidence_summary->''machine_clock_context'')',
+      'private.refund_case_reader_clock_context_matches(new.refund_case_id,new.reporting_machine_id,new.evidence_summary->''machine_clock_context'')'),
+    ('public.guard_refund_nayax_selected_provider_clock()',
+      'public.refund_nayax_provider_clock_context_matches(new.reporting_machine_id,clock_context)',
+      'private.refund_case_reader_clock_context_matches(new.id,new.reporting_machine_id,clock_context)'),
+    ('public.service_commit_refund_nayax_lookup_with_diagnostics(uuid,bigint,bigint,text,text,text,timestamptz,text,uuid,integer,text,uuid,jsonb)',
+      'public.refund_nayax_provider_clock_context_matches((clock_context ->> ''reportingMachineId'')::uuid, clock_context)',
+      'private.refund_case_reader_clock_context_matches(p_refund_case_id,(clock_context ->> ''reportingMachineId'')::uuid, clock_context)')
+  ) patches(signature,old_text,new_text) loop
+    definition:=pg_get_functiondef(item.signature::regprocedure);
+    if length(definition)-length(replace(definition,item.old_text,''))<>length(item.old_text) then
+      raise exception 'Case reader clock anchor changed: %',item.signature;
+    end if;
+    execute replace(definition,item.old_text,item.new_text);
+  end loop;
+end; $patch$;
 
 do $scheduled_refund_original_reader$
 declare definition text; anchor text;

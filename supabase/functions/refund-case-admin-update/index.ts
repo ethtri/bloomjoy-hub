@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { resolveRefundCaseReader } from "../_shared/nayax-lookup.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -317,9 +318,11 @@ const resolveSelectionRefundReadiness = async ({
   const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
     Deno.env.get(name)
   );
-  const accountKey = normalizeNayaxRefundAccountKey(
-    afterRow.reporting_machines?.nayax_account_key ?? "",
-  );
+  const originalReader = await resolveRefundCaseReader(supabase, caseId, afterRow.reporting_machine_id);
+  if (!originalReader.readerId || !originalReader.accountKey) {
+    return mergeRuntimeRefundReadiness({ databaseReadiness, executionConfig, providerCredentialAvailable: false });
+  }
+  const accountKey = normalizeNayaxRefundAccountKey(originalReader.accountKey ?? "");
   const rawManagerContract = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")
     ?.trim() ?? "";
   let managerContract:
