@@ -41,7 +41,7 @@ export const reuseImportedSourceMachine = async (source: MachineSourceInventoryI
     p_inventory_id: option.inventoryId, p_expected_machine_id: option.machineId,
     p_expected_updated_at: option.expectedMachineUpdatedAt,
     p_expected_timezone: option.timezone,
-    p_reason: 'Reviewed same physical machine: reuse existing reader machine without financial activation',
+    p_reason: 'Reviewed same physical machine throughout: connect source to the existing reader machine and preserve financial history',
   });
   if (error || !data?.machineId) throw new Error(error?.message || 'Unable to use this existing machine.');
   return data.machineId;
@@ -52,14 +52,16 @@ export const machineSourceInventoryQueryKey = ['admin-machine-source-inventory']
 export const setupImportedMachine = async (source: MachineSourceInventoryItem, input: {
   accountId: string; machineName: string; machineType: string; operationalPhase: string;
   timezone: string; inventoryId: string; managerEmails: string[];
+  readerChange?: { expectedOwnerUpdatedAt: string; changedOn: string; changedAt: string };
 }): Promise<string> => {
-  const { data, error } = await supabaseClient.rpc('admin_setup_imported_machine', {
+  const { data, error } = await supabaseClient.rpc(input.readerChange ? 'admin_setup_imported_machine_with_reader_change' : 'admin_setup_imported_machine', {
     p_platform: source.platform, p_provider_account_id: source.providerAccountId,
     p_source_id: source.sourceId, p_account_id: input.accountId,
     p_machine_name: input.machineName, p_machine_type: input.machineType,
     p_operational_phase: input.operationalPhase, p_timezone: input.timezone,
     p_inventory_id: input.inventoryId || null, p_manager_emails: input.managerEmails,
     p_reason: 'Imported machine setup saved from Machines',
+    ...(input.readerChange ? { p_expected_owner_updated_at: input.readerChange.expectedOwnerUpdatedAt, p_changed_on: input.readerChange.changedOn, p_changed_at: input.readerChange.changedAt } : {}),
   });
   if (error || !data?.machineId) throw new Error(error?.message || 'Unable to set up this imported machine.');
   return data.machineId;
@@ -95,3 +97,17 @@ export const fetchMachineSourceInventorySnapshot = async (): Promise<{
 
 export const fetchMachineSourceInventory = async (): Promise<MachineSourceInventoryItem[]> =>
   (await fetchMachineSourceInventorySnapshot()).sources;
+
+export type ImportedReaderChangePreview = {
+  inventoryId: string; newReaderId: string; newAccountKey: string;
+  ownerMachineId: string | null; ownerMachineName: string | null;
+  expectedOwnerUpdatedAt: string | null; ownerArchived: boolean;
+  historicalOwnerConflict: boolean; timezone: string; effectiveInstants: string[];
+};
+export async function previewImportedReaderChange(inventoryId: string, timezone: string, changedAtLocal: string | null): Promise<ImportedReaderChangePreview> {
+  const { data, error } = await supabaseClient.rpc('admin_preview_imported_machine_reader_change', {
+    p_inventory_id: inventoryId, p_timezone: timezone, p_changed_at_local: changedAtLocal,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}

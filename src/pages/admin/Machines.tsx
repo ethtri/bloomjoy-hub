@@ -1,4 +1,4 @@
-import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
+import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, previewImportedReaderChange, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
@@ -78,7 +78,6 @@ import {
   fetchRefundNayaxInventory,
   isLocalUatDemoForced,
   reconcileRefundNayaxMachineAdmin,
-  replaceRefundNayaxMachineAdmin,
   setMachineRefundManagersAdmin,
   setRefundMachineCardActivationAdmin,
   type RefundManagerSetup,
@@ -2044,7 +2043,6 @@ function RefundNayaxInventoryPanel({
 
 function RefundNayaxInventoryRow({
   inventoryMachine,
-  inventoryMachines,
   reportingMachines,
   canReconcile,
   onSaved,
@@ -2066,24 +2064,11 @@ function RefundNayaxInventoryRow({
   const [exclusionReason, setExclusionReason] = useState(inventoryMachine.exclusionReason ?? '');
   const [auditReason, setAuditReason] = useState('');
   const [mode, setMode] = useState<'replace' | 'reconcile'>('reconcile');
-  const [replacementInventoryId, setReplacementInventoryId] = useState('');
   const [saveNotice, setSaveNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const replacementCandidates = inventoryMachines.filter((candidate) =>
-    candidate.id !== inventoryMachine.id
-      && candidate.accountKey === inventoryMachine.accountKey
-      && candidate.providerActive
-      && candidate.missingSuccessfulSnapshots === 0
-      && !candidate.reportingMachineId
-  );
   const canReplace = inventoryMachine.state === 'published'
     && Boolean(inventoryMachine.reportingMachineId);
-  const soleReplacementInventoryId = replacementCandidates.length === 1
-    && replacementCandidates[0].state !== 'excluded'
-    ? replacementCandidates[0].id
-    : '';
-  const selectedReplacement = replacementCandidates.find((candidate) => candidate.id === replacementInventoryId);
 
   useEffect(() => {
     setState(inventoryMachine.state);
@@ -2095,8 +2080,7 @@ function RefundNayaxInventoryRow({
 
   useEffect(() => {
     setMode(canReplace ? 'replace' : 'reconcile');
-    setReplacementInventoryId(soleReplacementInventoryId);
-  }, [canReplace, inventoryMachine.id, soleReplacementInventoryId]);
+  }, [canReplace, inventoryMachine.id]);
 
   const reportError = (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : fallback;
@@ -2142,44 +2126,6 @@ function RefundNayaxInventoryRow({
     }
   };
 
-  const replaceReader = async () => {
-    if (!inventoryMachine.reportingMachineId) {
-      reportError(null, 'The current reader must be linked before it can be replaced.');
-      return;
-    }
-    if (!replacementInventoryId) {
-      reportError(null, 'Choose the verified replacement reader.');
-      return;
-    }
-    if (auditReason.trim().length < 8) {
-      reportError(null, 'Add a short audit reason before replacing the reader.');
-      return;
-    }
-    setSaveNotice(null);
-    setIsSaving(true);
-    try {
-      const result = await replaceRefundNayaxMachineAdmin({
-        reportingMachineId: inventoryMachine.reportingMachineId,
-        replacementInventoryId,
-        reason: auditReason.trim(),
-      });
-      const successMessage = `Reader replaced and verified ready with Nayax ID ${result.replacementNayaxMachineId}.`;
-      setSaveNotice({ kind: 'success', message: successMessage });
-      onOperationNotice({ kind: 'success', message: successMessage });
-      toast.success(successMessage);
-      setAuditReason('');
-      try {
-        await onSaved();
-      } catch {
-        setSaveNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
-        onOperationNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
-      }
-    } catch (saveError) {
-      reportError(saveError, 'Unable to replace the Nayax reader.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   return (
     <div className={cn('p-4', isReviewing && 'bg-muted/15')}>
@@ -2219,52 +2165,9 @@ function RefundNayaxInventoryRow({
         )}
 
         {mode === 'replace' && canReplace ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-start">
-            <div className="rounded-md border border-border bg-background p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current reader</div>
-              <div className="mt-1 font-medium">{inventoryMachine.machineName || 'Unnamed Nayax machine'}</div>
-              <div className="mt-1 text-sm text-muted-foreground">Nayax ID {inventoryMachine.nayaxMachineId}</div>
-              <div className="mt-2 text-sm">Bloomjoy machine: {reportingMachines.find((machine) => machine.id === inventoryMachine.reportingMachineId)?.machine_label ?? 'Linked machine'}</div>
-            </div>
-            <ArrowRightLeft className="hidden h-5 w-5 text-muted-foreground lg:mt-10 lg:block" aria-hidden="true" />
-            <div>
-              <Label htmlFor={`inventory-replacement-${inventoryMachine.id}`}>Replacement reader</Label>
-              <select id={`inventory-replacement-${inventoryMachine.id}`} value={replacementInventoryId} onChange={(event) => { setReplacementInventoryId(event.target.value); setSaveNotice(null); }} disabled={isSaving} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
-                <option value="">Choose replacement</option>
-                {replacementCandidates.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.machineName || 'Unnamed Nayax machine'} — ID {candidate.nayaxMachineId}{candidate.state === 'excluded' ? ' — excluded' : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">Only active, current, unlinked readers from the same provider account are listed. Verify the physical reader's printed Nayax ID before saving.</p>
-              {replacementCandidates.length === 0 && (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
-                  No eligible replacement is in the latest inventory. Refresh after the new reader appears in Nayax, then verify its ID here.
-                </div>
-              )}
-              {selectedReplacement?.state === 'excluded' && (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
-                  This reader was excluded: {selectedReplacement.exclusionReason || 'no exclusion reason available'}. Confirm it is the physical replacement before continuing.
-                </div>
-              )}
-              {selectedReplacement && (
-                <div className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium">
-                  Confirm Nayax ID change: {inventoryMachine.nayaxMachineId} &rarr; {selectedReplacement.nayaxMachineId}.
-                </div>
-              )}
-            </div>
-            <div className="lg:col-span-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
-              The old reader stays attached to its historical sales and refund records. New lookups switch to the selected reader after this verified save.
-            </div>
-            <div className="lg:col-span-2">
-              <Label htmlFor={`inventory-replacement-reason-${inventoryMachine.id}`}>Why is this reader being replaced?</Label>
-              <Input id={`inventory-replacement-reason-${inventoryMachine.id}`} value={auditReason} onChange={(event) => { setAuditReason(event.target.value); setSaveNotice(null); }} placeholder="Failed reader replaced at the same machine" disabled={isSaving} />
-            </div>
-            <Button className="min-h-10 lg:self-end" onClick={() => void replaceReader()} disabled={isSaving}>
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Replace reader
-            </Button>
+          <div className="space-y-3 rounded-md border border-border bg-background p-3">
+            <p className="text-sm">Change the reader in Manage to review the current and replacement IDs, the actual change date, and preserved history.</p>
+            <Button asChild className="min-h-11"><Link to={`/admin/machines/${encodeURIComponent(inventoryMachine.reportingMachineId!)}`}>Open Manage to change reader</Link></Button>
           </div>
         ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] xl:items-end">
@@ -2587,9 +2490,31 @@ function MachineDialog({
   const [sourceInventoryId, setSourceInventoryId] = useState('');
   const sourceNayaxInventory = useQuery({ queryKey: ['admin-refund-nayax-inventory'], queryFn: fetchRefundNayaxInventory, enabled: open && !!importedSource && !machine, staleTime: 30000 });
   const sourceReuseOptions = useQuery({ queryKey: ['imported-source-reuse', importedSource?.sourceKey], queryFn: () => fetchImportedSourceReuseOptions(importedSource!), enabled: open && !!importedSource && !machine, staleTime: 0, retry: false });
-  const sourceReaderOccupied = !!importedSource && !machine && !committedImportedMachineId && !!sourceNayaxInventory.data?.machines.find((reader) => reader.id === sourceInventoryId)?.reportingMachineId;
   const sourceReuseOption = sourceReuseOptions.data?.find((option) => option.inventoryId === sourceInventoryId);
   const sourceReuseVerified = !sourceReuseOptions.isError && !sourceReuseOptions.isFetching && !!sourceReuseOption;
+  const [reviewSourceReaderMove, setReviewSourceReaderMove] = useState(false);
+  const [sourceReaderChangedOn, setSourceReaderChangedOn] = useState('');
+  const [sourceReaderChangedLocal, setSourceReaderChangedLocal] = useState('');
+  const [sourceReaderChangedAt, setSourceReaderChangedAt] = useState('');
+  const [sourceReaderMoveConfirmed, setSourceReaderMoveConfirmed] = useState(false);
+  useEffect(() => {
+    setReviewSourceReaderMove(false); setSourceReaderChangedOn(''); setSourceReaderChangedLocal('');
+    setSourceReaderChangedAt(''); setSourceReaderMoveConfirmed(false);
+  }, [importedSource?.sourceKey, sourceInventoryId, open]);
+  const sourceReaderPreview = useQuery({
+    queryKey: ['imported-reader-change-preview', sourceInventoryId, form.locationTimezone, sourceReaderChangedLocal],
+    queryFn: () => previewImportedReaderChange(sourceInventoryId, form.locationTimezone, sourceReaderChangedLocal || null),
+    enabled: open && !!importedSource && !machine && !!sourceInventoryId && !!form.locationTimezone,
+    retry: false,
+  });
+  const sourceMove = sourceReaderPreview.data;
+  const sourceMoveVerified = !!sourceMove && !sourceReaderPreview.isError && !sourceReaderPreview.isFetching;
+  const sourceReaderOccupied = !!importedSource && !machine && !committedImportedMachineId && Boolean(
+    sourceNayaxInventory.data?.machines.find(reader => reader.id === sourceInventoryId)?.reportingMachineId
+      || sourceReuseOption?.machineId || sourceMove?.ownerMachineId || sourceMove?.historicalOwnerConflict);
+  useEffect(() => {
+    setSourceReaderMoveConfirmed(false); setSourceReaderChangedAt('');
+  }, [sourceInventoryId, form.accountId, form.machineLabel, form.locationTimezone, sourceMove?.expectedOwnerUpdatedAt, sourceReaderChangedOn, sourceReaderChangedLocal]);
   const [reuseConfirmed, setReuseConfirmed] = useState(false);
   useEffect(() => { setReuseConfirmed(false); }, [importedSource?.sourceKey, sourceInventoryId, sourceReuseOption?.machineId, sourceReuseOption?.expectedMachineUpdatedAt, sourceReuseOption?.timezone]);
   const reuseExistingMachine = async () => {
@@ -2598,7 +2523,7 @@ function MachineDialog({
     try {
       const id = await reuseImportedSourceMachine(importedSource, sourceReuseOption);
       onImportedSourceSaved?.(id);
-      toast.success('Existing machine connected. Sales activation remains pending reconciliation.');
+      toast.success('Source and reader saved to the existing machine.');
       await onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to use the existing machine.');
@@ -2905,7 +2830,9 @@ function MachineDialog({
       }
 
       if (importedSource && !form.machineId) {
-        const id = await setupImportedMachine(importedSource, { accountId: form.accountId, machineName: machineLabel, machineType: form.machineType, operationalPhase: form.operationalPhase, timezone: form.locationTimezone, inventoryId: sourceInventoryId, managerEmails: selectedMachineManagerEmails });
+        if (sourceInventoryId && (!sourceMoveVerified || sourceMove?.historicalOwnerConflict || sourceMove?.ownerArchived)) throw new Error('Reload and review the reader connection before saving.');
+        if (sourceReaderOccupied && (!reviewSourceReaderMove || !sourceReaderMoveConfirmed || !sourceReaderChangedOn || !sourceReaderChangedAt || !sourceMove?.expectedOwnerUpdatedAt)) throw new Error('Review the current owner and actual reader change time.');
+        const id = await setupImportedMachine(importedSource, { accountId: form.accountId, machineName: machineLabel, machineType: form.machineType, operationalPhase: form.operationalPhase, timezone: form.locationTimezone, inventoryId: sourceInventoryId, managerEmails: selectedMachineManagerEmails, ...(sourceReaderOccupied ? { readerChange: { expectedOwnerUpdatedAt: sourceMove!.expectedOwnerUpdatedAt!, changedOn: sourceReaderChangedOn, changedAt: sourceReaderChangedAt } } : {}) });
         onImportedSourceSaved?.(id);
         toast.success('Machine setup saved.');
         await onSaved();
@@ -3629,22 +3556,37 @@ function MachineDialog({
         {machine && <MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
           <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
-          <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending} allowOccupied onSelect={(id) => { setSourceInventoryId(id); setReuseConfirmed(false); }}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
+          <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending || sourceNayaxInventory.isError} allowOccupied onSelect={(id) => { setSourceInventoryId(id); setReuseConfirmed(false); setReviewSourceReaderMove(false); }}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
           {sourceReaderOccupied && <div className="rounded-md border p-4 space-y-3" role="region" aria-label="Review existing machine connection">
             <p className="font-medium">This reader is connected to {sourceReuseOption?.machineName || 'an existing machine'}.</p>
             {sourceReuseVerified && sourceReuseOption?.eligible ? <>
               <p className="text-sm">Use the same machine, preserving its name, company ({sourceReuseOption.companyName}), managers, saved time zone ({sourceReuseOption.timezone}) and sales history. No new machine is created.</p>
-              <p className="text-sm text-muted-foreground">Imported sales stay pending until financial reconciliation. This does not replay orders or activate refunds.</p>
+              <p className="text-sm text-muted-foreground">Nayax supplies card revenue; genuine source cash remains included. Source card observations do not add a second sale. Existing financial history stays unchanged, and refunds are not activated by this save.</p>
               <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" checked={reuseConfirmed} onChange={(event) => setReuseConfirmed(event.target.checked)} disabled={isSaving}/>I confirm this source and reader identify the same physical machine.</label>
-              <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Use existing machine</Button>
+              <Button className="min-h-11" disabled={!reuseConfirmed || isSaving} onClick={() => void reuseExistingMachine()}>Save machine changes</Button>
             </> : <>
               <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
               {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}
               <Button variant="outline" className="min-h-11" onClick={() => void sourceReuseOptions.refetch()}>Reload connection details</Button>
+              <Button variant="outline" className="min-h-11 h-auto w-full min-w-0 whitespace-normal px-3 py-2 text-center" disabled={sourceReuseOptions.isError || sourceReuseOptions.isFetching} onClick={() => setReviewSourceReaderMove(true)}>Review moving this reader to the selected source</Button>
+
             </>}
           </div>}
         </div>}
-        {!sourceReaderOccupied && <>
+        {(!sourceReaderOccupied || reviewSourceReaderMove) && <>
+        {reviewSourceReaderMove && <div className="mt-4 rounded-md border p-3 space-y-3 text-sm" role="region" aria-label="Review reader reassignment">
+          <p>New source: {importedSource?.platform} · ID {importedSource?.sourceId}. Choose its actual company and saved time zone below. Original transactions stay with their original machine.</p>
+          {sourceReaderPreview.isFetching ? <p role="status">Checking reader ownership…</p> : sourceReaderPreview.isError ? <div role="alert">Reader ownership unavailable. <Button variant="link" onClick={() => void sourceReaderPreview.refetch()}>Retry</Button></div> : sourceMove && <>
+            <p className="break-words">Reader {sourceMove.newReaderId} · {sourceMove.newAccountKey} · Current machine: {sourceMove.ownerMachineName || sourceMove.ownerMachineId || 'No current owner'}</p>
+            {sourceMove.historicalOwnerConflict || sourceMove.ownerArchived ? <p role="alert">Historical or archived ownership requires reconciliation before moving this reader.</p> : <>
+              <Label htmlFor="source-reader-change-day">Actual change date</Label><Input id="source-reader-change-day" type="date" className="min-h-11 min-w-0 text-base md:text-base" value={sourceReaderChangedOn} onChange={event => setSourceReaderChangedOn(event.target.value)} disabled={isSaving}/>
+              <Label htmlFor="source-reader-change-time">Actual local change time ({sourceMove.timezone})</Label><Input id="source-reader-change-time" type="datetime-local" className="min-h-11 min-w-0 text-base md:text-base" value={sourceReaderChangedLocal} onChange={event => setSourceReaderChangedLocal(event.target.value)} disabled={isSaving}/>
+              {sourceReaderChangedLocal && sourceMove.effectiveInstants.length === 0 && <p role="alert">This local time does not exist. Review the actual change time.</p>}
+              {sourceMove.effectiveInstants.map(instant => <label key={instant} className="flex min-h-11 items-center gap-2"><input type="radio" name="source-reader-change-instant" checked={sourceReaderChangedAt === instant} onChange={() => { setSourceReaderChangedAt(instant); setSourceReaderMoveConfirmed(false); }}/>{instant} UTC</label>)}
+              <label className="flex min-h-11 items-start gap-2"><input type="checkbox" checked={sourceReaderMoveConfirmed} onChange={event => setSourceReaderMoveConfirmed(event.target.checked)} disabled={!sourceMoveVerified || !sourceReaderChangedOn || !sourceReaderChangedAt || isSaving}/>I reviewed the source, company, current reader owner and actual change time. Ambiguous imported purchases remain pending.</label>
+            </>}
+          </>}
+        </div>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="machine-label">Machine name</Label>
@@ -4015,7 +3957,7 @@ null
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
           </Button>
-          <Button key={committedImportedMachineId ? 'retry-source-load' : 'save-machine'} onClick={() => void saveMachine('all')} disabled={sourceReaderOccupied || mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
+          <Button key={committedImportedMachineId ? 'retry-source-load' : 'save-machine'} onClick={() => void saveMachine('all')} disabled={(sourceReaderOccupied && (!reviewSourceReaderMove || !sourceMoveVerified || !sourceReaderMoveConfirmed || !sourceReaderChangedAt)) || (Boolean(importedSource && !machine && sourceInventoryId) && !sourceMoveVerified) || mappingHasChanges || isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

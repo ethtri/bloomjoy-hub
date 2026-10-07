@@ -6,10 +6,45 @@ import {
   toPublicNayaxCandidate,
 } from "./nayax-recommendation.mjs";
 import { buildNayaxMachineContext } from "./nayax-machine-context.mjs";
-import { loadNayaxProviderClockContext } from "./nayax-provider-clock.mjs";
+import { buildNayaxProviderClockContext } from "./nayax-provider-clock.mjs";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
 export { extractNayaxRecords, NAYAX_RECOMMENDATION_POLICY };
+
+export async function resolveRefundCaseReader(
+  supabase: Pick<SupabaseClient, "rpc">, caseId: string, machineId: string,
+): Promise<{ readerId: string | null; accountKey: string | null }> {
+  const { data, error } = await supabase.rpc("service_refund_case_reader_identity", {
+    p_case_id: caseId, p_machine_id: machineId,
+  });
+  if (error) throw error;
+  if (!data || typeof data !== "object" || Array.isArray(data)
+    || !(typeof data.readerId === "string" || data.readerId === null)
+    || !(typeof data.accountKey === "string" || data.accountKey === null)) {
+    throw new Error("Original reader identity unavailable; review the case before lookup.");
+  }
+  return { readerId: data.readerId, accountKey: data.accountKey };
+}
+
+export async function loadRefundCaseReaderClock(
+  supabase: Pick<SupabaseClient, "rpc">, caseId: string, machineId: string,
+) {
+  const { data, error } = await supabase.rpc("service_refund_case_reader_clock", {
+    p_case_id: caseId, p_machine_id: machineId,
+  });
+  if (error) throw error;
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Original reader clock unavailable.");
+  return buildNayaxProviderClockContext(machineId, data);
+}
+
+export async function resolveRefundExecutionReader(
+  supabase: Pick<SupabaseClient, "rpc">, caseId: string, machineId: string,
+): Promise<{ readerId: string; accountKey: string }> {
+  const identity = await resolveRefundCaseReader(supabase, caseId, machineId);
+  if (!identity.readerId || !identity.accountKey) throw new Error("Original refund reader requires review.");
+  return { readerId: identity.readerId, accountKey: identity.accountKey };
+}
+
 
 const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/v1";
 const defaultNayaxAccountKey = "TGPACI_USA_DB";
@@ -745,7 +780,10 @@ const lookupGroupedLivermoreCandidates = async ({
     nayax_machine_id: string | null;
     nayax_account_key: string | null;
   };
-  const machineRows = (machines ?? []) as ScopedMachine[];
+  const machineRows = await Promise.all(((machines ?? []) as ScopedMachine[]).map(async (machine) => {
+    const identity = await resolveRefundCaseReader(supabase, refundCase.id, machine.id);
+    return { ...machine, nayax_machine_id: identity?.readerId ?? null, nayax_account_key: identity?.accountKey ?? null };
+  }));
   const orderedMachines: Array<ScopedMachine | undefined> = scopeMachineIds.map((machineId: string) =>
     machineRows.find((machine: ScopedMachine) => sanitizeText(machine.id, 80) === machineId)
   );
@@ -845,7 +883,7 @@ const lookupGroupedLivermoreCandidates = async ({
   }
 
   const providerResults = await Promise.all(providerInputs.map(async (input: typeof providerInputs[number]) => {
-    const providerClockContext = await loadNayaxProviderClockContext(supabase, input);
+    const providerClockContext = await loadRefundCaseReaderClock(supabase, refundCase.id, input.reportingMachineId);
     const headers = {
       Authorization: `Bearer ${input.token}`,
       "Content-Type": "application/json",
@@ -1195,8 +1233,9 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     qrClaimOpenedAt,
   };
 
-  const nayaxMachineId = sanitizeText(machine?.nayax_machine_id, 120);
-  const accountKey = normalizeNayaxAccountKey(machine?.nayax_account_key);
+  const originalReader = await resolveRefundCaseReader(supabase, refundCase.id, machineId);
+  const nayaxMachineId = sanitizeText(originalReader?.readerId, 120);
+  const accountKey = normalizeNayaxAccountKey(originalReader?.accountKey);
   const nayaxApiToken = resolveNayaxTokenForAccount(accountKey);
   const requiredAccountScope = `${sanitizeText(location?.name, 140) || sanitizeText(machine?.machine_label, 140) || "Selected machine"} Nayax account scope`;
   const setupResult = (
@@ -1250,9 +1289,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     );
   }
 
-  const providerClockContext = await loadNayaxProviderClockContext(supabase, {
-    reportingMachineId: machineId, accountKey, nayaxMachineId,
-  });
+  const providerClockContext = await loadRefundCaseReaderClock(supabase, refundCase.id, machineId);
   const providerHeaders = {
     Authorization: `Bearer ${nayaxApiToken}`,
     "Content-Type": "application/json",

@@ -54,3 +54,30 @@ export async function saveMachineCashReportingExclusion(machineId: string, exclu
   });
   if (error) throw new Error(error.message);
 }
+
+export type MachineReaderChangePreview = {
+  machineId: string; machineName: string; expectedMachineUpdatedAt: string;
+  currentReaderId: string | null; currentAccountKey: string | null; hasReaderHistory?: boolean; previousReaderId?: string | null; previousAccountKey?: string | null;
+  inventoryId: string; newReaderId: string; newAccountKey: string;
+  ownerMachineId: string | null; ownerMachineName: string | null;
+  expectedOwnerUpdatedAt: string | null; ownerArchived: boolean;
+  historicalOwnerConflict: boolean; timezone: string; effectiveInstants: string[];
+};
+export async function previewMachineReaderChange(machineId: string, inventoryId: string, changedAtLocal: string | null): Promise<MachineReaderChangePreview> {
+  const { data, error } = await supabaseClient.rpc('admin_preview_machine_reader_change', {
+    p_machine_id: machineId, p_inventory_id: inventoryId, p_changed_at_local: changedAtLocal,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+export async function changeMachineReader(preview: MachineReaderChangePreview, changedOn: string, changedAt: string | null, reason: string) {
+  const { data, error } = await supabaseClient.rpc('admin_change_machine_reader', {
+    p_machine_id: preview.machineId, p_inventory_id: preview.inventoryId,
+    p_expected_machine_updated_at: preview.expectedMachineUpdatedAt,
+    p_expected_owner_updated_at: preview.expectedOwnerUpdatedAt,
+    p_expected_timezone: preview.timezone, p_changed_on: changedOn,
+    p_changed_at: changedAt, p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}

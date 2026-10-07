@@ -901,9 +901,9 @@ const run = async () => {
       .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
     await valleyInventoryRow.getByRole('button', { name: 'Review' }).click();
     recorder.assert(
-      'Mapped readers keep replacement guidance visible when no eligible candidate is available',
-      await valleyInventoryRow.getByText('No eligible replacement is in the latest inventory.', { exact: false }).isVisible()
-        && await valleyInventoryRow.getByLabel('Replacement reader').isVisible()
+      'Mapped readers keep exact-Hub Manage guidance without an obsolete replacement selector',
+      await valleyInventoryRow.getByRole('link', { name: 'Open Manage to change reader', exact: true }).getAttribute('href') === `/admin/machines/${valleyMachineId}`
+        && await valleyInventoryRow.getByLabel('Replacement reader').count() === 0
     );
     await valleyInventoryRow.getByRole('button', { name: 'Other setup change' }).click();
     const valleyCategory = page.locator('#inventory-category-55555555-5555-4555-8555-555555555553');
@@ -945,59 +945,42 @@ const run = async () => {
     const cottonInventoryRow = page.getByText('Cotton Candy 01', { exact: true }).first()
       .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
     await cottonInventoryRow.getByRole('button', { name: 'Review' }).click();
-    await cottonInventoryRow.getByLabel('Replacement reader').selectOption('55555555-5555-4555-8555-555555555554');
+    const currentInventorySnapshot = JSON.stringify(state.nayaxInventory.machines);
+    const handoff = cottonInventoryRow.getByRole('link', { name: 'Open Manage to change reader', exact: true });
     recorder.assert(
-      'Published readers open the streamlined replacement flow by default',
-      await cottonInventoryRow.getByRole('button', { name: 'Replace reader' }).first().getAttribute('aria-pressed') === 'true'
-        && await cottonInventoryRow.getByText('The old reader stays attached to its historical sales and refund records.').isVisible()
-        && !(await cottonInventoryRow.textContent())?.includes('UAT_ACCOUNT')
-        && !(await cottonInventoryRow.textContent())?.includes('provider record 001')
+      'Inventory replacement delegates to the exact Hub reviewed Manage screen without an undated writer',
+      await handoff.getAttribute('href') === `/admin/machines/${machineId}`
+        && await cottonInventoryRow.getByLabel('Replacement reader').count() === 0
+        && await cottonInventoryRow.getByLabel('Why is this reader being replaced?').count() === 0
+        && !state.rpcCalls.includes('admin_replace_refund_nayax_machine')
     );
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-desktop.png'),
-      fullPage: true,
-    });
+    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
-    const readerReplacementMobileLayout = await page.evaluate(() => ({
-      viewportWidth: window.innerWidth,
+    const handoffDimensions = await handoff.evaluate(element => ({
+      left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
+      height: element.getBoundingClientRect().height, viewport: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
     }));
-    recorder.assert(
-      'Reader replacement review remains readable at 390x844',
-      readerReplacementMobileLayout.documentWidth <= readerReplacementMobileLayout.viewportWidth
-        && await cottonInventoryRow.getByLabel('Replacement reader').isVisible()
-    );
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-mobile.png'),
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    recorder.assert(
-      'An excluded candidate requires conscious review of its prior exclusion',
-      await cottonInventoryRow.getByText(/This reader was excluded: Synthetic test machine/).isVisible()
-        && await cottonInventoryRow.getByText('Confirm Nayax ID change: UAT-NAYAX-001 → UAT-NAYAX-TEST.', { exact: true }).isVisible()
-    );
-    await cottonInventoryRow.getByLabel('Why is this reader being replaced?').fill('Synthetic failed reader replacement');
-    await cottonInventoryRow.getByRole('button', { name: 'Replace reader', exact: true }).last().click();
-    await page.getByRole('status').filter({ hasText: 'Reader replaced and verified ready with Nayax ID UAT-NAYAX-TEST.' }).first().waitFor({ timeout: 10000 });
-    await page.getByText('Synthetic provider test', { exact: true }).waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Reader replacement persists through inventory refresh and reports verified readiness',
-      state.readerReplacementPayload?.p_reporting_machine_id === machineId
-        && state.readerReplacementPayload?.p_replacement_inventory_id === '55555555-5555-4555-8555-555555555554'
-        && await page.getByText('Synthetic provider test', { exact: true }).isVisible()
-    );
+    recorder.assert('Reader replacement handoff remains readable and touch accessible at 390x844',
+      handoffDimensions.left >= 0 && handoffDimensions.right <= handoffDimensions.viewport
+        && handoffDimensions.height >= 44 && handoffDimensions.documentWidth <= handoffDimensions.viewport);
+    await page.screenshot({ path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-mobile.png'), fullPage: true });
     await waitForUatPageRequestDrain(page);
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    await handoff.click();
+    await page.getByRole('region', { name: 'Source identity and Nayax matching', exact: true }).waitFor();
+    recorder.assert('Inventory handoff opens the same actual machine and preserves all original reader states',
+      pathname(page) === `/admin/machines/${machineId}`
+        && await page.getByRole('combobox', { name: 'Nayax machine', exact: true }).isVisible()
+        && JSON.stringify(state.nayaxInventory.machines) === currentInventorySnapshot
+        && state.nayaxInventory.machines.find(machine => machine.nayaxMachineId === 'UAT-NAYAX-TEST')?.exclusionReason === 'Synthetic test machine'
+        && state.readerReplacementPayload === null);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await waitForUatPageRequestDrain(page);
+    await navigateUatPageAfterDrain(page, `${args.appUrl}/admin/machines/inventory`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
-    await page.getByRole('button', { name: /Published/ }).click();
-    recorder.assert(
-      'Replacement mapping remains after a full page reload',
-      await page.getByText('Synthetic provider test', { exact: true }).isVisible()
-        && await page.getByText(/Nayax ID UAT-NAYAX-TEST · UAT_ACCOUNT/).isVisible()
-        && state.nayaxInventory.machines.find((machine) => machine.nayaxMachineId === 'UAT-NAYAX-001')?.state === 'excluded'
-    );
-
+    recorder.assert('Reloaded inventory keeps the historical current reader and excluded candidate unchanged',
+      JSON.stringify(state.nayaxInventory.machines) === currentInventorySnapshot
+        && !state.rpcCalls.includes('admin_replace_refund_nayax_machine'));
     await page.getByRole('button', { name: /Needs review/ }).click();
     const rejectedInventoryRow = page.getByText('SnapCase setup needed', { exact: true })
       .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');

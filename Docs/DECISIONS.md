@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-10-06 - Complete same-machine source mapping and reviewed reader history (#1802)
+
+- An explicitly confirmed Sunze/Kex source and existing physical machine use the same Hub, company, name, managers and saved site configuration. One Manage save completes the mapping; a separate sales-activation state is not the finished workflow.
+- Newly reviewed machines use Nayax card money plus genuine source cash. App-card observations retain raw evidence without adding duplicate money, tax, transactions, units or deductions. Exact already-eligible source-card inputs remain eligible where historical Nayax equivalence is unproved; only validated UTC purchases after their immutable server observation can establish causal non-overlap.
+- Existing dated authority remains unchanged unless an actual reviewed reader action requires its historical ownership retained. A same-machine replacement records its actual calendar date; cross-machine ownership needs actual purchase-time evidence and an explicit reviewed instant. No installation time or midnight is manufactured. Exact original transaction/fact ownership and original reader tax precede today's configuration; ambiguity stays recoverable pending.
+- No production Gilroy reader pairing or transfer is inferred from source names or the historical tuple. The user selects and confirms the exact reader in the portal.
+
 ## 2026-10-05 - Source-backed card tax and untaxed cash reporting
 
 - For reporting, cash receipts retain the amount collected without a tax
