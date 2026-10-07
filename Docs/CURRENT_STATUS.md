@@ -10,7 +10,7 @@ orientation snapshot; it is not a backlog or release ledger.
 
 PR #1803 completes Sunze and Kex source association in one Manage save, including reviewed reuse of the same existing physical machine and dated reader replacement or reassignment. Nayax supplies card revenue and genuine app cash remains eligible; new app card observations do not duplicate revenue, tax, quantities or deductions, and exact previously counted financial inputs are preserved. Original transactions and reader-specific tax/refund evidence retain their original ownership. PR #1809 is deployed: ordinary machine saves preserve completed source identity, and the user-confirmed Gilroy source pointer was restored through the guarded audited repair with financial/history/configuration digests unchanged. There is no separate sales-activation step. Same-machine connection review now shows the exact source and reader, a short physical-machine confirmation and one Save action; optional details open by tap or keyboard. The user has now saved the Gilroy source/reader connection; agent verification made no business mapping changes.
 
-PR #1804 is deployed as an index-only repair for the full source-reuse reader lookup, preserving exact historical owners, account boundaries, permissions, financial data and the existing API timeout. The indexed authenticated getter returned all 35 options in 253.49 ms, with Gilroy eligible and its saved America/Los_Angeles configuration retained. Full disposable SQL passed 222 fixtures / 7,432 assertions. The pre-connection baseline preserved Gilroyâ€™s 2,350 Nayax facts and 1,508 pending Sunze orders; the 16 existing dated authority records are preserved.
+PR #1804 is deployed as an index-only repair for the full source-reuse reader lookup, preserving exact historical owners, account boundaries, permissions, financial data and the existing API timeout. The indexed authenticated getter returned all 35 options in 253.49 ms, with Gilroy eligible and its saved America/Los_Angeles configuration retained. Full disposable SQL passed 222 fixtures / 7,432 assertions. The pre-connection baseline preserved Gilroy’s 2,350 Nayax facts and 1,508 pending Sunze orders; the 16 existing dated authority records are preserved.
 
 Repo agents have standing business-Chrome authorization to self-serve and reuse the private reusable Supabase credential at `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env`. The runbook governs its env-file loader, user-only access and unchanged Auth deployment checks; do not repeat routine approval requests or expose tokens.
 
@@ -23,7 +23,7 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 ## Partnership workflow
 
 - PR #1790 is deployed (main `8f2c799e`) and guarded portal corrections are applied: Merlin and Bubble Planet are ongoing at 70% partner / 30% Bloomjoy from September 1, 2026, on sales after tax and refunds only, with zero stick, processing or other configured deductions. Previous terms end August 31; earlier Bubble 60/40 with $0.40-per-stick and Merlin 30/70 history stays intact. Current structured terms supersede older October dates/deduction descriptions in historical reference notes. All raw facts, nine machine assignments, lifecycle dates and 19 draft snapshots are unchanged; issued records remain immutable.
-- Bubble Planetâ€™s verified October preview is $2,148.00 after tax/refunds, split $1,503.60 partner / $644.40 Bloomjoy with zero extra deductions. Both September previews and Merlinâ€™s October totals remain unavailable because of existing source-tax/refund evidence gaps. #1784 remains In Progress: LA source `1785123901474964787735686` is still unbound pending company and pre-October ownership allocation; all 641 pending orders, including 470 before October 1, remain unchanged.
+- Bubble Planet’s verified October preview is $2,148.00 after tax/refunds, split $1,503.60 partner / $644.40 Bloomjoy with zero extra deductions. Both September previews and Merlin’s October totals remain unavailable because of existing source-tax/refund evidence gaps. #1784 remains In Progress: LA source `1785123901474964787735686` is still unbound pending company and pre-October ownership allocation; all 641 pending orders, including 470 before October 1, remain unchanged.
 
 ## Refund workflow (current)
 
@@ -271,8 +271,8 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
   lightweight queue before full details, with correct counts and read-only
   navigation; actions still require the existing full case. Production desktop
   and mobile selection and case switching passed without error banners or
-  overflow. Fresh queue loads improved to 4.2â€“8.2 seconds, while full details took
-  8.9â€“12.0 seconds. Three consecutive loads within five seconds were not achieved;
+  overflow. Fresh queue loads improved to 4.2–8.2 seconds, while full details took
+  8.9–12.0 seconds. Three consecutive loads within five seconds were not achieved;
   #628 retains the performance gap. The next bounded diagnostic is the queue
   RPC/network delay, preserving slow samples and avoiding a broader redesign.
 - On September 30 the primary database scheduler missed two health dispatches

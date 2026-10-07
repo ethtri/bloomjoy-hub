@@ -1644,7 +1644,7 @@ export default function AdminMachinesPage() {
                   {view === 'inactive' ? 'Inactive machines' : view === 'review' ? 'Imported machines awaiting source setup' : view === 'attention' ? 'Machines needing attention' : view === 'ready' ? 'Ready machines' : 'All imported machines'}
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {!isLocalDemoMode && importedInventory.isPending ? 'Loading imported machinesâ€¦' : visibleSourceRows.length === selectedViewMachineCount
+                  {!isLocalDemoMode && importedInventory.isPending ? 'Loading imported machines…' : visibleSourceRows.length === selectedViewMachineCount
                     ? `${selectedViewMachineCount} ${selectedViewMachineCount === 1 ? 'machine' : 'machines'}`
                     : `${visibleSourceRows.length} of ${selectedViewMachineCount} machines`}
                 </p>
@@ -1797,12 +1797,12 @@ function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
 }) {
   const blocked = source.mappingConflict || source.archivedMapping || Boolean(source.reportingMachineId);
   return <div role="row" data-source-key={source.sourceKey} className="grid grid-cols-1 gap-4 px-4 py-5 text-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} Â· ID {source.sourceId}{source.sourceAccountKey ? ` Â· ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{blocked ? 'Setup needs review' : 'Setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">Operating state unknown</p></div>
-    <div role="cell"><CellLabel>Nayax match</CellLabel><p className="break-words">{source.nayaxMachineId ? `${source.nayaxName || 'Saved Nayax record'} Â· ID ${source.nayaxMachineId} Â· ${source.nayaxAccountKey}` : 'Not matched'}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Source machine</CellLabel><p className="font-semibold">{source.sourceName || 'Unnamed imported machine'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · ID {source.sourceId}{source.sourceAccountKey ? ` · ${source.sourceAccountKey}` : ''}</p><Badge variant="outline" className="mt-2">{blocked ? 'Setup needs review' : 'Setup needed'}</Badge><p className="mt-1 text-xs text-muted-foreground">Operating state unknown</p></div>
+    <div role="cell"><CellLabel>Nayax match</CellLabel><p className="break-words">{source.nayaxMachineId ? `${source.nayaxName || 'Saved Nayax record'} · ID ${source.nayaxMachineId} · ${source.nayaxAccountKey}` : 'Not matched'}</p></div>
     <div role="cell"><CellLabel>Company</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Managers</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
-    <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? sourceTransactionLabel(source) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} Â· Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
-    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict â€” review before setup' : source.archivedMapping ? 'Existing archived setup â€” restore explicitly' : 'Hub setup unavailable â€” retry loading'}</p>}</div>
+    <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? sourceTransactionLabel(source) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
+    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
   </div>;
 }
 
@@ -1826,15 +1826,15 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
       <CellLabel>Source machine</CellLabel>
       <p className="font-semibold">{machine.machine_label}</p>
       {metadata?.excludeCashFromFinancialReporting && <Badge variant="outline" className="mt-2 mr-2">Cash excluded</Badge>}
-      {identities?.length ? identities.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-2"><p className="text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase Â· Kexiaozhan' : source.platform}: {source.name || 'Unnamed source machine'} Â· ID {source.id}{source.account ? ` Â· ${source.account}` : ''}</p></div>) : <p className="mt-1 text-xs text-muted-foreground">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
-      {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive Â· history retained</Badge>}
+      {identities?.length ? identities.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-2"><p className="text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'SnapCase · Kexiaozhan' : source.platform}: {source.name || 'Unnamed source machine'} · ID {source.id}{source.account ? ` · ${source.account}` : ''}</p></div>) : <p className="mt-1 text-xs text-muted-foreground">{metadata ? 'Source not connected' : 'Source data unavailable'}</p>}
+      {machine.status !== 'active' && <Badge variant="outline" className="mt-2">Inactive · history retained</Badge>}
       <Badge variant="outline" className="mt-2">{source?.salesActivationPending || machine.operational_phase === 'setup' || row.attentionReasons.length > 0 ? 'Setup needed' : 'Ready'}</Badge>
       {source?.salesActivationPending && <p className="mt-2 text-xs text-muted-foreground">Source connected for management. Sales activation awaits reconciliation; existing sales history is unchanged.</p>}
     </div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Nayax match</CellLabel><p className="font-semibold">{nayaxId ? nayaxName || 'Unnamed Nayax record' : metadata || source ? 'Not matched' : 'Mapping data unavailable'}</p>{nayaxId && <p className="mt-1 text-xs text-muted-foreground">ID {nayaxId}<br/>Account {nayaxAccount || 'TGPACI_USA_DB (legacy)'}</p>}<p className="mt-2 text-xs text-muted-foreground">Refunds: {refundStatus}</p></div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup â€” provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
-    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} Â· {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}{source && <p className="mt-1 text-xs text-muted-foreground">{source.platform} Â· {source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {sourceTransactionLabel(source)}</p>}</div>
+    <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}{source && <p className="mt-1 text-xs text-muted-foreground">{source.platform} · {source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {sourceTransactionLabel(source)}</p>}</div>
     <div role="cell" className="flex flex-col items-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
   </div>;
 }
@@ -1940,7 +1940,7 @@ function RefundNayaxInventoryPanel({
           {inventory?.lastRun && (
             <div className="text-left text-xs text-muted-foreground sm:text-right">
               <div className={cn('font-semibold', lastRunNeedsAttention && 'text-destructive')}>
-                Last sync: {inventory.lastRun.largeDrop ? 'Large drop â€” review' : formatLabel(inventory.lastRun.status)}
+                Last sync: {inventory.lastRun.largeDrop ? 'Large drop — review' : formatLabel(inventory.lastRun.status)}
               </div>
               <div title={new Date(inventory.lastRun.completedAt).toISOString()}>{formatUpdatedAt(inventory.lastRun.completedAt)}</div>
             </div>
@@ -2167,7 +2167,7 @@ function RefundNayaxInventoryRow({
           <div className="mt-1 text-xs text-muted-foreground">
             Nayax ID {inventoryMachine.nayaxMachineId}
             {(!isReviewing || mode === 'reconcile' || !canReplace) && (
-              <> Â· {inventoryMachine.accountKey}{inventoryMachine.machineNumber ? ` Â· provider record ${inventoryMachine.machineNumber}` : ''}</>
+              <> · {inventoryMachine.accountKey}{inventoryMachine.machineNumber ? ` · provider record ${inventoryMachine.machineNumber}` : ''}</>
             )}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">Current reason: {formatLabel(inventoryMachine.setupReason)}</div>
@@ -2323,7 +2323,7 @@ function TaxChangeDialog({
           <DialogTitle>{isInitialSetup ? 'Set reporting tax rate' : 'Change reporting tax rate'}</DialogTitle>
           <DialogDescription>
             {isInitialSetup
-              ? 'Add reporting settings for this machineâ€™s history. Confirm the effective date before saving.'
+              ? 'Add reporting settings for this machine’s history. Confirm the effective date before saving.'
               : 'Choose when these reporting settings take effect. The previous rate ends the day before.'}
           </DialogDescription>
         </DialogHeader>
@@ -3236,14 +3236,14 @@ function MachineDialog({
       : 'Unavailable';
   const cardRefundStatus = refundManagerSetup?.nayaxRefundsEnabled
     ? 'Enabled'
-    : `Off â€” ${refundReasonLabel(
+    : `Off — ${refundReasonLabel(
         refundManagerSetup?.readinessBlockReason ?? refundManagerSetup?.paymentDisabledReason ?? null
       )}`;
 
   const effectiveTaxSource = importedSource && !machine ? importedTaxSource : taxSource;
   const taxRateSetup = <div className="rounded-md border border-border p-3 text-sm" aria-label="Source tax rate">
     <p className="font-medium">Tax rate</p>
-    <p className="mt-1">{(effectiveTaxSource.isPending || effectiveTaxSource.isFetching) && (machine?.id || sourceInventoryId) ? 'Checking source taxâ€¦' : !effectiveTaxSource.isError && effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% Â· ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} Â· ${effectiveTaxSource.data.saleDate}` : 'Unavailable â€” no verified source tax rate'}</p>
+    <p className="mt-1">{(effectiveTaxSource.isPending || effectiveTaxSource.isFetching) && (machine?.id || sourceInventoryId) ? 'Checking source tax…' : !effectiveTaxSource.isError && effectiveTaxSource.data?.coverageStatus === 'verified_tax' && effectiveTaxSource.data.ratePercent != null ? `${Number(effectiveTaxSource.data.ratePercent)}% · ${effectiveTaxSource.data.source === 'finance_verified' ? 'Finance confirmation' : 'Nayax source'} · ${effectiveTaxSource.data.saleDate}` : 'Unavailable — no verified source tax rate'}</p>
     <p className="mt-1 text-xs text-muted-foreground">Read-only source setting. Cash has no tax deduction.</p>
   </div>;
 
@@ -3299,7 +3299,7 @@ function MachineDialog({
                   {(machineRow?.attentionReasons.length ?? 0) > 1 && (
                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-900/80">
                       {machineRow?.attentionReasons.slice(1).map((reason) => (
-                        <li key={reason.code}>{reason.label} â€” {reason.nextStep}</li>
+                        <li key={reason.code}>{reason.label} — {reason.nextStep}</li>
                       ))}
                     </ul>
                   )}
@@ -3361,7 +3361,7 @@ function MachineDialog({
                   <div>
                     <div className="flex items-center justify-between"><Label htmlFor="page-machine-phase">State</Label><MachineHelp label="About operating state">Setup permits timekeeping before setup is finished. Inactive removes the machine from ordinary lists and retains its history; it does not change refund settings.</MachineHelp></div>
                     <select id="page-machine-phase" disabled={isSavingMachineChanges} value={stateSource ? sourceStateDraft : form.operationalPhase} onChange={(event) => { const state = event.target.value as 'setup' | 'live' | 'inactive'; setSourceStateDraft(state); if (state !== 'inactive') setForm({ ...form, operationalPhase: state }); }} className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base">
-                      <option value="setup">Setup â€” provisional</option>
+                      <option value="setup">Setup — provisional</option>
                       <option value="live" disabled={Boolean((!machine && stateSource?.catalogueInactiveAt) || (machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'live'))}>Live</option>
                       <option value="inactive" disabled={!stateSource || stateInventory.isError || stateInventory.isFetching}>Inactive</option>
                     </select>
@@ -3381,7 +3381,7 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine name</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Company</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup â€” provisional' : formatLabel(machine.operational_phase)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
               </dl>
             )}
             {taxRateSetup}
@@ -3542,7 +3542,7 @@ function MachineDialog({
             </dl>
             <details className="mt-4 border-t border-border pt-3">
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Tax source diagnostics</summary>
-              <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverageâ€¦' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source === 'finance_verified' ? 'Finance confirmation' : taxSource.data.source === 'nayax_portal' ? 'Nayax portal export' : taxSource.data.source === 'nayax_portal_history' ? 'Nayax portal history' : 'Nayax API'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverage…' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source === 'finance_verified' ? 'Finance confirmation' : taxSource.data.source === 'nayax_portal' ? 'Nayax portal export' : taxSource.data.source === 'nayax_portal_history' ? 'Nayax portal history' : 'Nayax API'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
               {taxSource.data?.observedAt && <p className="mt-1 text-xs text-muted-foreground">Observed {new Date(taxSource.data.observedAt).toLocaleString()}.</p>}
               {taxSource.data?.latestProbeStatus === 'unavailable' && <p className="mt-2 text-sm text-muted-foreground">The latest Nayax refresh was unavailable. Any previously verified setting remains in use.</p>}
             </details>
@@ -3550,7 +3550,7 @@ function MachineDialog({
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 <div className="font-medium">Reporting needs attention</div>
                 <ul className="mt-1 list-disc pl-5">
-                  {machineRow.attentionReasons.filter((reason) => reason.tab === 'reporting').map((reason) => <li key={reason.code}>{reason.label} â€” {reason.nextStep}</li>)}
+                  {machineRow.attentionReasons.filter((reason) => reason.tab === 'reporting').map((reason) => <li key={reason.code}>{reason.label} — {reason.nextStep}</li>)}
                 </ul>
               </div>
             )}
@@ -3567,7 +3567,7 @@ function MachineDialog({
         {activeTab === 'activity' && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-activity-title">
             <h2 id="machine-activity-title" className="text-lg font-semibold text-foreground">Activity and audit</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Recent operating context and the machineâ€™s broader configuration history.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Recent operating context and the machine’s broader configuration history.</p>
             <div className="mt-5 divide-y divide-border rounded-md border border-border">
               <div className="flex gap-3 px-4 py-4"><Activity className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Latest sale</div><div className="mt-0.5 text-sm text-muted-foreground">{machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales recorded yet'}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><ServerCog className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Machine status</div><div className="mt-0.5 text-sm text-muted-foreground">{formatLabel(machine.status || 'unknown')}</div></div></div>
@@ -3601,22 +3601,22 @@ function MachineDialog({
           <div role="status" className="mt-6 rounded-md border border-border bg-muted/30 p-4">
             <p className="font-medium">Machine setup saved</p>
             <p className="mt-2 text-sm text-muted-foreground">Its details have not loaded yet. Retry loading to continue managing this machine.</p>
-            <p className="mt-2 text-xs text-muted-foreground">{importedSource?.platform} Â· ID {importedSource?.sourceId}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{importedSource?.platform} · ID {importedSource?.sourceId}</p>
           </div>
         ) : <>
         {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
         {machine && <MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
-          <div className="text-sm"><p className="font-medium">{importedSource.platform} Â· {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` Â· ${importedSource.sourceAccountKey}` : ''}</p></div>
+          <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
           <div><Label>Nayax machine</Label><NayaxMachinePicker records={sourceNayaxInventory.data?.machines ?? []} selectedId={sourceInventoryId} currentName="Select a Nayax machine" machineId="" disabled={isSaving || sourceNayaxInventory.isPending || sourceNayaxInventory.isError} allowOccupied onSelect={(id) => { setSourceInventoryId(id); setReuseConfirmed(false); setReviewSourceReaderMove(false); }}/>{sourceNayaxInventory.isError && <p role="alert" className="text-sm text-destructive">Nayax records unavailable. Retry opening this machine.</p>}</div>
           {sourceReaderOccupied && <div className="rounded-md border p-4 space-y-3" role="region" aria-label="Review existing machine connection">
             <p className="font-medium">{sourceReuseVerified && sourceReuseOption?.eligible ? `Connect to ${sourceReuseOption.machineName || 'the existing machine'}` : `Reader currently connected to ${sourceReuseOption?.machineName || 'another machine'}`}</p>
             {sourceReuseVerified && sourceReuseOption?.eligible ? <>
-              <p className="break-words text-sm">{importedSource.sourceName || importedSource.platform} Â· {importedSource.sourceId}<br/>â†’ {sourceNayaxInventory.data?.machines.find(record => record.id === sourceInventoryId)?.machineName || sourceReuseOption.machineName} Â· {sourceNayaxInventory.data?.machines.find(record => record.id === sourceInventoryId)?.nayaxMachineId}</p>
+              <p className="break-words text-sm">{importedSource.sourceName || importedSource.platform} · {importedSource.sourceId}<br/>→ {sourceNayaxInventory.data?.machines.find(record => record.id === sourceInventoryId)?.machineName || sourceReuseOption.machineName} · {sourceNayaxInventory.data?.machines.find(record => record.id === sourceInventoryId)?.nayaxMachineId}</p>
               <label className="flex min-h-11 items-center gap-3 text-base"><input type="checkbox" checked={reuseConfirmed} onChange={(event) => setReuseConfirmed(event.target.checked)} disabled={isSaving}/>These are the same machine</label>
               <details className="text-sm text-muted-foreground"><summary className="flex min-h-11 cursor-pointer items-center">Connection details</summary><div className="space-y-2 pt-2"><p>Keep the existing name, company ({sourceReuseOption.companyName}), managers, time zone ({sourceReuseOption.timezone}) and sales history.</p><p>Nayax supplies card revenue; source cash remains included. Source card records do not add another sale. Refund settings stay unchanged.</p></div></details>
             </> : <>
-              <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection detailsâ€¦' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
+              <p role="alert" className="text-sm">{sourceReuseOptions.isError ? 'Connection details unavailable. Reload before reviewing this reader.' : sourceReuseOptions.isFetching ? 'Loading connection details…' : sourceReuseOption?.reason || 'The current connection could not be verified. Reload and review it.'}</p>
               {sourceReuseOption && <a className="inline-flex min-h-11 items-center underline" href={`/admin/machines/${sourceReuseOption.machineId}`}>Open current machine to review its source connection</a>}
               <Button variant="outline" className="min-h-11" onClick={() => void sourceReuseOptions.refetch()}>Reload connection details</Button>
               <Button variant="outline" className="min-h-11 h-auto w-full min-w-0 whitespace-normal px-3 py-2 text-center" disabled={sourceReuseOptions.isError || sourceReuseOptions.isFetching} onClick={() => setReviewSourceReaderMove(true)}>Review moving this reader to the selected source</Button>
@@ -3626,9 +3626,9 @@ function MachineDialog({
         </div>}
         {(!sourceReaderOccupied || reviewSourceReaderMove) && <>
         {reviewSourceReaderMove && <div className="mt-4 rounded-md border p-3 space-y-3 text-sm" role="region" aria-label="Review reader reassignment">
-          <p>New source: {importedSource?.platform} Â· ID {importedSource?.sourceId}. Choose its actual company and saved time zone below. Original transactions stay with their original machine.</p>
-          {sourceReaderPreview.isFetching ? <p role="status">Checking reader ownershipâ€¦</p> : sourceReaderPreview.isError ? <div role="alert">Reader ownership unavailable. <Button variant="link" onClick={() => void sourceReaderPreview.refetch()}>Retry</Button></div> : sourceMove && <>
-            <p className="break-words">Reader {sourceMove.newReaderId} Â· {sourceMove.newAccountKey} Â· Current machine: {sourceMove.ownerMachineName || sourceMove.ownerMachineId || 'No current owner'}</p>
+          <p>New source: {importedSource?.platform} · ID {importedSource?.sourceId}. Choose its actual company and saved time zone below. Original transactions stay with their original machine.</p>
+          {sourceReaderPreview.isFetching ? <p role="status">Checking reader ownership…</p> : sourceReaderPreview.isError ? <div role="alert">Reader ownership unavailable. <Button variant="link" onClick={() => void sourceReaderPreview.refetch()}>Retry</Button></div> : sourceMove && <>
+            <p className="break-words">Reader {sourceMove.newReaderId} · {sourceMove.newAccountKey} · Current machine: {sourceMove.ownerMachineName || sourceMove.ownerMachineId || 'No current owner'}</p>
             {sourceMove.historicalOwnerConflict || sourceMove.ownerArchived ? <p role="alert">Historical or archived ownership requires reconciliation before moving this reader.</p> : <>
               <Label htmlFor="source-reader-change-day">Actual change date</Label><Input id="source-reader-change-day" type="date" className="min-h-11 min-w-0 text-base md:text-base" value={sourceReaderChangedOn} onChange={event => setSourceReaderChangedOn(event.target.value)} disabled={isSaving}/>
               <Label htmlFor="source-reader-change-time">Actual local change time ({sourceMove.timezone})</Label><Input id="source-reader-change-time" type="datetime-local" className="min-h-11 min-w-0 text-base md:text-base" value={sourceReaderChangedLocal} onChange={event => setSourceReaderChangedLocal(event.target.value)} disabled={isSaving}/>
@@ -3675,7 +3675,7 @@ function MachineDialog({
               disabled={isSavingMachineChanges || (!canEditMachineIdentity && !stateSource)}
               className="h-11 min-h-11 w-full appearance-none rounded-md border border-input bg-background px-3 text-base"
             >
-              <option value="setup">Setup â€” provisional</option>
+              <option value="setup">Setup — provisional</option>
               <option value="live" disabled={Boolean((!machine && stateSource?.catalogueInactiveAt) || (machine && stateSource && !canEditMachineIdentity && machine.operational_phase !== 'live'))}>Live</option>
               <option value="inactive" disabled={!stateSource || stateInventory.isError || stateInventory.isFetching}>Inactive</option>
             </select>
@@ -4006,7 +4006,7 @@ null
         )}
         </>}
         </>}
-        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && <p role="status" className="mt-4 text-sm text-muted-foreground">{stateOnlySave ? '' : !form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry before saving.' : 'Checking reader ownership before savingâ€¦' : ''}</p>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && <p role="status" className="mt-4 text-sm text-muted-foreground">{stateOnlySave ? '' : !form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry before saving.' : 'Checking reader ownership before saving…' : ''}</p>}
         {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && sourceInventoryId && form.locationTimezone && sourceReaderPreview.isError && <Button variant="outline" className="min-h-11 text-base" onClick={() => void sourceReaderPreview.refetch()}>Retry reader check</Button>}
         {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && !stateOnlySave && form.accountId && !form.locationTimezone.trim() && <Button variant="outline" className="min-h-11 text-base" onClick={() => { const field = document.getElementById('machine-timezone'); field?.scrollIntoView({ block: 'center' }); field?.focus(); field?.click(); }}>Choose time zone</Button>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
