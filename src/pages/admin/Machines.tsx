@@ -2502,6 +2502,17 @@ function TaxHistorySheet({
   );
 }
 
+function EarlierMachineSales({ history }: { history: NonNullable<MachineWorkspaceMetadata['retainedHistory']> }) {
+  if (!history.length) return null;
+  return <section className="mt-5 space-y-4 rounded-md border border-border p-4" aria-label="Earlier sales">
+    {history.map((item) => <div key={item.machineId}>
+      <p className="text-sm">Earlier sales remain under {item.companyName}.</p>
+      <p className="mt-1 text-xs text-muted-foreground">{formatDate(item.firstSaleDate)} – {formatDate(item.lastSaleDate)}</p>
+      <Button variant="outline" asChild className="mt-3 min-h-11"><Link to={`/portal/reports?${new URLSearchParams({ view: 'sales', company: item.companyId, machine: item.machineId, from: item.firstSaleDate, to: item.lastSaleDate, compare: 'none' })}`}>View earlier sales <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
+    </div>)}
+  </section>;
+}
+
 function MachineDialog({
   open,
   onOpenChange,
@@ -2564,6 +2575,8 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: open && !isLocalDemoMode, staleTime: 30000 });
+  const retainedHistory = workspaceMetadata.data?.find((item) => item.machineId === machine?.id)?.retainedHistory ?? [];
   const [sourceStateDraft, setSourceStateDraft] = useState<'setup' | 'live' | 'inactive'>('setup');
   const stateInventory = useQuery({ queryKey: machineSourceInventoryQueryKey, queryFn: fetchMachineSourceInventorySnapshot, enabled: open && !isLocalDemoMode, retry: false });
   const stateSourceMatches = stateInventory.data?.sources.filter((source) => importedSource ? source.sourceKey === importedSource.sourceKey : source.reportingMachineId === machine?.id) ?? [];
@@ -3594,6 +3607,7 @@ function MachineDialog({
             <p className="mt-1 text-sm text-muted-foreground">Partnership assignment and sales reporting coverage.</p>
             <p className="mt-3 text-sm text-muted-foreground">Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.</p>
             <div className="mt-5"><MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} /></div>
+            <EarlierMachineSales history={retainedHistory} />
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
               <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Partner reports</dt><dd className="text-right font-medium">{machineRow?.activeAssignments.map((assignment) => assignment.partnership_name).join(', ') || 'Not assigned'}</dd></div>
             </dl>
@@ -3626,10 +3640,11 @@ function MachineDialog({
             <h2 id="machine-activity-title" className="text-lg font-semibold text-foreground">Activity and audit</h2>
             <p className="mt-1 text-sm text-muted-foreground">Recent operating context and the machine’s broader configuration history.</p>
             <div className="mt-5 divide-y divide-border rounded-md border border-border">
-              <div className="flex gap-3 px-4 py-4"><Activity className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Latest sale</div><div className="mt-0.5 text-sm text-muted-foreground">{machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales recorded yet'}</div></div></div>
+              <div className="flex gap-3 px-4 py-4"><Activity className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">{retainedHistory.length ? 'Latest sale under current company' : 'Latest sale'}</div><div className="mt-0.5 text-sm text-muted-foreground">{machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales recorded yet'}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><ServerCog className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Machine status</div><div className="mt-0.5 text-sm text-muted-foreground">{formatLabel(machine.status || 'unknown')}</div></div></div>
               <div className="flex gap-3 px-4 py-4"><Users className="mt-0.5 h-4 w-4 text-muted-foreground" /><div><div className="text-sm font-medium">Manager coverage</div><div className="mt-0.5 text-sm text-muted-foreground">{machineManagerCount} assigned</div></div></div>
             </div>
+            <EarlierMachineSales history={retainedHistory} />
             <Button variant="outline" asChild className="mt-4"><Link to={`/admin/audit?search=${encodeURIComponent(machine.id)}`}><History className="mr-2 h-4 w-4" /> View full audit history</Link></Button>
           </section>
         )}
