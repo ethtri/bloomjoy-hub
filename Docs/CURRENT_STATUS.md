@@ -66,6 +66,13 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
   and direct request links use the same current assignment scope in Hub and email.
   Rollout follow-up #1737 removes repeated whole-scope scans from digest metadata;
   keep delivery paused until full replay and all-page live previews pass (#1729).
+  The October 6–7 missing-digest incident is tracked in #1818: all 22 daily
+  messages failed during rendering before provider submission. PR #1820 corrects
+  the stale location reference in the plain-text template. Independent follow-up
+  #1819 replaces repeated full permission scans in per-machine digest metadata
+  with the same current assignment check for the requested machine. Use those
+  issues for deployment, scheduled-delivery and recovery evidence; these source
+  fixes alone do not establish restored delivery.
 
 - Reporting PR #1709 and its four database migrations are live in production
   (#1696). Central Reporting includes Finance, seven completed days by default,
