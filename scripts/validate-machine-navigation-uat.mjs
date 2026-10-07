@@ -59,12 +59,15 @@ for (const [engine, launcher] of [['chromium', chromium], ['webkit', webkit]]) {
     await page.locator('#machine-search').fill('Cotton');
     await visibleRow('Cotton Candy 01').getByRole('button', { name: 'Manage', exact: true }).click();
     await editor.getByLabel('Machine name', { exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector('#page-machine-label')?.value === 'Cotton Candy 01');
+    await page.waitForLoadState('networkidle');
     const fullUrl = page.url();
     check('bound Manage opens full route without competing machine dialog', new URL(fullUrl).pathname === `/admin/machines/${machineId}` && await page.getByRole('dialog').count() === 0);
     check('one machine name, State and Save', await editor.getByLabel('Machine name', { exact: true }).count() === 1 && await editor.getByLabel('State', { exact: true }).count() === 1 && await editor.getByRole('button', { name: 'Save', exact: true }).count() === 1);
     await editor.getByLabel('Machine name', { exact: true }).fill('Pending mobile name');
     await editor.getByRole('button', { name: 'Refunds', exact: true }).click();
     await editor.getByRole('button', { name: 'Overview', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#page-machine-label')?.value === 'Pending mobile name');
     check('draft remains across settings sections', await editor.getByLabel('Machine name', { exact: true }).inputValue() === 'Pending mobile name');
     page.once('dialog', dialog => dialog.dismiss());
     await page.evaluate(() => history.back());
@@ -112,6 +115,7 @@ for (const [engine, launcher] of [['chromium', chromium], ['webkit', webkit]]) {
     check('successful import plus failed refresh does not allow duplicate setup', setupWrites.length === 1 && await editor.count() === 0);
     failInventory = false; await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await editor.getByLabel('Machine name', { exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector('#page-machine-label')?.value === 'Saved SnapCase');
     check('refresh resolves imported source into existing full editor', await editor.getByLabel('Machine name', { exact: true }).inputValue() === 'Saved SnapCase' && page.url() === sourceUrl && setupWrites.length === 1);
     await editor.getByRole('button', { name: 'Reporting', exact: true }).click(); await editor.getByRole('heading', { name: 'Reporting', exact: true }).waitFor();
     await editor.getByRole('button', { name: 'Activity', exact: true }).click(); await editor.getByRole('heading', { name: 'Activity and audit', exact: true }).waitFor();
