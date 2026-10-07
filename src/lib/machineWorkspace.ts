@@ -15,6 +15,7 @@ export type MachineWorkspaceMetadata = {
   lastSuccessfulSalesImport: string | null; sources: MachineSourceIdentity[];
   salesActivationPending?: boolean;
   machineName?: string;
+  retainedHistory?: { machineId: string; companyId: string; companyName: string; firstSaleDate: string; lastSaleDate: string }[];
 };
 export const machineWorkspaceQueryKey = ['admin-machine-workspace-metadata'];
 export async function fetchMachineWorkspaceMetadata(): Promise<MachineWorkspaceMetadata[]> {
@@ -80,4 +81,35 @@ export async function changeMachineReader(preview: MachineReaderChangePreview, c
   });
   if (error) throw new Error(error.message);
   return data;
+}
+
+export type SamePhysicalMachineReaderJoinPreview = {
+  eligible: boolean; reason: string | null; machineId: string; machineName: string;
+  companyId: string; inventoryId: string; readerId: string; accountKey: string;
+  historicalMachineId: string; historicalMachineName: string;
+  expectedMachineUpdatedAt: string; expectedHistoricalMachineUpdatedAt: string;
+  expectedInventoryUpdatedAt: string; expectedSourceIdentityDigest: string;
+  historicalCardTransactionCount: number; historicalRefundCaseCount: number;
+};
+
+export async function previewSamePhysicalMachineReaderJoin(machineId: string, inventoryId: string): Promise<SamePhysicalMachineReaderJoinPreview> {
+  const { data, error } = await supabaseClient.rpc('admin_preview_same_physical_machine_reader_join', {
+    p_machine_id: machineId, p_inventory_id: inventoryId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function joinSamePhysicalMachineReader(preview: SamePhysicalMachineReaderJoinPreview) {
+  const { data, error } = await supabaseClient.rpc('admin_join_same_physical_machine_reader', {
+    p_machine_id: preview.machineId, p_inventory_id: preview.inventoryId,
+    p_expected_machine_updated_at: preview.expectedMachineUpdatedAt,
+    p_expected_historical_machine_id: preview.historicalMachineId,
+    p_expected_historical_machine_updated_at: preview.expectedHistoricalMachineUpdatedAt,
+    p_expected_inventory_updated_at: preview.expectedInventoryUpdatedAt,
+    p_expected_source_identity_digest: preview.expectedSourceIdentityDigest,
+    p_confirm_same_machine: true, p_reason: 'Explicitly confirmed same physical machine in its source reader connection',
+  });
+  if (error) throw new Error(error.message);
+  return data as { machineId: string; retainedHistoricalMachineId: string; inventoryId: string };
 }
