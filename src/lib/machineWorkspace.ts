@@ -15,6 +15,7 @@ export type MachineWorkspaceMetadata = {
   lastSuccessfulSalesImport: string | null; sources: MachineSourceIdentity[];
   salesActivationPending?: boolean;
   machineName?: string;
+  retainedHistory?: { machineId: string; companyId: string; companyName: string; firstSaleDate: string; lastSaleDate: string }[];
 };
 export const machineWorkspaceQueryKey = ['admin-machine-workspace-metadata'];
 export async function fetchMachineWorkspaceMetadata(): Promise<MachineWorkspaceMetadata[]> {

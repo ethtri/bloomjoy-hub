@@ -247,4 +247,38 @@ begin
   execute replace(definition,anchor,'where historical_owner<>m.id and not private.same_physical_reader_legacy_owner(m.id,i.account_key,i.nayax_machine_id,historical_owner))');
 end; $patch$;
 
+-- Read-only earlier-sales navigation uses the existing financial access scope.
+-- A same-machine correction never grants access to the historical company.
+alter function public.admin_get_machine_workspace_metadata()
+  rename to admin_get_machine_workspace_metadata_before_retained_reader_history;
+revoke all on function public.admin_get_machine_workspace_metadata_before_retained_reader_history()
+  from public,anon,authenticated,service_role;
+create function public.admin_get_machine_workspace_metadata()
+returns jsonb language plpgsql stable security definer set search_path='' as $fn$
+declare metadata jsonb;
+begin
+  metadata:=public.admin_get_machine_workspace_metadata_before_retained_reader_history();
+  return coalesce((select jsonb_agg(item.value||jsonb_build_object('retainedHistory',coalesce((
+    select jsonb_agg(jsonb_build_object('machineId',historical.id,'companyId',historical.account_id,
+      'companyName',company.name,'firstSaleDate',sales.first_sale_date,'lastSaleDate',sales.last_sale_date)
+      order by historical.id)
+    from public.reporting_machines historical
+    join public.customer_accounts company on company.id=historical.account_id
+    cross join lateral (select min(sale_date) first_sale_date,max(sale_date) last_sale_date
+      from public.machine_sales_facts where reporting_machine_id=historical.id and transaction_count>0) sales
+    where historical.management_archived_at is not null and sales.first_sale_date is not null
+      and exists(select 1 from private.finance_reporting_machine_scope(auth.uid()) allowed where allowed.id=historical.id)
+      and exists(select 1 from private.machine_nayax_reader_associations current_reader
+        join private.machine_nayax_reader_associations retained
+          on retained.account_key=current_reader.account_key and retained.nayax_machine_id=current_reader.nayax_machine_id
+        where current_reader.reporting_machine_id=(item.value->>'machineId')::uuid
+          and current_reader.ownership_basis='same_physical_machine_all_history'
+          and retained.reporting_machine_id=historical.id
+          and retained.ownership_basis='retired_same_physical_machine_duplicate' and retained.closed_at is not null)
+  ),'[]'::jsonb)) order by item.ordinal)
+    from jsonb_array_elements(metadata) with ordinality item(value,ordinal)),'[]'::jsonb);
+end; $fn$;
+revoke all on function public.admin_get_machine_workspace_metadata() from public,anon;
+grant execute on function public.admin_get_machine_workspace_metadata() to authenticated,service_role;
+
 select pg_notify('pgrst', 'reload schema');

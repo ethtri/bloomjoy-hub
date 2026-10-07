@@ -186,5 +186,23 @@ select is((select jsonb_agg(to_jsonb(c) order by booking_date,tender) from priva
 select is(public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000002','aa181503-0000-4000-8000-000000000005')->>'readerId','18150003','Sunze historical refund case keeps the original reader after correction');
 select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18150003',now()),'aa181503-0000-4000-8000-000000000004'::uuid,'Sunze future native-card purchases resolve only to the current source machine');
 select ok(pg_temp.retired_reader_after_real_replacement(),'A later real replacement closes the active attestation and blocks unmatched old-case fallback');
+-- Earlier-sales links expose only the original owner's existing reporting scope.
+set local role authenticated;
+select is((select item->'retainedHistory'->0->>'machineId' from jsonb_array_elements(public.admin_get_machine_workspace_metadata()) item where item->>'machineId'='aa181503-0000-4000-8000-000000000001'),'aa181503-0000-4000-8000-000000000002','Authorized current page links earlier sales to the exact original financial owner');
+select is((select item->'retainedHistory'->0->>'companyId' from jsonb_array_elements(public.admin_get_machine_workspace_metadata()) item where item->>'machineId'='aa181503-0000-4000-8000-000000000001'),'aa181501-0000-4000-8000-000000000002','Earlier-sales navigation keeps the original historical company');
+select ok(exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') item where item->>'machineId'='aa181503-0000-4000-8000-000000000002'),'Existing report dimensions include the archived historical owner for its authorized actor');
+select is((select (item->>'cardRecordedSalesCents')::bigint from jsonb_array_elements(public.get_finance_reporting('2026-09-01','2026-09-30',array['aa181503-0000-4000-8000-000000000002'::uuid],null)->'rows') item where item->>'machineId'='aa181503-0000-4000-8000-000000000002'),63400::bigint,'The actual linked finance report returns the original 317-card amount, once');
+reset role;
+set local session_replication_role=replica;
+insert into admin_scoped_access_grants(id,user_id,grant_reason,granted_by) values
+ ('aa181507-0000-4000-8000-000000000001','aa181500-0000-4000-8000-000000000002','Synthetic current source admin only','aa181500-0000-4000-8000-000000000001');
+insert into admin_scoped_access_scopes(grant_id,scope_type,machine_id,grant_reason,granted_by) values
+ ('aa181507-0000-4000-8000-000000000001','machine','aa181503-0000-4000-8000-000000000001','Synthetic current source scope only','aa181500-0000-4000-8000-000000000001');
+set local session_replication_role=origin;
+select set_config('request.jwt.claim.sub','aa181500-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select is((select item->'retainedHistory' from jsonb_array_elements(public.admin_get_machine_workspace_metadata()) item where item->>'machineId'='aa181503-0000-4000-8000-000000000001'),'[]'::jsonb,'Current-source administrator cannot learn or open another company historical sales through a join');
+select ok(not exists(select 1 from jsonb_array_elements(public.get_finance_reporting_access()->'dimensions') item where item->>'machineId'='aa181503-0000-4000-8000-000000000002'),'Correction grants no additional historical reporting access');
+reset role;
 select * from finish();
 rollback;
