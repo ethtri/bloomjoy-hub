@@ -976,7 +976,7 @@ const run = async () => {
         && state.readerReplacementPayload === null);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await waitForUatPageRequestDrain(page);
-    await page.goto(`${args.appUrl}/admin/machines/inventory`, { waitUntil: 'domcontentloaded' });
+    await navigateUatPageAfterDrain(page, `${args.appUrl}/admin/machines/inventory`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
     recorder.assert('Reloaded inventory keeps the historical current reader and excluded candidate unchanged',
       JSON.stringify(state.nayaxInventory.machines) === currentInventorySnapshot
