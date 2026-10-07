@@ -1,4 +1,4 @@
-import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, previewImportedReaderChange, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
+import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, reuseImportedSourceMachine, setupImportedMachine, previewImportedReaderChange, setMachineSourceCatalogueInactive, machineSourceInventoryQueryKey, type MachineSourceInventoryItem } from '@/lib/machineSourceInventory';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
@@ -120,7 +120,7 @@ type MachineTypeFilter = 'all' | CanonicalMachineType;
 type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
 type MachineActivityFilter = 'all' | 'recent' | 'no_sales' | 'idle';
 type MachineSort = 'status' | 'machine' | 'latest_sale' | 'oldest';
-type MachineView = 'all' | 'setup' | 'attention' | 'ready' | 'review';
+type MachineView = 'all' | 'setup' | 'attention' | 'ready' | 'review' | 'inactive';
 type MachineDetailTab = 'overview' | 'refunds' | 'managers' | 'reporting' | 'activity';
 type MachineAttentionReason = {
   code: string;
@@ -326,7 +326,7 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 };
 
 const parseMachineView = (value: string | null): MachineView => {
-  if (value === 'setup' || value === 'attention' || value === 'ready' || value === 'review') return value;
+  if (value === 'setup' || value === 'attention' || value === 'ready' || value === 'review' || value === 'inactive') return value;
   return 'all';
 };
 
@@ -435,6 +435,8 @@ export default function AdminMachinesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [view, setView] = useState<MachineView>(() => parseMachineView(searchParams.get('view')));
+  const [companyFilter, setCompanyFilter] = useState(() => searchParams.get('company') ?? 'all');
+  const [savingSourceState, setSavingSourceState] = useState<string | null>(null);
   const [taxFilter, setTaxFilter] = useState<MachineTaxFilter>(() => parseTaxFilter(searchParams.get('tax')));
   const [assignmentFilter, setAssignmentFilter] = useState<MachineAssignmentFilter>(() =>
     parseAssignmentFilter(searchParams.get('assignment'))
@@ -654,6 +656,7 @@ export default function AdminMachinesPage() {
     setActivityFilter(parseActivityFilter(searchParams.get('activity')));
     setSort(parseMachineSort(searchParams.get('sort')));
     setView(parseMachineView(searchParams.get('view')));
+    setCompanyFilter(searchParams.get('company') ?? 'all');
     const parsedLimit = Number(searchParams.get('limit'));
     setVisibleMachineLimit(Number.isInteger(parsedLimit) && parsedLimit >= 20 ? parsedLimit : 20);
   }, [searchParams]);
@@ -859,8 +862,10 @@ export default function AdminMachinesPage() {
     if (importedInventory.isError) return [];
     const filteredHubIds = new Set(machineRows.map((row) => row.machine.id));
     const query = search.trim().toLowerCase();
-    return (importedInventory.data?.sources ?? []).filter((source) => !source.archivedMapping || !!source.reportingMachineId).flatMap((source) => {
+    return (importedInventory.data?.sources ?? []).filter((source) => !source.archivedMapping).flatMap((source) => {
       const hubRow = allMachineRows.find((row) => row.machine.id === source.reportingMachineId) ?? null;
+      const companyId = source.companyId ?? hubRow?.machine.account_id ?? null;
+      if (companyFilter === 'unassigned' ? !!companyId : companyFilter !== 'all' && companyId !== companyFilter) return [];
       const sourceMatchesSearch = [source.platform, source.sourceName, source.sourceId, source.sourceAccountKey, source.machineName, source.nayaxName, source.nayaxMachineId, source.nayaxAccountKey].filter(Boolean).join(' ').toLowerCase().includes(query);
       if (source.reportingMachineId && hubRow && !filteredHubIds.has(source.reportingMachineId)) {
         // Original source identity remains searchable even if the Hub alias differs.
@@ -880,8 +885,10 @@ export default function AdminMachinesPage() {
       }
       return (a.hubRow?.machine.machine_label ?? a.source.sourceName ?? a.source.sourceId).localeCompare(b.hubRow?.machine.machine_label ?? b.source.sourceName ?? b.source.sourceId);
     });
-  }, [isLocalDemoMode, machineRows, importedInventory.data, importedInventory.isError, allMachineRows, search, machineTypeFilter, taxFilter, assignmentFilter, refundFilter, activityFilter, sort, metadataById]);
+  }, [isLocalDemoMode, machineRows, importedInventory.data, importedInventory.isError, allMachineRows, search, companyFilter, machineTypeFilter, taxFilter, assignmentFilter, refundFilter, activityFilter, sort, metadataById]);
   const sourceViewMatches = (item: { hubRow: MachineSetupRowViewModel | null; source: MachineSourceInventoryItem }, selectedView: MachineView) => {
+    if (selectedView === 'inactive') return !!item.source.catalogueInactiveAt;
+    if (item.source.catalogueInactiveAt) return false;
     if (selectedView === 'review') return !item.source.reportingMachineId || item.source.mappingConflict;
     if (selectedView === 'setup') return !!item.source.salesActivationPending || !item.hubRow || item.hubRow.machine.operational_phase === 'setup' || item.hubRow.attentionReasons.length > 0;
     if (selectedView === 'attention') return !!item.source.salesActivationPending || !item.hubRow || item.hubRow.attentionReasons.length > 0;
@@ -893,11 +900,28 @@ export default function AdminMachinesPage() {
   const selectedViewMachineCount = visibleSourceRows.length;
   const sourceVerificationIncomplete = !isLocalDemoMode && importedInventory.isError;
   const portfolioCounts = {
-    all: sourceRows.length,
+    all: sourceRows.filter((item) => sourceViewMatches(item, 'all')).length,
+    inactive: sourceRows.filter((item) => sourceViewMatches(item, 'inactive')).length,
     review: sourceRows.filter((item) => sourceViewMatches(item, 'review')).length,
     setup: sourceRows.filter((item) => sourceViewMatches(item, 'setup')).length,
     attention: sourceRows.filter((item) => sourceViewMatches(item, 'attention')).length,
     ready: sourceRows.filter((item) => sourceViewMatches(item, 'ready')).length,
+  };
+
+  const catalogueCompanies = [...new Map((importedInventory.data?.sources ?? []).filter((source) => source.companyId)
+    .map((source) => [source.companyId!, source.companyName || 'Unnamed company'])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const saveSourceState = async (source: MachineSourceInventoryItem, inactive: boolean) => {
+    if (savingSourceState || importedInventory.isError || isLocalDemoMode) return;
+    setSavingSourceState(source.sourceKey);
+    try {
+      await setMachineSourceCatalogueInactive(source, inactive);
+      await importedInventory.refetch();
+      toast.success(inactive ? 'Machine moved to Inactive' : 'Machine restored');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save machine state');
+      void importedInventory.refetch();
+    } finally { setSavingSourceState(null); }
   };
 
   useEffect(() => {
@@ -926,6 +950,7 @@ export default function AdminMachinesPage() {
   };
 
   const clearFilters = () => {
+    setCompanyFilter('all');
     setTaxFilter('all');
     setAssignmentFilter('all');
     setMachineTypeFilter('all');
@@ -935,6 +960,7 @@ export default function AdminMachinesPage() {
     setVisibleMachineLimit(20);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('tax');
+    nextParams.delete('company');
     nextParams.delete('assignment');
     nextParams.delete('type');
     nextParams.delete('refund');
@@ -945,6 +971,7 @@ export default function AdminMachinesPage() {
   };
 
   const clearSearchAndFilters = () => {
+    setCompanyFilter('all');
     setSearch('');
     setTaxFilter('all');
     setAssignmentFilter('all');
@@ -954,7 +981,7 @@ export default function AdminMachinesPage() {
     setSort('status');
     setVisibleMachineLimit(20);
     const nextParams = new URLSearchParams(searchParams);
-    ['q', 'tax', 'assignment', 'type', 'refund', 'activity', 'sort', 'limit'].forEach((key) =>
+    ['q', 'company', 'tax', 'assignment', 'type', 'refund', 'activity', 'sort', 'limit'].forEach((key) =>
       nextParams.delete(key)
     );
     setSearchParams(nextParams, { replace: true });
@@ -1278,7 +1305,7 @@ export default function AdminMachinesPage() {
                   <ServerCog className="h-4 w-4" />
                   Provider reconciliation
                 </div>
-                <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Nayax setup</h1>
+                <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Nayax readers</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
                   Review only the inventory records that need a mapping, classification, or sync decision.
                 </p>
@@ -1296,7 +1323,7 @@ export default function AdminMachinesPage() {
             {!isSuperAdmin ? (
               <div className="mt-8 rounded-xl border border-border bg-card px-5 py-8 text-center">
                 <CircleAlert className="mx-auto h-6 w-6 text-muted-foreground" />
-                <h2 className="mt-3 font-semibold text-foreground">Nayax setup is limited to Super Admins</h2>
+                <h2 className="mt-3 font-semibold text-foreground">Nayax reader administration is limited to Super Admins</h2>
                 <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
                   Your granted machines still show the provider readiness that matters to your work.
                 </p>
@@ -1435,10 +1462,10 @@ export default function AdminMachinesPage() {
                 <CompanyManagementSheet disabled={isLocalDemoMode} />
               )}
               {isSuperAdmin && (
-                <Button asChild variant="outline">
+                <Button asChild variant="ghost" className="min-h-11 text-muted-foreground">
                   <Link to={`/admin/machines/inventory${isLocalDemoMode ? '?demo=on' : ''}`}>
                     <ServerCog className="mr-2 h-4 w-4" />
-                    Nayax setup
+                    Nayax readers
                   </Link>
                 </Button>
               )}
@@ -1469,6 +1496,7 @@ export default function AdminMachinesPage() {
               ['all', 'Machines', portfolioCounts.all],
               ['setup', 'Setup needed', portfolioCounts.setup],
               ['ready', 'Ready', portfolioCounts.ready],
+              ['inactive', 'Inactive', portfolioCounts.inactive],
             ] as const).map(([value, label, count]) => (
               <button
                 key={value}
@@ -1490,6 +1518,14 @@ export default function AdminMachinesPage() {
 
           <div className="sticky top-16 z-20 mt-5 rounded-xl border border-border bg-background/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/90">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <div className="min-w-0 lg:w-64">
+                <Label htmlFor="machine-company-filter">Company</Label>
+                <select id="machine-company-filter" value={companyFilter} className="mt-1 min-h-11 w-full rounded-md border border-input bg-background px-3 text-base"
+                  onChange={(event) => { const value = event.target.value; setCompanyFilter(value); const params = new URLSearchParams(searchParams); if (value === 'all') params.delete('company'); else params.set('company', value); setSearchParams(params, { replace: true }); }}>
+                  <option value="all">All companies</option><option value="unassigned">Not assigned</option>
+                  {catalogueCompanies.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                </select>
+              </div>
               <div className="min-w-0 flex-1">
                 <Label htmlFor="machine-search" className="sr-only">Search machines</Label>
                 <div className="relative">
@@ -1618,7 +1654,7 @@ export default function AdminMachinesPage() {
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
               <div>
                 <h2 className="font-semibold text-foreground">
-                  {view === 'review' ? 'Imported machines awaiting source setup' : view === 'attention' ? 'Machines needing attention' : view === 'ready' ? 'Ready machines' : 'All imported machines'}
+                  {view === 'inactive' ? 'Inactive machines' : view === 'review' ? 'Imported machines awaiting source setup' : view === 'attention' ? 'Machines needing attention' : view === 'ready' ? 'Ready machines' : 'All imported machines'}
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {!isLocalDemoMode && importedInventory.isPending ? 'Loading imported machines…' : visibleSourceRows.length === selectedViewMachineCount
@@ -1656,7 +1692,7 @@ export default function AdminMachinesPage() {
                       ? 'The machines in this view are ready for their current workflows.'
                       : 'Try a different search or clear the active filters.'}
                 </p>
-                {(search || taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
+                {(search || companyFilter !== 'all' || taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
                   <Button
                     variant="outline"
                     className="mt-5"
@@ -1682,10 +1718,12 @@ export default function AdminMachinesPage() {
                 <div role="rowgroup" className="divide-y divide-border bg-background">
                   {renderedSourceRows.map(({ source, hubRow }) => hubRow ? (
                     <MachinePortfolioRow key={source.sourceKey} row={hubRow} source={source}
+                      sourceStateControl={<SourceCatalogueState source={source} disabled={!!savingSourceState || isLocalDemoMode || importedInventory.isFetching} onChange={(inactive) => void saveSourceState(source, inactive)} />}
                       metadata={metadataById.get(hubRow.machine.id)}
                       isHighlighted={[highlightedMachineId, selectedRowId].includes(hubRow.machine.id)}
                       onEdit={openEditMachine} globalRefunds={refundManagerSetup.globalRefunds}/>
                   ) : <ImportedSourcePortfolioRow key={source.sourceKey} source={source} canSetup={isSuperAdmin}
+                    sourceStateControl={<SourceCatalogueState source={source} disabled={!!savingSourceState || isLocalDemoMode || importedInventory.isFetching} onChange={(inactive) => void saveSourceState(source, inactive)} />}
                     onSetup={() => setSelectedImportedSource(source)}/>)}
                 </div>
                 {renderedSourceRows.length < visibleSourceRows.length && (
@@ -1769,8 +1807,18 @@ function sourceTransactionLabel(source: MachineSourceInventoryItem): string {
   } catch { return 'Unknown'; }
 }
 
-function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
-  source: MachineSourceInventoryItem; canSetup: boolean; onSetup: () => void;
+function SourceCatalogueState({ source, disabled, onChange }: { source: MachineSourceInventoryItem; disabled: boolean; onChange: (inactive: boolean) => void }) {
+  const id = `source-state-${encodeURIComponent(source.sourceKey)}`;
+  return <div className="mt-3 max-w-48"><Label htmlFor={id}>State</Label>
+    <select id={id} className="mt-1 min-h-11 w-full rounded-md border border-input bg-background px-3 text-base"
+      value={source.catalogueInactiveAt ? 'inactive' : 'active'} disabled={disabled || source.archivedMapping}
+      onChange={(event) => onChange(event.target.value === 'inactive')}>
+      <option value="active">Active</option><option value="inactive">Inactive</option>
+    </select></div>;
+}
+
+function ImportedSourcePortfolioRow({ source, canSetup, onSetup, sourceStateControl }: {
+  source: MachineSourceInventoryItem; canSetup: boolean; onSetup: () => void; sourceStateControl?: ReactNode;
 }) {
   const blocked = source.mappingConflict || source.archivedMapping || Boolean(source.reportingMachineId);
   return <div role="row" data-source-key={source.sourceKey} className="grid grid-cols-1 gap-4 px-4 py-5 text-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
@@ -1779,14 +1827,15 @@ function ImportedSourcePortfolioRow({ source, canSetup, onSetup }: {
     <div role="cell"><CellLabel>Company</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Managers</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'Not assigned'}</p></div>
     <div role="cell"><CellLabel>Last recorded transaction</CellLabel><p>{source.reportingMachineId ? 'Setup details unavailable' : 'None recorded in Hub'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {source.lastSourceTransaction ? sourceTransactionLabel(source) : 'Unknown'}</p><p className="mt-1 text-xs text-muted-foreground">{source.platform} · Last seen {source.lastSeenAt ? new Date(source.lastSeenAt).toLocaleDateString() : 'Unknown'}</p></div>
-    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
+    <div role="cell" className="xl:text-right">{canSetup && <Button className="min-h-11 text-base" variant="outline" onClick={onSetup} disabled={blocked}>Manage</Button>}{sourceStateControl}{blocked && <p className="mt-1 text-xs text-muted-foreground">{source.mappingConflict ? 'Exact mapping conflict — review before setup' : source.archivedMapping ? 'Existing archived setup — restore explicitly' : 'Hub setup unavailable — retry loading'}</p>}</div>
   </div>;
 }
 
-function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefunds, onEdit }: {
+function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefunds, onEdit, sourceStateControl }: {
   row: MachineSetupRowViewModel;
   metadata?: MachineWorkspaceMetadata;
   source?: MachineSourceInventoryItem;
+  sourceStateControl?: ReactNode;
   isHighlighted: boolean;
   globalRefunds: RefundManagerSetup['globalRefunds'];
   onEdit: (machine: PartnershipSetupMachine, tab?: MachineDetailTab) => void;
@@ -1812,7 +1861,7 @@ function MachinePortfolioRow({ row, metadata, source, isHighlighted, globalRefun
     <div role="cell" className="min-w-0 break-words"><CellLabel>Company</CellLabel><p className="font-medium">{machine.account_name || 'Company not set'}</p><p className="mt-2 text-xs text-muted-foreground">Operating state: {machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase || machine.status || 'unknown')}</p></div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Managers</CellLabel>{row.machineManagerEmails.length ? row.machineManagerEmails.map((email) => <p key={email} className="mb-1 text-xs">{email}</p>) : <p className="text-muted-foreground">Unassigned</p>}</div>
     <div role="cell" className="min-w-0 break-words"><CellLabel>Last recorded transaction</CellLabel><p className="font-medium">{metadata ? metadata.lastRecordedTransaction ? formatDate(metadata.lastRecordedTransaction) : 'No transactions recorded' : 'Transaction data unavailable'}</p>{metadata && <p className="mt-1 text-xs text-muted-foreground">{transactionAgeLabel(metadata.lastRecordedTransaction)} · {transactionSourceLabel(metadata.transactionSource)}<br/>{importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>}{source && <p className="mt-1 text-xs text-muted-foreground">{source.platform} · {source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {sourceTransactionLabel(source)}</p>}</div>
-    <div role="cell" className="flex justify-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button></div>
+    <div role="cell" className="flex flex-col items-end sm:col-span-2 xl:col-span-1"><Button variant="outline" className="min-h-11 shrink-0" onClick={() => onEdit(machine, 'overview')}>Manage<ChevronRight className="ml-1.5 h-4 w-4" /></Button>{sourceStateControl}</div>
   </div>;
 }
 
@@ -2158,7 +2207,7 @@ function RefundNayaxInventoryRow({
       {isReviewing && (
       <div className="mt-4 border-t border-border pt-4">
         {canReconcile && canReplace && (
-          <div className="mb-4 flex flex-wrap gap-2" aria-label="Nayax setup action">
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Nayax reader administration">
             <Button type="button" size="sm" variant={mode === 'replace' ? 'secondary' : 'ghost'} aria-pressed={mode === 'replace'} onClick={() => { setMode('replace'); setSaveNotice(null); }}>
               <ArrowRightLeft className="mr-2 h-4 w-4" /> Replace reader
             </Button>

@@ -6,6 +6,11 @@
 
 # QA Smoke Test Checklist
 
+## Source catalogue lifecycle (#1811)
+- For both Sunze and Kex, change State to Inactive on a bound and an unbound source without entering company, reader or timezone. It leaves Machines/Setup/Ready and their counts, appears in Inactive, and survives refresh/import. Restore changes only catalogue visibility and retains prior setup/live state.
+- Company is visible beside search. All companies/Not assigned/exact authorized company persist in the URL and apply consistently to normal and Inactive results/counts. Archived records stay excluded.
+- Nayax readers is secondary administration; per-machine mapping stays in Manage. Failed/stale state saves leave financial/refund/history/configuration unchanged and allow verified retry.
+
 ## Machines search focus regression (#1744)
 - On `/admin/machines`, type a multi-character name continuously, then backspace; focus and caret stay in Search machines while results and URL update. Reload retains the query; clearing it restores all records. Verify imported Nayax and inventory searches similarly.
 - Local synthetic regression: `node scripts/validate-machine-search-focus.mjs` (Vite on port 8087, or `MACHINE_SEARCH_UAT_APP_URL`). Also verifies shared-boundary render errors recover on query and pathname navigation. No assignment saves occur.
