@@ -850,6 +850,17 @@ begin
   if not exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine.id) then
     return jsonb_build_object('readerId',machine.nayax_machine_id,'accountKey',machine.nayax_account_key,'basis','legacy_current_configuration');
   end if;
+  select count(*),jsonb_agg(jsonb_build_object('readerId',nayax_machine_id,'accountKey',account_key)) into tuple_count,tuples
+    from private.machine_nayax_reader_associations where reporting_machine_id=machine.id;
+  if tuple_count=1 and exists(select 1 from private.machine_nayax_reader_associations
+    where reporting_machine_id=machine.id and ownership_basis='same_physical_machine_all_history' and closed_at is null) then
+    return tuples->0||jsonb_build_object('basis','single_attested_all_history_reader');
+  end if;
+  if refund_case.incident_time_resolution not in ('exact','legacy_absolute')
+    or refund_case.incident_time_resolution is null
+    or refund_case.incident_time_confidence is distinct from 'exact' then
+    return jsonb_build_object('readerId',null,'accountKey',null,'basis','purchase_ownership_unverified');
+  end if;
   select count(*),jsonb_agg(candidate) into tuple_count,tuples from (
     select distinct history.account_key,history.nayax_machine_id from private.machine_nayax_reader_associations history
     where history.reporting_machine_id=machine.id
@@ -927,7 +938,7 @@ begin
     'public.refund_nayax_candidate_id_state_pre_time_v1(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)',
     'public.refund_nayax_candidate_id_state_time_v1(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)'
   ] loop
-    definition:=pg_get_functiondef(signature::regprocedure);
+    definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
     anchor:=E'select m.* into machine_row from public.reporting_machines m where m.id = p_reporting_machine_id;\n  if not found then return ''invalid''; end if;';
     if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
       raise exception 'Candidate original reader anchor changed: %',signature;
@@ -961,7 +972,7 @@ begin
     ,('public.refund_case_nayax_manager_readiness(uuid,uuid)','c.id','machine',1,1,false)
     ,('public.refund_nayax_api_terminal_evidence_proved(uuid,uuid)','c.id','machine',1,1,false)
   ) patches(signature,case_expression,machine_alias,account_count,reader_count,nonnull_comparison) loop
-    definition:=pg_get_functiondef(item.signature::regprocedure);
+    definition:=replace(pg_get_functiondef(item.signature::regprocedure),E'\r\n',E'\n');
     account_anchor:=item.machine_alias||'.nayax_account_key';
     reader_anchor:=item.machine_alias||'.nayax_machine_id';
     if (length(definition)-length(replace(definition,account_anchor,'')))/length(account_anchor)<>item.account_count
