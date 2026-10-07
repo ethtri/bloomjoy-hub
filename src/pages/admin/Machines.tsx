@@ -3952,6 +3952,7 @@ null
         )}
         </>}
         </>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && <p role="status" className="mt-4 text-sm text-muted-foreground">{!form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry above before saving.' : 'Checking reader ownership before saving…' : ''}</p>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel

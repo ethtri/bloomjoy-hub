@@ -116,9 +116,9 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
     </div>
     {!saved?.locationTimezone && !authoritativeTimezone && !value.locationId && value.accountId && <div className="space-y-1.5">
       <Label htmlFor={`${id}-timezone`}>Machine time zone</Label>
-      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="h-11 min-h-11 text-base md:text-base" disabled={disabled} />
+      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="Choose machine time zone" aria-required="true" aria-describedby={`${id}-timezone-help`} className="h-11 min-h-11 text-base md:text-base" disabled={disabled} />
       <datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist>
-      <p className="text-xs text-muted-foreground">Required when no machine time zone is known. This determines reporting business days.</p>
+      <p id={`${id}-timezone-help`} className="text-sm text-muted-foreground">{value.locationTimezone ? 'This determines reporting business days.' : 'Choose a machine time zone before saving. No time zone is selected.'}</p>
     </div>}
     {changed && <p className="text-sm text-muted-foreground">Company-level report access follows the selected company. Machine manager assignments stay the same.</p>}
   </div>;
