@@ -1708,6 +1708,13 @@ export type RefundMissingField =
   | 'payment_method'
   | 'amount'
   | 'card_last4'
+  | 'card_last4_source'
+  | 'wallet_device_kind'
+  | 'incident_time_source'
+  | 'nearby_attempt_count'
+  | 'issue_summary'
+  | 'cash_inserted_amount'
+  | 'expected_change_amount'
   | 'zelle_payment_contact';
 
 export const fetchRefundMachineOptions = async (): Promise<RefundPublicSelection[]> => {

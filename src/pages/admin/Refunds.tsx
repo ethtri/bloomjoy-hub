@@ -746,6 +746,9 @@ const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
   incident_time_source: 'how the customer found the purchase time',
   nearby_attempt_count: 'how many nearby attempts or charges the customer remembers',
   zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
+  issue_summary: 'what happened, including whether the item and any change were received',
+  cash_inserted_amount: 'the total cash inserted into the machine',
+  expected_change_amount: 'the total change the customer expected',
 };
 
 const missingFieldReplyLine: Record<RefundMissingField, string> = {
@@ -763,6 +766,9 @@ const missingFieldReplyLine: Record<RefundMissingField, string> = {
   incident_time_source: 'Time source (alert or receipt, memory, or not sure):',
   nearby_attempt_count: 'Nearby attempts or charges (one, more than one, or not sure):',
   zelle_payment_contact: 'Zelle email or phone number:',
+  issue_summary: 'What happened (price shown, item received, change returned, and what you are requesting):',
+  cash_inserted_amount: 'Total cash inserted (USD):',
+  expected_change_amount: 'Total change expected (USD), or not applicable:',
 };
 
 const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>

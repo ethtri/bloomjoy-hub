@@ -3,6 +3,31 @@ import { hashRefundStatusValue } from './refund-status-capability.ts';
 const context: CorrectionContext = { state: 'ready', requestedFields: ['card_last4'], allowedFields: ['card_last4','amount','incident_date','incident_time','payment_method','payment_interaction'], values: { card_last4: '1234' } };
 const assert = (value: unknown) => { if (!value) throw new Error('Assertion failed'); };
 const rejects = (input: unknown, ctx = context) => { let threw = false; try { validateCorrectionAnswers(input,ctx); } catch { threw = true; } assert(threw); };
+
+const cashContext: CorrectionContext = { state: 'ready', requestedFields: ['issue_summary','cash_inserted_amount','expected_change_amount'],
+  allowedFields: ['issue_summary','cash_inserted_amount','expected_change_amount','payment_method','zelle_payment_contact'], values: {payment_method:'cash'} };
+const cashAnswers: CorrectionAnswers = { issue_summary:{disposition:'changed',value:'The case was $25. I received it but got no change; I am requesting the $15 change.'},
+  cash_inserted_amount:{disposition:'changed',value:'$40'}, expected_change_amount:{disposition:'changed',value:'15,00'} };
+Deno.test('cash clarification keeps separate customer facts and accepts a description longer than a short purchase value', () => {
+  const result = validateCorrectionAnswers(cashAnswers,cashContext);
+  assert(result.cash_inserted_amount?.value === '40.00' && result.expected_change_amount?.value === '15.00');
+  assert(validateCorrectionAnswers({...cashAnswers,issue_summary:{disposition:'changed',value:'a'.repeat(2500)}},cashContext).issue_summary?.value?.length === 2500);
+  rejects({...cashAnswers,issue_summary:{disposition:'changed',value:'a'.repeat(2501)}},cashContext);
+});
+Deno.test('cash clarification rejects card scopes, payout-only injection and invalid change atomically', () => {
+  rejects(cashAnswers,{...cashContext,values:{payment_method:'card'}});
+  rejects({...cashAnswers,payment_method:{disposition:'changed',value:'card'}},cashContext);
+  rejects(cashAnswers,{state:'ready',requestedFields:['zelle_payment_contact'],allowedFields:['zelle_payment_contact']});
+  for (const value of ['0','-1','40','41','15.123','NaN']) rejects({...cashAnswers,expected_change_amount:{disposition:'changed',value}},cashContext);
+  rejects({...cashAnswers,cash_inserted_amount:{disposition:'changed',value:'14'}},cashContext);
+});
+Deno.test('unknown cash details remain truthful; retained amounts participate in relational validation', () => {
+  const unknown: CorrectionAnswers = {issue_summary:{disposition:'cannot_provide'},cash_inserted_amount:{disposition:'cannot_provide'},expected_change_amount:{disposition:'cannot_provide'}};
+  assert(validateCorrectionAnswers(unknown,cashContext).issue_summary?.disposition === 'cannot_provide');
+  const ctx = {...cashContext,values:{payment_method:'cash',cash_inserted_amount:'40.00',expected_change_amount:'15.00'}};
+  rejects({...unknown,cash_inserted_amount:{disposition:'changed',value:'10'}},ctx);
+  assert(validateCorrectionAnswers({...unknown,zelle_payment_contact:{disposition:'changed',value:'customer@example.invalid'}},cashContext).zelle_payment_contact?.value === 'customer@example.invalid');
+});
 Deno.test('requested field can be changed, confirmed or explicitly unknown', () => {
   for (const answer of [{ disposition: 'changed', value: '6789' }, { disposition: 'confirmed' }, { disposition: 'cannot_provide' }]) {
     assert(validateCorrectionAnswers({ card_last4: answer },context).card_last4);

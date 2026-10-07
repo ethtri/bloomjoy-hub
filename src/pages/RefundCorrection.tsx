@@ -6,6 +6,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { invokeEdgeFunction, isEdgeFunctionError, type EdgeFunctionResponse } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
 import { withRequestTimeout } from '@/lib/requestTimeout';
@@ -32,17 +33,18 @@ const demoContext = (search: string): CorrectionContext => {
   const params = new URLSearchParams(search);
   const wallet = params.get('payment') === 'wallet';
   const cash = params.get('payment') === 'cash';
+  const cashChange = cash && params.get('context') === 'cash-change';
   const ambiguous = params.get('context') === 'ambiguous';
   const timeAmbiguous = params.get('context') === 'time';
   return { state: params.get('state') === 'expired' ? 'unavailable' : 'ready', publicReference: 'RF-DEMO', version: 1,
     locale: params.get('lang') === 'es' ? 'es' : 'en', timezone: 'America/Los_Angeles', incidentTimeConfidence: 'within_15_minutes',
-    requestedFields: cash ? ['incident_time', 'amount'] : timeAmbiguous
+    requestedFields: cashChange ? ['issue_summary', 'cash_inserted_amount', 'expected_change_amount', 'zelle_payment_contact'] : cash ? ['incident_time', 'amount'] : timeAmbiguous
       ? ['incident_time', 'incident_time_source']
       : ambiguous
       ? ['card_last4', 'card_last4_source', 'payment_interaction', 'card_network', 'nearby_attempt_count']
       : wallet ? ['card_last4', 'card_last4_source', 'wallet_provider', 'wallet_device_kind'] : ['card_last4'],
     locationChoices: [{key:'demo-location',label:'Example mall'}],
-    allowedFields: correctionFields.filter((field) => field !== 'zelle_payment_contact'),
+    allowedFields: correctionFields.filter((field) => (field !== 'zelle_payment_contact' || cashChange) && (cashChange || !['issue_summary', 'cash_inserted_amount', 'expected_change_amount'].includes(field))),
     values: { location_or_machine: 'Example mall', incident_date: '2026-09-03', incident_time: '14:30', amount: '7.00',
       payment_method: cash ? 'cash' : 'card', payment_interaction: wallet ? 'phone_watch_wallet' : cash ? 'cash' : 'tap_card',
       ...(wallet ? { wallet_provider: 'apple_pay', wallet_device_kind: 'phone', card_last4_source: 'wallet_device' } : {}), ...(!cash ? { card_last4: '1234', card_network: 'visa' } : {}) },
@@ -143,7 +145,13 @@ export default function RefundCorrectionPage() {
     setError('');
     let validated: CorrectionAnswers;
     try { validated = validateCorrectionAnswers(answers, context); }
-    catch { setError(requested.length ? copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.') : copy('Choose a saved detail to update or confirm. Your earlier answers are already saved.', 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.')); return; }
+    catch (failure) {
+      const invalidCash = failure instanceof Error && ['invalid:cash_inserted_amount','invalid:expected_change_amount'].includes(failure.message);
+      setError(invalidCash
+        ? copy('Check the cash amounts. Use positive dollar amounts; expected change must be less than cash inserted. You can choose “Not sure / can’t provide” if you’re unsure.', 'Revise los montos de efectivo. Use montos positivos; el cambio esperado debe ser menor que el efectivo insertado. Puede elegir “No lo sé / No lo tengo” si no está seguro.')
+        : requested.length ? copy('Choose an answer for each requested detail. You can choose “Not sure / can’t provide” without guessing.', 'Elija una respuesta para cada detalle solicitado. Puede elegir “No lo sé / No lo tengo” sin adivinar.') : copy('Choose a saved detail to update or confirm. Your earlier answers are already saved.', 'Elija un dato guardado para corregirlo o confirmarlo. Sus respuestas anteriores ya están guardadas.'));
+      return;
+    }
     setSaving(true);
     try {
       const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }
@@ -212,6 +220,9 @@ export default function RefundCorrectionPage() {
                 {field === 'wallet_device_kind' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Choose the exact device you held near the reader. A phone and watch can show different card digits; we do not need a device number.', 'Elija el dispositivo exacto que acercó al lector. El teléfono y el reloj pueden mostrar dígitos distintos; no necesitamos el número del dispositivo.')}</p>}
                 {field === 'incident_time_source' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('A bank posting time can differ from when you used the machine. Choose the source you used for the time above.', 'La hora de registro bancario puede ser distinta de la hora en que usó la máquina. Elija la fuente de la hora indicada arriba.')}</p>}
                 {field === 'nearby_attempt_count' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Count attempts or charges close to this purchase, including a second try at the machine.', 'Cuente los intentos o cargos cercanos a esta compra, incluido un segundo intento en la máquina.')}</p>}
+                {field === 'issue_summary' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Tell us the price shown, whether you received the item, and how much change the machine returned. Let us know if you want missing change or a refund for the item.', 'Indique el precio mostrado, si recibió el artículo y cuánto cambio devolvió la máquina. Díganos si solicita el cambio faltante o un reembolso del artículo.')}</p>}
+                {field === 'cash_inserted_amount' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Enter the total cash you put into the machine, before any change was returned.', 'Ingrese el total de efectivo que insertó en la máquina, antes de recibir cambio.')}</p>}
+                {field === 'expected_change_amount' && <p id={`${inputId}-help`} className="text-sm leading-6 text-muted-foreground">{copy('Enter the total change you expected before any change was returned. Tell us how much you actually received in “What happened at the machine?”. Choose “Not sure / can’t provide” if this does not apply.', 'Ingrese el cambio total que esperaba antes de recibir cualquier cambio. Indique cuánto recibió en “¿Qué ocurrió en la máquina?”. Elija “No lo sé / No lo tengo” si no corresponde.')}</p>}
                 <label htmlFor={`${inputId}-answer`} className="sr-only">{copy('Your answer', 'Su respuesta')}: {copy(...label)}</label>
                 <select id={`${inputId}-answer`} className={controlClass} value={answer?.disposition ?? ''}
                   onChange={(event) => {
@@ -230,9 +241,9 @@ export default function RefundCorrectionPage() {
                   {choices ? <select id={inputId} className={controlClass} aria-describedby={['card_last4_source','wallet_device_kind','incident_time_source','nearby_attempt_count'].includes(field) ? `${inputId}-help` : undefined} value={fieldValue} onChange={(event) => update(field, { disposition: 'changed', value: event.target.value })}>
                     <option value="">{copy('Choose one', 'Elija una opción')}</option>
                     {choices.map(([key, en, sp]) => <option key={key} value={key}>{copy(en, sp)}</option>)}
-                  </select> : <Input id={inputId} className="min-h-11" aria-describedby={['card_last4','incident_time'].includes(field) ? `${inputId}-help` : undefined}
+                  </select> : field === 'issue_summary' ? <Textarea id={inputId} rows={5} maxLength={2500} aria-describedby={`${inputId}-help`} value={fieldValue} onChange={(event) => update(field, { disposition: 'changed', value: event.target.value })} /> : <Input id={inputId} className="min-h-11" aria-describedby={['card_last4','incident_time','cash_inserted_amount','expected_change_amount'].includes(field) ? `${inputId}-help` : undefined}
                     type={field === 'incident_date' ? 'date' : field === 'incident_time' ? 'time' : 'text'}
-                    inputMode={field === 'card_last4' ? 'numeric' : field === 'amount' ? 'decimal' : undefined}
+                    inputMode={field === 'card_last4' ? 'numeric' : ['amount','cash_inserted_amount','expected_change_amount'].includes(field) ? 'decimal' : undefined}
                     maxLength={field === 'card_last4' ? 4 : field === 'zelle_payment_contact' ? 320 : 160} autoComplete="off" value={fieldValue}
                     onChange={(event) => update(field, { disposition: 'changed', value: event.target.value, ...(field === 'incident_time' ? { confidence: answer.confidence ?? 'rough' } : {}) })} />}
                   {field === 'incident_time' && <>

@@ -28,6 +28,9 @@ export type RefundMissingField =
   | "amount"
   | "card_last4"
   | "card_network"
+  | "issue_summary"
+  | "cash_inserted_amount"
+  | "expected_change_amount"
   | "zelle_payment_contact";
 
 export type RefundFollowUpFacts = {
@@ -58,6 +61,9 @@ const missingFieldOrder: RefundMissingField[] = [
   "nearby_attempt_count",
   "amount",
   "zelle_payment_contact",
+  "issue_summary",
+  "cash_inserted_amount",
+  "expected_change_amount",
 ];
 
 const nonBlank = (value: unknown) => typeof value === "string" && value.trim().length > 0;

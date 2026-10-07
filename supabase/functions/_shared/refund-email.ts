@@ -79,6 +79,9 @@ export type RefundCustomerEmailInput = {
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
+  issue_summary: 'what happened, including whether you received the item and any change',
+  cash_inserted_amount: 'the total cash inserted into the machine',
+  expected_change_amount: 'the total change you expected',
   location_or_machine: "the machine or Bloomjoy location",
   incident_date: "the purchase date",
   incident_time: "the approximate purchase time, including AM or PM",
@@ -98,6 +101,9 @@ const refundMissingFieldRequest: Record<RefundMissingField, string> = {
 };
 
 const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
+  issue_summary: 'What happened (price shown, item received, change returned, and what you are requesting):',
+  cash_inserted_amount: 'Total cash inserted (USD):',
+  expected_change_amount: 'Total change expected (USD), or not applicable:',
   location_or_machine: "Machine or location:",
   incident_date: "Purchase date (YYYY-MM-DD):",
   incident_time: "Approximate purchase time (include AM or PM):",
@@ -115,6 +121,9 @@ const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
 };
 
 const refundMissingFieldRequestSpanish: Record<RefundMissingField, string> = {
+  issue_summary: 'lo ocurrido, incluido si recibió el artículo y cambio',
+  cash_inserted_amount: 'el total de efectivo insertado en la máquina',
+  expected_change_amount: 'el cambio total que esperaba recibir',
   location_or_machine: "la máquina o ubicación de Bloomjoy",
   incident_date: "la fecha de compra",
   incident_time: "la hora aproximada de compra, incluyendo a. m. o p. m.",
@@ -133,6 +142,9 @@ const refundMissingFieldRequestSpanish: Record<RefundMissingField, string> = {
 };
 
 const refundMissingFieldReplyLineSpanish: Record<RefundMissingField, string> = {
+  issue_summary: 'Lo ocurrido (precio mostrado, artículo recibido, cambio devuelto y lo que solicita):',
+  cash_inserted_amount: 'Total de efectivo insertado (USD):',
+  expected_change_amount: 'Cambio total esperado (USD), o no corresponde:',
   location_or_machine: "Máquina o ubicación:",
   incident_date: "Fecha de compra (AAAA-MM-DD):",
   incident_time: "Hora aproximada de compra (incluya a. m. o p. m.):",
