@@ -70,6 +70,20 @@ set local role authenticated;
 select throws_ok($$select admin_change_machine_reader('aa180303-0000-4000-8000-000000000001','aa180304-0000-4000-8000-000000000002',(select expected_updated_at from reader_change_before),null,'America/New_York','2026-10-02',null,'Wrong saved zone replacement')$$,'40001',null,'Changed saved timezone requires fresh review');
 select lives_ok($$select admin_change_machine_reader('aa180303-0000-4000-8000-000000000001','aa180304-0000-4000-8000-000000000002',(select expected_updated_at from reader_change_before),null,'America/Los_Angeles','2026-10-02',null,'Actual broken-reader replacement, calendar date known')$$,'Date-only same-machine replacement is an ordinary guarded save');
 reset role;
+create temporary table alternate_reader_before as select
+ (select to_jsonb(m) from reporting_machines m where id='aa180303-0000-4000-8000-000000000001') machine,
+ (select jsonb_agg(to_jsonb(i) order by id) from refund_nayax_machine_inventory i where id::text like 'aa180304-%') inventory,
+ (select jsonb_agg(to_jsonb(h) order by id) from private.machine_nayax_reader_associations h where reporting_machine_id='aa180303-0000-4000-8000-000000000001') history,
+ (select count(*) from admin_audit_log) audit_count;
+set local role authenticated;
+select throws_ok($$select admin_set_reporting_machine_nayax_config('aa180303-0000-4000-8000-000000000001','18030001','TGPACI_USA_DB','Attempt obsolete undated direct reader setter')$$,'22023',null,'Direct setter cannot bypass reviewed ownership history');
+select throws_ok($$select admin_replace_refund_nayax_machine('aa180303-0000-4000-8000-000000000001','aa180304-0000-4000-8000-000000000001','Attempt obsolete inventory reader replacement')$$,'22023',null,'Legacy replacement cannot bypass reviewed ownership history');
+reset role;
+select ok((select to_jsonb(m) from reporting_machines m where id='aa180303-0000-4000-8000-000000000001')=(select machine from alternate_reader_before)
+ and (select jsonb_agg(to_jsonb(i) order by id) from refund_nayax_machine_inventory i where id::text like 'aa180304-%')=(select inventory from alternate_reader_before)
+ and (select jsonb_agg(to_jsonb(h) order by id) from private.machine_nayax_reader_associations h where reporting_machine_id='aa180303-0000-4000-8000-000000000001')=(select history from alternate_reader_before)
+ and (select count(*) from admin_audit_log)=(select audit_count from alternate_reader_before),'Rejected alternate reader writers preserve full machine, inventory, ownership history and audit counts');
+
 select is((select nayax_machine_id from reporting_machines where id='aa180303-0000-4000-8000-000000000001'),'18030002','Replacement reader becomes current on the same stable machine');
 select is((select count(*) from reporting_machines where id::text like 'aa180303-%'),2::bigint,'Reader replacement creates no additional machine');
 select is((select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where id::text like 'aa180305-%'),(select facts from reader_change_before),'Replacement rewrites no original sales or cash facts');

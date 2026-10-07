@@ -173,23 +173,20 @@ select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_status_diagnostic_length_bucket=>'1_80');
 -- A System manager_session authorization must not enter the distinct direct
 -- manager continuation lane. Expiry does not change its authorization method.
--- Roll back the probe so the same ordinary System request can finish below.
-create function pg_temp.claim_historical_continuation_and_rollback() returns jsonb language plpgsql as $$
-declare result jsonb;
-begin
-  begin
-    perform set_config('session_replication_role','replica',true);
-    update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=statement_timestamp()-interval '1 second'
-      where id=(select (value.result->>'attemptId')::uuid from approval_result value);
-    perform set_config('session_replication_role','origin',true);
-    result:=public.service_claim_due_nayax_approval_continuations_v1('exact-reporting-executor','TGPACI_USA_DB',1);
-    raise exception '%',result::text using errcode='Z0001';
-  exception when sqlstate 'Z0001' then return sqlerrm::jsonb;
-  end;
-end $$;
-create temporary table historical_continuation_probe as select pg_temp.claim_historical_continuation_and_rollback() value;
+-- Restore only the seeded expiry so the same ordinary System request can finish below.
+create temporary table historical_continuation_before as select id,provider_claim_expires_at from public.refund_case_nayax_refund_attempts
+ where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=statement_timestamp()-interval '1 second'
+ where id=(select id from historical_continuation_before);
+set local session_replication_role=origin;
+create temporary table historical_continuation_probe as select public.service_claim_due_nayax_approval_continuations_v1('exact-reporting-executor','TGPACI_USA_DB',1) value;
 select ok((select value->>'claimedCount'='0' and value->'claims'='[]'::jsonb from historical_continuation_probe),'Expired System authorization cannot enter the direct-manager continuation lane after reader retirement');
-select ok(not exists(select 1 from public.refund_nayax_attempt_approval_continuations where refund_case_id='b7d70000-0000-4000-8000-000000000001'),'Continuation rehearsal rolls back without leaving a second execution path');
+select ok(not exists(select 1 from public.refund_nayax_attempt_approval_continuations where refund_case_id='b7d70000-0000-4000-8000-000000000001'),'Continuation rehearsal leaves no second execution path');
+set local session_replication_role=replica;
+update public.refund_case_nayax_refund_attempts a set provider_claim_expires_at=b.provider_claim_expires_at
+ from historical_continuation_before b where a.id=b.id;
+set local session_replication_role=origin;
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'exact-reporting-executor',
   p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
