@@ -57,7 +57,7 @@ export async function saveMachineCashReportingExclusion(machineId: string, exclu
 
 export type MachineReaderChangePreview = {
   machineId: string; machineName: string; expectedMachineUpdatedAt: string;
-  currentReaderId: string | null; currentAccountKey: string | null; hasReaderHistory?: boolean; previousReaderId?: string | null;
+  currentReaderId: string | null; currentAccountKey: string | null; hasReaderHistory?: boolean; previousReaderId?: string | null; previousAccountKey?: string | null;
   inventoryId: string; newReaderId: string; newAccountKey: string;
   ownerMachineId: string | null; ownerMachineName: string | null;
   expectedOwnerUpdatedAt: string | null; ownerArchived: boolean;

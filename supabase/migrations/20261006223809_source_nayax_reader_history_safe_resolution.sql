@@ -170,6 +170,7 @@ begin
     'expectedMachineUpdatedAt',machine.updated_at,'currentReaderId',machine.nayax_machine_id,'currentAccountKey',machine.nayax_account_key,
     'hasReaderHistory',exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine.id),
     'previousReaderId',case when (select count(*) from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null)=1 then (select nayax_machine_id from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null) end,
+    'previousAccountKey',case when (select count(*) from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null)=1 then (select account_key from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null) end,
     'inventoryId',reader.id,'newReaderId',reader.nayax_machine_id,'newAccountKey',reader.account_key,
     'ownerMachineId',owner.id,'ownerMachineName',private.reporting_machine_display_name(owner),'expectedOwnerUpdatedAt',owner.updated_at,
     'historicalOwnerConflict',coalesce(cardinality(original_owners)>1,false),
@@ -358,6 +359,10 @@ begin
     end if;
     select * into former from private.machine_nayax_reader_associations
       where reporting_machine_id=machine.id and closed_at is null for update nowait;
+    if former.id is not null and former.nayax_machine_id=reader.nayax_machine_id and former.account_key=reader.account_key then
+      perform public.admin_set_reporting_machine_nayax_config(machine.id,reader.nayax_machine_id,reader.account_key,p_reason);
+      return jsonb_build_object('machineId',machine.id,'currentReaderId',reader.nayax_machine_id,'currentAccountKey',reader.account_key,'configurationRestored',true,'historicalTransactionsUnchanged',true);
+    end if;
     if former.id is not null then
       machine.nayax_machine_id:=former.nayax_machine_id;
       machine.nayax_account_key:=former.account_key;
@@ -1139,6 +1144,9 @@ begin
       or normalized_account_key is distinct from before_row.nayax_account_key)
     and ((before_row.nayax_machine_id is not null and exists(select 1 from private.machine_card_financial_policies where reporting_machine_id=p_machine_id))
       or exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=p_machine_id))
+    and not (before_row.nayax_machine_id is null
+      and (select count(*) from private.machine_nayax_reader_associations where reporting_machine_id=p_machine_id and closed_at is null)=1
+      and exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=p_machine_id and closed_at is null and nayax_machine_id=normalized_machine_id and account_key=normalized_account_key))
     and coalesce(current_setting('app.machine_reader_change',true),'')<>'1' then
     raise exception 'Open Manage and review the reader change date and ownership' using errcode='22023';
   end if;
