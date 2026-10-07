@@ -27,7 +27,7 @@ insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,
  ('TGPACI_USA_DB','18030002',now(),'finance_verified','verified_tax',20,'Explicit synthetic replacement-reader evidence','2025-01-01'),
  ('TGPACI_USA_DB','18030003',now(),'finance_verified','verified_tax',15,'Explicit synthetic unrelated-reader evidence','2025-01-01');
 insert into machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,item_quantity,tax_cents,source,source_order_hash,source_row_hash,raw_payload) values
- ('aa180305-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001','aa180302-0000-4000-8000-000000000001','2026-09-01','credit',1100,1,1,0,'nayax_scheduled_report',repeat('a',64),'reader-change-original','{"amountBasis":"tax_inclusive","providerMachineId":"18030001","transactionId":"1803000101","actorId":"2003563806","currencyCode":"USD"}'),
+ ('aa180305-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001','aa180302-0000-4000-8000-000000000001','2026-09-01','credit',1100,1,1,0,'nayax_scheduled_report',repeat('a',64),'reader-change-original','{"amountBasis":"tax_inclusive","providerMachineId":"18030001","transactionId":"1803000101","siteId":"4","actorId":"2003563806","currencyCode":"USD"}'),
  ('aa180305-0000-4000-8000-000000000002','aa180303-0000-4000-8000-000000000001','aa180302-0000-4000-8000-000000000001','2026-09-01','cash',200,1,1,0,'sunze_browser',repeat('b',64),'reader-change-cash','{"amountBasis":"tax_exclusive","order_amount_cents":200}'),
  ('aa180305-0000-4000-8000-000000000003','aa180303-0000-4000-8000-000000000002','aa180302-0000-4000-8000-000000000001','2026-09-01','credit',1150,1,1,0,'nayax_scheduled_report',repeat('c',64),'reader-change-dated-original','{"amountBasis":"tax_inclusive","providerMachineId":"18030003"}');
 insert into machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,item_quantity,tax_cents,source,source_order_hash,source_row_hash,raw_payload) values
@@ -240,5 +240,32 @@ select lives_ok($$select public.service_record_nayax_scheduled_report('1803e1','
 select results_eq($$select refund_case_id,disposition from nayax_scheduled_refund_observations where observation_digest=repeat('8',64)$$,$$ values('aa180306-0000-4000-8000-000000000001'::uuid,'needs_provider_review'::text)$$,'Old-reader full original amount/account/explicit transaction linkage remains review-only');
 select ok(not exists(select 1 from refund_authoritative_receipts where refund_case_id='aa180306-0000-4000-8000-000000000001'),'A scheduled observation creates no false authoritative execution receipt');
 select is((select refund_completed_at from refund_cases where id='aa180306-0000-4000-8000-000000000001'),null::timestamptz,'Old-reader observation does not mark a customer refund completed');
+-- Exact selected-context construction is a primitive, not an approval. Its
+-- immutable original tuple must survive a now-detached current reader.
+set local session_replication_role=replica;
+update refund_cases set matched_nayax_transaction_id='1803000109' where id='aa180306-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001')->>'readerId',null::text,'A different matched original transaction cannot borrow the retained reader identity');
+set local session_replication_role=replica;
+update refund_cases set matched_nayax_transaction_id='1803000101',matched_nayax_site_id=9 where id='aa180306-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.service_refund_case_reader_identity('aa180306-0000-4000-8000-000000000001','aa180303-0000-4000-8000-000000000001')->>'readerId',null::text,'A different original purchase site cannot borrow the retained reader identity');
+set local session_replication_role=replica;
+update refund_cases set matched_nayax_site_id=4,matched_nayax_machine_auth_time='2026-09-01T19:00Z',nayax_lookup_generation=1
+ where id='aa180306-0000-4000-8000-000000000001';
+insert into refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,currency_code,evidence_summary)
+ values('aa180312-0000-4000-8000-000000000001','aa180306-0000-4000-8000-000000000001',1,'aa180303-0000-4000-8000-000000000001','1803000101',4,'2026-09-01T19:00Z',1100,'USD',
+ '{"lookup_account_scope":"TGPACI_USA_DB","lookup_provider_machine_id":"18030001","provider_machine_id":"18030001","machine_authorization_time_raw":"2026-09-01T19:00:00Z","machine_authorization_time_source":"MachineAuthorizationTime"}');
+set local session_replication_role=origin;
+create temporary table original_reader_execution_context as select public.refund_nayax_selected_execution_context_v3('aa180306-0000-4000-8000-000000000001','exact_source','empty_string') value;
+select ok((select value @> '{"accountScope":"TGPACI_USA_DB","providerMachineId":"18030001","transactionId":"1803000101","siteId":4,"originalAmountCents":1100,"currencyCode":"USD"}' from original_reader_execution_context),'Selected execution context stays bound to exact original reader after later reader transfers');
+select ok((select value->>'contextHash'=encode(extensions.digest(convert_to((value-'contextHash')::text,'UTF8'),'sha256'),'hex') and value->>'machineAuthorizationTimeWire'='2026-09-01T19:00:00Z' from original_reader_execution_context),'Original selected context retains exact signed body and original authorization serialization');
+set local session_replication_role=replica;
+update refund_nayax_lookup_candidates set evidence_summary=evidence_summary||'{"lookup_provider_machine_id":"18030002","provider_machine_id":"18030002"}'::jsonb
+ where token='aa180312-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.refund_nayax_selected_execution_context_v3('aa180306-0000-4000-8000-000000000001','exact_source','empty_string'),null::jsonb,'Swapping candidate identity to a later reader cannot authorize the original purchase');
+select ok(not exists(select 1 from refund_case_nayax_refund_attempts where refund_case_id='aa180306-0000-4000-8000-000000000001'),'Context construction and tampering probe create no provider attempt');
+select ok(not exists(select 1 from refund_authoritative_receipts where refund_case_id='aa180306-0000-4000-8000-000000000001'),'Context construction creates no authoritative refund receipt');
 select * from finish();
 rollback;
