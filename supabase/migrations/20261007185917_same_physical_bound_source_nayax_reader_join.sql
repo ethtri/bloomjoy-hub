@@ -246,3 +246,5 @@ begin
   if strpos(definition,anchor)=0 then raise exception 'Ordinary workspace original-owner guard changed'; end if;
   execute replace(definition,anchor,'where historical_owner<>m.id and not private.same_physical_reader_legacy_owner(m.id,i.account_key,i.nayax_machine_id,historical_owner))');
 end; $patch$;
+
+select pg_notify('pgrst', 'reload schema');
