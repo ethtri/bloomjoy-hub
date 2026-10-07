@@ -44,6 +44,24 @@ insert into machine_sales_facts(reporting_machine_id,reporting_location_id,sale_
 insert into refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_amount_cents,status,intake_meta)
  values('aa181506-0000-4000-8000-000000000001','RF-1815-RETAINED','aa181503-0000-4000-8000-000000000002','aa181502-0000-4000-8000-000000000002','same-machine-customer@example.invalid','Retained rough-time request','2026-09-01T12:00:00Z','America/New_York','exact','rough','card',200,'denied','{}');
 set local session_replication_role=origin;
+-- A separate Sunze/cotton-candy pair proves the correction is provider-neutral.
+set local session_replication_role=replica;
+insert into reporting_machines(id,account_id,location_id,machine_label,machine_type,operational_phase,sunze_machine_id,nayax_machine_id,nayax_account_key) values
+ ('aa181503-0000-4000-8000-000000000004','aa181501-0000-4000-8000-000000000001','aa181502-0000-4000-8000-000000000001','Current Sunze cabinet','commercial','live','1815-sunze-current',null,null),
+ ('aa181503-0000-4000-8000-000000000005','aa181501-0000-4000-8000-000000000002','aa181502-0000-4000-8000-000000000002','Historical cotton reader','commercial','live',null,'18150003','TGPACI_USA_DB');
+insert into sunze_machine_discoveries(sunze_machine_id,sunze_machine_name,status,reporting_machine_id) values
+ ('1815-sunze-current','Current Sunze cabinet','mapped','aa181503-0000-4000-8000-000000000004');
+insert into refund_nayax_machine_inventory(id,account_key,nayax_machine_id,machine_name,provider_is_active,reporting_machine_id,reconciliation_state,refund_category) values
+ ('aa181504-0000-4000-8000-000000000002','TGPACI_USA_DB','18150003','Historical cotton reader',true,'aa181503-0000-4000-8000-000000000005','published','cotton_candy');
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date)
+ values('TGPACI_USA_DB','18150003',now(),'finance_verified','verified_tax',0,'Synthetic Sunze historical reader tax evidence','2025-01-01');
+insert into machine_sales_facts(reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,item_quantity,tax_cents,source,source_order_hash,source_row_hash,raw_payload) values
+ ('aa181503-0000-4000-8000-000000000004','aa181502-0000-4000-8000-000000000001','2026-09-01','cash',100,1,1,0,'sunze_browser',repeat('a',64),'1815-sunze-cash','{"amountBasis":"tax_exclusive","order_amount_cents":100,"machine_code":"1815-sunze-current"}'),
+ ('aa181503-0000-4000-8000-000000000004','aa181502-0000-4000-8000-000000000001','2026-09-01','credit',200,1,1,0,'sunze_browser',repeat('b',64),'1815-sunze-app-card','{"amountBasis":"tax_exclusive","order_amount_cents":200,"machine_code":"1815-sunze-current"}'),
+ ('aa181503-0000-4000-8000-000000000005','aa181502-0000-4000-8000-000000000002','2026-09-01','credit',300,1,1,0,'nayax_scheduled_report',repeat('c',64),'1815-sunze-native-card','{"amountBasis":"tax_inclusive","providerMachineId":"18150003","transactionId":"1815-sunze-original"}');
+insert into refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_amount_cents,status,intake_meta)
+ values('aa181506-0000-4000-8000-000000000002','RF-1815-SUNZE-RETAINED','aa181503-0000-4000-8000-000000000005','aa181502-0000-4000-8000-000000000002','sunze-customer@example.invalid','Retained original Sunze reader case','2026-09-01T12:00Z','America/New_York','exact','rough','card',300,'denied','{}');
+set local session_replication_role=origin;
 create temporary table join_before as select
  (select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where source_row_hash like '1815-%') facts,
  (select to_jsonb(c) from refund_cases c where id='aa181506-0000-4000-8000-000000000001') refund_case,
@@ -139,5 +157,22 @@ insert into private.machine_nayax_reader_associations(account_key,nayax_machine_
 set local session_replication_role=origin;
 select is(public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000001','aa181503-0000-4000-8000-000000000002')->>'readerId',null::text,'Multiple historical readers cannot use the single duplicate-reader fallback');
 select throws_ok($$select public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000001','aa181503-0000-4000-8000-000000000003')$$,'22023',null,'Unrelated machine cannot adopt the retained case');
+create temporary table sunze_join_before as select
+ (select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where source_row_hash like '1815-sunze-%') facts,
+ (select to_jsonb(d) from sunze_machine_discoveries d where sunze_machine_id='1815-sunze-current') discovery,
+ (select jsonb_agg(to_jsonb(c) order by booking_date,tender) from private.machine_sales_daily_components('aa181503-0000-4000-8000-000000000004','2026-09-01','2026-09-30') c) source_components,
+ (select jsonb_agg(to_jsonb(c) order by booking_date,tender) from private.machine_sales_daily_components('aa181503-0000-4000-8000-000000000005','2026-09-01','2026-09-30') c) card_components;
+create temporary table sunze_join_preview as select public.admin_preview_same_physical_machine_reader_join('aa181503-0000-4000-8000-000000000004','aa181504-0000-4000-8000-000000000002') p;
+grant select on sunze_join_preview to authenticated;
+set local role authenticated;
+select ok((select (p->>'eligible')::boolean from sunze_join_preview),'An already-bound Sunze/cotton-candy source has the same correction flow');
+select lives_ok($$select pg_temp.execute_join((select p from sunze_join_preview))$$,'Authenticated Sunze correction uses the canonical writer without a physical move date');
+reset role;
+select is((select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where source_row_hash like '1815-sunze-%'),(select facts from sunze_join_before),'Sunze cash, observed app-card and historical native-card facts are byte-identical without replay');
+select is((select to_jsonb(d) from sunze_machine_discoveries d where sunze_machine_id='1815-sunze-current'),(select discovery from sunze_join_before),'Sunze current discovery identity stays attached to the chosen machine');
+select is((select jsonb_agg(to_jsonb(c) order by booking_date,tender) from private.machine_sales_daily_components('aa181503-0000-4000-8000-000000000004','2026-09-01','2026-09-30') c),(select source_components from sunze_join_before),'Sunze source cash/app-card financial components remain included once under the current company');
+select is((select jsonb_agg(to_jsonb(c) order by booking_date,tender) from private.machine_sales_daily_components('aa181503-0000-4000-8000-000000000005','2026-09-01','2026-09-30') c),(select card_components from sunze_join_before),'Sunze retired reader historical card components retain their original company and totals');
+select is(public.service_refund_case_reader_identity('aa181506-0000-4000-8000-000000000002','aa181503-0000-4000-8000-000000000005')->>'readerId','18150003','Sunze historical refund case keeps the original reader after correction');
+select is(private.resolve_machine_reader_purchase_owner('TGPACI_USA_DB','18150003',now()),'aa181503-0000-4000-8000-000000000004'::uuid,'Sunze future native-card purchases resolve only to the current source machine');
 select * from finish();
 rollback;
