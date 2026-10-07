@@ -87,7 +87,7 @@ for (const [engine, launcher] of [['chromium', chromium], ['webkit', webkit]]) {
     await page.waitForLoadState('networkidle');
     check('bound Inactive uses only exact source State writer', sourceWrites.length === 1 && !state.machineSavePayload && !state.refundSavePayload);
     await editor.getByRole('link', { name: 'Back to machines', exact: true }).click();
-    await page.locator('#machine-search').waitFor(); await page.locator('#machine-search').fill(''); await page.waitForFunction(() => !new URL(location.href).searchParams.has('q')); await page.locator('#machine-company-filter').selectOption('all');
+    await page.locator('#machine-search').waitFor(); await page.waitForFunction(() => document.querySelector('#machine-search')?.value === 'Cotton'); await page.locator('#machine-search').fill(''); await page.waitForFunction(() => !new URL(location.href).searchParams.has('q')); await page.locator('#machine-company-filter').selectOption('all');
     await visibleRow('Unbound SnapCase').getByRole('button', { name: 'Manage', exact: true }).click();
     await editor.getByLabel('State', { exact: true }).waitFor();
     const sourceUrl = page.url();
