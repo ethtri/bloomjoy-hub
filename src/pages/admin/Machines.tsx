@@ -3954,6 +3954,7 @@ null
         </>}
         {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && <p role="status" className="mt-4 text-sm text-muted-foreground">{!form.accountId ? 'Choose a company before saving.' : !form.locationTimezone.trim() ? 'Choose a machine time zone before saving.' : sourceInventoryId && !sourceMoveVerified ? sourceReaderPreview.isError ? 'Reader ownership could not be checked. Retry before saving.' : 'Checking reader ownership before saving…' : ''}</p>}
         {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && sourceInventoryId && form.locationTimezone && sourceReaderPreview.isError && <Button variant="outline" className="min-h-11 text-base" onClick={() => void sourceReaderPreview.refetch()}>Retry reader check</Button>}
+        {importedSource && !machine && !committedImportedMachineId && !sourceReaderOccupied && form.accountId && !form.locationTimezone.trim() && <Button variant="outline" className="min-h-11 text-base" onClick={() => { const field = document.getElementById('machine-timezone'); field?.scrollIntoView({ block: 'center' }); field?.focus(); field?.click(); }}>Choose time zone</Button>}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }}>
             Cancel
