@@ -10,7 +10,7 @@
     "dev:uat": "vite --host 127.0.0.1 --port 8081 --strictPort",
     "build": "node scripts/refunds/log-refund-portal-build-inputs.mjs before && vite build && node scripts/prerender-public-routes.mjs && node scripts/refunds/log-refund-portal-build-inputs.mjs after && node scripts/refunds/emit-refund-portal-build.mjs",
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs && node scripts/refunds/emit-refund-portal-build.mjs",
-    "test": "deno test --no-lock src/lib/appSurface.test.ts src/lib/machineTypes.test.ts src/lib/membership.test.ts src/lib/ownerResolutionSubmission.test.ts src/lib/requestTimeout.test.ts src/lib/snapcaseMappingWindow.test.ts src/lib/timekeepingUi.test.ts",
+    "test": "deno test --no-lock src/lib/appSurface.test.ts src/lib/machineTypes.test.ts src/lib/membership.test.ts src/lib/ownerResolutionSubmission.test.ts src/lib/requestTimeout.test.ts src/lib/snapcaseMappingWindow.test.ts src/lib/timekeepingUi.test.ts src/lib/machinePartnershipAssignment.test.ts",
     "email-alerts:test": "deno test --allow-env --no-lock src/lib/emailAlertPreferences.test.ts supabase/functions/_shared/machine-email-alert.test.ts supabase/functions/_shared/machine-email-alert-delivery.test.ts supabase/functions/_shared/machine-email-alert-signals.test.ts supabase/functions/_shared/machine-email-alert-dispatch.test.ts",
     "email-alerts:uat": "node scripts/validate-email-alerts-uat.mjs",
     "refunds:request-access:uat": "node scripts/validate-refund-request-access-uat.mjs",
