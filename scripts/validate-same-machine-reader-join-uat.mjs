@@ -22,11 +22,12 @@ try {
     const source = { sourceKey: `${platform}:join-fixture`, platform, sourceId: platform === 'Sunze' ? '1815-sunze-current' : '1000990', sourceName: 'Capital City', providerAccountId: platform === 'Sunze' ? null : '096ca52a-444a-4d4f-9a2b-8844ddd16a95', sourceAccountKey: platform === 'Sunze' ? null : 'synthetic-production', reportingMachineId: machineId, sourceTimezone: 'America/New_York', mappingConflict: false, archivedMapping: false, catalogueInactiveAt: null };
     const preview = { eligible: true, reason: null, machineId, machineName: 'SnapCase Capital City', companyId: base.machines[0].company_id, inventoryId: inventory, readerId: '494088271', accountKey: 'TGPACI_USA_DB', historicalMachineId: owner, historicalMachineName: 'Preit-0990Capital city', expectedMachineUpdatedAt: '2026-10-01T00:00:00Z', expectedHistoricalMachineUpdatedAt: '2026-10-01T00:00:00Z', expectedInventoryUpdatedAt: '2026-10-01T00:00:00Z', expectedSourceIdentityDigest: 'fixture-source-snapshot', historicalCardTransactionCount: 317, historicalRefundCaseCount: 1 };
     let joined = false, stale = false, readFailure = false, refreshFailure = false;
-    const writes = [], unexpected = [], errors = [], failed = [];
+    const writes = [], salesReads = [], unexpected = [], errors = [], failed = [];
+    const earlier = { machineId: owner, companyId: 'historical-company-1815', companyName: 'Original company', firstSaleDate: '2025-10-09', lastSaleDate: '2026-10-04' };
     await context.route('**/rest/v1/rpc/admin_get_partnership_reporting_setup', r => r.fulfill(json(base)));
     await context.route('**/rest/v1/rpc/admin_get_machine_source_inventory', r => r.fulfill(json({ sources: [source], count: 1 })));
     await context.route('**/rest/v1/rpc/admin_get_imported_source_reuse_options', r => r.fulfill(json([])));
-    await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata', r => r.fulfill(refreshFailure ? { ...json({ message: 'Synthetic saved reader refresh unavailable' }), status: 500 } : json([{ machineId, machineName: 'SnapCase Capital City', venueLabel: null, nayaxMachineId: joined ? preview.readerId : null, nayaxAccountKey: joined ? preview.accountKey : null, nayaxName: preview.historicalMachineName, sources: [{ platform: source.platform, id: source.sourceId, name: source.sourceName, account: source.sourceAccountKey }] }])));
+    await context.route('**/rest/v1/rpc/admin_get_machine_workspace_metadata', r => r.fulfill(refreshFailure ? { ...json({ message: 'Synthetic saved reader refresh unavailable' }), status: 500 } : json([{ machineId, machineName: 'SnapCase Capital City', venueLabel: null, nayaxMachineId: joined ? preview.readerId : null, nayaxAccountKey: joined ? preview.accountKey : null, nayaxName: preview.historicalMachineName, retainedHistory: joined ? [earlier] : [], sources: [{ platform: source.platform, id: source.sourceId, name: source.sourceName, account: source.sourceAccountKey }] }])));
     await context.route('**/rest/v1/rpc/admin_get_refund_nayax_inventory', r => r.fulfill(json({ machines: [{ id: inventory, accountKey: preview.accountKey, nayaxMachineId: preview.readerId, machineName: preview.historicalMachineName, reportingMachineId: joined ? machineId : owner, state: joined ? 'needs_setup' : 'published', providerActive: true }], lastRun: null })));
     await context.route('**/rest/v1/rpc/admin_preview_machine_reader_change', r => r.fulfill(json({ machineId, machineName: preview.machineName, expectedMachineUpdatedAt: preview.expectedMachineUpdatedAt, currentReaderId: null, currentAccountKey: null, inventoryId: inventory, newReaderId: preview.readerId, newAccountKey: preview.accountKey, ownerMachineId: owner, ownerMachineName: 'Capital City Mall — Cotton Candy', expectedOwnerUpdatedAt: preview.expectedHistoricalMachineUpdatedAt, ownerArchived: false, historicalOwnerConflict: false, timezone: 'America/New_York', effectiveInstants: [] })));
     await context.route('**/rest/v1/rpc/admin_preview_same_physical_machine_reader_join', r => r.fulfill(readFailure ? { ...json({ message: 'Synthetic connection unavailable' }), status: 500 } : json(preview)));
@@ -36,6 +37,13 @@ try {
       if (stale) return r.fulfill({ ...json({ message: 'Synthetic stale connection; reload' }), status: 409 });
       writes.push(body); joined = true; refreshFailure = true;
       return r.fulfill(json({ machineId, retainedHistoricalMachineId: owner, inventoryId: inventory }));
+    });
+    await context.route('**/rest/v1/rpc/get_reporting_dimensions', r => r.fulfill(json([{ account_id: earlier.companyId, account_name: earlier.companyName, machine_id: owner, machine_label: 'Earlier sales for Capital City', machine_type: 'snapcase', location_id: 'historical-location-1815', location_name: 'Capital City', latest_sale_date: earlier.lastSaleDate, status: 'active', sunze_machine_id: null }])));
+    await context.route('**/rest/v1/rpc/get_company_sales_report', r => {
+      const body = r.request().postDataJSON();
+      assert.equal(body.p_company_id, earlier.companyId); assert.deepEqual(body.p_machine_ids, [owner]); assert.equal(body.p_date_from, earlier.firstSaleDate); assert.equal(body.p_date_to, earlier.lastSaleDate);
+      salesReads.push(body);
+      return r.fulfill(json([{ calculation_version: 'shared-sales-basis-v1', period_start: earlier.firstSaleDate, machine_id: owner, machine_label: 'Earlier sales for Capital City', location_id: 'historical-location-1815', location_name: 'Capital City', payment_method: 'credit', net_sales_cents: 63400, gross_sales_cents: 63400, refund_amount_cents: 0, tax_cents: 0, refund_request_deduction_cents: 0, refund_reversal_cents: 0, refund_legacy_paid_deduction_cents: 0, refund_paid_context_cents: 0, refund_outstanding_context_cents: 0, unresolved_sales_count: 0, unresolved_sales_cents: 0, unresolved_refund_count: 0, unresolved_refund_cents: 0, unresolved_paid_context_count: 0, unresolved_paid_context_cents: 0, transaction_count: 317 }]));
     });
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
@@ -68,7 +76,16 @@ try {
       pass('same saved machine refreshes exact reader without unrelated writers', writes.length === 1 && unexpected.length === 0 && errors.length === 0 && failed.length === 0);
       pass('connection refresh preserves unrelated unsaved machine-name draft', await page.getByLabel('Machine name', { exact: true }).inputValue() === 'Unsaved chosen machine name');
       await page.screenshot({ path: `${output}/saved-${platform}-${width}.png`, fullPage: true });
-      await writeFile(`${output}/receipt-${platform}-${width}.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, physicalIPhoneTested: false, writes, unexpected, errors, failed }, null, 2));
+      await page.getByRole('button', { name: 'Activity', exact: true }).click();
+      const earlierLink = page.getByRole('link', { name: 'View earlier sales', exact: true }); await earlierLink.waitFor();
+      const earlierUrl = new URL(await earlierLink.getAttribute('href'), origin);
+      pass('current Activity exposes earlier sales through the exact original-company date scope', earlierUrl.pathname === '/portal/reports' && earlierUrl.searchParams.get('view') === 'sales' && earlierUrl.searchParams.get('company') === earlier.companyId && earlierUrl.searchParams.get('machine') === owner && earlierUrl.searchParams.get('from') === earlier.firstSaleDate && earlierUrl.searchParams.get('to') === earlier.lastSaleDate);
+      await page.screenshot({ path: `${output}/earlier-sales-link-${platform}-${width}.png`, fullPage: false });
+      page.once('dialog', dialog => dialog.accept()); await earlierLink.click(); await page.waitForURL('**/portal/reports?**');
+      await page.waitForFunction(() => document.body.innerText.includes('634.00')); await page.waitForLoadState('networkidle');
+      pass('existing Sales page reads original owner/company and renders retained card amount', salesReads.length > 0 && writes.length === 1 && unexpected.length === 0 && errors.length === 0 && failed.length === 0);
+      await page.screenshot({ path: `${output}/earlier-sales-report-${platform}-${width}.png`, fullPage: false });
+      await writeFile(`${output}/receipt-${platform}-${width}.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, physicalIPhoneTested: false, writes, salesReads, unexpected, errors, failed }, null, 2));
     } catch (error) { await page.screenshot({ path: `${output}/failure-${platform}-${width}.png`, fullPage: true }); await writeFile(`${output}/failure-${platform}-${width}.json`, JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), writes, unexpected, errors, failed }, null, 2)); throw error; }
     finally { await page.waitForLoadState('networkidle'); await context.close(); }
   }
