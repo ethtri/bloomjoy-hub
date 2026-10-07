@@ -152,6 +152,7 @@ for (const [engine, browserType] of [['chromium', chromium], ['webkit', webkit]]
       await editor.getByRole('button', { name: 'Enable customer refund requests', exact: true }).waitFor({ state: 'hidden' });
       check('explicit synthetic publication enables only customer requests on the exact saved reader', writers.length === 1 && writers[0] === 'admin_reconcile_refund_nayax_machine' && state.refundSetup.customerIntakeAccepting && !state.refundSetup.cardRefundsEnabled && state.refundSetup.nayaxMachineId === '361844295' && state.refundSetup.nayaxAccountKey === 'TGPACI_USA_DB');
       check('post-publication explains processing remains off without automatic activation', (await editor.innerText()).includes('Card refunds off') && await editor.getByRole('button', { name: 'Enable customer refund requests', exact: true }).count() === 0);
+      await page.waitForFunction(() => !document.querySelector('[data-machine-editor="page"] [aria-label="Machine changes"] .animate-spin'));
       await page.screenshot({ path: `${output}/${engine}-synthetic-published-viewport-390.png` });
     }
     await writeFile(`${output}/${engine}-evidence.json`, JSON.stringify({ testedSha: process.env.TESTED_SHA ?? null, rowHeight: bounds.height, manageOffset: manage.y - bounds.y, writers, errors, discardPrompts, physicalIPhoneTested: false }, null, 2));
