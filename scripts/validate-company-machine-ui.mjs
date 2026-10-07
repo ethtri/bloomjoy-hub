@@ -220,7 +220,7 @@ try {
   await check(page.getByRole('button', { name: 'Save changes', exact: true }).isEnabled(), 'company change enables normal Save');
   await screenshot('desktop-company-change');
   await page.locator('#page-machine-location').selectOption('__add__');
-  await check(value('page-machine-timezone').then((v) => v === 'America/New_York'), 'edit add-location offers original IANA venue timezone');
+  await check(page.locator('#page-machine-timezone').innerText().then((v) => v === 'Eastern Time — New York'), 'edit add-location offers original IANA venue timezone');
   await page.locator('#page-machine-new-location').fill('Synthetic destination');
   state.failSave = true;
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
