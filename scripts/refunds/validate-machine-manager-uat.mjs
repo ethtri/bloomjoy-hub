@@ -880,11 +880,11 @@ const run = async () => {
     );
     recorder.assert(
       'Nayax inventory is separated from the primary machine list',
-      await page.getByRole('link', { name: 'Nayax setup' }).isVisible()
+      await page.getByRole('link', { name: 'Nayax readers' }).isVisible()
         && (await page.getByRole('heading', { name: 'Inventory review' }).count()) === 0
     );
 
-    await page.getByRole('link', { name: 'Nayax setup' }).click();
+    await page.getByRole('link', { name: 'Nayax readers' }).click();
     await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Nayax setup defaults to the exceptions-first review view',
