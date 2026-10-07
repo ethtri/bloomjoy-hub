@@ -7,7 +7,7 @@
 # QA Smoke Test Checklist
 
 ## Source catalogue lifecycle (#1811)
-- For both Sunze and Kex, change State to Inactive on a bound and an unbound source without entering company, reader or timezone. It leaves Machines/Setup/Ready and their counts, appears in Inactive, and survives refresh/import. Restore changes only catalogue visibility and retains prior setup/live state.
+- For both Sunze and Kex, change Visibility to Inactive on a bound and an unbound source without entering company, reader or timezone. It leaves Machines/Setup/Ready and their counts, appears in Inactive, and survives refresh/import. Restore Visible changes only catalogue visibility and retains prior setup/live state.
 - Company is visible beside search. All companies/Not assigned/exact authorized company persist in the URL and apply consistently to normal and Inactive results/counts. Archived records stay excluded.
 - Nayax readers is secondary administration; per-machine mapping stays in Manage. Failed/stale state saves leave financial/refund/history/configuration unchanged and allow verified retry.
 

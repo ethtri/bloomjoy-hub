@@ -1809,11 +1809,11 @@ function sourceTransactionLabel(source: MachineSourceInventoryItem): string {
 
 function SourceCatalogueState({ source, disabled, onChange }: { source: MachineSourceInventoryItem; disabled: boolean; onChange: (inactive: boolean) => void }) {
   const id = `source-state-${encodeURIComponent(source.sourceKey)}`;
-  return <div className="mt-3 max-w-48"><Label htmlFor={id}>State</Label>
+  return <div className="mt-3 max-w-48"><Label htmlFor={id}>Visibility</Label>
     <select id={id} className="mt-1 min-h-11 w-full rounded-md border border-input bg-background px-3 text-base"
       value={source.catalogueInactiveAt ? 'inactive' : 'active'} disabled={disabled || source.archivedMapping}
       onChange={(event) => onChange(event.target.value === 'inactive')}>
-      <option value="active">Active</option><option value="inactive">Inactive</option>
+      <option value="active">Visible</option><option value="inactive">Inactive</option>
     </select></div>;
 }
 
