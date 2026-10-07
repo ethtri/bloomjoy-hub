@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { NayaxMachinePicker } from '@/components/admin/NayaxMachinePicker';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { fetchRefundNayaxInventory } from '@/lib/refundOperations';
-import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, saveMachineWorkspaceMapping, previewMachineReaderChange, changeMachineReader, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
+import { fetchMachineWorkspaceMetadata, machineWorkspaceQueryKey, saveMachineWorkspaceMapping, previewMachineReaderChange, changeMachineReader, previewSamePhysicalMachineReaderJoin, joinSamePhysicalMachineReader, type MachineWorkspaceMetadata } from '@/lib/machineWorkspace';
 import { importFreshnessLabel, transactionAgeLabel, transactionSourceLabel } from '@/lib/machineTransactionRecency';
 
 const dateLabel = (value: string | null) => value ? new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleString() : 'Unknown';
@@ -34,6 +34,8 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   const [changedAt, setChangedAt] = useState('');
   const [changeReason, setChangeReason] = useState('');
   const [confirmedChange, setConfirmedChange] = useState(false);
+  const [confirmedSameMachine, setConfirmedSameMachine] = useState(false);
+  const [physicalMoveSelected, setPhysicalMoveSelected] = useState(false);
   const [draftMetadata, setDraftMetadata] = useState<MachineWorkspaceMetadata | undefined>();
   const inventory = inventoryQuery.data?.machines ?? [];
   const selected = inventory.find((item) => item.id === inventoryId);
@@ -44,25 +46,44 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
     enabled: canEdit && !demo && dirty && Boolean(selected), retry: false,
   });
   const preview = readerPreview.data;
+  const sameMachinePreview = useQuery({
+    queryKey: ['admin-same-physical-machine-reader', machineId, inventoryId],
+    queryFn: () => previewSamePhysicalMachineReaderJoin(machineId, inventoryId),
+    enabled: canEdit && !demo && dirty && Boolean(selected?.reportingMachineId && selected.reportingMachineId !== machineId) && Boolean(metadata?.sources.length),
+    retry: false,
+  });
+  const canJoinSameMachine = sameMachinePreview.data?.eligible === true && !sameMachinePreview.isError && !sameMachinePreview.isFetching;
+  const joiningSameMachine = canJoinSameMachine && !physicalMoveSelected;
+  const checkingSameMachine = dirty && Boolean(selected?.reportingMachineId && selected.reportingMachineId !== machineId) && Boolean(metadata?.sources.length) && sameMachinePreview.isPending;
   const movingOwner = Boolean(preview?.ownerMachineId && preview.ownerMachineId !== machineId);
   const restoringSameReader = !preview?.currentReaderId && preview?.previousReaderId === preview?.newReaderId && preview?.previousAccountKey === preview?.newAccountKey;
   const needsReaderChange = Boolean(preview?.currentReaderId || (preview?.hasReaderHistory && !restoringSameReader) || movingOwner);
   const verifiedPreview = Boolean(preview && !readerPreview.isError && !readerPreview.isFetching);
   useEffect(() => { setConfirmedChange(false); setChangedAt(''); }, [inventoryId, preview?.expectedMachineUpdatedAt, preview?.expectedOwnerUpdatedAt, preview?.timezone, changedOn, changedAtLocal]);
+  useEffect(() => { setConfirmedSameMachine(false); setPhysicalMoveSelected(false); }, [inventoryId, sameMachinePreview.data?.expectedMachineUpdatedAt, sameMachinePreview.data?.expectedHistoricalMachineUpdatedAt, sameMachinePreview.data?.expectedInventoryUpdatedAt, sameMachinePreview.data?.expectedSourceIdentityDigest]);
   useEffect(() => { if (metadata && (!draftMetadata || draftMetadata.machineId !== machineId || !dirty)) { setDraftMetadata(metadata); setInventoryId(''); } }, [machineId, metadata, draftMetadata, dirty]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   async function save() {
-    if (!draftMetadata || saving || committedReader || !verifiedPreview || preview?.historicalOwnerConflict || preview?.ownerArchived) return;
+    if (!draftMetadata || saving || committedReader || !verifiedPreview || checkingSameMachine || (!joiningSameMachine && (preview?.historicalOwnerConflict || preview?.ownerArchived))) return;
     setSaving(true);
     try {
-      if (needsReaderChange) {
+      if (joiningSameMachine) {
+        if (!confirmedSameMachine || !sameMachinePreview.data) return;
+        await joinSamePhysicalMachineReader(sameMachinePreview.data);
+      } else if (needsReaderChange) {
         if (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)) return;
         await changeMachineReader(preview!, changedOn, changedAt || null, changeReason);
       } else await saveMachineWorkspaceMapping(draftMetadata, draftMetadata.venueLabel ?? '', inventoryId || null);
       setCommittedReader({ id: preview!.newReaderId, account: preview!.newAccountKey });
       onDirtyChange?.(false);
       toast.success('Reader connection saved.');
-      await Promise.allSettled([queryClient.invalidateQueries({ queryKey: machineWorkspaceQueryKey }), onSaved()]);
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: machineWorkspaceQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-nayax-inventory'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-manager-setup'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin-machine-source-inventory'] }),
+        onSaved(),
+      ]);
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.'); }
     finally { setSaving(false); }
   }
