@@ -27,6 +27,42 @@ const rejects = (value: unknown) => {
 };
 const links = machineEmailLinks();
 
+Deno.test("daily and weekly digests render without a browser location global", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
+  assert(
+    Reflect.deleteProperty(globalThis, "location"),
+    "location can be removed for the server-runtime fixture",
+  );
+  try {
+    const rendered = new Set<string>();
+    for (const projection of Object.values(fixtureVariants())) {
+      if (!["daily", "weekly"].includes(projection.category)) continue;
+      const email = buildMachineEmail({ projection, links });
+      assert(
+        email.text.length > 100 && email.html.startsWith("<!doctype html>"),
+        "digest includes both email parts",
+      );
+      for (
+        const machine of projection.machines.filter((m) =>
+          m.includedInPerformanceScope
+        )
+      ) {
+        assert(
+          email.text.includes(machine.machineLabel),
+          "plain text preserves each selected machine name",
+        );
+      }
+      rendered.add(projection.category);
+    }
+    assert(
+      rendered.has("daily") && rendered.has("weekly"),
+      "both digest schedules exercised",
+    );
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "location", descriptor);
+  }
+});
+
 Deno.test("future optional emails use machine names without legacy venue adornments and leave projections immutable", () => {
   for (const [variant, projection] of Object.entries(fixtureVariants())) {
     for (const machine of projection.machines) {

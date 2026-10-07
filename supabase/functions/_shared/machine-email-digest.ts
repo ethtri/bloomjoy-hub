@@ -368,7 +368,7 @@ export function buildMachineDigestEmail(
         }</tr>`,
       );
       plain.push(
-        `${machine.machineLabel}${location ? ` · ${location}` : ""}${
+        `${machine.machineLabel}${
           localPeriod ? ` · ${localPeriod}` : ""
         }: ` +
           `Sales ${
