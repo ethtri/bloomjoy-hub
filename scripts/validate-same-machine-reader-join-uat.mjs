@@ -45,6 +45,7 @@ try {
     try {
       await page.goto(origin + '/admin/machines'); await page.locator('#email-password').fill(mockUser.email); await page.locator('#password').fill('synthetic-password'); await page.getByRole('button', { name: /sign in/i }).click();
       await page.getByRole('button', { name: 'Manage', exact: true }).first().click();
+      await page.getByLabel('Machine name', { exact: true }).fill('Unsaved chosen machine name');
       const mapping = page.getByRole('region', { name: 'Source identity and Nayax matching', exact: true });
       await mapping.getByRole('combobox', { name: 'Nayax machine', exact: true }).click(); await page.getByRole('combobox', { name: 'Search Nayax machines', exact: true }).fill('494088271'); await page.getByRole('option').filter({ hasText: '494088271' }).click();
       const review = mapping.getByRole('region', { name: 'Review same machine connection' }), confirm = review.getByRole('checkbox', { name: 'These are the same physical machine', exact: true }), connect = mapping.getByRole('button', { name: 'Connect this reader', exact: true });
@@ -64,6 +65,7 @@ try {
       await connect.click(); await mapping.getByText('Reader connection saved', { exact: true }).waitFor(); pass('failed successful refresh cannot repeat join', writes.length === 1 && await mapping.getByRole('button', { name: 'Connect this reader', exact: true }).count() === 0);
       const retry = mapping.getByRole('button', { name: 'Retry loading', exact: true }); await page.waitForFunction(() => Array.from(document.querySelectorAll('button')).some(e => e.textContent.trim() === 'Retry loading' && !e.disabled)); refreshFailure = false; await retry.click(); await mapping.getByRole('combobox', { name: 'Nayax machine', exact: true }).filter({ hasText: '494088271' }).waitFor(); await page.waitForLoadState('networkidle');
       pass('same saved machine refreshes exact reader without unrelated writers', writes.length === 1 && unexpected.length === 0 && errors.length === 0 && failed.length === 0);
+      pass('connection refresh preserves unrelated unsaved machine-name draft', await page.getByLabel('Machine name', { exact: true }).inputValue() === 'Unsaved chosen machine name');
       await page.screenshot({ path: `${output}/saved-${platform}-${width}.png`, fullPage: true });
       await writeFile(`${output}/receipt-${platform}-${width}.json`, JSON.stringify({ candidate: process.env.TESTED_SHA, physicalIPhoneTested: false, writes, unexpected, errors, failed }, null, 2));
     } catch (error) { await page.screenshot({ path: `${output}/failure-${platform}-${width}.png`, fullPage: true }); await writeFile(`${output}/failure-${platform}-${width}.json`, JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), writes, unexpected, errors, failed }, null, 2)); throw error; }
