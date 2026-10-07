@@ -114,8 +114,8 @@ for (const [engine, browserType, width] of [['desktop', chromium, 1440], ['touch
     const creation=page.getByRole('dialog').filter({has:page.locator('#machine-label')}); await creation.waitFor();
     await page.locator('#machine-label').fill('New mall - Cotton Candy'); await page.locator('#machine-company').selectOption('11111111-1111-4111-8111-111111111111');
     check('desktop: new machine requires only machine name/company/time zone, no Location', await creation.getByText(/^(Reporting details|Reporting location|Location|New location name)$/).count()===0 && await page.getByLabel('Machine time zone',{exact:true}).isVisible());
-    check('desktop: unknown new machine timezone is not guessed', await page.getByLabel('Machine time zone',{exact:true}).inputValue()==='');
-    await page.getByLabel('Machine time zone',{exact:true}).fill('America/New_York'); await creation.getByRole('button',{name:'Save machine changes',exact:true}).click(); await creation.waitFor({state:'hidden'});
+    check('desktop: unknown new machine timezone is not guessed', (await page.getByLabel('Machine time zone',{exact:true}).innerText()).includes('Select time zone'));
+    await page.getByLabel('Machine time zone',{exact:true}).click(); await page.getByPlaceholder('Search city or time zone').fill('New York'); await page.getByRole('option',{name:'Eastern Time \u2014 New York',exact:true}).click(); await creation.getByRole('button',{name:'Save machine changes',exact:true}).click(); await creation.waitFor({state:'hidden'});
     const created=writes.filter(w=>w.rpc==='name').at(-1).body;
     check('desktop: new machine emits unique internal association and explicit reporting time zone', created.p_machine_id===null && created.p_location_id===null && /^Unmapped Hub [0-9a-f-]{36}$/.test(created.p_new_location_name) && created.p_new_location_timezone==='America/New_York' && created.p_machine_label==='New mall - Cotton Candy');
     for(const [source,id] of [['Imported cotton candy','synthetic-sunze-001'],['Imported SnapCase','synthetic-snap-001']]) {
@@ -124,8 +124,8 @@ for (const [engine, browserType, width] of [['desktop', chromium, 1440], ['touch
       const setup=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Set Up Imported Machine',exact:true})}); await setup.waitFor();
       await page.locator('#imported-machine-company').selectOption('11111111-1111-4111-8111-111111111111');
       check(`desktop: ${source} discovery hides Location and keeps exact source ID`, await setup.getByText(/^(Reporting details|Reporting location|Location|New location name)$/).count()===0 && await page.locator('#imported-machine-external-id').inputValue()===id && await page.locator('#imported-machine-external-id').getAttribute('readonly')!==null);
-      check(`desktop: ${source} unknown timezone explicit`, await page.getByLabel('Machine time zone',{exact:true}).isVisible() && await page.getByLabel('Machine time zone',{exact:true}).inputValue()==='');
-      await page.getByLabel('Machine time zone',{exact:true}).fill('America/New_York');
+      check(`desktop: ${source} unknown timezone explicit`, await page.getByLabel('Machine time zone',{exact:true}).isVisible() && (await page.getByLabel('Machine time zone',{exact:true}).innerText()).includes('Select time zone'));
+      await page.getByLabel('Machine time zone',{exact:true}).click(); await page.getByPlaceholder('Search city or time zone').fill('New York'); await page.getByRole('option',{name:'Eastern Time \u2014 New York',exact:true}).click();
       if(id.includes('sunze')) await page.locator('#imported-machine-partnership').selectOption('77777777-7777-4777-8777-777777777777');
       await page.screenshot({path:path.join(dir,`desktop-discovery-${id}.png`)});
       await setup.getByRole('button',{name:'Finish Setup',exact:true}).click(); await setup.waitFor({state:'hidden'});

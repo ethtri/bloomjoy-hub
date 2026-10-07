@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandItem } from '@/components/ui/command';
 import { Label } from '@/components/ui/label';
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { useAuth } from '@/contexts/auth-context';
@@ -9,7 +11,11 @@ import { changeCompanyAssignment, normalizeCompanyName, resolveInternalCompanyAs
 import { companyChoicesQueryKey, createReportingCompany, fetchCompanyChoices } from '@/lib/companyAssignmentApi';
 
 const controlClass = 'h-11 min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-const timezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
+const commonTimezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
+const timezoneLabel = (zone: string) => {
+  const labels: Record<string, string> = { 'America/New_York': 'Eastern Time — New York', 'America/Chicago': 'Central Time — Chicago', 'America/Denver': 'Mountain Time — Denver', 'America/Phoenix': 'Arizona Time — Phoenix', 'America/Los_Angeles': 'Pacific Time — Los Angeles', 'America/Anchorage': 'Alaska Time — Anchorage', 'Pacific/Honolulu': 'Hawaii Time — Honolulu', UTC: 'Coordinated Universal Time' };
+  return labels[zone] || zone.replaceAll('_', ' ').split('/').reverse().join(' — ');
+};
 
 export function CompanyAssignmentFields({ id, value: draft, onChange, saved, disabled = false, enabled = true, activeTargetsOnly = false, autoSelectSingleCompany = true, internalLocationName, authoritativeTimezone }: {
   id: string;
@@ -25,6 +31,11 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
 }) {
   // Emit only assignment fields; the containing form owns its other draft and stale-write fields.
   const value = useMemo<CompanyAssignmentDraft>(() => ({ accountId: draft.accountId, locationId: draft.locationId, locationName: draft.locationName, locationTimezone: draft.locationTimezone, addLocation: draft.addLocation }), [draft.accountId, draft.locationId, draft.locationName, draft.locationTimezone, draft.addLocation]);
+  const [timezoneOpen, setTimezoneOpen] = useState(false);
+  const timezones = useMemo(() => {
+    const supported = (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.('timeZone') ?? commonTimezones;
+    return [...new Set([...commonTimezones, ...supported, 'UTC', value.locationTimezone].filter(Boolean))];
+  }, [value.locationTimezone]);
   const { user, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const choices = useQuery({ queryKey: [...companyChoicesQueryKey, user?.id], queryFn: fetchCompanyChoices, enabled: enabled && isSuperAdmin, staleTime: 30000 });
@@ -116,9 +127,13 @@ export function CompanyAssignmentFields({ id, value: draft, onChange, saved, dis
     </div>
     {!saved?.locationTimezone && !authoritativeTimezone && !value.locationId && value.accountId && <div className="space-y-1.5">
       <Label htmlFor={`${id}-timezone`}>Machine time zone</Label>
-      <Input id={`${id}-timezone`} list={`${id}-timezones`} value={value.locationTimezone} onChange={(event) => onChange({ ...value, locationTimezone: event.target.value })} placeholder="America/New_York" className="h-11 min-h-11 text-base md:text-base" disabled={disabled} />
-      <datalist id={`${id}-timezones`}>{timezones.map((timezone) => <option key={timezone} value={timezone} />)}</datalist>
-      <p className="text-xs text-muted-foreground">Required when no machine time zone is known. This determines reporting business days.</p>
+      <Popover open={timezoneOpen} onOpenChange={setTimezoneOpen}>
+        <PopoverTrigger asChild><Button id={`${id}-timezone`} type="button" variant="outline" role="combobox" aria-expanded={timezoneOpen} aria-required="true" aria-describedby={`${id}-timezone-help`} className="h-auto min-h-11 w-full min-w-0 whitespace-normal px-3 py-2 text-left text-base font-normal" disabled={disabled}>{value.locationTimezone ? timezoneLabel(value.locationTimezone) : 'Select time zone (required)'}</Button></PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-0" align="start">
+          <Command><CommandInput placeholder="Search city or time zone" className="h-11 text-base"/><CommandList className="max-h-60"><CommandEmpty>No matching time zone.</CommandEmpty><CommandItem value="Clear time zone" className="min-h-11 break-words whitespace-normal text-base" onSelect={() => { onChange({ ...value, locationTimezone: '' }); setTimezoneOpen(false); }}>Clear time zone</CommandItem>{timezones.map(zone => <CommandItem key={zone} value={`${timezoneLabel(zone)} ${zone}`} className="min-h-11 break-words whitespace-normal text-base" onSelect={() => { onChange({ ...value, locationTimezone: zone }); setTimezoneOpen(false); }}>{timezoneLabel(zone)}</CommandItem>)}</CommandList></Command>
+        </PopoverContent>
+      </Popover>
+      <p id={`${id}-timezone-help`} className="text-sm text-muted-foreground">{value.locationTimezone ? 'This determines reporting business days.' : 'Choose a machine time zone before saving. No time zone is selected.'}</p>
     </div>}
     {changed && <p className="text-sm text-muted-foreground">Company-level report access follows the selected company. Machine manager assignments stay the same.</p>}
   </div>;
