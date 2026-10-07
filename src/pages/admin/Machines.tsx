@@ -2,6 +2,7 @@ import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, r
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
+import { MachinePartnershipAssignment } from '@/components/admin/MachinePartnershipAssignment';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -1404,6 +1405,9 @@ export default function AdminMachinesPage() {
                 committedImportedMachineId={completedSourceMachineId}
                 machineRow={detailRow}
                 machines={setup.machines}
+                partnershipSetup={setup}
+                isPartnershipSetupLoading={!isLocalDemoMode && (liveIsLoading || liveIsFetching)}
+                partnershipSetupError={Boolean(error)}
                 refundManagerSetup={selectedMachineForEditor ? refundManagerSetupByMachineId.get(selectedMachineForEditor.id) ?? null : null}
                 refundInventory={refundNayaxInventory ?? null}
                 isRefundInventoryLoading={isRefundNayaxInventoryLoading}
@@ -1758,6 +1762,9 @@ export default function AdminMachinesPage() {
         machine={selectedMachineForEditor}
         machineRow={allMachineRows.find((row) => row.machine.id === selectedMachineForEditor?.id)}
         machines={setup.machines}
+        partnershipSetup={setup}
+        isPartnershipSetupLoading={!isLocalDemoMode && (liveIsLoading || liveIsFetching)}
+        partnershipSetupError={Boolean(error)}
         refundManagerSetup={
           selectedMachineForEditor
             ? refundManagerSetupByMachineId.get(selectedMachineForEditor.id) ?? null
@@ -2521,6 +2528,9 @@ function MachineDialog({
   onImportedSourceSaved,
   committedImportedMachineId,
   machines,
+  partnershipSetup,
+  isPartnershipSetupLoading,
+  partnershipSetupError,
   refundManagerSetup,
   refundInventory = null,
   isRefundInventoryLoading = false,
@@ -2551,6 +2561,9 @@ function MachineDialog({
   onImportedSourceSaved?: (machineId: string) => void;
   committedImportedMachineId?: string | null;
   machines: PartnershipSetupMachine[];
+  partnershipSetup: PartnershipReportingSetup;
+  isPartnershipSetupLoading: boolean;
+  partnershipSetupError: boolean;
   refundManagerSetup: RefundManagerSetup['machines'][number] | null;
   refundInventory?: RefundNayaxInventory | null;
   isRefundInventoryLoading?: boolean;
@@ -2575,6 +2588,9 @@ function MachineDialog({
   taxHistoryCount?: number;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
+  const [partnershipDraftDirty, setPartnershipDraftDirty] = useState(false);
+  const [isSavingPartnership, setIsSavingPartnership] = useState(false);
+  const [partnershipResetVersion, setPartnershipResetVersion] = useState(0);
   const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: open && !isLocalDemoMode, staleTime: 30000 });
   const retainedHistory = workspaceMetadata.data?.find((item) => item.machineId === machine?.id)?.retainedHistory ?? [];
   const [sourceStateDraft, setSourceStateDraft] = useState<'setup' | 'live' | 'inactive'>('setup');
@@ -2633,7 +2649,8 @@ function MachineDialog({
     }
     finally { setIsSaving(false); }
   };
-  const { user: assignmentUser } = useAuth();
+  const { user: assignmentUser, isSuperAdmin, isScopedAdmin, adminAccess } = useAuth();
+  const canManagePartnership = isSuperAdmin || Boolean(isScopedAdmin && machine && adminAccess.scopedMachineIds.includes(machine.id) && (adminAccess.allowedSurfaces.includes('partnerships') || adminAccess.allowedSurfaces.includes('*')));
   const taxSource = useQuery({
     queryKey: ['admin-machine-tax-source', assignmentUser?.id, machine?.id, refundManagerSetup?.nayaxAccountKey, refundManagerSetup?.nayaxMachineId],
     enabled: open && !!machine?.id && !isLocalDemoMode,
@@ -3200,7 +3217,8 @@ function MachineDialog({
     form.machineType !== (importedSource?.platform === 'Kexiaozhan' ? 'snapcase' : 'commercial') ||
     form.operationalPhase !== 'setup'
   );
-  const hasUnsavedChanges = !committedImportedMachineId && (importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges);
+  const machineHasUnsavedChanges = !committedImportedMachineId && (importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges);
+  const hasUnsavedChanges = machineHasUnsavedChanges || partnershipDraftDirty;
 
   const cancelMachineIdentityChanges = useCallback(() => {
     setSourceStateDraft(savedSourceState);
@@ -3238,6 +3256,8 @@ function MachineDialog({
   }, [refundManagerSetup]);
 
   const discardAllPendingChanges = useCallback(() => {
+    setPartnershipDraftDirty(false);
+    setPartnershipResetVersion((version) => version + 1);
     setMappingHasChanges(false);
     cancelMachineIdentityChanges();
     cancelMachineManagerChanges();
@@ -3269,7 +3289,7 @@ function MachineDialog({
   }, [hasUnsavedChanges, mode]);
 
   const machineManagerCount = selectedMachineManagerEmails.length;
-  const isSavingMachineChanges = isSaving || isSavingMachineManagers || isSavingRefundReadiness || isActivatingCardRefunds || isPublishingCustomerRefunds;
+  const isSavingMachineChanges = isSaving || isSavingMachineManagers || isSavingRefundReadiness || isActivatingCardRefunds || isPublishingCustomerRefunds || isSavingPartnership;
   const refundReadinessBlocks = [
     savedMachineManagerEmails.length > 0 ? null : 'Assign and save at least one Machine Manager.',
     refundManagerSetup?.nayaxMachineId ? null : 'An imported Nayax match is needed for card lookup.',
@@ -3601,16 +3621,14 @@ function MachineDialog({
           </section>
         )}
 
-        {activeTab === 'reporting' && (
-          <section className="mt-6 max-w-3xl" aria-labelledby="machine-reporting-title">
+        {/* Keep the partnership draft mounted across tabs; other reporting queries stay lazy. */}
+        <section hidden={activeTab !== 'reporting'} className="mt-6 max-w-3xl" aria-labelledby="machine-reporting-title">
             <h2 id="machine-reporting-title" className="text-lg font-semibold text-foreground">Reporting</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Partnership assignment and sales reporting coverage.</p>
+            <MachinePartnershipAssignment key={machine.id} machineId={machine.id} machineName={machine.machine_label} setup={partnershipSetup} canManage={canManagePartnership} verified={Boolean(stateSource && !stateSource.archivedMapping && !stateSource.mappingConflict && !stateInventory.isError && !stateInventory.isFetching)} loading={isPartnershipSetupLoading} readError={partnershipSetupError} machineDirty={machineHasUnsavedChanges} busy={isSavingMachineChanges && !isSavingPartnership} resetVersion={partnershipResetVersion} demo={isLocalDemoMode} onDirtyChange={setPartnershipDraftDirty} onSavingChange={setIsSavingPartnership} />
+            {activeTab === 'reporting' && <>
             <p className="mt-3 text-sm text-muted-foreground">Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.</p>
             <div className="mt-5"><MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} /></div>
             <EarlierMachineSales history={retainedHistory} />
-            <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
-              <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Partner reports</dt><dd className="text-right font-medium">{machineRow?.activeAssignments.map((assignment) => assignment.partnership_name).join(', ') || 'Not assigned'}</dd></div>
-            </dl>
             <details className="mt-4 border-t border-border pt-3">
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Tax source diagnostics</summary>
               <p className="mt-2 text-sm text-muted-foreground">{taxSource.isPending ? 'Checking source coverage…' : taxSource.isError || !taxSource.data ? 'Source coverage is unavailable. Finance preserves unresolved amounts.' : taxSource.data.coverageStatus === 'verified_tax' ? `Verified source: ${taxSource.data.source === 'finance_verified' ? 'Finance confirmation' : taxSource.data.source === 'nayax_portal' ? 'Nayax portal export' : taxSource.data.source === 'nayax_portal_history' ? 'Nayax portal history' : 'Nayax API'}. Applies to ${taxSource.data.saleDate}.` : taxSource.data.coverageStatus === 'unclassified_extra_charge' ? 'Nayax extra charge observed. Its tax classification has not been verified.' : 'No verified source tax information for this date.'}</p>
@@ -3625,15 +3643,8 @@ function MachineDialog({
                 </ul>
               </div>
             )}
-            <div className="mt-5 flex flex-wrap gap-2">
-              {canEditMachineIdentity ? (
-                <Button variant="ghost" asChild><Link to="/admin/partnerships">Manage partnerships <ChevronRight className="ml-1.5 h-4 w-4" /></Link></Button>
-              ) : (
-                <p className="self-center text-xs text-muted-foreground">Partnership changes are managed by a Super Admin.</p>
-              )}
-            </div>
+            </>}
           </section>
-        )}
 
         {activeTab === 'activity' && (
           <section className="mt-6 max-w-3xl" aria-labelledby="machine-activity-title">
@@ -3648,10 +3659,10 @@ function MachineDialog({
             <Button variant="outline" asChild className="mt-4"><Link to={`/admin/audit?search=${encodeURIComponent(machine.id)}`}><History className="mr-2 h-4 w-4" /> View full audit history</Link></Button>
           </section>
         )}
-        <div className="sticky bottom-0 mt-6 flex flex-wrap justify-end gap-2 border-t bg-background py-4" aria-label="Machine changes">
+        {(activeTab !== 'reporting' || machineHasUnsavedChanges) && <div className="sticky bottom-0 mt-6 flex flex-wrap justify-end gap-2 border-t bg-background py-4" aria-label="Machine changes">
           <Button variant="outline" className="min-h-11 text-base" onClick={() => { if (confirmDiscardPendingChanges()) { discardAllPendingChanges(); onOpenChange(false); } }} disabled={isSavingMachineChanges}>Cancel</Button>
-          <Button className="min-h-11 text-base" onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !hasUnsavedChanges || mappingHasChanges || (stateOnlySave && (stateInventory.isError || stateInventory.isFetching)) || (isLocalDemoMode && machineIdentityHasChanges)}>{isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save</Button>
-        </div>
+          <Button className="min-h-11 text-base" onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !machineHasUnsavedChanges || mappingHasChanges || (stateOnlySave && (stateInventory.isError || stateInventory.isFetching)) || (isLocalDemoMode && machineIdentityHasChanges)}>{isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save</Button>
+        </div>}
         {mappingHasChanges && <p className="text-sm text-muted-foreground">Save the reviewed reader connection before saving other machine changes.</p>}
       </div>
     );
@@ -3681,6 +3692,7 @@ function MachineDialog({
           </div>
         ) : <>
         {machine && <MachineIdentityMapping machineId={machine.id} canEdit={canEditMachineIdentity} demo={isLocalDemoMode} onSaved={onSaved} onDirtyChange={setMappingHasChanges} />}
+        {importedSource && !machine && <p className="mt-4 text-sm text-muted-foreground">Save this machine before adding it to a partnership.</p>}
         {machine && <MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />}
         {importedSource && !machine && <div className="mt-4 space-y-3">
           <div className="text-sm"><p className="font-medium">{importedSource.platform} · {importedSource.sourceName || 'Unnamed imported machine'}</p><p className="break-all text-muted-foreground">ID {importedSource.sourceId}{importedSource.sourceAccountKey ? ` · ${importedSource.sourceAccountKey}` : ''}</p></div>
