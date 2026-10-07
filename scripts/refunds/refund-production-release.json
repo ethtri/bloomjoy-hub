@@ -327,7 +327,8 @@
     "20261006033118_nayax_manual_portal_to_api_mapping.sql",
     "20261006135747_partnership_post_tax_refund_terms_correction.sql",
     "20261006223809_source_nayax_reader_history_safe_resolution.sql",
-    "20261007014415_nayax_original_reader_owner_lookup_index.sql"
+    "20261007014415_nayax_original_reader_owner_lookup_index.sql",
+    "20261007042121_nayax_completed_source_identity_integrity.sql"
   ],
   "migrationFilesSha256": "cf0c7d364359c5e389e9b624170e7fe09b999046a24342700d60d426a0415cf5",
   "migrationVersionSetSha256": "84d49377e84184a7a72ad3de15bb7ced3ce8446d563afc80a3e13b11f6b52a72",
