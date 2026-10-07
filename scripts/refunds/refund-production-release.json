@@ -329,7 +329,7 @@
     "20261006223809_source_nayax_reader_history_safe_resolution.sql",
     "20261007014415_nayax_original_reader_owner_lookup_index.sql",
     "20261007042121_nayax_completed_source_identity_integrity.sql",
-    "20261007185917_same_physical_bound_source_nayax_reader_join.sql"
+    "20261007201551_same_physical_bound_source_nayax_reader_join.sql"
   ],
   "migrationFilesSha256": "eefe35d486633004d9bdc15f2a69e70ee5cb42bd124aa9543209bae09c279472",
   "migrationVersionSetSha256": "07a33defb100544f9dfbcd93052815859bc029e7412852ca0db6a94cc6c5fb60",
