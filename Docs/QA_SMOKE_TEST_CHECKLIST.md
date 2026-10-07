@@ -6,6 +6,14 @@
 
 # QA Smoke Test Checklist
 
+## Machine full page navigation (#1810)
+- At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
+- The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.
+- Save Inactive for an unbound source with no company/name/reader/time zone. Restore Setup without creating a Hub. Stale writes keep the draft and retry safely. Successful setup followed by failed refresh must show a read-only retry, never issue another setup writer; verified retry loads the joined machine's reporting, refunds and history.
+- Mobile cards show State and reader connection independently of refund availability. Exact source/reader IDs, managers and transaction provenance remain in Source & details. Company, search and Manage have 44px touch targets; no horizontal page overflow or header/save-bar overlap.
+- For a synthetic active, fresh, exactly mapped excluded Nayax reader with saved managers, Refunds shows the saved exclusion reason and existing Enable customer refund requests action. That action publishes the saved reader only; card-refund processing remains off. Inactive, stale, mismatched, unknown-type and missing-manager readers cannot publish through this shortcut.
+- Local synthetic regressions: `node scripts/validate-machine-navigation-uat.mjs` and `node scripts/validate-machine-mobile-ux.mjs --publish-synthetic` with Vite at `http://127.0.0.1:8097` (`MACHINE_NAVIGATION_UAT_APP_URL` / `MOBILE_UX_APP_URL` overrides). Run `deno test --no-lock src/lib/machineRefundReadiness.test.ts`. These fixtures do not modify production machines or send customer messages. Physical iPhone verification remains a manual check.
+
 ## Source catalogue lifecycle (#1811)
 - For both Sunze and Kex, select State → Inactive in Manage on a bound and an unbound source without entering company, reader or timezone. It leaves Machines/Setup/Ready and their counts, appears in Inactive, and survives refresh/import. Restore the retained Setup/Live state without changing unrelated drafts. Unbound Inactive restores to Setup without setup fields; Live requires real setup. Cancel discards the State draft; failed source reads show Retry State and block writes.
 - Company is visible beside search. All companies/Not assigned/exact authorized company persist in the URL and apply consistently to normal and Inactive results/counts. Archived records stay excluded.

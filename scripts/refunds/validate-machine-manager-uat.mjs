@@ -847,7 +847,7 @@ const run = async () => {
     ]);
 
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
-    await page.getByRole('table', { name: 'Machines' }).getByText('Cotton Candy 01', {exact:true}).waitFor({ timeout: 10000 });
+    await page.getByRole('table', { name: 'Machines' }).getByText('Cotton Candy 01', {exact:true}).filter({ visible: true }).waitFor({ timeout: 10000 });
     await page.getByText('Signed in. Redirecting...').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => undefined);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -1026,7 +1026,7 @@ const run = async () => {
       await machineTypeSelector.locator('option:checked').textContent() === 'Cotton Candy - Commercial'
     );
     await machineTypeSelector.selectOption('snapcase');
-    await page.getByRole('button', { name: 'Save changes' }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByText('Machine updated.').waitFor({ timeout: 10000 });
     recorder.assert(
       'Snapcase save sends the canonical storage value',
@@ -1085,7 +1085,7 @@ const run = async () => {
     await page.locator('#machine-type-filter').selectOption('snapcase');
     recorder.assert(
       'Snapcase is accepted by the machine type filter',
-      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).isVisible()
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).filter({ visible: true }).isVisible()
         && await page.getByText('Type: Snapcase', { exact: true }).isVisible()
     );
     await page.getByRole('button', { name: 'Remove Type: Snapcase filter' }).click();
@@ -1146,17 +1146,18 @@ const run = async () => {
     recorder.assert(
       'Machine Manager changes remain pending until explicit save',
       state.savePayload === null
-        && await page.getByRole('button', { name: 'Save managers' }).isEnabled()
+        && await page.getByRole('button', { name: 'Save', exact: true }).isEnabled()
     );
 
-    page.once('dialog', (dialog) => dialog.dismiss());
     await page.getByRole('button', { name: 'Refunds', exact: true }).click();
     recorder.assert(
-      'Unsaved Machine Manager changes cannot be lost by changing tasks',
-      await page.getByRole('heading', { name: 'Machine Managers' }).isVisible()
+      'Pending Machine Manager changes survive tab navigation in the same editor',
+      await page.getByRole('heading', { name: 'Customer refunds' }).isVisible()
+        && await page.getByRole('button', { name: 'Save', exact: true }).isEnabled()
+        && state.savePayload === null
     );
-
-    await page.getByRole('button', { name: 'Save managers' }).click();
+    await page.getByRole('button', { name: /^Managers/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByText('Machine Managers saved.').waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -1179,7 +1180,7 @@ const run = async () => {
       await machineDialog.getByRole('button', { name: 'Add manager' }).click();
       await page.getByLabel('Find an existing Bloomjoy account').fill(search);
       await machineDialog.locator('button', { hasText: email }).click();
-      await page.getByRole('button', { name: 'Save managers' }).click();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
       await waitForCondition(
         () => state.managerEmails.includes(email),
         `explicit Machine Manager save for ${email}`
@@ -1204,7 +1205,7 @@ const run = async () => {
     await page.getByRole('heading', { name: 'Customer refunds' }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Customer refunds are managed in a focused task tab',
-      await machineDialog.getByText('Setup needed', { exact: true }).first().isVisible()
+      await machineDialog.getByText('Card refunds off', { exact: true }).first().isVisible()
         && await machineDialog.getByText('Customer requests', { exact: true }).isVisible()
     );
     recorder.assert(
@@ -1224,10 +1225,10 @@ const run = async () => {
     await machineDialog.getByLabel('Transaction matching').waitFor();
     await machineDialog.getByLabel('Transaction matching').click();
     recorder.assert(
-      'Refund setup has one explicit section save action',
-      (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
+      'Refund setup uses the same single machine Save action',
+      (await machineDialog.getByRole('button', { name: 'Save', exact: true }).count()) === 1
     );
-    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
+    await machineDialog.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByText('Refund setup saved.').waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -1253,8 +1254,8 @@ const run = async () => {
     await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
-    const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    const readyToActivate = machineRow.getByText('Refunds: Ready to activate', { exact: true });
+    const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).filter({ visible: true });
+    const readyToActivate = machineRow.getByText('Refunds: Card refunds off', { exact: true });
     await readyToActivate.waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved manager emails appear in the unified Machines list',
@@ -1291,7 +1292,7 @@ const run = async () => {
 
     recorder.assert(
       'Qualified payment-disabled machine has one guided activation action',
-      await reopenedMachineDialog.getByText('Ready to activate', { exact: true }).isVisible()
+      await reopenedMachineDialog.getByText('Card refunds off', { exact: true }).isVisible()
         && await reopenedMachineDialog.getByText(/Off — Awaiting reviewed activation/i).isVisible()
         && await reopenedMachineDialog.getByRole('button', { name: 'Activate card-refund capability' }).isVisible()
     );
@@ -1313,10 +1314,10 @@ const run = async () => {
     state.globalRefundsAvailable = false;
     state.globalRefundsBlockReason = 'configuration_missing';
     await navigateUatPageAfterDrain(page, page.url(), { waitUntil: 'networkidle' });
-    await reopenedMachineDialog.getByText('Direct API blocked', { exact: true }).waitFor({ timeout: 10000 });
+    await reopenedMachineDialog.getByText('Card refunds unavailable', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Unavailable provider configuration is distinct from machine capability',
-      await reopenedMachineDialog.getByText('Direct API blocked', { exact: true }).isVisible()
+      await reopenedMachineDialog.getByText('Card refunds unavailable', { exact: true }).isVisible()
         && await reopenedMachineDialog.getByText(/Direct card refunds are unavailable/i).isVisible()
         && await reopenedMachineDialog.getByText('Unavailable', { exact: true }).isVisible()
         && (await reopenedMachineDialog.getByText('Ready to refund', { exact: true }).count()) === 0
@@ -1334,11 +1335,11 @@ const run = async () => {
 
     await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
-    const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
-    await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).waitFor({ timeout: 10000 });
+    const guardedMachineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).filter({ visible: true });
+    await guardedMachineRow.getByText('Refunds: Card refunds unavailable', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Guarded Machines row is not labeled Ready',
-      await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).isVisible()
+      await guardedMachineRow.getByText('Refunds: Card refunds unavailable', { exact: true }).isVisible()
         && (await guardedMachineRow.getByText('Ready', { exact: true }).count()) === 0
     );
     recorder.assert(
@@ -1350,19 +1351,19 @@ const run = async () => {
     await page.getByRole('button', { name: /^Ready\s+0$/ }).click();
     recorder.assert('Ready source view cannot expose a globally blocked machine', (await page.locator('[data-source-key]').count()) === 0);
     await page.getByRole('button', { name: /^Machines\s+2$/ }).click();
-    await guardedMachineRow.getByText('Refunds: Direct API is unavailable', { exact: true }).waitFor({ timeout: 10000 });
+    await guardedMachineRow.getByText('Refunds: Card refunds unavailable', { exact: true }).waitFor({ timeout: 10000 });
     await page.getByText('Filters', { exact: true }).click();
     await page.locator('#refund-filter').selectOption('ready');
     recorder.assert(
       'Ready refund filter requires live global availability',
-      (await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).count()) === 0
+      (await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).filter({ visible: true }).count()) === 0
     );
     const directBlockedFilterUrl = new URL(page.url());
     directBlockedFilterUrl.searchParams.set('refund', 'direct_blocked');
     await navigateUatPageAfterDrain(page, directBlockedFilterUrl.toString(), { waitUntil: 'networkidle' });
     recorder.assert(
       'Direct API blocked filter keeps the unavailable machine discoverable',
-      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByText('Refunds: Direct API is unavailable', { exact: true }).isVisible()
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).filter({ visible: true }).getByText('Refunds: Card refunds unavailable', { exact: true }).isVisible()
     );
     const allRefundStatesUrl = new URL(page.url());
     allRefundStatesUrl.searchParams.delete('refund');
@@ -1370,13 +1371,13 @@ const run = async () => {
     state.globalRefundsAvailable = true;
     state.globalRefundsBlockReason = null;
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await guardedMachineRow.getByText('Refunds: Ready', { exact: true }).waitFor({ timeout: 10000 });
+    await guardedMachineRow.getByText('Refunds: Ready to refund', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Provider recovery restores readiness without changing source inventory',
       await page.getByRole('button', { name: /^Machines\s+2$/ }).isVisible()
         && await page.getByRole('button', { name: /^Ready\s+1$/ }).isVisible()
         && await page.getByRole('button', { name: /^Setup needed\s+1$/ }).isVisible()
-        && await guardedMachineRow.getByText('Ready', { exact: true }).isVisible()
+        && await guardedMachineRow.getByText('Live', { exact: true }).isVisible()
     );
     state.globalRefundsPaused = true;
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1387,7 +1388,7 @@ const run = async () => {
     await pausedMachineDialog.getByText('Paused for all machines', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Global pause is distinct from machine setup',
-      await pausedMachineDialog.getByText('Paused', { exact: true }).first().isVisible()
+      await pausedMachineDialog.getByText('Card refunds paused', { exact: true }).first().isVisible()
         && await pausedMachineDialog.getByText('Enabled', { exact: true }).isVisible()
     );
     await page.screenshot({
@@ -1397,7 +1398,7 @@ const run = async () => {
 
     await waitForUatPageRequestDrain(page);
     await page.getByRole('link', { name: 'Back to machines' }).click();
-    await guardedMachineRow.getByText('Refunds: Paused globally', { exact: true }).waitFor({ timeout: 10000 });
+    await guardedMachineRow.getByText('Refunds: Card refunds paused', { exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
       'Global pause consistently moves the same source from Ready to Setup needed',
       await page.getByRole('button', { name: /^Machines\s+2$/ }).isVisible()
@@ -1468,7 +1469,7 @@ const run = async () => {
     await demoMachineDialog.getByRole('button', { name: 'Add manager' }).click();
     await page.getByLabel('Find an existing Bloomjoy account').fill('operator-three');
     await page.getByRole('button', { name: /operator-three@example\.test/i }).click();
-    await demoMachineDialog.getByRole('button', { name: 'Save managers' }).click();
+    await demoMachineDialog.getByRole('button', { name: 'Save', exact: true }).click();
     await page.getByText(/Demo mode saved this assignment in the browser only/i).waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -1490,7 +1491,7 @@ const run = async () => {
     await page.getByRole('button', { name: 'Overview' }).click();
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save changes' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save', exact: true }).isDisabled()
     );
 
       await page.screenshot({

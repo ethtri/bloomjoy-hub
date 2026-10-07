@@ -8,6 +8,7 @@ import {
   type QueryClient as QueryClientInstance,
 } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import '@/lib/machineNavigationGuard';
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -268,6 +269,7 @@ export const AppShell = () => (
               <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
               <Route path="/admin/machines" element={<AdminMachines />} />
               <Route path="/admin/machines/inventory" element={<AdminMachines />} />
+              <Route path="/admin/machines/source/:sourceKey" element={<AdminMachines />} />
               <Route path="/admin/machines/:machineId" element={<AdminMachines />} />
               <Route path="/admin/accounts" element={<AdminAccounts />} />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
