@@ -14,8 +14,8 @@ const dateLabel = (value: string | null) => value ? new Date(value.length === 10
 export function MachineIdentitySummary({ metadata }: { metadata?: MachineWorkspaceMetadata }) {
   if (!metadata) return <p className="text-xs text-muted-foreground">Source data unavailable</p>;
   return <div className="mt-2 space-y-1 break-words text-xs">
-    <p>{metadata.sources.length ? metadata.sources.map((source) => `${source.platform}: ${source.name || 'Unnamed'} · ID ${source.id}`).join(' / ') : 'Source not connected'}</p>
-    <p className="text-muted-foreground">Nayax {metadata.nayaxMachineId ? `${metadata.nayaxName || 'Unnamed'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>
+    <p>{metadata.sources.length ? metadata.sources.map((source) => `${source.platform}: ${source.name || 'Unnamed'} Â· ID ${source.id}`).join(' / ') : 'Source not connected'}</p>
+    <p className="text-muted-foreground">Nayax {metadata.nayaxMachineId ? `${metadata.nayaxName || 'Unnamed'} Â· ID ${metadata.nayaxMachineId} Â· ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>
   </div>;
 }
 
@@ -76,34 +76,34 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
   }, [committedReader, metadata, metadataQuery.isError, metadataQuery.isFetching, onDirtyChange]);
   if (committedReader) return <section aria-label="Source identity and Nayax matching" className="space-y-3 rounded-md border p-3">
     <p role="status" className="font-medium">Reader connection saved</p>
-    <p className="break-words text-sm">Nayax ID {committedReader.id} · {committedReader.account}. Reloading this same machine does not save the connection again.</p>
+    <p className="break-words text-sm">Nayax ID {committedReader.id} Â· {committedReader.account}. Reloading this same machine does not save the connection again.</p>
     <Button key="saved-reader-read-retry" type="button" variant="outline" className="min-h-11" disabled={saving || metadataQuery.isFetching} onClick={async () => {
       setSaving(true);
       try { await Promise.allSettled([metadataQuery.refetch(), onSaved()]); } finally { setSaving(false); }
     }}>Retry loading</Button>
   </section>;
   return <section className="space-y-3" aria-label="Source identity and Nayax matching">
-    {demo ? <p className="text-sm text-muted-foreground">Source mapping unavailable in demo.</p> : metadataQuery.isError ? <div role="alert">Unable to load source identities. <Button variant="link" onClick={() => void metadataQuery.refetch()}>Retry</Button></div> : !metadata ? <p role="status" className="text-sm text-muted-foreground">{metadataQuery.isPending ? 'Loading identities…' : 'Source data unavailable. Refresh to retry.'}</p> : <>
+    {demo ? <p className="text-sm text-muted-foreground">Source mapping unavailable in demo.</p> : metadataQuery.isError ? <div role="alert">Unable to load source identities. <Button variant="link" onClick={() => void metadataQuery.refetch()}>Retry</Button></div> : !metadata ? <p role="status" className="text-sm text-muted-foreground">{metadataQuery.isPending ? 'Loading identitiesâ€¦' : 'Source data unavailable. Refresh to retry.'}</p> : <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 break-words text-sm">
           {metadata.sources.length ? metadata.sources.map((source) => <p key={`${source.platform}:${source.account}:${source.id}`}><span className="font-medium">{source.platform}</span>: {source.name || 'Unnamed'}<span className="block text-muted-foreground">ID {source.id}</span></p>) : <p className="text-muted-foreground">Source not connected</p>}
         </div>
         <MachineHelp label="Source and import details">
           <p>Original provider names and IDs are read-only. An exact match does not activate refunds.</p>
-          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-3 break-words"><p className="font-medium">{source.platform}{source.account ? ` · ${source.account}` : ''}</p><p>{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {dateLabel(source.lastTransaction)}</p><p>Last seen: {dateLabel(source.lastSeenAt)}</p><p>Import: {dateLabel(source.lastSuccessfulImport)} · {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
+          {metadata.sources.map((source) => <div key={`${source.platform}:${source.account}:${source.id}`} className="mt-3 break-words"><p className="font-medium">{source.platform}{source.account ? ` Â· ${source.account}` : ''}</p><p>{source.platform === 'Kexiaozhan' ? 'Last positive source observation' : 'Last source transaction'}: {dateLabel(source.lastTransaction)}</p><p>Last seen: {dateLabel(source.lastSeenAt)}</p><p>Import: {dateLabel(source.lastSuccessfulImport)} Â· {importFreshnessLabel(source.lastSuccessfulImport)}</p></div>)}
           <p className="mt-3">Import freshness does not prove complete coverage or genuine inactivity.</p>
         </MachineHelp>
       </div>
       <div className="space-y-1.5">
         <p className="text-sm font-medium">Nayax match</p>
-        {canEdit ? <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} allowOccupied onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} /> : <p className="break-words text-sm">{metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} · ID ${metadata.nayaxMachineId} · ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>}
+        {canEdit ? <NayaxMachinePicker records={inventory} machineId={machineId} selectedId={inventoryId} currentName={metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} Â· ID ${metadata.nayaxMachineId} Â· ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : ''} disabled={saving || inventoryQuery.isPending || inventoryQuery.isError} allowOccupied onSelect={(id) => { setInventoryId(id); onDirtyChange?.(true); }} /> : <p className="break-words text-sm">{metadata.nayaxMachineId ? `${metadata.nayaxName || 'Saved Nayax record'} Â· ID ${metadata.nayaxMachineId} Â· ${metadata.nayaxAccountKey || 'TGPACI_USA_DB'}` : 'Not matched'}</p>}
         {inventoryQuery.isError && <p role="alert" className="text-sm text-destructive">Imported Nayax records unavailable. Refresh to retry.</p>}
       </div>
       {metadata.salesActivationPending && <p className="rounded-md border p-3 text-sm">Source connected for management. Sales activation awaits reconciliation; imported orders remain pending and existing sales history is unchanged.</p>}
       {dirty && <div className="space-y-3 rounded-md border p-3 text-sm">
-        {readerPreview.isFetching ? <p role="status">Checking current and historical reader connections…</p> : readerPreview.isError ? <div role="alert">Reader connection unavailable. <Button variant="link" onClick={() => void readerPreview.refetch()}>Retry</Button></div> : preview && <>
-          <p className="break-words">Current reader: {preview.currentReaderId || 'None'} · {preview.currentAccountKey || 'No current account'}<br />Selected reader: {preview.newReaderId} · {preview.newAccountKey}</p>
-          {preview.ownerMachineId && <p>Connected machine: {preview.ownerMachineName || preview.ownerMachineId}{movingOwner && <> · <a className="underline" href={`/admin/machines/${preview.ownerMachineId}`}>Open machine</a></>}</p>}
+        {readerPreview.isFetching ? <p role="status">Checking current and historical reader connectionsâ€¦</p> : readerPreview.isError ? <div role="alert">Reader connection unavailable. <Button variant="link" onClick={() => void readerPreview.refetch()}>Retry</Button></div> : preview && <>
+          <p className="break-words">Current reader: {preview.currentReaderId || 'None'} Â· {preview.currentAccountKey || 'No current account'}{!preview.currentReaderId && preview.previousReaderId && <> · Previous reader: {preview.previousReaderId}</>}<br />Selected reader: {preview.newReaderId} Â· {preview.newAccountKey}</p>
+          {preview.ownerMachineId && <p>Connected machine: {preview.ownerMachineName || preview.ownerMachineId}{movingOwner && <> Â· <a className="underline" href={`/admin/machines/${preview.ownerMachineId}`}>Open machine</a></>}</p>}
           {preview.historicalOwnerConflict || preview.ownerArchived ? <p role="alert">This reader needs its historical ownership reconciled before it can move. Existing connections remain unchanged.</p> : needsReaderChange && <>
             <p>{movingOwner ? 'Review moving this reader between these two machines. Original transactions stay with their original machine.' : 'Change the reader on this same machine. Its source, company, managers and past transactions stay unchanged.'}</p>
             <Label htmlFor={`reader-change-date-${machineId}`}>Actual reader change date</Label>
@@ -113,7 +113,7 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
               <Label htmlFor={`reader-change-time-${machineId}`}>Actual local change time</Label>
               <Input id={`reader-change-time-${machineId}`} type="datetime-local" className="min-h-11 w-full min-w-0 text-base md:text-base" value={changedAtLocal} onChange={event => setChangedAtLocal(event.target.value)} disabled={saving} />
               {changedAtLocal && preview.effectiveInstants.length === 0 && <p role="alert">This local time does not exist in the saved time zone. Review the actual time.</p>}
-              {preview.effectiveInstants.map(instant => <label key={instant} className="flex min-h-11 items-center gap-2"><input type="radio" name={`reader-change-instant-${machineId}`} checked={changedAt === instant} onChange={() => { setChangedAt(instant); setConfirmedChange(false); }} />{instant} UTC{preview.effectiveInstants.length > 1 ? ' · Choose the actual occurrence' : ''}</label>)}
+              {preview.effectiveInstants.map(instant => <label key={instant} className="flex min-h-11 items-center gap-2"><input type="radio" name={`reader-change-instant-${machineId}`} checked={changedAt === instant} onChange={() => { setChangedAt(instant); setConfirmedChange(false); }} />{instant} UTC{preview.effectiveInstants.length > 1 ? ' Â· Choose the actual occurrence' : ''}</label>)}
             </>}
             <Label htmlFor={`reader-change-reason-${machineId}`}>Reason for this change</Label>
             <Input id={`reader-change-reason-${machineId}`} className="min-h-11 text-base md:text-base" value={changeReason} onChange={event => { setChangeReason(event.target.value); setConfirmedChange(false); }} disabled={saving} />
@@ -123,8 +123,8 @@ export function MachineIdentityMapping({ machineId, canEdit, demo = false, onSav
         </>}
       </div>}
 
-      <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} · ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} · {transactionSourceLabel(metadata.transactionSource)} · {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
-      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" onClick={() => void save()} disabled={saving || !verifiedPreview || preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))}>{saving ? 'Saving…' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
+      <p className="text-xs text-muted-foreground">Last recorded transaction: {metadata.lastRecordedTransaction ? `${dateLabel(metadata.lastRecordedTransaction)} Â· ${transactionAgeLabel(metadata.lastRecordedTransaction)}` : 'None recorded'} Â· {transactionSourceLabel(metadata.transactionSource)} Â· {importFreshnessLabel(metadata.lastSuccessfulSalesImport)}</p>
+      {dirty && canEdit && <div className="flex justify-end"><Button key="normal-reader-save" type="button" onClick={() => void save()} disabled={saving || !verifiedPreview || preview?.historicalOwnerConflict || preview?.ownerArchived || (needsReaderChange && (!confirmedChange || !changedOn || !changeReason.trim() || (movingOwner && !changedAt)))}>{saving ? 'Savingâ€¦' : needsReaderChange ? 'Save reader change' : 'Save Nayax match'}</Button></div>}
     </>}
   </section>;
 }

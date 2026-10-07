@@ -169,6 +169,7 @@ begin
   return jsonb_build_object('machineId',machine.id,'machineName',private.reporting_machine_display_name(machine),
     'expectedMachineUpdatedAt',machine.updated_at,'currentReaderId',machine.nayax_machine_id,'currentAccountKey',machine.nayax_account_key,
     'hasReaderHistory',exists(select 1 from private.machine_nayax_reader_associations where reporting_machine_id=machine.id),
+    'previousReaderId',case when (select count(*) from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null)=1 then (select nayax_machine_id from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null) end,
     'inventoryId',reader.id,'newReaderId',reader.nayax_machine_id,'newAccountKey',reader.account_key,
     'ownerMachineId',owner.id,'ownerMachineName',private.reporting_machine_display_name(owner),'expectedOwnerUpdatedAt',owner.updated_at,
     'historicalOwnerConflict',coalesce(cardinality(original_owners)>1,false),
@@ -313,14 +314,15 @@ create function public.admin_change_machine_reader(
   p_changed_on date,p_changed_at timestamptz,p_reason text
 ) returns jsonb language plpgsql security definer set search_path='' as $fn$
 declare machine public.reporting_machines; owner public.reporting_machines;
-  reader public.refund_nayax_machine_inventory; history private.machine_nayax_reader_associations;
-  zone text; old_account text; prior_guard text; prior_change_guard text; ownership_basis text; original_owners uuid[];
+  reader public.refund_nayax_machine_inventory; history private.machine_nayax_reader_associations; former private.machine_nayax_reader_associations;
+  zone text; old_account text; configured_reader text; configured_account text; prior_guard text; prior_change_guard text; ownership_basis text; original_owners uuid[];
 begin
   if auth.uid() is null or not coalesce(public.is_super_admin(auth.uid()),false) then raise exception 'Super admin access required' using errcode='42501'; end if;
   perform public.reporting_admin_assert_reason(p_reason);
   select * into machine from public.reporting_machines where id=p_machine_id for update nowait;
   if machine.id is null or machine.management_archived_at is not null then raise exception 'Active machine required' using errcode='22023'; end if;
   if p_expected_machine_updated_at is null or machine.updated_at is distinct from p_expected_machine_updated_at then raise exception 'Machine changed. Reload and review.' using errcode='40001'; end if;
+  configured_reader:=machine.nayax_machine_id; configured_account:=machine.nayax_account_key;
   select timezone into zone from public.reporting_locations where id=machine.location_id for share nowait;
   if p_expected_timezone is null or zone is distinct from p_expected_timezone then raise exception 'Saved timezone changed. Reload and review.' using errcode='40001'; end if;
   if not exists(select 1 from pg_catalog.pg_timezone_names where name=zone) then raise exception 'Review the saved machine timezone first' using errcode='22023'; end if;
@@ -349,6 +351,17 @@ begin
   if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('machine-card-authority:'||machine.id::text,0))
     or (owner.id is not null and owner.id<>machine.id and not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('machine-card-authority:'||owner.id::text,0))) then
     raise exception 'Financial imports are updating these machines. Reload and retry.' using errcode='40001';
+  end if;
+  if machine.nayax_machine_id is null then
+    if (select count(*) from private.machine_nayax_reader_associations where reporting_machine_id=machine.id and closed_at is null)>1 then
+      raise exception 'Multiple previous reader connections require reconciliation' using errcode='22023';
+    end if;
+    select * into former from private.machine_nayax_reader_associations
+      where reporting_machine_id=machine.id and closed_at is null for update nowait;
+    if former.id is not null then
+      machine.nayax_machine_id:=former.nayax_machine_id;
+      machine.nayax_account_key:=former.account_key;
+    end if;
   end if;
   perform private.establish_machine_card_financial_policy(machine.id,p_reason,false);
   -- A routine change attests only the current configuration and exact original
@@ -409,10 +422,10 @@ begin
   perform set_config('app.machine_reader_change',coalesce(prior_change_guard,''),true);
   insert into public.admin_audit_log(actor_user_id,action,entity_type,entity_id,before,after,meta)
     values(auth.uid(),'reporting_machine.reader_changed','reporting_machine',machine.id::text,
-      jsonb_build_object('readerId',machine.nayax_machine_id,'accountKey',machine.nayax_account_key,'previousOwnerMachineId',owner.id),
+      jsonb_build_object('readerId',configured_reader,'accountKey',configured_account,'previousOwnerMachineId',owner.id),
       jsonb_build_object('readerId',reader.nayax_machine_id,'accountKey',reader.account_key),
       jsonb_build_object('reason',btrim(p_reason),'changedOn',p_changed_on,'changedAt',p_changed_at,'timezone',zone,
-        'ownershipBasis',ownership_basis,'historicalTransactionsUnchanged',true,'refundCapabilitiesUnchanged',true));
+        'ownershipBasis',ownership_basis,'previousReaderId',former.nayax_machine_id,'historicalTransactionsUnchanged',true,'refundCapabilitiesUnchanged',true));
   return jsonb_build_object('machineId',machine.id,'currentReaderId',reader.nayax_machine_id,'currentAccountKey',reader.account_key,
     'changedOn',p_changed_on,'changedAt',p_changed_at,'ownershipBasis',ownership_basis,'historicalTransactionsUnchanged',true);
 exception when lock_not_available then raise exception 'Machine or reader changed. Reload and retry.' using errcode='40001';
