@@ -1,3 +1,5 @@
+begin;
+
 -- Absence of a policy retains the existing dated authority behavior. This
 -- migration does not opt in any existing machine or change historical facts.
 create table private.machine_card_financial_policies (
@@ -1087,3 +1089,4 @@ begin
 end; $fn$;
 revoke all on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) from public,anon;
 grant execute on function public.admin_preview_imported_machine_reader_change(uuid,text,timestamp) to authenticated;
+commit;
