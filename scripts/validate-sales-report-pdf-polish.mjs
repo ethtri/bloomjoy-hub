@@ -30,7 +30,7 @@ const adminReporting = read(files.adminReporting);
 const smokeChecklist = read(files.smokeChecklist);
 
 assert(
-  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v6"'),
+  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v7"'),
   'Operator PDF builder must expose the shared-basis generator version.',
 );
 
