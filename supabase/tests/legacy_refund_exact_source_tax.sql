@@ -39,9 +39,6 @@ update nayax_dtm_export_rows set settlement_amount_cents=500 where file_digest=r
 select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',67),6::bigint,'Once-rounded 9 percent gives six cents where scaling rounded original tax would give five');
 update machine_sales_facts set net_sales_cents=1090 where id='b1848400-0000-4000-8000-000000000001';
 update refund_cases set matched_nayax_amount_cents=1090 where id='b1848500-0000-4000-8000-000000000001';
-update refund_cases set reporting_machine_id='b1848300-0000-4000-8000-000000000002' where id='b1848500-0000-4000-8000-000000000001';
-select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',1090),null::bigint,'Exact transaction from another financial machine cannot recover');
-update refund_cases set reporting_machine_id='b1848300-0000-4000-8000-000000000001' where id='b1848500-0000-4000-8000-000000000001';
 update nayax_dtm_export_rows set settlement_amount_cents=1090 where file_digest=repeat('8',64);
 select is((select sum(legacy_paid_deduction_ex_tax_cents) from private.machine_sales_daily_components('b1848300-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),1000::numeric,'Recovered legacy refund stays in its recognition month');
 select is((select min(booking_date) from private.machine_sales_daily_components('b1848300-0000-4000-8000-000000000001','2026-09-01','2026-09-30')),'2026-09-03'::date,'No refund date rewrite');
@@ -71,6 +68,9 @@ update refund_cases set matched_nayax_site_id=1848,matched_nayax_amount_cents=99
 select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',1090),null::bigint,'Wrong original amount cannot recover');
 update refund_cases set matched_nayax_amount_cents=1090 where id='b1848500-0000-4000-8000-000000000001';
 -- A second eligible fact with unresolved tax must count before the tax filter.
+update refund_cases set reporting_machine_id='b1848300-0000-4000-8000-000000000002' where id='b1848500-0000-4000-8000-000000000001';
+select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',1090),null::bigint,'Exact transaction from another financial machine cannot recover');
+update refund_cases set reporting_machine_id='b1848300-0000-4000-8000-000000000001' where id='b1848500-0000-4000-8000-000000000001';
 set local session_replication_role=replica;
 insert into machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,source_row_hash,raw_payload)
  select 'b1848400-0000-4000-8000-000000000002',reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,source,repeat('3',64),raw_payload||'{"providerMachineId":"184800003"}' from machine_sales_facts where id='b1848400-0000-4000-8000-000000000001';
