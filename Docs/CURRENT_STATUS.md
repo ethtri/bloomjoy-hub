@@ -16,7 +16,7 @@ Nayax 7.5% correction for The Avenues. The indexed original-import lookup passed
 the atomic eight-second production annual guard; no reporting budget was raised.
 
 Latest production January 1–October 7 reporting has 9,511 rows and 59,837 recorded
-transactions, with zero unresolved imported sales and 33 unresolved refund
+transactions, with zero unresolved imported sales and 19 unresolved refund
 components. The exact legacy case repair (#1848) and reviewed original Sheet
 payment evidence (#1849) are deployed. All 54 Sheet identities matched; metadata
 repair and replay preserved every financial field, including 23 populated and
@@ -26,10 +26,16 @@ all three reviewed files and preserves custom authentication. The atomic annual
 monetary guard passed without raising the eight-second budget; Auth and security
 checks remain unchanged.
 
-Remaining refund evidence and the separate Machine tax-rate editor are tracked
-in #1824/#1850. Supported receipts remain partial where source amount basis does
-not establish inclusive customer payments. Final browser/PDF acceptance follows
-those reviews. Net/payroll formulas and issued snapshots are unchanged.
+The owner's corrected Eastridge rate is 9%, including future purchases until
+superseded (#1850). One current-reader correction preserves original tax, all
+source observations and former-reader/Stoneridge history; it corrected $4.18
+of historical sales tax and recovered $153.05 across 14 refund components.
+Independent annual, September and Eastridge UI/CSV/PDF/mobile checks passed.
+The remaining 19 refund components lack supported machine-rate evidence; the
+separate historical/current rate editor and explicitly provisional estimates
+remain in progress under #1824. Supported receipts remain partial where source
+basis does not establish inclusive customer payments. Net/payroll formulas and
+issued snapshots are unchanged.
 See `Docs/REPORTING_REMEDIATION_PLAN.md` for current acceptance evidence.
 
 ## Machine identity context
@@ -786,5 +792,3 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 Never paste secrets, raw customer data, payment identifiers, vendor exports, or
 free-text complaint content into documentation, issues, pull requests, or chat.
-
-- #1824 reporting machine view is implemented on its PR branch: all permitted machines remain searchable, supported customer payments including tax are separate from sales before tax/net, and known component subtotals survive partial amounts. Local tests and mobile/desktop preview are passing; release waits for coordinated receipt/stable-tax backend deployment and live acceptance. Not yet deployed.
