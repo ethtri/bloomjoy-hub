@@ -122,4 +122,18 @@ revoke all on function public.get_sales_report_complete(date,date,text,uuid[],uu
   from public,anon;
 grant execute on function public.get_sales_report_complete(date,date,text,uuid[],uuid[],text[],uuid)
   to authenticated,service_role;
+create function public.sales_report_scheduler_get_sales_report_complete(
+  p_actor_user_id uuid,p_date_from date,p_date_to date,p_grain text default 'week',
+  p_machine_ids uuid[] default null,p_location_ids uuid[] default null,
+  p_payment_methods text[] default null
+) returns jsonb language sql stable security definer set search_path='' as $$
+  select coalesce(jsonb_agg(to_jsonb(report)),'[]'::jsonb)
+  from public.sales_report_scheduler_get_sales_report(
+    p_actor_user_id,p_date_from,p_date_to,p_grain,p_machine_ids,p_location_ids,p_payment_methods
+  ) report;
+$$;
+revoke all on function public.sales_report_scheduler_get_sales_report_complete(uuid,date,date,text,uuid[],uuid[],text[])
+  from public,anon,authenticated;
+grant execute on function public.sales_report_scheduler_get_sales_report_complete(uuid,date,date,text,uuid[],uuid[],text[])
+  to service_role;
 select pg_notify('pgrst','reload schema');

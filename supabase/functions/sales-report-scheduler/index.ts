@@ -224,7 +224,7 @@ const buildScheduledReportRows = async (
   // The narrow service RPC applies the schedule owner's normal machine access
   // before reading the same shared calculation used by the interactive report.
   const { data, error } = await supabase.rpc(
-    "sales_report_scheduler_get_sales_report",
+    "sales_report_scheduler_get_sales_report_complete",
     {
       p_actor_user_id: schedule.created_by,
       p_date_from: filters.dateFrom,

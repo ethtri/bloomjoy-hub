@@ -96,7 +96,7 @@ assert(
 );
 
 assert(
-  schedulerFunction.includes('sales_report_scheduler_get_sales_report') &&
+  schedulerFunction.includes('sales_report_scheduler_get_sales_report_complete') &&
     schedulerFunction.includes('p_actor_user_id: schedule.created_by') &&
     !schedulerFunction.includes('.from("machine_sales_facts")') &&
     !schedulerFunction.includes('.from("sales_adjustment_facts")'),

@@ -358,6 +358,9 @@ export const formatKnownSalesReportSubtotal = (value: number, knownRows: number,
     ? (refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value))
     : "Unavailable";
 
+const omittedRowsLabel = (count: number): string =>
+  `${formatInteger(count)} ${count === 1 ? "row" : "rows"} omitted`;
+
 export const summarizeSalesReportPdfRows = (
   rows: SalesReportPdfRow[]
 ): SalesReportPdfSummary => {
@@ -872,7 +875,7 @@ const drawDashboardPage = (
       ? formatKnownSalesReportSubtotal(summary.knownGrossSalesCents, summary.knownGrossRowCount)
       : formatCurrency(summary.grossSalesCents),
     detail: summary.grossSalesCents == null
-      ? `${formatInteger(rows.length - summary.knownGrossRowCount)} rows omitted; details missing`
+      ? `${omittedRowsLabel(rows.length - summary.knownGrossRowCount)}; details missing`
       : usesSharedSalesBasis
       ? (summary.taxCents == null
         ? "Sales tax unavailable"
@@ -891,7 +894,7 @@ const drawDashboardPage = (
       ? formatKnownSalesReportSubtotal(summary.knownRefundAmountCents, summary.knownRefundRowCount, true)
       : formatRefundImpactCurrency(summary.refundAmountCents),
     detail: summary.refundAmountCents == null
-      ? `${formatInteger(rows.length - summary.knownRefundRowCount)} rows omitted; details missing`
+      ? `${omittedRowsLabel(rows.length - summary.knownRefundRowCount)}; details missing`
       : usesSharedSalesBasis
       ? `${formatCurrency(summary.refundRequestDeductionCents)} requests; ${formatCurrency(summary.refundReversalCents)} reversals${summary.refundLegacyPaidDeductionCents > 0 ? `; ${formatCurrency(summary.refundLegacyPaidDeductionCents)} prior paid` : ''}`
       : "Reported refund adjustments",
@@ -905,7 +908,7 @@ const drawDashboardPage = (
       ? formatKnownSalesReportSubtotal(summary.knownNetSalesCents, summary.knownNetRowCount)
       : formatCurrency(summary.netSalesCents),
     detail: summary.netSalesCents == null
-      ? `Partial; ${formatInteger(rows.length - summary.knownNetRowCount)} rows omitted`
+      ? `Partial; ${omittedRowsLabel(rows.length - summary.knownNetRowCount)}`
       : usesSharedSalesBasis
       ? `${formatCurrency(summary.refundPaidContextCents)} paid in period; ${formatCurrency(summary.refundOutstandingContextCents)} outstanding`
       : "Gross sales less reported refunds",

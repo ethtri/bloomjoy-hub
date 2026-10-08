@@ -65,5 +65,15 @@ select ok(not has_function_privilege('anon','public.get_sales_report_complete(da
   'Anonymous role cannot execute complete report');
 select is((select prorows::integer from pg_proc where oid='private.normalize_refund_original_reader_amount_cents(uuid,text,date,bigint,text,numeric,bigint,boolean)'::regprocedure),1,
   'Single-amount refund helper has exact cardinality for chained normalization');
+select ok(not has_function_privilege('authenticated','public.sales_report_scheduler_get_sales_report_complete(uuid,date,date,text,uuid[],uuid[],text[])','execute'),
+  'Complete scheduled report remains service-only');
+select set_config('request.jwt.claim.role','service_role',true);
+select is((select jsonb_array_length(public.sales_report_scheduler_get_sales_report_complete(
+  'b1824000-0000-4000-8000-000000000001','2026-01-01','2026-10-07','day',
+  array(select id from public.reporting_machines where account_id='b1824100-0000-4000-8000-000000000001'),null,null))),15680,
+  'Scheduled report includes all annual rows under its explicit owner');
+select is(public.sales_report_scheduler_get_sales_report_complete(
+  'b1824000-0000-4000-8000-000000000002','2026-01-01','2026-10-07','day'),'[]'::jsonb,
+  'Scheduled report cannot borrow service-role access instead of owner access');
 select * from finish();
 rollback;
