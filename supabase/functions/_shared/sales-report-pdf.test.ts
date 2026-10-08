@@ -1,5 +1,7 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { PDFDocument, PDFRawStream, decodePDFRawStream } from "https://esm.sh/pdf-lib@1.17.1";
+import rpcFixture from "./fixtures/rate-policy-rpc.json" with { type: "json" };
+import { buildSalesReportEmailSummary } from "./sales-report-email-summary.ts";
 import {
   buildMachineRollups,
   buildSalesReportPdf,
@@ -12,6 +14,29 @@ import {
   readSalesReportTaxPolicyEvidence,
   buildSalesReportEstimateSnapshotSummary,
 } from "./sales-report-pdf.ts";
+
+Deno.test("actual rolled-back rate-policy RPC has identical PDF snapshot and scheduled-summary money", async () => {
+  // Exported by the backend's real report API from synthetic rollback-only SQL fixtures.
+  const rows = rpcFixture as Parameters<typeof summarizeSalesReportPdfRows>[0];
+  const summary = summarizeSalesReportPdfRows(rows);
+  assertEquals([summary.knownGrossSalesCents,summary.knownRefundAmountCents,summary.knownNetSalesCents],[250,0,250]);
+  assertEquals([summary.grossSalesCents,summary.refundAmountCents,summary.netSalesCents],[null,null,null]);
+  assertEquals(buildSalesReportEstimateSnapshotSummary(summary),{
+    estimated_sales_ex_tax_cents:1000,estimated_refund_ex_tax_cents:1000,estimated_net_ex_tax_cents:0,
+    provisional_sales_components:1,provisional_refund_components:1,provisional_net_components:2,
+    unestimated_sales_components:1,unestimated_refund_components:0,unestimated_net_components:1,
+  });
+  const lines=buildSalesReportEmailSummary(summary,"shared-sales-basis-v1").join("\n");
+  assert(lines.includes("Confirmed $2.50 | Estimated $0.00 | Known + estimated subtotal $2.50"));
+  assert(lines.includes("Still unestimated components: sales 1; refunds 0; net 1."));
+  const pdf=await PDFDocument.load(await buildSalesReportPdf({rows,summary}));
+  const contents=pdf.context.enumerateIndirectObjects().filter(([,value])=>value instanceof PDFRawStream)
+    .map(([,value])=>new TextDecoder().decode(decodePDFRawStream(value as PDFRawStream).decode())).join("\n").toUpperCase();
+  const encoded=(value:string)=>[...new TextEncoder().encode(value)].map(byte=>byte.toString(16).padStart(2,"0")).join("").toUpperCase();
+  assert(contents.includes(encoded("Net sales: Confirmed $2.50 | Estimated $0.00 | Known + estimated subtotal $2.50")));
+  assert(contents.includes(encoded("Net: Confirmed Unavailable | Estimated $-10.00 | Known + estimated")));
+  assert(contents.includes(encoded("$-10.00")));
+});
 
 Deno.test("provisional portions remain separate from confirmed subtotals and preserve reversals", async () => {
   const rows = [{ calculation_version: "shared-sales-basis-v1", period_start: "2026-09-01", machine_label: "Provisional machine",
