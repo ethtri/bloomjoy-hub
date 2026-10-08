@@ -439,6 +439,7 @@ const supportedSalesReportPdfGeneratorVersions = new Set([
   'sales-report-pdf/company-v3',
   'sales-report-pdf/company-v4',
   'sales-report-pdf/company-v5',
+  'sales-report-pdf/company-v6',
 ]);
 const reportExportBucket = 'sales-report-exports';
 
@@ -943,7 +944,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
+  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5', 'sales-report-pdf/company-v6'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );
