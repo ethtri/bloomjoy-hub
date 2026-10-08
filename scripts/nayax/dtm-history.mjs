@@ -292,7 +292,7 @@ export function normalizeDtmRow(raw) {
   };
 }
 
-export function parseDtmWorkbook(bytes) {
+function readDtmRows(bytes) {
   let files;
   try {
     files = unzipSync(bytes);
@@ -307,6 +307,30 @@ export function parseDtmWorkbook(bytes) {
   );
   const rows = parseRows(decoder.decode(sheetBytes), sharedStrings);
   if (rows.length < 3) throw invalid('rows');
+  return rows;
+}
+
+// Discovery only: a column name cannot establish its amount basis, effective
+// dates or a zero-tax exemption. Never return private row values from this audit.
+export function inspectDtmTaxEvidence(bytes) {
+  const rows = readDtmRows(bytes);
+  const headers = rows[1].map(cleanHeader);
+  if (!headers.includes('Transaction ID') || new Set(headers).size !== headers.length) {
+    throw invalid('headers');
+  }
+  const taxColumns = headers.filter(header => /\b(tax|vat|gst|hst)\b/i.test(header));
+  const extraChargeColumns = headers.filter(header => /extra.?charge|surcharge|convenience.?fee/i.test(header));
+  return {
+    fileDigest: createHash('sha256').update(bytes).digest('hex'),
+    columnCount: headers.length,
+    taxColumns,
+    extraChargeColumns,
+    status: taxColumns.length ? 'tax_columns_require_source_contract' : 'no_explicit_tax_columns',
+  };
+}
+
+export function parseDtmWorkbook(bytes) {
+  const rows = readDtmRows(bytes);
   const headers = rows[1].map(cleanHeader);
   const supportedHeaders = new Set([...DTM_HEADERS, ...DTM_OPTIONAL_HEADERS]);
   if (new Set(headers).size !== headers.length ||

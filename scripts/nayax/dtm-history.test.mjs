@@ -9,6 +9,7 @@ import {
   canonicalNayaxSourceOrderHash,
   parseDtmTimestamp,
   parseDtmWorkbook,
+  inspectDtmTaxEvidence,
   parseMoneyCents,
   summarizeDtmRecords,
 } from './dtm-history.mjs';
@@ -76,6 +77,29 @@ const workbook = (records, headers = DTM_HEADERS, { includeFooter = true } = {})
     '[Content_Types].xml': strToU8('<?xml version="1.0"?><Types/>'),
   });
 };
+
+test('tax discovery does not turn absent tax columns or zero source values into evidence', () => {
+  const ordinary = inspectDtmTaxEvidence(workbook([sourceRow()]));
+  assert.equal(ordinary.status, 'no_explicit_tax_columns');
+  assert.deepEqual(ordinary.taxColumns, []);
+  const bytes = workbook([sourceRow({ Tax: '0', 'Convenience Fee': '7', 'Card Number': 'PRIVATE-PAYMENT' })],
+    [...DTM_HEADERS, 'Tax', 'Convenience Fee']);
+  const audit = inspectDtmTaxEvidence(bytes);
+  assert.equal(audit.status, 'tax_columns_require_source_contract');
+  assert.deepEqual(audit.taxColumns, ['Tax']);
+  assert.deepEqual(audit.extraChargeColumns, ['Convenience Fee']);
+  assert.equal(audit.fileDigest.length, 64);
+  assert.equal(JSON.stringify(audit).includes('PRIVATE-PAYMENT'), false);
+  assert.equal('ratePercent' in audit, false);
+  assert.equal('taxCents' in audit, false);
+  // Discovery does not broaden the approved money importer contract.
+  assert.throws(() => parseDtmWorkbook(bytes), /nayax_dtm_contract_invalid/);
+});
+
+test('tax discovery rejects missing and duplicate identity headers', () => {
+  assert.throws(() => inspectDtmTaxEvidence(workbook([sourceRow()], ['Tax'])), /nayax_dtm_contract_invalid/);
+  assert.throws(() => inspectDtmTaxEvidence(workbook([sourceRow()], [...DTM_HEADERS, 'Tax', 'Tax'])), /nayax_dtm_contract_invalid/);
+});
 
 test('parses raw OpenXML without loading malformed workbook styles', () => {
   const parsed = parseDtmWorkbook(workbook([
