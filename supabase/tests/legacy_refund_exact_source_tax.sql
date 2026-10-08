@@ -83,6 +83,8 @@ delete from nayax_dtm_export_rows where file_digest=repeat('2',64);
 update refund_cases set matched_sales_fact_id='b1848400-0000-4000-8000-000000000001' where id='b1848500-0000-4000-8000-000000000001';
 update machine_sales_facts set tax_cents=100 where id='b1848400-0000-4000-8000-000000000001';
 select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',500),46::bigint,'Existing matched-fact path remains unchanged');
+update machine_sales_facts set tax_cents=0 where id='b1848400-0000-4000-8000-000000000001';
+select is(private.refund_original_source_tax_cents('b1848500-0000-4000-8000-000000000001',1090),90::bigint,'Existing matched-fact path retains original-reader rate recovery');
 select ok(not has_function_privilege('authenticated','private.refund_original_source_tax_cents(uuid,bigint)','EXECUTE'),'Browser execution remains revoked');
 create temporary table lookup_plan(plan jsonb);
 do $$declare p jsonb; begin

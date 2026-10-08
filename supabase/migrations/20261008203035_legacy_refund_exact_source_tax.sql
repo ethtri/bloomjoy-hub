@@ -17,21 +17,31 @@ begin
   select c.matched_sales_fact_id into matched_fact_id from public.refund_cases c where c.id=p_case_id;
   if not found then return null; end if;
   if matched_fact_id is not null then
-  select round(p_amount_cents::numeric*money.original_tax_cents/money.original_amount_cents)::bigint
+  select round(p_amount_cents::numeric*resolved_tax.original_tax_cents/money.original_amount_cents)::bigint
   into result
   from public.refund_cases refund_case
   join public.machine_sales_facts fact on fact.id=refund_case.matched_sales_fact_id
     and fact.reporting_machine_id=refund_case.reporting_machine_id
   cross join lateral private.reporting_retained_original_money(fact) money
+  left join lateral private.normalize_original_reader_amount_cents(
+    fact.reporting_machine_id,'card',fact.sale_date,money.original_amount_cents,
+    'tax_inclusive',null,null,true,fact.source,fact.raw_payload->>'providerMachineId'
+  ) original_reader on fact.source='nayax_scheduled_report'
+  cross join lateral (select case
+    when money.original_tax_cents>0
+      or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
+      or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax')
+      then money.original_tax_cents
+    when fact.source='nayax_scheduled_report' and exists(select 1 from private.machine_nayax_reader_associations history
+      where history.reporting_machine_id=fact.reporting_machine_id) then original_reader.tax_cents
+    else null end as original_tax_cents) resolved_tax
   where refund_case.id=p_case_id and refund_case.payment_method='card'
     and fact.payment_method='credit' and money.original_amount_cents>0
     and lower(coalesce(fact.raw_payload->>'amountBasis','')) not in ('tax_exclusive','tax_exclusive_minor')
     and (fact.source<>'sunze_browser' or lower(coalesce(fact.raw_payload->>'amountBasis',fact.raw_payload->>'taxBasis',''))
       in ('tax_inclusive','gross_customer_charge_minor','separate_tax','separately_imported_tax'))
     and p_amount_cents between 0 and money.original_amount_cents
-    and money.original_tax_cents between 0 and money.original_amount_cents
-    and (money.original_tax_cents>0 or lower(coalesce(fact.raw_payload->>'amountBasis','')) in ('separate_tax','separately_imported_tax')
-      or lower(coalesce(fact.raw_payload->>'taxBasis','')) in ('separate_tax','separately_imported_tax'));
+    and resolved_tax.original_tax_cents between 0 and money.original_amount_cents;
   return result;
   end if;
   select recovered.tax_cents into result from (
