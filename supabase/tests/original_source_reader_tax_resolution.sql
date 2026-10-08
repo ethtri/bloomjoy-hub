@@ -58,6 +58,48 @@ select is((select count(*) from private.sales_report_rows_for_actor('b1842000-00
 select is((select jsonb_agg(to_jsonb(m) order by id) from reporting_machines m where account_id='b1842100-0000-4000-8000-000000000001'),(select machines from source_preserved),'Tax recovery rewires no physical/current machine');
 select is((select jsonb_agg(to_jsonb(f) order by id) from machine_sales_facts f where reporting_location_id='b1842200-0000-4000-8000-000000000001'),(select facts from source_preserved),'Tax recovery changes no raw money or historical financial owner');
 select is((select count(*) from private.machine_nayax_reader_associations where reporting_machine_id::text like 'b1842300-%'),0::bigint,'Calculation creates no physical reader association');
+set local session_replication_role=replica;
+update machine_sales_facts set net_sales_cents=1090 where id='b1842400-0000-4000-8000-000000000001';
+update nayax_dtm_export_rows set settlement_amount_cents=1090 where file_digest=repeat('1',64);
+update sales_adjustment_facts set amount_cents=545 where id='b1842500-0000-4000-8000-000000000001';
+update nayax_provider_refund_events set amount_cents=545 where adjustment_id='b1842500-0000-4000-8000-000000000001';
+update private.nayax_machine_tax_observations set rate_percent=9.75 where nayax_machine_id='18420001' and account_key='TGPACI_USA_DB';
+set local session_replication_role=origin;
+select is(545-private.provider_refund_original_source_tax_cents('b1842500-0000-4000-8000-000000000001',545),497::bigint,'Verified rate normalizes refund once without rounding original estimate first');
+update machine_sales_facts set tax_cents=97 where id='b1842400-0000-4000-8000-000000000001';
+select is(545-private.provider_refund_original_source_tax_cents('b1842500-0000-4000-8000-000000000001',545),496::bigint,'Actual original tax remains proportional and outranks rate estimate');
+set local session_replication_role=replica;
+update machine_sales_facts set net_sales_cents=1060,tax_cents=0,raw_payload=raw_payload-'_salesAuthorityOriginal' where id='b1842400-0000-4000-8000-000000000001';
+update nayax_dtm_export_rows set settlement_amount_cents=1060 where file_digest=repeat('1',64);
+update sales_adjustment_facts set amount_cents=106 where id='b1842500-0000-4000-8000-000000000001';
+update nayax_provider_refund_events set amount_cents=106 where adjustment_id='b1842500-0000-4000-8000-000000000001';
+update private.nayax_machine_tax_observations set rate_percent=6 where nayax_machine_id='18420001' and account_key='TGPACI_USA_DB';
+set local session_replication_role=origin;
+-- Historical inactive recovery promotes the exact pending receipt after the
+-- immutable DTM audit recorded queued_excluded and no fact link.
+set local session_replication_role=replica;
+update machine_sales_facts set source_order_hash=repeat('7',64),raw_payload=raw_payload||'{"manualDtmEvidence":true,"historicalInactiveExactLinkRecovery":true}' where id='b1842400-0000-4000-8000-000000000001';
+update nayax_dtm_export_rows set source_order_hash=repeat('7',64),fact_id=null,disposition='queued_excluded',mapping_disposition='historical_inactive_exact_link',provider_status=62 where file_digest=repeat('1',64);
+insert into nayax_dtm_export_completions(file_digest,rows_recorded,facts_linked,adjustments_linked,pending_rows,held_rows) values(repeat('1',64),1,0,0,1,0);
+insert into nayax_pending_sales(source_order_hash,source_row_hash,account_key,provider_actor_id,provider_site_id,provider_transaction_id,provider_machine_id,currency_code,settlement_amount_cents,machine_settled_at,provider_settled_at,provider_status,provider_status_name,normalized_sale,disposition,disposition_reason,promoted_fact_id)
+values(repeat('7',64),repeat('2',64),'TGPACI_USA_DB','2003563806','4','1842000101','18420001','USD',1060,'2099-09-01 12:00','2099-09-01 19:00Z',62,'Settled',jsonb_build_object('transactionId','1842000101','siteId','4','actorId','2003563806','providerMachineId','18420001','currencyCode','USD','authorizationAmountCents',1060,'settlementAmountCents',1060,'machineSettledAt','2099-09-01 12:00','providerSettledAt','2099-09-01 19:00Z','providerUpdatedAt',null,'providerStatus',62,'providerStatusName','Settled','sourceOrderHash',repeat('7',64),'sourceRowHash',repeat('2',64)),'promoted','historical_inactive_exact_link','b1842400-0000-4000-8000-000000000001');
+set local session_replication_role=origin;
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),'2099-09-01'::date,'Completed inactive import follows exact approved promoted fact');
+select is(private.provider_refund_original_source_tax_cents('b1842500-0000-4000-8000-000000000001',106),6::bigint,'Promoted original reader tax supports refund without mutating immutable DTM audit');
+update nayax_pending_sales set disposition='excluded' where source_order_hash=repeat('7',64);
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'Unpromoted receipt cannot supply original purchase');
+update nayax_pending_sales set disposition='promoted',account_key='OTHER_ACCOUNT' where source_order_hash=repeat('7',64);
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'Promoted receipt must match exact event account');
+update nayax_pending_sales set account_key='TGPACI_USA_DB',source_row_hash=repeat('8',64),normalized_sale=normalized_sale||jsonb_build_object('sourceRowHash',repeat('8',64)) where source_order_hash=repeat('7',64);
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'Promotion requires exact immutable source row');
+update nayax_pending_sales set source_row_hash=repeat('2',64),normalized_sale=normalized_sale||jsonb_build_object('sourceRowHash',repeat('2',64)) where source_order_hash=repeat('7',64);
+set local session_replication_role=replica;
+delete from nayax_dtm_export_completions where file_digest=repeat('1',64);
+set local session_replication_role=origin;
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'Incomplete import cannot prove promoted original');
+set local session_replication_role=replica;
+update nayax_dtm_export_rows set fact_id='b1842400-0000-4000-8000-000000000001',disposition='fact_linked',mapping_disposition='canonical' where file_digest=repeat('1',64);
+set local session_replication_role=origin;
 -- Native importer validates USD before storing facts but its oldest payload
 -- omitted currencyCode. The accepted actor/source tuple remains source proof.
 update machine_sales_facts set raw_payload=raw_payload-'currencyCode' where id='b1842400-0000-4000-8000-000000000001';
