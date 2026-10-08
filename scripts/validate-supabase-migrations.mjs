@@ -23,7 +23,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
 export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
-const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql'];
+const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql', 'eastridge_owner_rate_recovery.sql'];
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
@@ -373,6 +373,13 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
       \\ir fixtures/original_reader_atomic_guard.inc
       rollback;\n`, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
+  const eastridgeCorrectionSql = fs.readFileSync(path.join(migrationsDir,
+    '20261008223000_eastridge_owner_confirmed_nine_percent.sql'), 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[1]),
+    `begin;\nselect set_config('bloomjoy.test.eastridge_correction',
+      $actual_eastridge_correction$${eastridgeCorrectionSql}$actual_eastridge_correction$,true);
+      \\ir fixtures/eastridge_owner_rate_recovery.inc
+      rollback;\n`, 'utf8');
   const requestBoundaryReceiptFixturePath =
     prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);
 
