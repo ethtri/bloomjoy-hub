@@ -62,9 +62,32 @@ export type MachineEmailMachine = {
   netSalesCents: number | null;
   transactionCount: number | null;
   previousGrossSalesCents: number | null;
+  /** Optional additive evidence; old saved jobs remain explicitly unverified. */
+  salesMetrics?: MachineEmailSalesMetrics;
+  previousSalesMetrics?: MachineEmailSalesMetrics;
   refundCases: MachineEmailCase[];
   /** Absent in existing v1 jobs; never reconstruct requested money from current case amounts. */
   digest?: MachineEmailDigest;
+};
+export type MachineEmailMetric = {
+  state: "reported" | "partial" | "unavailable";
+  knownSubtotal: number | null;
+  unresolvedCount: number;
+  reason:
+    | "no_imported_rows"
+    | "normalization_unresolved"
+    | "reported_snapshot"
+    | "reporting_not_allowed"
+    | "outside_performance_scope";
+};
+export type MachineEmailSalesMetrics = {
+  sourceCoverage: "unverified" | "verified_complete";
+  importedSalesComponentCount: number;
+  componentCount: number;
+  salesExTax: MachineEmailMetric;
+  refundImpact: MachineEmailMetric;
+  netSales: MachineEmailMetric;
+  transactions: MachineEmailMetric;
 };
 export type MachineEmailSummary = {
   machineCount: number;
@@ -356,6 +379,84 @@ function parseDigest(value: unknown): MachineEmailDigest {
   return digest;
 }
 
+function parseSalesMetrics(value: unknown): MachineEmailSalesMetrics {
+  const row = object(value);
+  keys(row, [
+    "sourceCoverage",
+    "importedSalesComponentCount",
+    "componentCount",
+    "salesExTax",
+    "refundImpact",
+    "netSales",
+    "transactions",
+  ]);
+  if (
+    !["unverified", "verified_complete"].includes(String(row.sourceCoverage))
+  ) {
+    throw new Error("email_alert_sales_coverage_invalid");
+  }
+  const parseMetric = (raw: unknown, isCount = false): MachineEmailMetric => {
+    const metric = object(raw);
+    keys(metric, ["state", "knownSubtotal", "unresolvedCount", "reason"]);
+    if (
+      !["reported", "partial", "unavailable"].includes(String(metric.state)) ||
+      ![
+        "no_imported_rows",
+        "normalization_unresolved",
+        "reported_snapshot",
+        "reporting_not_allowed",
+        "outside_performance_scope",
+      ].includes(String(metric.reason))
+    ) {
+      throw new Error("email_alert_sales_metric_invalid");
+    }
+    const knownSubtotal = metric.knownSubtotal === null
+      ? null
+      : isCount
+      ? integer(metric.knownSubtotal)
+      : money(metric.knownSubtotal);
+    const unresolvedCount = integer(metric.unresolvedCount);
+    if (
+      (metric.state === "unavailable") !== (knownSubtotal === null) ||
+      (metric.state === "partial" && unresolvedCount === 0) ||
+      (metric.state === "reported" && unresolvedCount !== 0) ||
+      (metric.reason === "normalization_unresolved") !==
+        (unresolvedCount > 0) ||
+      (metric.state === "reported" && metric.reason !== "reported_snapshot") ||
+      (metric.state === "partial" &&
+        metric.reason !== "normalization_unresolved")
+    ) {
+      throw new Error("email_alert_sales_metric_inconsistent");
+    }
+    return {
+      state: metric.state as MachineEmailMetric["state"],
+      knownSubtotal,
+      unresolvedCount,
+      reason: metric.reason as MachineEmailMetric["reason"],
+    };
+  };
+  const metrics: MachineEmailSalesMetrics = {
+    sourceCoverage: row
+      .sourceCoverage as MachineEmailSalesMetrics["sourceCoverage"],
+    importedSalesComponentCount: integer(row.importedSalesComponentCount),
+    componentCount: integer(row.componentCount),
+    salesExTax: parseMetric(row.salesExTax),
+    refundImpact: parseMetric(row.refundImpact),
+    netSales: parseMetric(row.netSales),
+    transactions: parseMetric(row.transactions, true),
+  };
+  if (
+    metrics.importedSalesComponentCount > metrics.componentCount ||
+    (metrics.sourceCoverage === "verified_complete" &&
+      Object.values(metrics).some((v) =>
+        typeof v === "object" && v.state !== "reported"
+      ))
+  ) {
+    throw new Error("email_alert_sales_metrics_inconsistent");
+  }
+  return metrics;
+}
+
 function parseMachine(value: unknown): MachineEmailMachine {
   const row = object(value);
   keys(row, [
@@ -377,6 +478,8 @@ function parseMachine(value: unknown): MachineEmailMachine {
     "previousGrossSalesCents",
     "refundCases",
     ...(row.digest === undefined ? [] : ["digest"]),
+    ...(row.salesMetrics === undefined ? [] : ["salesMetrics"]),
+    ...(row.previousSalesMetrics === undefined ? [] : ["previousSalesMetrics"]),
   ]);
   if (
     !["reported_snapshot", "unavailable"].includes(String(row.coverageStatus))
@@ -405,7 +508,43 @@ function parseMachine(value: unknown): MachineEmailMachine {
     previousGrossSalesCents: money(row.previousGrossSalesCents),
     refundCases: row.refundCases.map(parseCase),
     ...(row.digest === undefined ? {} : { digest: parseDigest(row.digest) }),
+    ...(row.salesMetrics === undefined
+      ? {}
+      : { salesMetrics: parseSalesMetrics(row.salesMetrics) }),
+    ...(row.previousSalesMetrics === undefined
+      ? {}
+      : { previousSalesMetrics: parseSalesMetrics(row.previousSalesMetrics) }),
   };
+  if (
+    (machine.salesMetrics === undefined) !==
+      (machine.previousSalesMetrics === undefined)
+  ) {
+    throw new Error("email_alert_sales_metrics_pair_invalid");
+  }
+  for (const metrics of [machine.salesMetrics, machine.previousSalesMetrics]) {
+    if (!metrics) continue;
+    if (
+      (!machine.reportingAllowed || !machine.includedInPerformanceScope) &&
+      (metrics.componentCount !== 0 ||
+        metrics.importedSalesComponentCount !== 0)
+    ) {
+      throw new Error("email_alert_financial_scope_invalid");
+    }
+    if (
+      (!machine.reportingAllowed || !machine.includedInPerformanceScope) &&
+      [
+        metrics.salesExTax,
+        metrics.refundImpact,
+        metrics.netSales,
+        metrics.transactions,
+      ]
+        .some((metric) =>
+          metric.knownSubtotal !== null || metric.unresolvedCount !== 0
+        )
+    ) {
+      throw new Error("email_alert_financial_scope_invalid");
+    }
+  }
   if (
     machine.digest &&
     machine.digest.newRequestCount !==

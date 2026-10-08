@@ -4,6 +4,7 @@ import {
   fixtureId,
   fixtureMachine,
   fixtureProjection,
+  fixtureSalesMetrics,
 } from "../supabase/functions/_shared/machine-email-alert-fixtures.ts";
 import {
   buildMachineEmail,
@@ -71,7 +72,78 @@ const variants = {
   technician: structuredClone(projection),
   "technician-request": structuredClone(projection),
   legacy: fixtureProjection(),
+  "sales-evidence": structuredClone(projection),
+  "oct7-reproduction": structuredClone(projection),
 };
+const evidence = variants["sales-evidence"];
+const states = [
+  fixtureSalesMetrics(null),
+  fixtureSalesMetrics(null, {
+    importedSalesComponentCount: 2,
+    componentCount: 2,
+    salesExTax: {
+      state: "unavailable",
+      knownSubtotal: null,
+      unresolvedCount: 2,
+      reason: "normalization_unresolved",
+    },
+    transactions: {
+      state: "reported",
+      knownSubtotal: 7,
+      unresolvedCount: 0,
+      reason: "reported_snapshot",
+    },
+  }),
+  fixtureSalesMetrics(800, {
+    importedSalesComponentCount: 2,
+    componentCount: 2,
+    salesExTax: {
+      state: "partial",
+      knownSubtotal: 800,
+      unresolvedCount: 1,
+      reason: "normalization_unresolved",
+    },
+  }),
+  fixtureSalesMetrics(0, { sourceCoverage: "verified_complete" }),
+];
+evidence.machines = states.map((salesMetrics, i) => ({
+  ...machines[i],
+  machineLabel: [
+    "No recorded sales",
+    "Unresolved card tax / amount basis",
+    "Partial cash and card sales",
+    "Verified zero sales",
+  ][i],
+  salesMetrics,
+  previousSalesMetrics: fixtureSalesMetrics(null),
+  grossSalesCents: null,
+  netSalesCents: null,
+  refundAmountCents: null,
+}));
+const oct7 = variants["oct7-reproduction"];
+oct7.dateFrom = oct7.dateTo = "2026-10-07";
+oct7.machines = Array.from({ length: 41 }, (_, i) => {
+  const amount = i < 16 ? (i === 15 ? 4627 : 4100) : null;
+  return {
+    ...machines[0],
+    machineId: fixtureId(2000 + i),
+    machineLabel: `Sample machine ${String(i + 1).padStart(2, "0")}`,
+    dateFrom: oct7.dateFrom,
+    dateTo: oct7.dateTo,
+    grossSalesCents: amount,
+    refundAmountCents: amount === null ? null : 0,
+    netSalesCents: amount,
+    refundCases: [],
+    salesMetrics: fixtureSalesMetrics(amount),
+    previousSalesMetrics: fixtureSalesMetrics(null),
+    digest: {
+      ...machines[0].digest,
+      newRequestCount: 0,
+      requestedAmountCents: 0,
+      requestedAmountKnownCount: 0,
+    },
+  };
+});
 variants.weekly.category = "weekly";
 variants.weekly.dateFrom = "2026-09-21";
 variants.weekly.dateTo = "2026-09-27";
