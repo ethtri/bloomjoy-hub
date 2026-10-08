@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { assertCompanyExportScope, machineCountLabel, companyBasis, groupCompanyRows, type CompanyDimension } from '@/lib/companyReporting';
 import { CompanySummary } from './CompanySummary';
-import { useQuery } from '@tanstack/react-query';
+import { useQueuedReportingQuery } from '@/hooks/useQueuedReportingQuery';
 import { Download, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,7 @@ function Amount({ value, known }: { value: number | null; known?: number | null 
 
 export function ReportingFinance({ scope, onMachine, dimensions = [], onCompany }: Props) {
   const { user } = useAuth();
-  const report = useQuery({ queryKey: ['reporting-finance', user?.id, scope], queryFn: () => fetchFinanceReporting(scope), staleTime: 30000 });
+  const report = useQueuedReportingQuery({ queryKey: ['reporting-finance', user?.id, dimensions.map(row => row.machineId).sort(), scope], queryFn: () => fetchFinanceReporting(scope), staleTime: 30000 });
   if (report.isPending) return <div aria-label="Loading finance report" className="mt-6 space-y-5"><Skeleton className="h-32"/><Skeleton className="h-64"/></div>;
   if (report.isError) return <Alert variant="destructive" className="mt-6"><AlertTitle>Finance report unavailable</AlertTitle><AlertDescription>Sales and refund records could not be loaded. <Button variant="outline" className="ml-2 min-h-11" onClick={() => void report.refetch()}><RefreshCw className="mr-2 h-4 w-4"/>Retry</Button></AlertDescription></Alert>;
   const rows = report.data.rows;
