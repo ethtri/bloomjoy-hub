@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-10-08 - Audited Machine rate corrections and provisional estimates (#1824)
+
+- The owner requested easy adjustment of both historical and current rates. This supersedes the October 5 removal of editable rates: authorized Machine administrators may select past purchase dates, current/future purchases, or both, preview the monetary effect, and save a reason and optional evidence reference. Purchase dates select the rate; later refund booking dates remain unchanged.
+- Confirmed corrections govern derived tax within the selected Machine and purchase dates. Actual original-transaction tax, including explicit zero, cash, and amounts already recorded excluding tax retain precedence. Source observations, financial ownership, raw amounts and issued snapshots are preserved.
+- Provisional rates fill only supported inclusive amounts lacking a verified split. They appear separately as estimates in fresh dashboard, CSV, PDF and scheduled-summary results. Confirmed subtotals, remaining unestimated components and customer receipts retain their independent meaning; estimates never supply payout authority. Applicable verified source evidence supersedes a provisional fallback.
+- Preview and save use the same reporting calculations. A save requires the actor-bound preview of the exact draft and rejects expired or changed-source previews. Overlapping edits preserve prior versions and surviving date ranges, with actor, reason and evidence retained in the audit history.
+- Eastridge is owner-confirmed at 9%; the intermediate 10% answer was withdrawn. The Avenues remains Nayax 7.5%. No provisional percentage for the seven unresolved Bloomjoy NC machines was recovered from the searched records; do not invent values or turn missing tax into zero.
+
 ## 2026-10-08 - Preserve original Sheet refund payment evidence (#1824)
 
 - Original Sheet column K describes the purchase tender; payout preference in column G does not. Preserve known Card/Apple/Google Pay or Cash evidence without changing financial hash, amount, booking date, financial Machine or duplicate identity. Refund Amount is the customer refund amount; the existing approved Request Amount fallback remains explicit when Refund Amount is blank.
