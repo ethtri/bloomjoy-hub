@@ -4,13 +4,18 @@ October 8 update: the owner confirmed stable machine rates and selected Nayax's
 7.5% for The Avenues, superseding the artificial historical observation cutoff
 described below. Annual query/loading, machine/receipt UI and CSV/PDF, stable-rate
 and exact original-reader SQL repairs are deployed (export v138, scheduler v134).
-The original-import lookup now uses an indexed, bounded identity probe and an
-atomic eight-second annual reporting guard. Latest January 1–October 7 reporting
-retains 9,515 rows/59,837 transactions with zero unresolved imported sales and
-73 refund components still under evidence review. Supported operational receipts
-remain partial where source amount basis is unknown; final browser/PDF acceptance
-follows the remaining legacy/Sheet/request reviews. The investigation below is
-historical. Current release evidence and follow-up work are in #1824/#1848.
+The original-import lookup uses an indexed, bounded identity probe and an atomic
+eight-second annual reporting guard. Exact original case and Sheet payment
+repairs are deployed through #1848/#1849 (Sheet worker v133). Latest January
+1–October 7 reporting has 9,511 rows/59,837 transactions, zero unresolved imported
+sales and 33 unresolved refund components. All 54 reviewed Sheet repairs changed
+only payment evidence/audit timestamps, with financial amounts, dates, hashes
+and populated/NULL fingerprints preserved; replay changed zero. The supported
+refund recovery is $550.82 ex-tax and the annual deployment rehearsal took
+2.200 seconds. Supported receipts remain partial where source amount basis is
+unknown. Remaining refund evidence, the explicit Eastridge correction and the
+separate Machine rate editor are tracked in #1824/#1850. Final browser/PDF
+acceptance follows those reviews. The investigation below is historical.
 
 Reporting has two confirmed failures: long periods exceed the database request
 timeout, while shorter periods load records whose tax split cannot be calculated

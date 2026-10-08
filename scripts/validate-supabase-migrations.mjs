@@ -23,7 +23,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
 export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
-const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql'];
+const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql', 'sheet_refund_atomic_deployment.sql'];
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
@@ -372,6 +372,23 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
       $actual_original_reader_migration$${originalReaderSql}$actual_original_reader_migration$,true);
       \\ir fixtures/original_reader_atomic_guard.inc
       rollback;\n`, 'utf8');
+  const sheetRefundSql = fs.readFileSync(path.join(migrationsDir,
+    '20261008221944_legacy_refund_source_payment_evidence.sql'), 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[1]),
+    `begin;\nselect set_config('bloomjoy.test.sheet_refund_migration',
+      $actual_sheet_refund_migration$${sheetRefundSql}$actual_sheet_refund_migration$,true);
+      \\ir fixtures/sheet_refund_atomic_guard.inc
+      rollback;\n`, 'utf8');
+  const sheetVolumePath = path.join(tempSupabaseDir, 'tests', 'sheet_refund_annual_performance.sql');
+  const sheetVolumeSql = fs.readFileSync(sheetVolumePath, 'utf8');
+  if (!/^begin;\r?\n/.test(sheetVolumeSql)) throw new Error('Sheet volume fixture transaction anchor changed');
+  const stagedSheetVolumeSql = sheetVolumeSql.replace(/^begin;\r?\n/,
+    () => `begin;\nselect set_config('bloomjoy.test.sheet_refund_migration',
+      $actual_sheet_volume_migration$${sheetRefundSql}$actual_sheet_volume_migration$,true);\n`);
+  if (!stagedSheetVolumeSql.includes(sheetRefundSql)) {
+    throw new Error('Sheet volume fixture must contain the byte-identical reviewed migration');
+  }
+  fs.writeFileSync(sheetVolumePath, stagedSheetVolumeSql, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
   const requestBoundaryReceiptFixturePath =
     prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);

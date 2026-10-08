@@ -1314,3 +1314,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - Completed same-machine source connection: keep the existing machine visible in the initial setup cache with no source; delay refreshed setup after connection. Continue only after exact source identity arrives, change the machine name, save/reopen, and verify the same source ID persists. No production save in smoke tests.
 
 - Reporting #1824: open `/portal/reports?view=machines`; verify every permitted machine appears, search/sort and company/location/tender filters retain scope, no loaded records differs from recorded zero, customer payments including tax remain separate from sales before tax/net, partial known amounts and CSV agree, and cash/card/refund/tax details remain readable at 320/390/768px.
+
+## Original Sheet refund payment evidence (#1849)
+
+- In disposable fixtures, preserve original column K purchase Card/wallet/Cash separately from column G payout preference. Verify Q Refund Amount and the existing approved-I fallback retain their source proof and financial hash.
+- Reconcile exact retained source/hash/Machine/date/amount evidence twice; the second call changes zero. Preserve every financial field and both populated and NULL legacy fingerprints. Do not run a real whole-Sheet sync during release verification.
+- Replay an unchanged older parser and a new parser with missing/contradictory K. Retain older verified evidence only for unchanged identity; newly checked missing/contradictory evidence supersedes its review. Refuse a stale full-payload optimistic update, and keep INSERT/amount/date/Machine/hash duplicate protections.
+- Confirm actual transaction tax, including zero, cash and tax-exclusive amounts take precedence. Date-bound historical reader proof and explicit owner corrections must preserve original purchase tax without changing refund booking. Conflicting Finance evidence remains unresolved. Run the actual-source atomic rollback and populated annual monetary fixtures within the unchanged eight-second guard.

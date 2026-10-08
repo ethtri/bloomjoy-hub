@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-10-08 - Preserve original Sheet refund payment evidence (#1824)
+
+- Original Sheet column K describes the purchase tender; payout preference in column G does not. Preserve known Card/Apple/Google Pay or Cash evidence without changing financial hash, amount, booking date, financial Machine or duplicate identity. Refund Amount is the customer refund amount; the existing approved Request Amount fallback remains explicit when Refund Amount is blank.
+- Exact reviewed source identities may receive an idempotent evidence-only repair. An unchanged older-parser replay retains the review; a new parser that checked K and found missing or contradictory evidence supersedes it. Reconciliation never rebooks refunds or changes customer case decisions.
+- Actual transaction tax, including explicit zero, and cash take precedence. A source-supported customer charge without an original reader may use the owner's stable Machine rate only when current and approved historical reader evidence agrees. The original purchase date selects tax evidence without changing refund recognition. Conflicting applicable evidence or a non-tax classification remains unknown. A rejected owner-attested proof cannot fall back to one current reader; existing sufficient dated-source normalization without an attestation is preserved. Recorded reader-association bounds constrain known purchase dates; a cutoff-day date remains conservative. Applicable explicit owner corrections supersede later repeated API values, while genuine later conflicting Finance evidence remains unresolved. Bounded corrections do not govern dates outside their validity.
+
 ## 2026-10-07 - Correct an already-bound source and historical reader duplicate (#1815)
 
 - The user-selected source machine, its current Machine name, company and Managers govern future configuration. A separate source-free historical Hub holding the exact selected reader can be retired from management after one explicit same-physical-machine confirmation. This administrative identity correction has no physical installation or move date. Actual reader replacements and moves retain the existing dated review.
