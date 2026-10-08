@@ -23,10 +23,8 @@ for (const size of [225, 9509, 15680]) {
     const rollups = buildMachineRollups(rows);
     assertEquals(rollups.reduce((sum, row) => sum + row.rowCount, 0), size);
     assertEquals(rollups.reduce((sum, row) => sum + row.netSalesCents, 0), summary.knownNetSalesCents);
-    if (size === 9509) {
-      assertEquals(summary.knownNetSalesCents, 28672029);
-      assertEquals(size - summary.knownNetRowCount, 4038);
-    }
+    assertEquals(summary.knownNetSalesCents, knownRows.length * 5231);
+    assertEquals(size - summary.knownNetRowCount, Math.floor(size * .42));
     const bytes = await buildSalesReportPdf({ rows, summary, dateFrom: "2026-01-01", dateTo: "2026-10-07",
       grain: "day", snapshotId: "large-row-regression", generatedAt: "2026-10-08T06:00:00Z" });
     assertEquals(JSON.stringify(rows), before, "Rendering must not mutate canonical input rows");

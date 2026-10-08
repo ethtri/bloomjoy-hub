@@ -3,8 +3,8 @@ import { PDFDocument } from 'https://esm.sh/pdf-lib@1.17.1';
 import { buildSalesReportPdf, summarizeSalesReportPdfRows, type SalesReportPdfRow } from '../supabase/functions/_shared/sales-report-pdf.ts';
 
 export function representativeRows(count: number): SalesReportPdfRow[] {
-  const unknown = count === 9509 ? 4038 : Math.floor(count * .42);
-  const known = count - unknown; const target = count === 9509 ? 28672029 : known * 5231;
+  const unknown = Math.floor(count * .42);
+  const known = count - unknown; const target = known * 5231;
   let knownSum = 0;
   return Array.from({ length: count }, (_, i) => {
     const date = new Date('2026-01-01T00:00:00Z'); date.setUTCDate(1 + i % 280);
@@ -16,7 +16,7 @@ export function representativeRows(count: number): SalesReportPdfRow[] {
       location_name: `Representative location ${i % 7}`, payment_method: i % 3 === 0 ? 'cash' : 'credit',
       net_sales_cents: net, gross_sales_cents: net == null ? null : net + refund,
       refund_amount_cents: i >= known && i % 11 === 0 ? null : refund,
-      tax_cents: net == null ? null : 0, transaction_count: i === 0 && count === 9509 ? 1 : 6,
+      tax_cents: net == null ? null : 0, transaction_count: 6,
       unresolved_sales_count: net == null ? 6 : 0, unresolved_refund_count: i >= known && i % 11 === 0 ? 1 : 0 };
   });
 }
