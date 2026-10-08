@@ -21,7 +21,7 @@ try {
     await page.screenshot({ path: `${out}/${width}.png`, fullPage: true });
     await view.getByLabel('Find a machine').fill('No loaded records'); assert.match(await view.innerText(), /Showing 1 of 9/);
     const downloadPromise = page.waitForEvent('download'); await view.getByRole('button', { name: 'Export machine CSV' }).click(); const download = await downloadPromise; await download.saveAs(`${out}/${width}.csv`); const csv = await fs.readFile(`${out}/${width}.csv`, 'utf8'); assert.match(csv, /No loaded records/); assert.match(csv, /"true"/);
-    await view.getByRole('button', { name: 'View dated payment records' }).click(); await page.waitForURL(/view=sales/); assert.match(page.url(), /machine=receipt-machine-4/);
+    await view.getByRole('button', { name: 'View dated payment records' }).click(); await page.waitForURL(/view=sales/); assert.match(page.url(), /machine=receipt-machine-4/); assert.equal(new URL(page.url()).searchParams.get('location'), null, 'machine drilldown preserves all-location scope for historical sales');
     await page.close(); console.log(`${width}px passed`);
   }
   assert.deepEqual(failures, []); console.log('Machine view: four viewports, supported/partial/no-record data, breakdown, search, CSV and scoped drilldown passed.');

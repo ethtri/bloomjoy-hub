@@ -23,7 +23,7 @@ export function ReportingMachines({ rows, dimensions, state, onNavigate }: Props
   const [sort, setSort] = useState<MachineSalesSort>('receipts');
   const all = useMemo(() => machineSalesRows(rows, dimensions, state), [rows, dimensions, state]);
   const machines = useMemo(() => machineSalesRows(rows, dimensions, state, search, sort), [rows, dimensions, state, search, sort]);
-  const open = (machine: typeof machines[number]) => onNavigate({ view: 'sales', machineId: machine.machineId, locationId: machine.locationId });
+  const open = (machine: typeof machines[number]) => onNavigate({ view: 'sales', machineId: machine.machineId });
   const exportCsv = () => {
     const content = machineSalesCsv(machines);
     const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
