@@ -7,6 +7,7 @@ import {
   type PDFPage,
   type RGB,
   type PDFHexString,
+  type PDFOperator,
   PDFName, PDFContentStream, PDFRawStream,
   pushGraphicsState, popGraphicsState, beginText, endText,
   setFillingRgbColor, setFontAndSize, setTextMatrix, showText,
@@ -467,6 +468,25 @@ export const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] 
 const widthCaches = new WeakMap<PDFFont, Map<string, number>>();
 const encodedCaches = new WeakMap<PDFFont, Map<string, PDFHexString>>();
 const pageFontKeys = new WeakMap<PDFPage, Map<PDFFont, PDFName>>();
+const pageFontOperators = new WeakMap<PDFPage, Map<string, PDFOperator>>();
+const colorOperators = new WeakMap<RGB, PDFOperator>();
+const fontOperator = (page: PDFPage, font: PDFFont, size: number): PDFOperator => {
+  let operators = pageFontOperators.get(page);
+  if (!operators) { operators = new Map(); pageFontOperators.set(page, operators); }
+  const fontKey = pageFontKey(page, font);
+  const key = `${fontKey}:${size}`;
+  let operator = operators.get(key);
+  if (!operator) { operator = setFontAndSize(fontKey, size); operators.set(key, operator); }
+  return operator;
+};
+const colorOperator = (color: RGB): PDFOperator => {
+  let operator = colorOperators.get(color);
+  if (!operator) {
+    operator = setFillingRgbColor(color.red, color.green, color.blue);
+    colorOperators.set(color, operator);
+  }
+  return operator;
+};
 const encodedText = (font: PDFFont, text: string): PDFHexString => {
   let cache = encodedCaches.get(font);
   if (!cache) { cache = new Map(); encodedCaches.set(font, cache); }
@@ -869,7 +889,7 @@ const drawTableText = (
   const batched = tableTextBatches.has(page);
   if (!batched) page.pushOperators(pushGraphicsState(), beginText());
   page.pushOperators(
-    setFillingRgbColor(color.red, color.green, color.blue), setFontAndSize(pageFontKey(page, font), size),
+    colorOperator(color), fontOperator(page, font, size),
     setTextMatrix(1, 0, 0, 1, options.align === "right" ? x + width - textWidth : x, y), showText(encodedText(font, clipped)),
   );
   if (!batched) page.pushOperators(endText(), popGraphicsState());
