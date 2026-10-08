@@ -119,7 +119,7 @@ insert into reporting_machines(id,account_id,location_id,machine_label,nayax_mac
 insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date) values
  ('TGPACI_USA_DB','1824000097','2026-10-08','owner_stable_rate','verified_tax',8,'#1824; owner attestation: synthetic unchanged machine rates; verified observation IDs=synthetic','-infinity'),
  ('TGPACI_USA_DB','1824000097','2026-10-09','finance_verified','verified_tax',10,'Synthetic contradictory applicable Finance evidence','2026-09-01'),
- ('TGPACI_USA_DB','1824000098','2026-10-08','nayax_api','verified_tax',8,'Synthetic source rate without owner coverage','2026-09-01');
+ ('TGPACI_USA_DB','1824000098','2026-09-01','nayax_api','verified_tax',8,'Synthetic source rate without owner coverage','2026-09-01');
 set local session_replication_role=origin;
 select is((select tax_exclusive_amount_cents from private.normalize_refund_original_reader_amount_cents('b1824300-0000-4000-8000-000000000095','card','2026-09-15',1080,'tax_inclusive',null,null,true)),null::bigint,
  'Current-only conflicting stable proof cannot borrow the latest current-reader rate');
