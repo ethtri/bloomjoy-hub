@@ -11,6 +11,7 @@ import {
   fixtureId,
   fixtureMachine,
   fixtureProjection,
+  fixtureSalesMetrics,
   fixtureVariants,
 } from "./machine-email-alert-fixtures.ts";
 const assert = (condition: unknown, message: string) => {
@@ -26,6 +27,148 @@ const rejects = (value: unknown) => {
   assert(rejected, "unsafe projection should be rejected");
 };
 const links = machineEmailLinks();
+
+Deno.test("digest sales evidence distinguishes empty imports, unresolved normalization, partial amounts and verified zero", () => {
+  const p = fixtureProjection();
+  p.managerOpenCases = null;
+  p.managerCaseMachines = [];
+  const evidence = [
+    fixtureSalesMetrics(null),
+    fixtureSalesMetrics(null, {
+      importedSalesComponentCount: 2,
+      componentCount: 2,
+      salesExTax: {
+        state: "unavailable",
+        knownSubtotal: null,
+        unresolvedCount: 2,
+        reason: "normalization_unresolved",
+      },
+      transactions: {
+        state: "reported",
+        knownSubtotal: 7,
+        unresolvedCount: 0,
+        reason: "reported_snapshot",
+      },
+    }),
+    fixtureSalesMetrics(800, {
+      importedSalesComponentCount: 2,
+      componentCount: 2,
+      salesExTax: {
+        state: "partial",
+        knownSubtotal: 800,
+        unresolvedCount: 1,
+        reason: "normalization_unresolved",
+      },
+    }),
+    fixtureSalesMetrics(0, { sourceCoverage: "verified_complete" }),
+  ];
+  p.machines = evidence.map((salesMetrics, i) =>
+    fixtureMachine(401 + i, {
+      machineLabel:
+        ["No rows", "Unknown basis", "Partial sales", "Verified zero"][i],
+      grossSalesCents: i === 3 ? 0 : null,
+      netSalesCents: i === 3 ? 0 : null,
+      refundAmountCents: null,
+      previousGrossSalesCents: null,
+      refundCases: [],
+      salesMetrics,
+      previousSalesMetrics: fixtureSalesMetrics(null),
+      digest: fixtureDigest({
+        newRequestCount: 0,
+        requestedAmountCents: 0,
+        requestedAmountKnownCount: 0,
+      }),
+    })
+  );
+  p.summary = summarizeMachineEmail(p.machines);
+  const email = buildMachineEmail({ projection: p, links });
+  for (
+    const phrase of [
+      "No recorded sales",
+      "Tax or amount basis unresolved",
+      "7 recorded transactions",
+      "Known subtotal",
+      "Coverage verified",
+      "Coverage unverified",
+      "$8.00",
+      "$0.00",
+      "Sales (ex tax)",
+      "including any tax",
+      "not completed payments or a deduction",
+    ]
+  ) {
+    assert(
+      email.text.includes(phrase) && email.html.includes(phrase),
+      `HTML/text retain ${phrase}`,
+    );
+  }
+  assert(
+    email.text.includes("$8.00 known · 2 of 4 machines with known sales"),
+    "partial known money survives a legacy null amount",
+  );
+  assert(
+    !email.text.includes("machines reporting"),
+    "positive observations do not establish complete coverage",
+  );
+  assert(
+    email.text.includes("No recorded sales is not a confirmed zero"),
+    "no rows is not inferred zero",
+  );
+  const legacy = fixtureProjection();
+  assert(
+    buildMachineEmail({ projection: legacy, links }).text.includes(
+      "Coverage unverified",
+    ),
+    "legacy salesComplete is not source coverage evidence",
+  );
+});
+
+Deno.test("additive sales evidence fails closed on malformed states and restricted financial values", () => {
+  const base = fixtureProjection();
+  for (const m of base.machines) {
+    m.salesMetrics = fixtureSalesMetrics(m.grossSalesCents);
+    m.previousSalesMetrics = fixtureSalesMetrics(m.previousGrossSalesCents);
+  }
+  parseMachineEmailProjection(base);
+  const badChanges = [
+    { state: "unavailable", knownSubtotal: 20 },
+    { state: "partial", unresolvedCount: 0 },
+    {
+      state: "reported",
+      reason: "normalization_unresolved",
+      unresolvedCount: 2,
+    },
+    { knownSubtotal: 1.2 },
+    { unresolvedCount: -1 },
+    { extraRawData: "secret" },
+  ];
+  for (const changes of badChanges) {
+    const bad = structuredClone(base);
+    Object.assign(bad.machines[0].salesMetrics!.salesExTax, changes);
+    rejects(bad);
+  }
+  const missing = structuredClone(base);
+  delete missing.machines[0].previousSalesMetrics;
+  rejects(missing);
+  const count = structuredClone(base);
+  count.machines[0].salesMetrics!.transactions.knownSubtotal = 1.2;
+  rejects(count);
+  const coverage = structuredClone(base);
+  coverage.machines[0].salesMetrics = fixtureSalesMetrics(null, {
+    sourceCoverage: "verified_complete",
+  });
+  rejects(coverage);
+  const restricted = structuredClone(base);
+  Object.assign(restricted.machines[0], {
+    reportingAllowed: false,
+    grossSalesCents: null,
+    refundAmountCents: null,
+    netSalesCents: null,
+    transactionCount: null,
+    previousGrossSalesCents: null,
+  });
+  rejects(restricted);
+});
 
 Deno.test("daily and weekly digests render without a browser location global", () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "location");
@@ -71,11 +214,26 @@ Deno.test("future optional emails use machine names without legacy venue adornme
     }
     const before = JSON.stringify(projection);
     const email = buildMachineEmail({ projection, links });
-    assert(!email.text.includes("Retired venue label"), `${variant}: text omits venue`);
-    assert(!email.html.includes("Retired venue label"), `${variant}: HTML omits venue`);
-    assert(email.text.includes("Canonical machine"), `${variant}: machine name rendered`);
-    assert(email.html.includes("Canonical machine"), `${variant}: HTML machine name rendered`);
-    assert(JSON.stringify(projection) === before, `${variant}: stored projection unchanged`);
+    assert(
+      !email.text.includes("Retired venue label"),
+      `${variant}: text omits venue`,
+    );
+    assert(
+      !email.html.includes("Retired venue label"),
+      `${variant}: HTML omits venue`,
+    );
+    assert(
+      email.text.includes("Canonical machine"),
+      `${variant}: machine name rendered`,
+    );
+    assert(
+      email.html.includes("Canonical machine"),
+      `${variant}: HTML machine name rendered`,
+    );
+    assert(
+      JSON.stringify(projection) === before,
+      `${variant}: stored projection unchanged`,
+    );
   }
 });
 
@@ -358,7 +516,9 @@ Deno.test("assigned technician digest shows original request totals while sales 
     const email = buildMachineEmail({ projection: p, links });
     assert(
       email.text.includes("Refunds requested: $10.00 · 1 new request") &&
-        email.text.includes("Sales: Not shared · Sales access not included") &&
+        email.text.includes(
+          "Sales (ex tax): Not shared · Sales access not included",
+        ) &&
         email.text.includes("TGPaci") &&
         !email.text.includes("/portal/reports") &&
         !email.text.includes("Prepared") &&
@@ -433,12 +593,27 @@ Deno.test("immediate request uses original requested USD and the authorized requ
 });
 Deno.test("weekly comparisons use the same known machines and avoid percentages from zero or missing baselines", () => {
   const p = fixtureVariants()["weekly-companies"];
+  assert(
+    buildMachineEmail({ projection: p, links }).text.includes(
+      "Snapshot comparison; source coverage may be incomplete",
+    ),
+    "legacy comparisons explicitly describe snapshot coverage",
+  );
+  for (const m of p.machines) {
+    m.salesMetrics = fixtureSalesMetrics(m.grossSalesCents, {
+      sourceCoverage: "verified_complete",
+    });
+    m.previousSalesMetrics = fixtureSalesMetrics(m.previousGrossSalesCents, {
+      sourceCoverage: "verified_complete",
+    });
+  }
   const all = buildMachineEmail({ projection: p, links });
   assert(
     all.text.includes("1.6% higher"),
     "$996 versus$980 reported sales comparison",
   );
   p.machines[1].previousGrossSalesCents = null;
+  p.machines[1].previousSalesMetrics = fixtureSalesMetrics(null);
   const partial = buildMachineEmail({ projection: p, links });
   assert(
     partial.text.includes("2.9%") &&
@@ -446,14 +621,22 @@ Deno.test("weekly comparisons use the same known machines and avoid percentages 
         partial.text.includes("2 of 3")),
     "comparison is$660 versus$680 across two machines, not full current sales versus partial baseline",
   );
-  for (const m of p.machines) m.previousGrossSalesCents = 0;
+  for (const m of p.machines) {
+    m.previousGrossSalesCents = 0;
+    m.previousSalesMetrics = fixtureSalesMetrics(0, {
+      sourceCoverage: "verified_complete",
+    });
+  }
   const zero = buildMachineEmail({ projection: p, links });
   assert(
     !zero.text.includes("Infinity") && !zero.text.includes("NaN") &&
       !/\d+(?:\.\d+)?%/.test(zero.text),
     "zero baseline does not produce percentage growth",
   );
-  for (const m of p.machines) m.previousGrossSalesCents = null;
+  for (const m of p.machines) {
+    m.previousGrossSalesCents = null;
+    m.previousSalesMetrics = fixtureSalesMetrics(null);
+  }
   const missing = buildMachineEmail({ projection: p, links });
   assert(
     !/\d+(?:\.\d+)?%/.test(missing.text),

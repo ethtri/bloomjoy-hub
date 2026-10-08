@@ -13,7 +13,7 @@ const logo = await readFile(path.join(root, 'public/bloomjoy-icon.png'));
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-  for (const variant of ['daily', 'weekly', 'partial', 'technician', 'technician-request', 'legacy']) {
+  for (const variant of ['daily', 'weekly', 'partial', 'technician', 'technician-request', 'legacy', 'sales-evidence', 'oct7-reproduction']) {
     for (const width of [900, 390, 320]) {
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       await page.route('https://**/*', route => route.request().url() === 'https://app.bloomjoyusa.com/bloomjoy-icon.png'
@@ -28,6 +28,17 @@ try {
       assert(state.scrollWidth <= width + 1, `${variant} overflows at ${width}px`);
       assert.equal(state.headings, 1);
       assert.equal(state.columns, variant === 'technician-request' ? 0 : 3);
+      const text = await readFile(path.join(output, `${variant}.txt`), 'utf8');
+      if (variant === 'oct7-reproduction') {
+        for (const phrase of ['$661.27', '16 of 41 machines with known sales', 'Coverage unverified', '25 with no recorded sales']) {
+          assert(text.includes(phrase) && (await page.locator('body').innerText()).includes(phrase), `Oct 7 HTML/text evidence missing: ${phrase}`);
+        }
+      }
+      if (variant === 'sales-evidence') {
+        for (const phrase of ['Tax or amount basis unresolved', '7 recorded transactions', 'Known subtotal', 'Coverage verified', 'No recorded sales']) {
+          assert(text.includes(phrase) && (await page.locator('body').innerText()).includes(phrase), `Sales HTML/text evidence missing: ${phrase}`);
+        }
+      }
       await page.screenshot({ path: path.join(output, `${variant}-${width}.png`), fullPage: true });
       results.push({ variant, ...state });
       await page.close();

@@ -17,6 +17,17 @@ Imports include October 7. Remediation is tracked in #1824; see
 
 ## Machine identity context
 
+P0 #1836 digest repair is implemented and locally verified in PRs #1837/#1838,
+not yet deployed. Independent per-metric amounts and no-recorded-sales versus
+unresolved-tax/basis reasons replace blanket unavailable sales; archived records
+leave the performance roster without losing legitimate manager cases. The
+October 7 digest's 25 unavailable machines reconcile to 19 with no recorded
+source sales, three archived records, two former locations with moved readers,
+and one PeppaPigLand with $30 Sunze credit excluded because its Nayax pairing
+is unverified. No importer repair or backfill is supported by that evidence;
+source coverage and the unresolved pairing remain data blockers. See
+`Docs/EMAIL_ALERTS_RUNBOOK.md` for worker-first release and rollback order.
+
 Issue #1815 / PR #1817 adds the guarded already-bound source + historical reader duplicate correction for both Sunze and Kex. The user-selected current source machine governs future name/company/Managers; archived historical owners remain in original-company financial reporting and retain original refund routing. Management identity and historical ledger ownership are distinct. The existing reader picker requires one same-physical-machine confirmation without a fabricated date; actual hardware moves keep dated review. See `Docs/MACHINE_IDENTITY_RECONCILIATION.md` for rollout and acceptance. No production identity join is part of release verification.
 
 PR #1803 completes Sunze and Kex source association in one Manage save, including reviewed reuse of the same existing physical machine and dated reader replacement or reassignment. Nayax supplies card revenue and genuine app cash remains eligible; new app card observations do not duplicate revenue, tax, quantities or deductions, and exact previously counted financial inputs are preserved. Original transactions and reader-specific tax/refund evidence retain their original ownership. PR #1809 is deployed: ordinary machine saves preserve completed source identity, and the user-confirmed Gilroy source pointer was restored through the guarded audited repair with financial/history/configuration digests unchanged. There is no separate sales-activation step. Same-machine connection review now shows the exact source and reader, a short physical-machine confirmation and one Save action; optional details open by tap or keyboard. The user has now saved the Gilroy source/reader connection; agent verification made no business mapping changes.
