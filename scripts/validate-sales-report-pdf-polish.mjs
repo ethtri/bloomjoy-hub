@@ -30,7 +30,7 @@ const adminReporting = read(files.adminReporting);
 const smokeChecklist = read(files.smokeChecklist);
 
 assert(
-  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v3"'),
+  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v4"'),
   'Operator PDF builder must expose the shared-basis generator version.',
 );
 
@@ -73,7 +73,9 @@ assert(
 
 assert(
   sharedBuilder.includes('summary.grossSalesCents == null') &&
-    sharedBuilder.includes('? "Unavailable"') &&
+    sharedBuilder.includes('formatKnownSalesReportSubtotal(summary.knownGrossSalesCents, summary.knownGrossRowCount)') &&
+    sharedBuilder.includes('Known net subtotal') &&
+    sharedBuilder.includes('refund components have missing amount or original-date tax details') &&
     sharedBuilder.includes('paid in period') &&
     sharedBuilder.includes('outstanding') &&
     sharedBuilder.includes('usesSharedSalesBasis ? "Sales ex tax" : "Gross sales"'),
@@ -94,7 +96,7 @@ assert(
 );
 
 assert(
-  schedulerFunction.includes('sales_report_scheduler_get_sales_report') &&
+  schedulerFunction.includes('sales_report_scheduler_get_sales_report_complete') &&
     schedulerFunction.includes('p_actor_user_id: schedule.created_by') &&
     !schedulerFunction.includes('.from("machine_sales_facts")') &&
     !schedulerFunction.includes('.from("sales_adjustment_facts")'),

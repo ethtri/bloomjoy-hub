@@ -200,7 +200,7 @@ serve(async (req) => {
     // Company membership and the caller's authority are resolved together by the
     // company RPC, so a concurrent reassignment cannot widen the exported scope.
     const { data: reportRows, error: reportError } = await userSupabase.rpc(
-      filters.companyId ? "get_company_sales_report" : "get_sales_report",
+      "get_sales_report_complete",
       {
         ...(filters.companyId ? { p_company_id: filters.companyId } : {}),
         p_date_from: filters.dateFrom,
@@ -236,6 +236,18 @@ serve(async (req) => {
         title: filters.title,
         filters,
         summary: {
+          known_net_sales_cents: summary.knownNetRowCount > 0 ? summary.knownNetSalesCents : null,
+          known_refund_amount_cents: summary.knownRefundRowCount > 0 ? summary.knownRefundAmountCents : null,
+          known_gross_sales_cents: summary.knownGrossRowCount > 0 ? summary.knownGrossSalesCents : null,
+          known_tax_cents: summary.knownTaxRowCount > 0 ? summary.knownTaxCents : null,
+          known_net_row_count: summary.knownNetRowCount,
+          known_refund_row_count: summary.knownRefundRowCount,
+          known_gross_row_count: summary.knownGrossRowCount,
+          known_tax_row_count: summary.knownTaxRowCount,
+          omitted_net_row_count: rows.length - summary.knownNetRowCount,
+          omitted_refund_row_count: rows.length - summary.knownRefundRowCount,
+          omitted_gross_row_count: rows.length - summary.knownGrossRowCount,
+          omitted_tax_row_count: rows.length - summary.knownTaxRowCount,
           net_sales_cents: summary.netSalesCents,
           refund_amount_cents: summary.refundAmountCents,
           gross_sales_cents: summary.grossSalesCents,

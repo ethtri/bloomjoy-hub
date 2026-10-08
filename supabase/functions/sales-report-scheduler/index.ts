@@ -224,7 +224,7 @@ const buildScheduledReportRows = async (
   // The narrow service RPC applies the schedule owner's normal machine access
   // before reading the same shared calculation used by the interactive report.
   const { data, error } = await supabase.rpc(
-    "sales_report_scheduler_get_sales_report",
+    "sales_report_scheduler_get_sales_report_complete",
     {
       p_actor_user_id: schedule.created_by,
       p_date_from: filters.dateFrom,
@@ -285,6 +285,18 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
       title: filters.title,
       filters,
       summary: {
+        known_net_sales_cents: summary.knownNetRowCount > 0 ? summary.knownNetSalesCents : null,
+        known_refund_amount_cents: summary.knownRefundRowCount > 0 ? summary.knownRefundAmountCents : null,
+        known_gross_sales_cents: summary.knownGrossRowCount > 0 ? summary.knownGrossSalesCents : null,
+        known_tax_cents: summary.knownTaxRowCount > 0 ? summary.knownTaxCents : null,
+        known_net_row_count: summary.knownNetRowCount,
+        known_refund_row_count: summary.knownRefundRowCount,
+        known_gross_row_count: summary.knownGrossRowCount,
+        known_tax_row_count: summary.knownTaxRowCount,
+        omitted_net_row_count: rows.length - summary.knownNetRowCount,
+        omitted_refund_row_count: rows.length - summary.knownRefundRowCount,
+        omitted_gross_row_count: rows.length - summary.knownGrossRowCount,
+        omitted_tax_row_count: rows.length - summary.knownTaxRowCount,
         net_sales_cents: summary.netSalesCents,
         refund_amount_cents: summary.refundAmountCents,
         gross_sales_cents: summary.grossSalesCents,
