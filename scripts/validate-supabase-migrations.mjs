@@ -357,6 +357,17 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
     });
   }
   normalizeSqlLineEndings(tempSupabaseDir);
+  // Exercise the actual atomic forward statement, including rejection rollback.
+  // Read the reviewed file instead of duplicating its DDL or budget logic.
+  const originalReaderForward = '20261008193531_indexed_promoted_original_source_tax.sql';
+  const originalReaderSql = fs.readFileSync(path.join(migrationsDir, originalReaderForward), 'utf8');
+  const originalReaderRollback = fs.readFileSync(path.join(migrationsDir,
+    '20261008193346_restore_reporting_query_performance.sql'), 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', 'original_reader_atomic_deployment.sql'),
+    `begin;\n${originalReaderRollback}\nselect set_config('bloomjoy.test.original_reader_migration',
+      $actual_original_reader_migration$${originalReaderSql}$actual_original_reader_migration$,true);
+      \\ir fixtures/original_reader_atomic_guard.inc
+      rollback;\n`, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
   const requestBoundaryReceiptFixturePath =
     prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);

@@ -42,6 +42,9 @@ create temporary table prior_finance_helper_outputs as select i.*,
   private.provider_refund_original_source_tax_cents(i.adjustment_id,i.amount) source_tax
 from finance_helper_inputs i;
 do $$declare r record;begin for r in select definition from optimized_finance_helpers loop execute r.definition;end loop;end$$;
+\ir fixtures/finance_promoted_originals.inc
+select is((select count(*) from finance_promoted_originals),4::bigint,
+  'Populated annual fixture exercises four approved promoted originals');
 -- Ordinary linked originals retain the indexed prepared join. This populated
 -- budget catches a promotion resolver accidentally scanning all 125,440 facts
 -- for each of the 1,000 linked originals, without waiting for a workflow timeout.
@@ -54,7 +57,19 @@ from finance_provider_originals;
 select set_config('statement_timeout',(select prior_timeout from linked_original_plan_budget),true);
 select ok((select count(*) from linked_original_tax_probe)=1000
   and clock_timestamp()-(select started_at from linked_original_plan_budget)<interval '8 seconds',
-  'One thousand ordinary linked originals keep the fast indexed tax plan');
+  'One thousand originals including four promoted keep fast indexed tax plans');
+create temporary table annual_reporting_budget as select clock_timestamp() started_at;
+set local statement_timeout='8s';
+create temporary table annual_reporting_money_probe as select count(*) row_count,
+  sum(net_sales_known_cents) known_net,sum(gross_sales_known_cents) known_gross,
+  sum(refund_amount_known_cents) known_refunds,sum(customer_receipts_known_cents) known_receipts,
+  sum(unresolved_sales_count) unknown_sales,sum(unresolved_refund_count) unknown_refunds
+from private.sales_report_rows_for_actor('b1824000-0000-4000-8000-000000000001',
+  '2026-01-01','2026-10-07','day',null,null,null);
+select set_config('statement_timeout',(select prior_timeout from linked_original_plan_budget),true);
+select ok((select row_count from annual_reporting_money_probe)>10000
+  and clock_timestamp()-(select started_at from annual_reporting_budget)<interval '8 seconds',
+  'Populated annual monetary report including four promoted originals remains below eight seconds');
 select is(public.get_finance_reporting('2026-01-01','2026-10-07')-'generatedAt',
   (select annual from prior_finance_payloads),'Complete populated annual Finance matches prior functions');
 select is(public.get_finance_reporting('2026-01-01','2026-10-07',array[md5('annual-machine-1')::uuid])-'generatedAt',
@@ -70,7 +85,22 @@ select ok((select count(*) from prior_finance_helper_outputs p where
   p.source_tax is null and p.amount between 0 and 1080
   and private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount) is not null)>0,
   'Exact source reader resolves supported tax even without historical association');
-select is((select count(*) from prior_finance_helper_outputs where amount=540 and source_tax is null)>0,
+select is((select count(*) from prior_finance_helper_outputs p
+  join finance_provider_originals original on original.adjustment_id=p.adjustment_id
+  left join lateral(select case when evidence.classification='verified_tax' then evidence.rate_percent end rate_percent
+    from private.nayax_machine_tax_observations evidence
+    where evidence.account_key='TGPACI_USA_DB' and evidence.nayax_machine_id=original.nayax_machine_id
+      and evidence.effective_start_date<=original.sale_date
+      and coalesce(evidence.effective_end_date,'infinity'::date)>=original.sale_date
+    order by (evidence.classification<>'unavailable') desc,evidence.effective_start_date desc,
+      evidence.observed_at desc,evidence.id limit 1) source on true
+  cross join lateral private.normalize_financial_amount_cents(p.amount,
+    case when p.amount=0 then 'tax_exclusive' when source.rate_percent is null then 'unknown' else 'tax_inclusive' end,source.rate_percent,null) expected
+  where p.source_tax is null and p.amount between 0 and 1080
+    and private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount) is distinct from expected.tax_cents),
+  0::bigint,'Every newly supported split equals exact dated source rate normalization, never guessed tax');
+select is((select count(*) from prior_finance_helper_outputs p where amount=540
+  and private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount) is null)>0,
   true,'Unknown original-date source tax remains NULL');
 select is((select count(*) from prior_finance_helper_outputs where amount=540 and source_tax=0)>0,
   true,'Separately proved zero tax remains known zero');

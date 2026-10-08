@@ -26,7 +26,7 @@ insert into public.nayax_dtm_export_rows(file_digest,source_row_hash,provider_ac
   provider_site_id,provider_transaction_id,settlement_amount_cents,machine_settled_at,provider_type,
   machine_name_hash,mapping_disposition,financial_disposition,history_scope_disposition,disposition,fact_id)
 select repeat(md5('finance-volume-export'),2),repeat(md5('finance-volume-export-'||fact_id),2),'2003563806',nayax_machine_id,
-  '2003563806',transaction_id,1080,sale_date::timestamp,0,identity_hash,'canonical','eligible','in_scope','fact_linked',fact_id
+  '182400',transaction_id,1080,sale_date::timestamp,0,identity_hash,'canonical','eligible','in_scope','fact_linked',fact_id
 from finance_provider_originals;
 set local session_replication_role=origin;
 analyze public.sales_adjustment_facts;
