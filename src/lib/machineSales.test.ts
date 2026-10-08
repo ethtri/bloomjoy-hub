@@ -1,4 +1,4 @@
-import { machineSalesCsv, machineSalesRows } from './machineSales.ts';
+import { machineSalesCsv, machineSalesRows, machineSalesStatus } from './machineSales.ts';
 import { moneyCoverage } from './reportingWorkspace.ts';
 import type { ReportingDimension, SalesReportRow } from './reporting.ts';
 const assert = (condition: unknown, message: string) => { if (!condition) throw Error(message); };
@@ -52,4 +52,12 @@ Deno.test('receipt coverage excludes refund-only groups and preserves unknown ve
   assert(unknown.displayValue === null && unknown.status === 'partial' && !unknown.noSalesRecorded, 'unresolved remains unavailable');
   const partialZero = moneyCoverage([row('paid', {customerReceiptsCents: null, customerReceiptsKnownCents: 0, customerReceiptsUnknownCount: 1})], 'customerReceiptsCents');
   assert(partialZero.displayValue === 0 && partialZero.status === 'partial', 'known zero remains partial');
+});
+
+Deno.test('tax-exclusive source keeps available sales and explains absent customer payment total', () => {
+  const source = row('paid', { customerReceiptsCents: null, customerReceiptsKnownCents: null, customerReceiptsUnknownCount: 59, grossSalesCents: 174640, grossSalesKnownCents: 174640, grossSalesUnknownCount: 0, netSalesCents: 174640, netSalesKnownCents: 174640, netSalesUnknownCount: 0, taxCents: 0, unresolvedSalesCount: 0 });
+  const machine = machineSalesRows([source], dimensions, {...scope, machineId: 'paid'})[0];
+  assert(machine.receipts.displayValue === null && machine.salesExTax.displayValue === 174640 && machine.net.displayValue === 174640, 'source sales must not be invented inclusive receipts');
+  assert(machineSalesStatus(machine) === 'Sales are available; total customer payments were not provided', 'plain source capability explanation');
+  assert(machineSalesCsv([machine]).includes('"","true","174640","false","174640","false"'), 'CSV keeps usable sales independently of receipt uncertainty');
 });

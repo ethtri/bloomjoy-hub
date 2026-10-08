@@ -36,3 +36,15 @@ export function machineSalesCsv(machines: ReturnType<typeof machineSalesRows>) {
     machine.salesExTax.status !== 'complete', machine.net.displayValue, machine.net.status !== 'complete', machine.transactions, machine.rows.length, machine.managementArchivedAt ? 'Archived - historical reporting' : 'Current roster'])]
     .map(row => row.map(escape).join(',')).join('\r\n');
 }
+
+export function machineSalesStatus(machine: ReturnType<typeof machineSalesRows>[number]) {
+  if (!machine.rows.length) return 'No loaded records for this period';
+  if (machine.receipts.noSalesRecorded) return 'Refund records loaded; no sales recorded';
+  if (machine.receipts.status !== 'complete') {
+    if (!machine.receipts.knownRows && machine.salesExTax.status === 'complete' && machine.net.status === 'complete') return 'Sales are available; total customer payments were not provided';
+    return machine.receipts.knownRows ? 'Known receipts only; some amounts unavailable' : 'Receipt amounts unavailable';
+  }
+  if (machine.salesExTax.status === 'partial') return 'Customer payments recorded; tax or amount details unavailable';
+  if (machine.net.status === 'partial') return 'Sales recorded; refund details unavailable';
+  return 'Calculated from loaded records';
+}
