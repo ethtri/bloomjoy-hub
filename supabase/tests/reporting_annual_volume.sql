@@ -20,6 +20,10 @@ update private.refund_request_recognition_rollout set activated_at=now() where s
 
 -- 125,440 raw facts, including 109,760 retained zeroed source observations.
 -- 15,680 daily report rows exceed both 1,000 and 10,000 API response caps.
+-- This fixture verifies report reads, not import notification/enrichment. Skip
+-- per-fact setup triggers only while loading synthetic volume; restore them
+-- before every calculation/access assertion. Parents and unique keys are real.
+set local session_replication_role=replica;
 insert into public.machine_sales_facts(reporting_machine_id,reporting_location_id,
   sale_date,payment_method,net_sales_cents,transaction_count,item_quantity,source,
   source_row_hash,source_order_hash,tax_cents,raw_payload)
@@ -34,6 +38,7 @@ select md5('annual-machine-'||machine)::uuid,'b1824200-0000-4000-8000-0000000000
     else '{"amountBasis":"tax_exclusive"}'::jsonb end
 from generate_series(1,28)machine cross join generate_series(0,279)day
 cross join generate_series(1,16)observation;
+set local session_replication_role=origin;
 analyze public.machine_sales_facts;
 analyze public.reporting_machines;
 
