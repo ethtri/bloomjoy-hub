@@ -1,27 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useQueuedReportingQuery } from '@/hooks/useQueuedReportingQuery';
+import type { CompanyDimension } from '@/lib/companyReporting';
+import { useAuth } from '@/contexts/auth-context';
 import { Link } from 'react-router-dom';
 import { Download, Clock3, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { fetchLaborAnalytics, laborAnalyticsCsv, laborAnalyticsTotals, type LaborAnalyticsReport, type LaborAnalyticsScope } from '@/lib/laborAnalytics';
+import { fetchLaborAnalytics, laborAnalyticsCsv, laborAnalyticsTotals, type LaborAnalyticsScope } from '@/lib/laborAnalytics';
 
 const money = (cents: number | null) => cents === null ? 'Unavailable' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 
-export function LaborAnalyticsPanel({ scope, showHeading = true }: { scope: LaborAnalyticsScope; showHeading?: boolean }) {
+export function LaborAnalyticsPanel({ scope, showHeading = true, dimensions = [] }: { scope: LaborAnalyticsScope; showHeading?: boolean; dimensions?: CompanyDimension[] }) {
   const SectionHeading = showHeading ? 'h3' : 'h2';
   const MachineHeading = showHeading ? 'h4' : 'h3';
-  const [report, setReport] = useState<LaborAnalyticsReport | null>(null);
-  const [error, setError] = useState(false);
-  const [retry, setRetry] = useState(0);
-  const scopeKey = JSON.stringify(scope);
-  useEffect(() => {
-    let active = true;
-    setReport(null); setError(false);
-    fetchLaborAnalytics(JSON.parse(scopeKey)).then(data => { if (active) setReport(data); }).catch(() => { if (active) setError(true); });
-    return () => { active = false; };
-  }, [scopeKey, retry]);
-  if (error) return <Card><CardContent className="space-y-3 pt-6" role="alert"><p>Recorded labor could not load. Try again to refresh this report.</p><Button variant="outline" className="min-h-11" onClick={() => setRetry(value => value + 1)}>Try again</Button></CardContent></Card>;
-  if (!report) return <p className="py-8 text-muted-foreground" role="status">Loading recorded labor…</p>;
+  const { user } = useAuth();
+  const query = useQueuedReportingQuery({ queryKey: ['labor-report', user?.id, dimensions.map(row => row.machineId).sort(), scope], queryFn: () => fetchLaborAnalytics(scope), enabled: Boolean(user) });
+  if (query.isError) return <Card><CardContent className="space-y-3 pt-6" role="alert"><p>Recorded labor could not load. Try again to refresh this report.</p><Button variant="outline" className="min-h-11" onClick={() => void query.refetch()}>Try again</Button></CardContent></Card>;
+  if (query.isPending) return <p className="py-8 text-muted-foreground" role="status">Loading recorded labor...</p>;
+  const report = query.data;
   if (!report.access.hasAccess && !report.access.canViewPay) return <p className="py-8 text-muted-foreground">This timekeeping report is not available for your account.</p>;
   const totals = laborAnalyticsTotals(report.rows);
   const download = () => {

@@ -1,4 +1,4 @@
-import { reportingQueryRetry } from '@/lib/reportingQuery';
+import { useQueuedReportingQuery, useReportAdmission } from '@/hooks/useQueuedReportingQuery';
 import {
   lazy,
   Suspense,
@@ -939,11 +939,10 @@ function OperatorReportingView({
     isLoading: reportLoading,
     isFetching,
     error,
-  } = useQuery({
+  } = useQueuedReportingQuery({
     queryKey: ['sales-report', user?.id, [...new Set(dimensions.map(row => row.machineId))].sort(), filters],
     queryFn: () => fetchSalesReport(filters),
-    retry: reportingQueryRetry,
-    enabled: !dimensionsLoading && !dimensionsError && !machineUnavailable,
+    enabled: !dimensionsLoading && !dimensionsFetching && !dimensionsError && !machineUnavailable && accessContext.hasReportingAccess && !accessContextFetching,
     staleTime: 1000 * 30,
   });
 
@@ -1015,15 +1014,16 @@ function OperatorReportingView({
     locationIds.length > 0 ||
     selectedPayments.length > 0;
 
+  const admitExport = useReportAdmission(['sales-pdf', user?.id, dimensions.map(row => row.machineId).sort(), filters], !dimensionsFetching && !dimensionsError && !machineUnavailable && accessContext.hasReportingAccess && !accessContextFetching);
   const exportPdf = async () => {
     if (!reportRows.length || dimensionsFetching || dimensionsError || machineUnavailable || !accessContext.hasReportingAccess || accessContextFetching) return;
     const exportWindow = reserveSignedExportWindow();
     setIsExporting(true);
     try {
-      const exportResult = await exportSalesReportPdf({
+      const exportResult = await admitExport(() => exportSalesReportPdf({
         ...filters,
         title: `${companyName}: Operator Sales Report`,
-      });
+      }));
       toast.success('Polished operator report PDF is ready.');
       openSignedExportUrl(exportResult.signedUrl, exportWindow);
     } catch (exportError) {
