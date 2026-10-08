@@ -85,6 +85,14 @@ export const getSalesReportCalculationVersion = (
 };
 
 export type SalesReportPdfSummary = {
+  knownNetSalesCents: number;
+  knownRefundAmountCents: number;
+  knownGrossSalesCents: number;
+  knownTaxCents: number;
+  knownNetRowCount: number;
+  knownRefundRowCount: number;
+  knownGrossRowCount: number;
+  knownTaxRowCount: number;
   netSalesCents: number | null;
   refundAmountCents: number | null;
   grossSalesCents: number | null;
@@ -150,7 +158,7 @@ type MachineRollup = {
   rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v3";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v4";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -341,12 +349,19 @@ export const formatMachineRollupCurrency = (
 ): string =>
   valueCount === rowCount
     ? (refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value))
+    : valueCount > 0
+    ? `${refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value)}*`
+    : "Unavailable";
+
+export const formatKnownSalesReportSubtotal = (value: number, knownRows: number, refundImpact = false): string =>
+  knownRows > 0
+    ? (refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value))
     : "Unavailable";
 
 export const summarizeSalesReportPdfRows = (
   rows: SalesReportPdfRow[]
 ): SalesReportPdfSummary => {
-  const summary = rows.reduce<SalesReportPdfSummary>(
+  const summary = rows.reduce<Omit<SalesReportPdfSummary, "knownNetSalesCents" | "knownRefundAmountCents" | "knownGrossSalesCents" | "knownTaxCents" | "knownNetRowCount" | "knownRefundRowCount" | "knownGrossRowCount" | "knownTaxRowCount">>(
     (summary, row) => ({
       netSalesCents: (summary.netSalesCents ?? 0) + readNetSalesCents(row),
       refundAmountCents: (summary.refundAmountCents ?? 0) + readRefundAmountCents(row),
@@ -392,6 +407,14 @@ export const summarizeSalesReportPdfRows = (
 
   return {
     ...summary,
+    knownNetSalesCents: summary.netSalesCents ?? 0,
+    knownRefundAmountCents: summary.refundAmountCents ?? 0,
+    knownGrossSalesCents: summary.grossSalesCents ?? 0,
+    knownTaxCents: summary.taxCents ?? 0,
+    knownNetRowCount: rows.filter(hasNetSalesValue).length,
+    knownRefundRowCount: rows.filter(hasRefundAmountValue).length,
+    knownGrossRowCount: rows.filter(hasGrossSalesValue).length,
+    knownTaxRowCount: rows.filter(hasTaxValue).length,
     grossSalesCents: rows.some((row) => !hasGrossSalesValue(row))
       ? null : summary.grossSalesCents,
     refundAmountCents: rows.some((row) => !hasRefundAmountValue(row))
@@ -844,11 +867,13 @@ const drawDashboardPage = (
     x: MARGIN,
     y,
     width: metricWidth,
-    label: usesSharedSalesBasis ? "Sales before refunds" : "Gross sales",
+    label: summary.grossSalesCents == null ? "Known sales subtotal" : (usesSharedSalesBasis ? "Sales before refunds" : "Gross sales"),
     value: usesSharedSalesBasis && summary.grossSalesCents == null
-      ? "Unavailable"
+      ? formatKnownSalesReportSubtotal(summary.knownGrossSalesCents, summary.knownGrossRowCount)
       : formatCurrency(summary.grossSalesCents),
-    detail: usesSharedSalesBasis
+    detail: summary.grossSalesCents == null
+      ? `${formatInteger(rows.length - summary.knownGrossRowCount)} rows omitted; details missing`
+      : usesSharedSalesBasis
       ? (summary.taxCents == null
         ? "Sales tax unavailable"
         : `Excludes tax; ${formatCurrency(summary.taxCents)} separated`)
@@ -859,13 +884,15 @@ const drawDashboardPage = (
     x: MARGIN + (metricWidth + metricGap),
     y,
     width: metricWidth,
-    label: usesSharedSalesBasis
+    label: summary.refundAmountCents == null ? "Known refund impact" : usesSharedSalesBasis
       ? "Refund deductions"
       : "Reported refunds",
     value: usesSharedSalesBasis && summary.refundAmountCents == null
-      ? "Unavailable"
+      ? formatKnownSalesReportSubtotal(summary.knownRefundAmountCents, summary.knownRefundRowCount, true)
       : formatRefundImpactCurrency(summary.refundAmountCents),
-    detail: usesSharedSalesBasis
+    detail: summary.refundAmountCents == null
+      ? `${formatInteger(rows.length - summary.knownRefundRowCount)} rows omitted; details missing`
+      : usesSharedSalesBasis
       ? `${formatCurrency(summary.refundRequestDeductionCents)} requests; ${formatCurrency(summary.refundReversalCents)} reversals${summary.refundLegacyPaidDeductionCents > 0 ? `; ${formatCurrency(summary.refundLegacyPaidDeductionCents)} prior paid` : ''}`
       : "Reported refund adjustments",
   });
@@ -873,11 +900,13 @@ const drawDashboardPage = (
     x: MARGIN + (metricWidth + metricGap) * 2,
     y,
     width: metricWidth,
-    label: usesSharedSalesBasis ? "Net sales" : "Sales after refunds",
+    label: summary.netSalesCents == null ? "Known net subtotal" : (usesSharedSalesBasis ? "Net sales" : "Sales after refunds"),
     value: usesSharedSalesBasis && summary.netSalesCents == null
-      ? "Unavailable"
+      ? formatKnownSalesReportSubtotal(summary.knownNetSalesCents, summary.knownNetRowCount)
       : formatCurrency(summary.netSalesCents),
-    detail: usesSharedSalesBasis
+    detail: summary.netSalesCents == null
+      ? `Partial; ${formatInteger(rows.length - summary.knownNetRowCount)} rows omitted`
+      : usesSharedSalesBasis
       ? `${formatCurrency(summary.refundPaidContextCents)} paid in period; ${formatCurrency(summary.refundOutstandingContextCents)} outstanding`
       : "Gross sales less reported refunds",
   });
@@ -903,7 +932,9 @@ const drawDashboardPage = (
   drawText(
     page,
     fonts,
-    (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
+    (summary.netSalesCents == null
+      ? `Partial: ${formatInteger(summary.unresolvedSalesCount)} sales and ${formatInteger(summary.unresolvedRefundCount)} refund components have missing amount or original-date tax details. Known subtotals omit unavailable rows. * marks partial machine subtotals. `
+      : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
       ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
       : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope."),
     {
