@@ -1,0 +1,64 @@
+-- #1824: retained Nayax sales carry the exact original source reader even when
+-- a former location has no current reader or explicit replacement association.
+-- Source imports already bind these settled USD facts to TGPACI_USA_DB. Use
+-- that original tuple for tax; do not infer physical ownership or move money.
+do $source_reader$
+declare definition text; signature text; anchor text;
+begin
+  foreach signature in array array[
+    'private.machine_sales_daily_components(uuid,date,date)',
+    'private.machine_sales_daily_waterfall_components(uuid,date,date)',
+    'private.machine_sales_daily_receipt_components(uuid,date,date)'] loop
+    definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
+    foreach anchor in array array[
+      E'fact.source=''nayax_scheduled_report'' and exists(select 1 from private.machine_nayax_reader_associations history\n          where history.reporting_machine_id=fact.reporting_machine_id)'] loop
+      if cardinality(string_to_array(definition,anchor))<>2 then
+        raise exception 'Original source reader extraction seam changed: % / %',signature,anchor;
+      end if;
+      definition:=replace(definition,anchor,
+        $trusted$fact.source='nayax_scheduled_report'
+          and fact.raw_payload->>'actorId' in ('2001508696','2003563806')
+          and coalesce(nullif(fact.raw_payload->>'currencyCode',''),'USD')='USD'
+          and coalesce(nullif(fact.raw_payload->>'accountKey',''),'TGPACI_USA_DB')='TGPACI_USA_DB'
+          and btrim(fact.raw_payload->>'providerMachineId') ~ '^[0-9]{1,30}$'$trusted$);
+    end loop;
+    execute definition;
+  end loop;
+  definition:=pg_get_functiondef('private.normalize_original_reader_amount_cents(uuid,text,date,bigint,text,numeric,bigint,boolean,text,text)'::regprocedure);
+  anchor:='if p_source not in (''nayax_scheduled_report'',''card_authority_daily'') or not has_history then';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original reader fallback seam changed'; end if;
+  definition:=replace(definition,anchor,
+    'if p_source not in (''nayax_scheduled_report'',''card_authority_daily'') or (p_source=''card_authority_daily'' and not has_history) then');
+  anchor:='elsif p_source in (''nayax_scheduled_report'',''card_authority_daily'') and has_history then';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Original reader normalization seam changed'; end if;
+  definition:=replace(definition,anchor,
+    'elsif p_source=''nayax_scheduled_report'' or (p_source=''card_authority_daily'' and has_history) then');
+  execute definition;
+end;
+$source_reader$;
+
+-- Exact provider refund originals already have a validated event/DTM/fact join.
+-- Preserve that join and actual proportional original tax; only its missing
+-- split may use the same original reader's verified rate at purchase date.
+do $provider_original_tax$
+declare definition text; anchor text;
+begin
+  definition:=replace(pg_get_functiondef('private.provider_refund_original_source_tax_cents(uuid,bigint)'::regprocedure),E'\r\n',E'\n');
+  anchor:=E'when fact.source=''nayax_scheduled_report'' and exists(select 1 from private.machine_nayax_reader_associations history\n      where history.reporting_machine_id=fact.reporting_machine_id) then original_reader.tax_cents';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Provider original reader proof seam changed'; end if;
+  definition:=replace(definition,anchor,
+    $proof$when fact.source='nayax_scheduled_report' and event.account_key='TGPACI_USA_DB'
+      and event.provider_actor_id in ('2001508696','2003563806')
+      then original_reader.tax_cents$proof$);
+  anchor:='case when count(distinct fact.id)=1 then';
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Provider original uniqueness seam changed'; end if;
+  definition:=replace(definition,anchor,'case when count(distinct fact.id)=1 and bool_and(coalesce(resolved_tax.original_tax_cents between 0 and money.original_amount_cents,false)) then');
+  anchor:='and resolved_tax.original_tax_cents between 0 and money.original_amount_cents';
+  -- Count all exact eligible originals before rejecting unknown tax. Filtering
+  -- an unknown second fact first would falsely make the known fact unique.
+  if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Provider original tax filter seam changed'; end if;
+  definition:=replace(definition,anchor,'');
+  execute definition;
+end;
+$provider_original_tax$;
+select pg_notify('pgrst','reload schema');

@@ -11,7 +11,7 @@ select no_plan();
 set local session_replication_role=replica;
 update public.machine_sales_facts f
 set net_sales_cents=1080,tax_cents=0,
-  raw_payload=jsonb_build_object('amountBasis','tax_inclusive','providerMachineId',m.nayax_machine_id)
+  raw_payload=jsonb_build_object('amountBasis','tax_inclusive','actorId','2003563806','currencyCode','USD','providerMachineId',m.nayax_machine_id)
 from public.reporting_machines m where m.id=f.reporting_machine_id
   and f.net_sales_cents>0 and f.payment_method='credit'
   and f.reporting_location_id='b1824200-0000-4000-8000-000000000001';
