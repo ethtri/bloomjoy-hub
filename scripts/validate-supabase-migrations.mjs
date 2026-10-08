@@ -373,7 +373,7 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
       \\ir fixtures/original_reader_atomic_guard.inc
       rollback;\n`, 'utf8');
   const sheetRefundSql = fs.readFileSync(path.join(migrationsDir,
-    '20261008210521_legacy_refund_source_payment_evidence.sql'), 'utf8');
+    '20261008221944_legacy_refund_source_payment_evidence.sql'), 'utf8');
   fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[1]),
     `begin;\nselect set_config('bloomjoy.test.sheet_refund_migration',
       $actual_sheet_refund_migration$${sheetRefundSql}$actual_sheet_refund_migration$,true);
