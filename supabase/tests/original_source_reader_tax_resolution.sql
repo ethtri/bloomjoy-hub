@@ -86,6 +86,18 @@ values(repeat('7',64),repeat('2',64),'TGPACI_USA_DB','2003563806','4','184200010
 set local session_replication_role=origin;
 select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),'2099-09-01'::date,'Completed inactive import follows exact approved promoted fact');
 select is(private.provider_refund_original_source_tax_cents('b1842500-0000-4000-8000-000000000001',106),6::bigint,'Promoted original reader tax supports refund without mutating immutable DTM audit');
+set local session_replication_role=replica;
+insert into machine_sales_facts(id,reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,tax_cents,source,source_row_hash,raw_payload)
+select 'b1842400-0000-4000-8000-000000000003',reporting_machine_id,reporting_location_id,sale_date,payment_method,net_sales_cents,transaction_count,80,source,'mixed-promoted-original',raw_payload from machine_sales_facts where id='b1842400-0000-4000-8000-000000000001';
+insert into nayax_dtm_export_rows(file_digest,source_row_hash,provider_actor_id,provider_machine_id,provider_site_id,provider_transaction_id,settlement_amount_cents,machine_settled_at,provider_type,machine_name_hash,mapping_disposition,financial_disposition,history_scope_disposition,disposition,fact_id)
+select repeat('9',64),repeat('9',64),provider_actor_id,provider_machine_id,provider_site_id,provider_transaction_id,settlement_amount_cents,machine_settled_at,provider_type,machine_name_hash,'canonical',financial_disposition,history_scope_disposition,'fact_linked','b1842400-0000-4000-8000-000000000003' from nayax_dtm_export_rows where file_digest=repeat('1',64);
+set local session_replication_role=origin;
+select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'A linked and promoted original together cannot take fast-path false uniqueness');
+select is(private.provider_refund_original_source_tax_cents('b1842500-0000-4000-8000-000000000001',106),null::bigint,'Mixed linked and promoted tax candidates preserve ambiguity');
+set local session_replication_role=replica;
+delete from nayax_dtm_export_rows where file_digest=repeat('9',64);
+delete from machine_sales_facts where id='b1842400-0000-4000-8000-000000000003';
+set local session_replication_role=origin;
 update nayax_pending_sales set disposition='excluded' where source_order_hash=repeat('7',64);
 select is(private.provider_refund_original_sale_date('b1842500-0000-4000-8000-000000000001'),null::date,'Unpromoted receipt cannot supply original purchase');
 update nayax_pending_sales set disposition='promoted',account_key='OTHER_ACCOUNT' where source_order_hash=repeat('7',64);

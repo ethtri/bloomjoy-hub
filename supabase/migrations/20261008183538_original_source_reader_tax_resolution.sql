@@ -78,12 +78,14 @@ $provider_original_tax$;
 -- its exact pending receipt was subsequently promoted. Follow that existing
 -- promotion ledger, preserving both audit records and financial ownership.
 do $promoted_original$
-declare definition text; signature text; anchor text;
+declare definition text; signature text; anchor text; direct_query text;
 begin
   foreach signature in array array[
     'private.provider_refund_original_sale_date(uuid)',
     'private.provider_refund_original_source_tax_cents(uuid,bigint)'] loop
-    definition:=pg_get_functiondef(signature::regprocedure);
+    definition:=replace(pg_get_functiondef(signature::regprocedure),E'\r\n',E'\n');
+    direct_query:=substring(definition from E'begin\n(.*)\n  return result;');
+    if direct_query is null then raise exception 'Provider prepared query seam changed: %',signature; end if;
     definition:=replace(definition,'''fact_linked'', ''fact_linked+refund_applied''','''fact_linked'',''fact_linked+refund_applied''');
     anchor:='original.disposition in (''fact_linked'',''fact_linked+refund_applied'')';
     if cardinality(string_to_array(definition,anchor))<>2 then raise exception 'Provider original disposition seam changed: %',signature; end if;
@@ -116,6 +118,22 @@ begin
           fact.source_order_hash=original.source_order_hash
           and fact.raw_payload->>'historicalInactiveExactLinkRecovery'='true'
           and fact.raw_payload->>'manualDtmEvidence'='true'))$identity$);
+    -- Keep the original indexed, prepared join for ordinary linked originals.
+    -- The promoted resolution expression otherwise changes the hot tax plan.
+    -- Any exact queued historical candidate selects the complete query below,
+    -- so a linked and promoted ambiguity still counts every eligible fact.
+    definition:=replace(definition,E'begin\n',E'begin\n' ||
+      $fast$  if not exists(select 1 from public.nayax_provider_refund_events event
+        join public.nayax_dtm_export_rows original
+          on original.provider_actor_id=event.provider_actor_id
+          and original.provider_machine_id=event.provider_machine_id
+          and original.provider_transaction_id=event.original_transaction_id
+        where event.adjustment_id=p_adjustment_id
+          and original.fact_id is null and original.disposition='queued_excluded'
+          and original.mapping_disposition='historical_inactive_exact_link'
+          and original.history_scope_disposition='in_scope'
+          and original.financial_disposition='eligible') then
+$fast$ || direct_query || E'\n  return result;\n  end if;\n');
     execute definition;
   end loop;
 end;

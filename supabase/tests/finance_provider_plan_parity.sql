@@ -42,6 +42,19 @@ create temporary table prior_finance_helper_outputs as select i.*,
   private.provider_refund_original_source_tax_cents(i.adjustment_id,i.amount) source_tax
 from finance_helper_inputs i;
 do $$declare r record;begin for r in select definition from optimized_finance_helpers loop execute r.definition;end loop;end$$;
+-- Ordinary linked originals retain the indexed prepared join. This populated
+-- budget catches a promotion resolver accidentally scanning all 125,440 facts
+-- for each of the 1,000 linked originals, without waiting for a workflow timeout.
+create temporary table linked_original_plan_budget as select
+  current_setting('statement_timeout') prior_timeout,clock_timestamp() started_at;
+set local statement_timeout='8s';
+create temporary table linked_original_tax_probe as select adjustment_id,
+  private.provider_refund_original_source_tax_cents(adjustment_id,540) source_tax
+from finance_provider_originals;
+select set_config('statement_timeout',(select prior_timeout from linked_original_plan_budget),true);
+select ok((select count(*) from linked_original_tax_probe)=1000
+  and clock_timestamp()-(select started_at from linked_original_plan_budget)<interval '8 seconds',
+  'One thousand ordinary linked originals keep the fast indexed tax plan');
 select is(public.get_finance_reporting('2026-01-01','2026-10-07')-'generatedAt',
   (select annual from prior_finance_payloads),'Complete populated annual Finance matches prior functions');
 select is(public.get_finance_reporting('2026-01-01','2026-10-07',array[md5('annual-machine-1')::uuid])-'generatedAt',
@@ -50,8 +63,13 @@ select is(public.get_finance_reporting('2026-01-01','2026-10-07',null,array['b18
   (select location from prior_finance_payloads),'Location-filtered complete Finance payload matches');
 select is((select count(*) from prior_finance_helper_outputs p where
   p.original_date is distinct from private.provider_refund_original_sale_date(p.adjustment_id)
-  or p.source_tax is distinct from private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount)),
-  0::bigint,'All 7,002 scalar date/tax inputs including NULL and bounds match');
+  or ((p.source_tax is not null or p.amount is null or p.amount<0 or p.amount>1080)
+    and p.source_tax is distinct from private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount))),
+  0::bigint,'All scalar dates, previously known tax and NULL/out-of-bounds inputs retain prior results');
+select ok((select count(*) from prior_finance_helper_outputs p where
+  p.source_tax is null and p.amount between 0 and 1080
+  and private.provider_refund_original_source_tax_cents(p.adjustment_id,p.amount) is not null)>0,
+  'Exact source reader resolves supported tax even without historical association');
 select is((select count(*) from prior_finance_helper_outputs where amount=540 and source_tax is null)>0,
   true,'Unknown original-date source tax remains NULL');
 select is((select count(*) from prior_finance_helper_outputs where amount=540 and source_tax=0)>0,
