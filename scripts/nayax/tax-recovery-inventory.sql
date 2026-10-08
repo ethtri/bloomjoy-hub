@@ -99,7 +99,9 @@ select affected.*,
   count(distinct (evidence.account_key,evidence.reader_id)) filter(where evidence.account_key is not null and evidence.reader_id is not null) source_tuple_count,
   coalesce(array_agg(distinct evidence.observation_id) filter(where evidence.observation_id is not null),array[]::uuid[]) applicable_observation_ids,
   case when count(distinct evidence.reader_id)=0 then 'original_reader_unavailable'
-    when count(distinct (evidence.account_key,evidence.reader_id)) filter(where evidence.account_key is not null and evidence.reader_id is not null)<>1
+    when count(distinct evidence.reader_id)<>1
+      or count(*) filter(where evidence.reader_id is not null and evidence.account_key is null)>0
+      or count(distinct (evidence.account_key,evidence.reader_id)) filter(where evidence.account_key is not null and evidence.reader_id is not null)<>1
       then 'original_account_reader_requires_review'
     when count(evidence.observation_id)=0 then 'dated_tax_evidence_unavailable'
     else 'dated_evidence_present_inspect_normalizer' end recovery_status
