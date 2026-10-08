@@ -781,4 +781,3 @@ Report status normalization and preserves audited zero monthly snapshots only
 while they still match empty source facts. The verified-zero normalizer in
 PR #1830 is a deployment dependency. Tax, rate, source revision, cash policy,
 and import checks remain in place; this does not execute payment.
-
