@@ -17,7 +17,31 @@ import {
   decodeBase64,
 } from "./partner-report-export.ts";
 
+export type SalesReportTaxPolicyEvidence = {
+  status: "provisional";
+  estimatedSalesExTaxCents: number | null;
+  estimatedRefundExTaxCents: number | null;
+  estimatedNetExTaxCents: number | null;
+  provisionalSalesComponents: number;
+  provisionalRefundComponents: number;
+  provisionalNetComponents: number;
+};
+
 export type SalesReportPdfRow = {
+  tax_policy_evidence?: SalesReportTaxPolicyEvidence | null;
+  taxPolicyEvidence?: SalesReportTaxPolicyEvidence | null;
+  gross_sales_unknown_count?: number;
+  grossSalesUnknownCount?: number;
+  refund_amount_unknown_count?: number;
+  refundAmountUnknownCount?: number;
+  net_sales_unknown_count?: number;
+  netSalesUnknownCount?: number;
+  customer_receipts_cents?: number | null;
+  customerReceiptsCents?: number | null;
+  customer_receipts_known_cents?: number | null;
+  customerReceiptsKnownCents?: number | null;
+  customer_receipts_unknown_count?: number;
+  customerReceiptsUnknownCount?: number;
   gross_sales_known_cents?: number | null;
   grossSalesKnownCents?: number | null;
   net_sales_known_cents?: number | null;
@@ -96,6 +120,15 @@ export const getSalesReportCalculationVersion = (
 };
 
 export type SalesReportPdfSummary = {
+  estimatedSalesExTaxCents?: number | null;
+  estimatedRefundExTaxCents?: number | null;
+  estimatedNetExTaxCents?: number | null;
+  provisionalSalesComponents?: number;
+  provisionalRefundComponents?: number;
+  provisionalNetComponents?: number;
+  unestimatedSalesComponents?: number;
+  unestimatedRefundComponents?: number;
+  unestimatedNetComponents?: number;
   knownNetContributorRowCount?: number;
   knownRefundContributorRowCount?: number;
   knownGrossContributorRowCount?: number;
@@ -175,7 +208,7 @@ type MachineRollup = {
   rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v6";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v7";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -347,6 +380,65 @@ const hasTaxValue = (row: SalesReportPdfRow): boolean =>
 const knownGross = (row: SalesReportPdfRow) => row.gross_sales_known_cents ?? row.grossSalesKnownCents ?? row.gross_sales_cents ?? row.grossSalesCents;
 const knownNet = (row: SalesReportPdfRow) => row.net_sales_known_cents ?? row.netSalesKnownCents ?? row.net_sales_cents ?? row.netSalesCents;
 const knownRefund = (row: SalesReportPdfRow) => row.refund_amount_known_cents ?? row.refundAmountKnownCents ?? row.refund_amount_cents ?? row.refundAmountCents;
+export const readSalesReportTaxPolicyEvidence = (row: SalesReportPdfRow): SalesReportTaxPolicyEvidence | null => {
+  const evidence = row.tax_policy_evidence ?? row.taxPolicyEvidence;
+  if (evidence == null) return null;
+  const unknownCounts=[row.gross_sales_unknown_count ?? row.grossSalesUnknownCount,
+    row.refund_amount_unknown_count ?? row.refundAmountUnknownCount,
+    row.net_sales_unknown_count ?? row.netSalesUnknownCount];
+  const coveredCounts=[evidence.provisionalSalesComponents,evidence.provisionalRefundComponents,evidence.provisionalNetComponents];
+  const amounts=[evidence.estimatedSalesExTaxCents,evidence.estimatedRefundExTaxCents,evidence.estimatedNetExTaxCents];
+  if (evidence.status !== "provisional" ||
+    !coveredCounts
+      .every(value => Number.isSafeInteger(value) && value >= 0) ||
+    !unknownCounts.every((value,index)=>Number.isSafeInteger(value) && value! >= coveredCounts[index]) ||
+    !amounts.every((value,index) => (value === null || Number.isSafeInteger(value)) &&
+      (value === null) === (coveredCounts[index] === 0))) {
+    throw new Error("Sales report provisional tax evidence is invalid.");
+  }
+  return evidence;
+};
+
+const safeEstimateSum = (values:number[]):number => values.reduce((sum,value)=>{
+  const total=sum+value;
+  if (!Number.isSafeInteger(value) || !Number.isSafeInteger(total)) {
+    throw new Error("Sales report provisional tax total is outside the supported amount range.");
+  }
+  return total;
+},0);
+
+const remainingEstimateComponents = (row: SalesReportPdfRow) => {
+  const evidence=readSalesReportTaxPolicyEvidence(row);
+  return {
+    sales:Math.max(0,numberValue(row.gross_sales_unknown_count ?? row.grossSalesUnknownCount)- (evidence?.provisionalSalesComponents ?? 0)),
+    refunds:Math.max(0,numberValue(row.refund_amount_unknown_count ?? row.refundAmountUnknownCount)- (evidence?.provisionalRefundComponents ?? 0)),
+    net:Math.max(0,numberValue(row.net_sales_unknown_count ?? row.netSalesUnknownCount)- (evidence?.provisionalNetComponents ?? 0)),
+  };
+};
+export const summarizeSalesReportEstimates = (rows: SalesReportPdfRow[]) => {
+  const evidence = rows.map(readSalesReportTaxPolicyEvidence).filter((value): value is SalesReportTaxPolicyEvidence => value !== null);
+  const subtotal = (field: "estimatedSalesExTaxCents" | "estimatedRefundExTaxCents" | "estimatedNetExTaxCents") => {
+    const values = evidence.map(value => value[field]).filter((value): value is number => value !== null);
+    return values.length ? safeEstimateSum(values) : null;
+  };
+  return {
+    estimatedSalesExTaxCents: subtotal("estimatedSalesExTaxCents"),
+    estimatedRefundExTaxCents: subtotal("estimatedRefundExTaxCents"),
+    estimatedNetExTaxCents: subtotal("estimatedNetExTaxCents"),
+    provisionalSalesComponents: safeEstimateSum(evidence.map(value=>value.provisionalSalesComponents)),
+    provisionalRefundComponents: safeEstimateSum(evidence.map(value=>value.provisionalRefundComponents)),
+    provisionalNetComponents: safeEstimateSum(evidence.map(value=>value.provisionalNetComponents)),
+    unestimatedSalesComponents: safeEstimateSum(rows.map(row=>remainingEstimateComponents(row).sales)),
+    unestimatedRefundComponents: safeEstimateSum(rows.map(row=>remainingEstimateComponents(row).refunds)),
+    unestimatedNetComponents: safeEstimateSum(rows.map(row=>remainingEstimateComponents(row).net)),
+  };
+};
+
+export const formatSalesReportEstimateSplit = (known: number | null | undefined, estimated: number | null, refundImpact = false, remainingComponents = 0): string => {
+  const format = refundImpact ? formatRefundImpactCurrency : formatCurrency;
+  const total=safeEstimateSum([known??0,estimated??0]);
+  return `Confirmed ${known == null ? "Unavailable" : format(known)} | Estimated ${estimated == null ? "Unavailable" : format(estimated)} | Known + estimated${remainingComponents > 0 ? " subtotal" : ""} ${known == null && estimated == null ? "Unavailable" : format(total)}`;
+};
 export const formatSalesReportRowAmount = (row: SalesReportPdfRow, metric: "gross" | "net" | "refund"): string => {
   const value = metric === "gross" ? knownGross(row) : metric === "net" ? knownNet(row) : knownRefund(row);
   if (value == null) return "Unavailable";
@@ -424,6 +516,7 @@ export const summarizeSalesReportPdfRows = (
 
   return {
     ...summary,
+    ...summarizeSalesReportEstimates(rows),
     knownNetSalesCents: rows.reduce((sum, row) => sum + numberValue(knownNet(row)), 0),
     knownRefundAmountCents: rows.reduce((sum, row) => sum + numberValue(knownRefund(row)), 0),
     knownGrossSalesCents: rows.reduce((sum, row) => sum + numberValue(knownGross(row)), 0),
@@ -1022,7 +1115,8 @@ const drawDashboardPage = (
     fonts,
     (summary.netSalesCents == null
       ? `Partial: ${formatInteger(summary.unresolvedSalesCount)} sales and ${formatInteger(summary.unresolvedRefundCount)} refund components have missing amount or original-date tax details. Known subtotals retain calculable components; missing components are excluded. * marks partial row and machine subtotals. `
-      : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
+      : "") + (rows.some(row => readSalesReportTaxPolicyEvidence(row) !== null)
+      ? "Provisional estimates are listed separately after this summary; confirmed figures remain unchanged. " : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
       ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
       : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope."),
     {
@@ -1271,6 +1365,61 @@ const drawAppendixHeader = (
   });
 };
 
+const drawProvisionalEstimatePages = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  assets: PdfAssets,
+  rows: SalesReportPdfRow[],
+  context: Required<SalesReportPdfContext>,
+) => {
+  const estimateRows = rows.filter(row => readSalesReportTaxPolicyEvidence(row) !== null);
+  if (!estimateRows.length) return;
+  const totals = summarizeSalesReportEstimates(rows);
+  const knownTotal = (read: (row: SalesReportPdfRow) => number | null | undefined) => {
+    const values = rows.map(read).filter((value): value is number => value != null);
+    return values.length ? safeEstimateSum(values) : null;
+  };
+  const rowsPerPage = 5;
+  for (let offset = 0; offset < estimateRows.length; offset += rowsPerPage) {
+    const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    drawAppendixHeader(page, fonts, assets, "Provisional tax estimates", context.reportReference);
+    drawText(page, fonts,
+      "Estimated amounts cover only unresolved components with a provisional rate. They are separate from confirmed figures and do not authorize payouts. Unknown components may remain; this is not a complete accounting total.",
+      { x: MARGIN, y: 699, size: 9, maxWidth: CONTENT_WIDTH, lineHeight: 12, color: COLORS.muted });
+    let y = 644;
+    const totalLines = [
+      `Sales ex tax: ${formatSalesReportEstimateSplit(knownTotal(knownGross), totals.estimatedSalesExTaxCents, false, totals.unestimatedSalesComponents)}`,
+      `Refund impact: ${formatSalesReportEstimateSplit(knownTotal(knownRefund), totals.estimatedRefundExTaxCents, true, totals.unestimatedRefundComponents)}`,
+      `Net sales: ${formatSalesReportEstimateSplit(knownTotal(knownNet), totals.estimatedNetExTaxCents, false, totals.unestimatedNetComponents)}`,
+      `${formatInteger(totals.provisionalSalesComponents)} provisional sales components; ${formatInteger(totals.provisionalRefundComponents)} provisional refund components`,
+      `Still unestimated: ${formatInteger(totals.unestimatedSalesComponents)} sales; ${formatInteger(totals.unestimatedRefundComponents)} refund; ${formatInteger(totals.unestimatedNetComponents)} net components`,
+    ];
+    for (const line of totalLines) {
+      drawText(page, fonts, line, { x: MARGIN, y, size: 8.2, maxWidth: CONTENT_WIDTH, lineHeight: 11, color: COLORS.ink });
+      y -= 20;
+    }
+    y -= 14;
+    for (const row of estimateRows.slice(offset, offset + rowsPerPage)) {
+      const evidence = readSalesReportTaxPolicyEvidence(row)!;
+      const remaining=remainingEstimateComponents(row);
+      drawText(page, fonts, `${formatDateShort(readPeriodStart(row))} | ${readMachineLabel(row)} | ${readPaymentMethod(row)}`,
+        { x: MARGIN, y, size: 8.3, maxWidth: CONTENT_WIDTH, lineHeight: 10, font: fonts.bold, color: COLORS.ink });
+      y -= 21;
+      for (const line of [
+        `Sales: ${formatSalesReportEstimateSplit(knownGross(row), evidence.estimatedSalesExTaxCents, false, remaining.sales)}`,
+        `Refund: ${formatSalesReportEstimateSplit(knownRefund(row), evidence.estimatedRefundExTaxCents, true, remaining.refunds)}`,
+        `Net: ${formatSalesReportEstimateSplit(knownNet(row), evidence.estimatedNetExTaxCents, false, remaining.net)}`,
+        `Still unestimated: ${remaining.sales} sales; ${remaining.refunds} refund; ${remaining.net} net components`,
+      ]) {
+        drawText(page, fonts, line, { x: MARGIN, y, size: 7.3, maxWidth: CONTENT_WIDTH, lineHeight: 10, color: COLORS.muted });
+        y -= 12;
+      }
+      y -= 12;
+    }
+    drawFooter(page, fonts, pdfDoc.getPageCount(), context.reportReference);
+  }
+};
+
 const drawReportRowsPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
@@ -1475,7 +1624,8 @@ export const buildSalesReportPdf = async ({
     pdfDoc, fonts, assets, rows, finalSummary, context, machineRollups,
     calculationVersion,
   );
-  drawReportRowsPage(pdfDoc, fonts, assets, rows, context, 2, calculationVersion);
+  drawProvisionalEstimatePages(pdfDoc, fonts, assets, rows, context);
+  drawReportRowsPage(pdfDoc, fonts, assets, rows, context, pdfDoc.getPageCount() + 1, calculationVersion);
 
   // Use Deno's native deflate implementation for finished page streams instead
   // of repeating pdf-lib's JavaScript compression work on hundreds of pages.

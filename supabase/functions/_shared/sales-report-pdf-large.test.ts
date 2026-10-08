@@ -49,3 +49,36 @@ for (const size of [225, 9509, 15680]) {
     assertEquals(renderedRows, size, "No annual rows may be truncated");
   });
 }
+
+Deno.test("annual provisional sections retain all confirmed rows and paginate every estimated component", async () => {
+  const rows = representativeRows(9509);
+  const confirmed = summarizeSalesReportPdfRows(rows);
+  for (const row of rows.slice(0,19)) {
+    row.gross_sales_unknown_count=0;
+    row.refund_amount_unknown_count=2;
+    row.net_sales_unknown_count=3;
+    row.tax_policy_evidence = {status:"provisional",estimatedSalesExTaxCents:null,
+      estimatedRefundExTaxCents:100,estimatedNetExTaxCents:-100,
+      provisionalSalesComponents:0,provisionalRefundComponents:1,provisionalNetComponents:1};
+  }
+  const before = JSON.stringify(rows);
+  const summary = summarizeSalesReportPdfRows(rows);
+  assertEquals(summary.knownNetSalesCents,confirmed.knownNetSalesCents);
+  assertEquals(summary.netSalesCents,confirmed.netSalesCents);
+  assertEquals(summary.unresolvedRefundCount,confirmed.unresolvedRefundCount);
+  assertEquals(summary.estimatedRefundExTaxCents,1900);
+  assertEquals(summary.estimatedNetExTaxCents,-1900);
+  const pdf = await PDFDocument.load(await buildSalesReportPdf({rows,summary}));
+  assertEquals(pdf.getPageCount(),1+4+Math.ceil(9509/26));
+  assertEquals(JSON.stringify(rows),before);
+  const estimatePages = pdf.getPages().slice(1,5);
+  let rendered=0;
+  for (const page of estimatePages) {
+    const contents=page.node.Contents()!;
+    const streams=contents instanceof PDFArray ? contents.asArray().map(ref=>pdf.context.lookup(ref)) : [contents];
+    const operators=streams.map(stream=>new TextDecoder().decode(decodePDFRawStream(stream as PDFRawStream).decode())).join("");
+    const label=[...new TextEncoder().encode("Net: Confirmed")].map(value=>value.toString(16).padStart(2,"0")).join("").toUpperCase();
+    rendered+=(operators.toUpperCase().match(new RegExp(label,"g"))??[]).length;
+  }
+  assertEquals(rendered,19);
+});
