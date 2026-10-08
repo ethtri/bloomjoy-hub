@@ -16,7 +16,8 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,ma
 select md5('annual-machine-'||n)::uuid,'b1824100-0000-4000-8000-000000000001',
   'b1824200-0000-4000-8000-000000000001','Annual machine '||n,'commercial','active'
 from generate_series(1,28)n;
-update private.refund_request_recognition_rollout set activated_at=now() where singleton;
+create temporary table annual_activation as
+select * from private.activate_refund_request_recognition('pgTAP annual read volume');
 
 -- 125,440 raw facts, including 109,760 retained zeroed source observations.
 -- 15,680 daily report rows exceed both 1,000 and 10,000 API response caps.

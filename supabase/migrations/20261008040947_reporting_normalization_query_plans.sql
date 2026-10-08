@@ -15,8 +15,18 @@ create or replace function private.normalize_reporting_treated_amount_cents(
 language plpgsql stable security definer rows 1 set search_path='' as $$
 declare source_rate numeric;
 begin
-  select source.rate_percent into source_rate
-  from private.resolve_reporting_machine_source_tax(p_machine_id,p_purchase_date) source;
+  -- Cash, zero, separately sourced tax and rate-independent bases never use
+  -- a percentage. Avoid repeating the dated evidence lookup for those facts.
+  -- CASE preserves NULL tender/basis semantics of the normalization below.
+  if (case when p_tender='cash' or p_amount_cents=0 then false
+    when p_tender='card' and p_amount_basis in ('tax_inclusive','unknown','separate_tax')
+      and p_separate_tax_cents is not null then false
+    when lower(btrim(coalesce(p_amount_basis,''))) in
+      ('tax_inclusive','gross_customer_charge_minor','legacy_percentage_of_gross_estimate') then true
+    else false end) then
+    select source.rate_percent into source_rate
+    from private.resolve_reporting_machine_source_tax(p_machine_id,p_purchase_date) source;
+  end if;
   return query
   select normalized.recorded_amount_cents,normalized.tax_exclusive_amount_cents,
     normalized.tax_cents,normalized.amount_basis,normalized.normalization_status,
@@ -46,6 +56,12 @@ create or replace function private.normalize_original_reader_amount_cents(
 language plpgsql stable security definer rows 1 set search_path='' as $$
 declare has_history boolean; original_rate numeric;
 begin
+  if p_source not in ('nayax_scheduled_report','card_authority_daily') then
+    return query select * from private.normalize_reporting_treated_amount_cents(
+      p_machine_id,p_tender,p_purchase_date,p_amount_cents,p_amount_basis,
+      p_tax_rate_percent,p_separate_tax_cents,p_preserve_basis);
+    return;
+  end if;
   select exists(select 1 from private.machine_nayax_reader_associations history
     where history.reporting_machine_id=p_machine_id) into has_history;
   if p_source not in ('nayax_scheduled_report','card_authority_daily') or not has_history then
@@ -53,6 +69,11 @@ begin
       p_machine_id,p_tender,p_purchase_date,p_amount_cents,p_amount_basis,
       p_tax_rate_percent,p_separate_tax_cents,p_preserve_basis);
   elsif p_source in ('nayax_scheduled_report','card_authority_daily') and has_history then
+    if (case when p_tender='cash' or p_amount_cents=0 then false
+      when p_separate_tax_cents is not null then false
+      when lower(btrim(coalesce(p_amount_basis,''))) in
+        ('tax_inclusive','gross_customer_charge_minor','legacy_percentage_of_gross_estimate') then true
+      else false end) then
     select case when evidence.classification='verified_tax' then evidence.rate_percent end
     into original_rate from private.nayax_machine_tax_observations evidence
     where evidence.account_key='TGPACI_USA_DB'
@@ -61,6 +82,7 @@ begin
       and coalesce(evidence.effective_end_date,'infinity'::date)>=p_purchase_date
     order by (evidence.classification<>'unavailable') desc,
       evidence.effective_start_date desc,evidence.observed_at desc,evidence.id limit 1;
+    end if;
     return query select * from private.normalize_financial_amount_cents(p_amount_cents,
       case when p_tender='cash' or p_amount_cents=0 then 'tax_exclusive'
         when p_separate_tax_cents is not null then 'separate_tax'
@@ -81,6 +103,12 @@ create or replace function private.normalize_refund_original_reader_amount_cents
 language plpgsql stable security definer rows 1 set search_path='' as $$
 declare has_history boolean;
 begin
+  if p_tender='cash' or p_amount_basis='tax_exclusive' or p_separate_tax_cents is not null then
+    return query select * from private.normalize_reporting_treated_amount_cents(
+      p_machine_id,p_tender,p_purchase_date,p_amount_cents,p_amount_basis,
+      p_tax_rate_percent,p_separate_tax_cents,p_preserve_basis);
+    return;
+  end if;
   select exists(select 1 from private.machine_nayax_reader_associations history
     where history.reporting_machine_id=p_machine_id) into has_history;
   if p_tender='cash' or p_amount_basis='tax_exclusive' or p_separate_tax_cents is not null or not has_history then
