@@ -226,7 +226,7 @@ set local session_replication_role=replica;
 insert into reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key) values
  ('b1824300-0000-4000-8000-000000000099','b1824100-0000-4000-8000-000000000091','b1824200-0000-4000-8000-000000000091','Bounded historical correction','1824000102','TGPACI_USA_DB');
 insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date) values
- ('TGPACI_USA_DB','1824000102','2026-10-08','owner_rate_correction','verified_tax',8,'#1824; owner attestation: synthetic bounded correction; verified observation IDs=synthetic','2026-09-01','2026-09-30'),
+ ('TGPACI_USA_DB','1824000102','2026-09-30','owner_rate_correction','verified_tax',8,'#1824; owner attestation: synthetic bounded correction; verified observation IDs=synthetic','2026-09-01','2026-09-30'),
  ('TGPACI_USA_DB','1824000102','2026-10-09','finance_verified','verified_tax',10,'Synthetic independent future Finance period','2026-10-09',null);
 set local session_replication_role=origin;
 select is((select tax_exclusive_amount_cents from private.normalize_refund_original_reader_amount_cents('b1824300-0000-4000-8000-000000000099','card','2026-10-09',1100,'tax_inclusive',null,null,true)),1000::bigint,
