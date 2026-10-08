@@ -2,6 +2,7 @@ import { fetchMachineSourceInventorySnapshot, fetchImportedSourceReuseOptions, r
 import { MachineHelp } from '@/components/admin/MachineHelp';
 import { saveMachineRefundSettings } from '@/lib/machineWorkspace';
 import { MachineCashReporting } from '@/components/admin/MachineCashReporting';
+import { MachineRatePolicyPanel } from '@/components/admin/MachineRateEditor';
 import { MachinePartnershipAssignment } from '@/components/admin/MachinePartnershipAssignment';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -3626,7 +3627,8 @@ function MachineDialog({
             <h2 id="machine-reporting-title" className="text-lg font-semibold text-foreground">Reporting</h2>
             <MachinePartnershipAssignment key={machine.id} machineId={machine.id} machineName={machine.machine_label} setup={partnershipSetup} canManage={canManagePartnership} verified={Boolean(stateSource && !stateSource.archivedMapping && !stateSource.mappingConflict && !stateInventory.isError && !stateInventory.isFetching)} loading={isPartnershipSetupLoading} readError={partnershipSetupError} machineDirty={machineHasUnsavedChanges} busy={isSavingMachineChanges && !isSavingPartnership} resetVersion={partnershipResetVersion} demo={isLocalDemoMode} onDirtyChange={setPartnershipDraftDirty} onSavingChange={setIsSavingPartnership} />
             {activeTab === 'reporting' && <>
-            <p className="mt-3 text-sm text-muted-foreground">Card tax comes from verified source information. Cash has no tax deduction. Missing source information remains unresolved in reports.</p>
+            <MachineRatePolicyPanel machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />
+            {onShowTaxHistory && <details className="mt-4 border-t border-border pt-3"><summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">Legacy tax settings</summary><p className="mt-1 text-sm text-muted-foreground">These earlier configured rates are retained for reference. The effective reporting rate and saved policies are shown above.</p><Button variant="outline" className="mt-3" onClick={() => onShowTaxHistory(machine)}>View legacy rate history</Button></details>}
             <div className="mt-5"><MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} /></div>
             <EarlierMachineSales history={retainedHistory} />
             <details className="mt-4 border-t border-border pt-3">

@@ -1,4 +1,5 @@
 import type { PaymentMethod, SalesReportRow } from './reporting';
+import { taxPolicyEstimate } from './reportingTaxPolicyEvidence';
 
 export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'machines' | 'labor' | 'refunds' | 'partners';
 export type ComparisonMode = 'previous_period' | 'previous_month' | 'previous_year' | 'none';
@@ -100,17 +101,34 @@ export function knownMoney(rows: SalesReportRow[], field: 'netSalesCents' | 'gro
 export function moneyCoverage(rows: SalesReportRow[], field: Parameters<typeof knownMoney>[1] = 'netSalesCents') {
   const total = knownMoney(rows, field);
   const knownRows = rows.filter(row => knownSalesAmount(row, field) != null).length;
-  return { ...total, knownRows, noSalesRecorded: field === 'customerReceiptsCents' && rows.length > 0 && rows.every(row => row.customerReceiptsCents == null && row.customerReceiptsKnownCents == null && row.customerReceiptsUnknownCount === 0), displayValue: knownRows ? total.knownValue : null,
+  const estimate = taxPolicyEstimate(rows, field);
+  const remainingUnknownComponents = rows.reduce((sum, row) => {
+    const unknown = field === 'grossSalesCents' ? row.grossSalesUnknownCount ?? Math.max(row.unresolvedSalesCount, row.grossSalesCents == null ? 1 : 0)
+      : field === 'refundAmountCents' ? row.refundAmountUnknownCount ?? Math.max(row.unresolvedRefundCount, row.refundAmountCents == null ? 1 : 0)
+      : field === 'netSalesCents' ? row.netSalesUnknownCount ?? (row.netSalesCents == null ? 1 : 0)
+      : field === 'customerReceiptsCents' ? row.customerReceiptsUnknownCount ?? (row.customerReceiptsCents == null ? 1 : 0)
+      : row.taxCents == null ? 1 : 0;
+    const evidence = row.taxPolicyEvidence;
+    const estimated = !evidence ? 0 : field === 'grossSalesCents' && evidence.estimatedSalesExTaxCents !== null ? evidence.provisionalSalesComponents
+      : field === 'refundAmountCents' && evidence.estimatedRefundExTaxCents !== null ? evidence.provisionalRefundComponents
+      : field === 'netSalesCents' && evidence.estimatedNetExTaxCents !== null ? evidence.provisionalNetComponents : 0;
+    return sum + Math.max(0, unknown - estimated);
+  }, 0);
+  const withEstimates = estimate.value === null ? null : total.knownValue + estimate.value;
+  if (withEstimates !== null && !Number.isSafeInteger(withEstimates)) throw new Error('The report amount is too large to display accurately.');
+  return { ...total, knownRows, estimatedValue: estimate.value, estimatedRows: estimate.contributors, withEstimates, remainingUnknownComponents, noSalesRecorded: field === 'customerReceiptsCents' && rows.length > 0 && rows.every(row => row.customerReceiptsCents == null && row.customerReceiptsKnownCents == null && row.customerReceiptsUnknownCount === 0), displayValue: knownRows ? total.knownValue : null,
     status: !rows.length ? 'empty' as const : total.omittedRows ? 'partial' as const : 'complete' as const };
 }
 export function moneyCoverageNote(total: ReturnType<typeof moneyCoverage>) {
   if (total.status === 'empty') return 'No loaded records';
   if (total.noSalesRecorded) return 'No sales recorded';
+  if (total.estimatedValue !== null) return `${total.displayValue === null ? 'No confirmed amount' : `${money(total.displayValue)} known`} + ${money(total.estimatedValue)} estimated${total.remainingUnknownComponents ? `; ${number(total.remainingUnknownComponents)} ${total.remainingUnknownComponents === 1 ? 'component still unavailable' : 'components still unavailable'}` : ''}; estimates are pending tax verification and are not payout amounts`;
   if (total.status === 'complete') return 'Calculated from loaded records';
   return `${number(total.omittedRows)} ${total.omittedRows === 1 ? 'row has' : 'rows have'} missing amounts${total.knownRows ? '; known subtotal only' : '; no calculable amounts'}`;
 }
 export function moneyCoverageText(total: ReturnType<typeof moneyCoverage>, formatter: (value: number | null) => string = money) {
   if (total.noSalesRecorded) return 'No sales recorded';
+  if (total.withEstimates !== null) return `${formatter(total.withEstimates)} ${total.remainingUnknownComponents ? 'subtotal including estimates' : 'including estimates'}`;
   return `${formatter(total.displayValue)}${total.status === 'partial' && total.knownRows ? ' (known subtotal)' : ''}`;
 }
 export function unresolvedComponents(rows: SalesReportRow[]) {

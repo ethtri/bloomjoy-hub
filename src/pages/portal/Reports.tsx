@@ -1316,8 +1316,8 @@ function OperatorReportingView({
         ) : (
           <>
             <MetricCard
-              label={grossCoverage.status === 'partial' ? 'Known sales subtotal' : t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
-              value={money(grossCoverage.displayValue)}
+              label={grossCoverage.estimatedValue !== null ? grossCoverage.remainingUnknownComponents ? 'Sales subtotal including estimates' : 'Sales including estimates' : grossCoverage.status === 'partial' ? 'Known sales subtotal' : t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
+              value={money(grossCoverage.withEstimates ?? grossCoverage.displayValue)}
               context={grossCoverage.status === 'partial' ? moneyCoverageNote(grossCoverage) : usesSharedSalesBasis
                 ? (summary.taxCents == null
                   ? t('reports.salesTaxUnavailable')
@@ -1325,8 +1325,8 @@ function OperatorReportingView({
                 : t('reports.beforeRefundAdjustments')}
             />
             <MetricCard
-              label={refundCoverage.status === 'partial' ? 'Known refund impact subtotal' : t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
-              value={formatSalesRefundCurrency(refundCoverage.displayValue, usesSharedSalesBasis)}
+              label={refundCoverage.estimatedValue !== null ? refundCoverage.remainingUnknownComponents ? 'Refund subtotal including estimates' : 'Refund impact including estimates' : refundCoverage.status === 'partial' ? 'Known refund impact subtotal' : t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
+              value={formatSalesRefundCurrency(refundCoverage.withEstimates ?? refundCoverage.displayValue, usesSharedSalesBasis)}
               context={refundCoverage.status === 'partial' ? moneyCoverageNote(refundCoverage) : usesSharedSalesBasis ? t(summary.refundLegacyPaidDeductionCents > 0
                 ? 'reports.requestReversalLegacyContext'
                 : 'reports.requestAndReversalContext', {
@@ -1336,8 +1336,8 @@ function OperatorReportingView({
               }) : t('reports.appliedToDate')}
             />
             <MetricCard
-              label={netCoverage.status === 'partial' ? 'Known net sales subtotal' : t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
-              value={money(netCoverage.displayValue)}
+              label={netCoverage.estimatedValue !== null ? netCoverage.remainingUnknownComponents ? 'Net sales subtotal including estimates' : 'Net sales including estimates' : netCoverage.status === 'partial' ? 'Known net sales subtotal' : t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
+              value={money(netCoverage.withEstimates ?? netCoverage.displayValue)}
               context={netCoverage.status === 'partial' ? moneyCoverageNote(netCoverage) : usesSharedSalesBasis ? t('reports.refundBalanceContext', {
                 paid: formatCurrency(summary.refundPaidContextCents, true),
                 outstanding: formatCurrency(summary.refundOutstandingContextCents, true),
@@ -1618,13 +1618,16 @@ function OperatorReportingView({
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatSalesRowCurrency(row.grossSalesCents)}
+                          {moneyCoverageText(moneyCoverage([row], 'grossSalesCents'))}
+                          {row.taxPolicyEvidence && <p className="mt-1 text-xs text-muted-foreground">{moneyCoverageNote(moneyCoverage([row], 'grossSalesCents'))}</p>}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
+                          {moneyCoverageText(moneyCoverage([row], 'refundAmountCents'), value => formatSalesRefundCurrency(value, usesSharedSalesBasis))}
+                          {row.taxPolicyEvidence && <p className="mt-1 text-xs text-muted-foreground">{moneyCoverageNote(moneyCoverage([row], 'refundAmountCents'))}</p>}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatSalesRowCurrency(row.netSalesCents)}
+                          {moneyCoverageText(moneyCoverage([row]))}
+                          {row.taxPolicyEvidence && <p className="mt-1 text-xs text-muted-foreground">{moneyCoverageNote(moneyCoverage([row]))}</p>}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {numberFormatter.format(row.transactionCount)}
@@ -3567,13 +3570,13 @@ function OperatorReportRowMobileCard({
       <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
           label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
-          value={formatSalesRowCurrency(row.netSalesCents)}
-          detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}`}
+          value={moneyCoverageText(moneyCoverage([row]))}
+          detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}${row.taxPolicyEvidence ? `; ${moneyCoverageNote(moneyCoverage([row]))}` : ''}`}
         />
         <MobileProofItem
           label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
-          value={formatSalesRowCurrency(row.grossSalesCents)}
-          detail={`${t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')} ${formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}`}
+          value={moneyCoverageText(moneyCoverage([row], 'grossSalesCents'))}
+          detail={`${t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')} ${moneyCoverageText(moneyCoverage([row], 'refundAmountCents'), value => formatSalesRefundCurrency(value, usesSharedSalesBasis))}${row.taxPolicyEvidence ? `; ${moneyCoverageNote(moneyCoverage([row], 'grossSalesCents'))}` : ''}`}
         />
       </div>
     </div>
