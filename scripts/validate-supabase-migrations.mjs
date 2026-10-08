@@ -391,8 +391,8 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   fs.writeFileSync(sheetVolumePath, stagedSheetVolumeSql, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
   const eastridgeCorrectionSql = fs.readFileSync(path.join(migrationsDir,
-    '20261008223000_eastridge_owner_confirmed_nine_percent.sql'), 'utf8');
-  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[1]),
+    '20261008222356_eastridge_owner_confirmed_nine_percent.sql'), 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', 'eastridge_owner_rate_recovery.sql'),
     `begin;\nselect set_config('bloomjoy.test.eastridge_correction',
       $actual_eastridge_correction$${eastridgeCorrectionSql}$actual_eastridge_correction$,true);
       \\ir fixtures/eastridge_owner_rate_recovery.inc

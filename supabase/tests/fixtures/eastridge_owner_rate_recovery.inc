@@ -85,6 +85,14 @@ select results_eq($$select tax_exclusive_amount_cents,tax_cents from private.nor
  $$select 1000::bigint,90::bigint$$,'Future Eastridge sales retain the owner-confirmed 9 percent');
 select is((select rate_percent from private.resolve_reporting_machine_source_tax('b1850300-0000-4000-8000-000000000002','2026-10-09')),10::numeric,
  'Future Stoneridge Finance 10 percent remains unchanged');
+select results_eq($$select tax_exclusive_amount_cents,tax_cents from private.normalize_refund_original_reader_amount_cents(
+ '18ec7a81-d4a7-4c8e-85f2-19d0e7c9b439','card','2026-10-09',1090,'tax_inclusive',null,null,true)$$,
+ $$select 1000::bigint,90::bigint$$,
+ 'Future unlinked Eastridge refund uses owner 9 despite later provider 0.09 and closed former reader Finance 10');
+select results_eq($$select tax_exclusive_amount_cents,tax_cents from private.normalize_refund_original_reader_amount_cents(
+ '18ec7a81-d4a7-4c8e-85f2-19d0e7c9b439','card','2026-09-27',1000,'tax_inclusive',null,null,true)$$,
+ $$select 917::bigint,83::bigint$$,
+ 'Historical unlinked Eastridge refund keeps former reader 9 evidence and once-rounded customer amount');
 insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date)
  values('TGPACI_USA_DB','627583676','2026-10-08T22:00Z','finance_verified','verified_tax',8,'Synthetic unreviewed conflict','2026-10-08');
 select throws_ok(current_setting('bloomjoy.test.eastridge_correction'),'P0001','Unreviewed conflicting Eastridge reader rate',
