@@ -10,7 +10,8 @@ insert into reporting_locations(id,account_id,name,timezone) values
 insert into reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key) values
  ('b1846300-0000-4000-8000-000000000001','b1846100-0000-4000-8000-000000000001','b1846200-0000-4000-8000-000000000001','Exact reader','184600001','TEST_EXACT'),
  ('b1846300-0000-4000-8000-000000000002','b1846100-0000-4000-8000-000000000001','b1846200-0000-4000-8000-000000000001','Unrelated reader','184600002','TEST_EXACT'),
- ('b1846300-0000-4000-8000-000000000003','b1846100-0000-4000-8000-000000000001','b1846200-0000-4000-8000-000000000001','Conflicting reader','184600003','TEST_EXACT');
+ ('b1846300-0000-4000-8000-000000000003','b1846100-0000-4000-8000-000000000001','b1846200-0000-4000-8000-000000000001','Conflicting reader','184600003','TEST_EXACT'),
+ ('b1846300-0000-4000-8000-000000000004','b1846100-0000-4000-8000-000000000001','b1846200-0000-4000-8000-000000000001','No observed rate','184600004','TEST_EXACT');
 set local session_replication_role=origin;
 insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date) values
  ('TEST_EXACT','184600001','2026-10-05T21:00Z','nayax_api','verified_tax',9,'Fixture earlier exact API','2026-10-05'),
@@ -32,6 +33,9 @@ select is((select rate_percent from private.resolve_reporting_machine_source_tax
 select throws_ok($$select private.record_exact_owner_stable_tax_history('TEST_EXACT','184600003',9,'2026-10-08T18:09Z','2026-10-08T19:31:25.82Z','Fixture owner authority')$$,'22023','Conflicting verified reader rates require exact reconciliation','Conflicting verified rates cannot infer history');
 select throws_ok($$select private.record_exact_owner_stable_tax_history('OTHER_ACCOUNT','184600001',9,'2026-10-08T18:09Z','2026-10-08T19:31:25.82Z','Fixture owner authority')$$,'22023','Exact reader ownership evidence required','Other account cannot borrow identity');
 select is(private.record_exact_owner_stable_tax_history('TEST_EXACT','184600001',9,'2026-10-08T18:09Z','2026-10-08T19:31:25.82Z','#1824 unchanged rates'),0::bigint,'Scoped recovery replay is idempotent');
+select is(private.record_exact_owner_stable_tax_history('TEST_EXACT','184600004',9,'2026-10-08T18:09Z','2026-10-08T19:31:25.82Z','Fixture existing owner authority'),0::bigint,'No verified observation creates no inferred rate');
+select throws_ok($$select private.record_exact_owner_stable_tax_history('TEST_EXACT','184600001',9,null,'2026-10-08T19:31:25.82Z','Fixture owner authority')$$,'22023','Valid existing owner authority and observed evidence required','Missing authority time rejected');
+select throws_ok($$select private.record_exact_owner_stable_tax_history('TEST_EXACT','184600001',9,statement_timestamp()+interval '1 day','2026-10-08T19:31:25.82Z','Fixture owner authority')$$,'22023','Valid existing owner authority and observed evidence required','Future authority rejected');
 select ok(not has_function_privilege('authenticated','private.record_exact_owner_stable_tax_history(text,text,numeric,timestamptz,timestamptz,text)','EXECUTE') and not has_function_privilege('service_role','private.record_exact_owner_stable_tax_history(text,text,numeric,timestamptz,timestamptz,text)','EXECUTE'),'Browser and worker cannot invoke internal attestation');
 select * from finish();
 rollback;

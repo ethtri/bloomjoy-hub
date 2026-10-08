@@ -14,11 +14,6 @@ and additive receipt SQL repairs are also deployed. The owner confirmed unchange
 machine rates and chose Nayax's 7.5% for The Avenues; explicit owner evidence
 preserves original observations and transaction-tax precedence.
 
-#1824 follow-up: an exact reader's two verified 9% observations agree, but its
-historical stable-rate coverage was omitted. A scoped append-only recovery is
-under verification; existing owner authority, source evidence and actual
-application times remain distinct. Not yet deployed.
-
 The owner's October 1–7 report retains 215 rows and 1,009 transactions. Missing
 net rows fell from 73 to one, and unresolved sales from 466 to zero; one unresolved
 refund remains. Supported receipts are still partial: 59 source-basis components

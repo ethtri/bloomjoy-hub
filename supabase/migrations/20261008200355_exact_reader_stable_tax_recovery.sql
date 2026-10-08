@@ -52,23 +52,32 @@ revoke all on function private.record_exact_owner_stable_tax_history(text,text,n
   from public,anon,authenticated,service_role;
 
 do $exact_recovery$
-declare evidence record;
+declare evidence record; recovered bigint;
 begin
   -- Anchor the reviewed observation, not every newly mapped machine. A clean
   -- disposable replay has no production observations and legitimately does nothing.
   select o.account_key,o.nayax_machine_id into evidence
   from private.nayax_machine_tax_observations o
   where o.source='nayax_api' and o.classification='verified_tax' and o.rate_percent=9
+    and o.account_key='TGPACI_USA_DB' and o.nayax_machine_id='729256014'
     and o.observed_at='2026-10-08T19:31:25.82Z';
   if found then
     if (select count(*) from private.nayax_machine_tax_observations o
       where o.source='nayax_api' and o.classification='verified_tax' and o.rate_percent=9
+        and o.account_key='TGPACI_USA_DB' and o.nayax_machine_id='729256014'
         and o.observed_at='2026-10-08T19:31:25.82Z')<>1 then
       raise exception 'Reviewed exact source observation is ambiguous';
     end if;
-    perform private.record_exact_owner_stable_tax_history(evidence.account_key,
+    recovered:=private.record_exact_owner_stable_tax_history(evidence.account_key,
       evidence.nayax_machine_id,9,'2026-10-08T18:09Z','2026-10-08T19:31:25.82Z',
       '#1824 existing owner unchanged-machine-rate direction; reviewed exact account/reader source observations agree at 9 percent');
+    if recovered<>1 and not exists(select 1 from private.nayax_machine_tax_observations o
+      where o.account_key=evidence.account_key and o.nayax_machine_id=evidence.nayax_machine_id
+        and o.source='owner_stable_rate' and o.rate_percent=9
+        and o.effective_start_date='-infinity'::date
+        and o.effective_end_date>=(statement_timestamp() at time zone 'UTC')::date) then
+      raise exception 'Reviewed exact reader recovery did not establish stable history';
+    end if;
   end if;
 end;
 $exact_recovery$;
