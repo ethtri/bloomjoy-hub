@@ -55,9 +55,10 @@ export type MachineRatePreview = {
   expiresAt: string;
   revision: string;
   range: { startsOn: string; endsOn: string | null };
+  observedRange: { startsOn: string | null; endsOn: string | null };
   affectedSalesComponents: number;
   affectedRefundComponents: number;
-  preservedActualTaxComponents: number;
+  preservedActualTaxSalesFacts: number;
   before: MachineRateImpactAmounts;
   after: MachineRateImpactAmounts;
   sourceBehavior: 'provisional_fallback' | 'confirmed_override';
@@ -122,11 +123,13 @@ const impactAmounts = (value: unknown): MachineRateImpactAmounts => {
 };
 
 export const parseMachineRatePreview = (value: unknown): MachineRatePreview => {
-  const row = object(value), range = object(row.range);
+  const row = object(value), range = object(row.range), observed = object(row.observedRange);
   const startsOn = date(range.startsOn), endsOn = nullableDate(range.endsOn);
+  const observedStart = nullableDate(observed.startsOn), observedEnd = nullableDate(observed.endsOn);
+  if ((observedStart === null) !== (observedEnd === null) || (observedStart && observedEnd && observedEnd < observedStart)) invalidResponse();
   const token = text(row.previewToken);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token) || (endsOn && endsOn < startsOn) || !Array.isArray(row.warnings)) invalidResponse();
   const sourceBehavior = row.sourceBehavior === 'provisional_fallback' || row.sourceBehavior === 'confirmed_override' ? row.sourceBehavior : invalidResponse();
-  return { previewToken: token, expiresAt: instant(row.expiresAt), revision: text(row.revision), range: { startsOn, endsOn }, affectedSalesComponents: count(row.affectedSalesComponents), affectedRefundComponents: count(row.affectedRefundComponents), preservedActualTaxComponents: count(row.preservedActualTaxComponents), before: impactAmounts(row.before), after: impactAmounts(row.after), sourceBehavior, warnings: (row.warnings as unknown[]).map(text) };
+  return { previewToken: token, expiresAt: instant(row.expiresAt), revision: text(row.revision), range: { startsOn, endsOn }, observedRange: { startsOn: observedStart, endsOn: observedEnd }, affectedSalesComponents: count(row.affectedSalesComponents), affectedRefundComponents: count(row.affectedRefundComponents), preservedActualTaxSalesFacts: count(row.preservedActualTaxSalesFacts), before: impactAmounts(row.before), after: impactAmounts(row.after), sourceBehavior, warnings: (row.warnings as unknown[]).map(text) };
 };
 

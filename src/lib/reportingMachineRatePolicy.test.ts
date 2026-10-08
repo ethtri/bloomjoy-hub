@@ -5,7 +5,7 @@ const assert = (condition: boolean, message: string) => { if (!condition) throw 
 const rejects = (fn: () => unknown) => { let rejected = false; try { fn(); } catch { rejected = true; } assert(rejected, 'Expected invalid response to be rejected'); };
 const draft: MachineRateDraft = { ratePercent: '9', status: 'provisional', startsOn: '2026-09-01', endsOn: '', reason: 'Awaiting source access', evidenceReference: '' };
 const amounts = { knownSalesExTaxCents: 0, knownRefundExTaxCents: null, unknownSalesComponents: 2, unknownRefundComponents: 1, estimatedSalesExTaxCents: null, estimatedRefundExTaxCents: null, estimatedNetExTaxCents: null, provisionalSalesComponents: 0, provisionalRefundComponents: 0 };
-const preview = { previewToken: '11111111-1111-4111-8111-111111111111', expiresAt: '2026-10-08T23:00:00Z', revision: '1', range: { startsOn: '2026-09-01', endsOn: null }, affectedSalesComponents: 3, affectedRefundComponents: 2, preservedActualTaxComponents: 1, before: amounts, after: { ...amounts, knownSalesExTaxCents: 918, unknownSalesComponents: 0 }, sourceBehavior: 'provisional_fallback', warnings: [] };
+const preview = { previewToken: '11111111-1111-4111-8111-111111111111', expiresAt: '2026-10-08T23:00:00Z', revision: '1', range: { startsOn: '2026-09-01', endsOn: null }, observedRange: { startsOn: '2024-05-12', endsOn: '2026-10-07' }, affectedSalesComponents: 3, affectedRefundComponents: 2, preservedActualTaxSalesFacts: 1, before: amounts, after: { ...amounts, knownSalesExTaxCents: 918, unknownSalesComponents: 0 }, sourceBehavior: 'provisional_fallback', warnings: [] };
 
 Deno.test('Rate presets use evidenced history and permit explicit earlier dates without an arbitrary cutoff', () => {
   const historical = applyMachineRatePeriod({ ...draft, startsOn: '2026-10-08' }, 'past', '2026-10-08', '2024-05-12');
@@ -38,6 +38,10 @@ Deno.test('Preview preserves known zero versus unavailable and rejects unsafe mo
   rejects(() => parseMachineRatePreview({ ...preview, affectedSalesComponents: -1 }));
   rejects(() => parseMachineRatePreview({ ...preview, sourceBehavior: 'verified_estimate' }));
   rejects(() => parseMachineRatePreview({ ...preview, previewToken: 'not-a-token' }));
+  rejects(() => parseMachineRatePreview({ ...preview, observedRange: { startsOn: null, endsOn: '2026-10-07' } }));
+  const empty = parseMachineRatePreview({ ...preview, observedRange: { startsOn: null, endsOn: null } });
+  assert(empty.observedRange.startsOn === null, 'Empty recorded scope stays explicit');
+  assert(parsed.range.startsOn === '2026-09-01' && parsed.observedRange.startsOn === '2024-05-12', 'Do not confuse selected purchases with whole-machine recorded scope');
 });
 
 Deno.test('Current policy does not label a missing rate or provisional policy as source verified', () => {
