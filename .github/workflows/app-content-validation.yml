@@ -47,6 +47,8 @@ on:
       - 'supabase/functions/_shared/lead-attribution.ts'
       - 'supabase/functions/_shared/lead-attribution.test.ts'
       - 'supabase/functions/_shared/sales-report-pdf.ts'
+      - 'supabase/functions/_shared/sales-report-pdf-large.test.ts'
+      - 'scripts/profile-sales-report-pdf.ts'
       - 'supabase/functions/lead-submission-intake/**'
       - 'supabase/functions/sales-report-export/**'
       - 'supabase/migrations/202608100002_lead_attribution.sql'
@@ -101,3 +103,5 @@ jobs:
         run: npm ci
       - name: Validate changed app and content contracts
         run: npm run test:app
+      - name: Preserve large operator PDF rows and bounded font resources
+        run: deno test --no-lock supabase/functions/_shared/sales-report-pdf.test.ts supabase/functions/_shared/sales-report-pdf-large.test.ts

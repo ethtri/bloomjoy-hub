@@ -6,6 +6,10 @@ import {
   type PDFFont,
   type PDFPage,
   type RGB,
+  type PDFHexString,
+  PDFName, PDFContentStream, PDFRawStream,
+  pushGraphicsState, popGraphicsState, beginText, endText,
+  setFillingRgbColor, setFontAndSize, setTextMatrix, showText,
 } from "https://esm.sh/pdf-lib@1.17.1";
 import {
   BLOOMJOY_LOGO_ASSET_BASE64,
@@ -158,7 +162,7 @@ type MachineRollup = {
   rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v4";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v5";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -191,57 +195,41 @@ const neutralizeProviderCopy = (value: unknown): string =>
     .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, "sales source")
     .replace(/\bSunze\b/gi, "sales source");
 
-const toAscii = (value: unknown): string =>
-  neutralizeProviderCopy(value)
-    .normalize("NFKD")
-    .replace(/[^\x20-\x7e]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+const asciiCache = new Map<string, string>();
+const toAscii = (value: unknown): string => {
+  const input = String(value ?? "");
+  const existing = asciiCache.get(input);
+  if (existing !== undefined) return existing;
+  const result = neutralizeProviderCopy(input).normalize("NFKD")
+    .replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();
+  if (asciiCache.size >= 2048) asciiCache.clear();
+  asciiCache.set(input, result); return result;
+};
 
 const numberValue = (value: unknown): number => {
   const normalized = Number(value ?? 0);
   return Number.isFinite(normalized) ? normalized : 0;
 };
 
-const formatCurrency = (cents: unknown): string =>
-  `$${
-    (Math.round(numberValue(cents)) / 100).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  }`;
+// Reuse ICU formatters instead of constructing one per appendix cell.
+const currencyFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const integerFormatter = new Intl.NumberFormat("en-US");
+const shortDateFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+const longDateFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+const formatCurrency = (cents: unknown): string => `$${currencyFormatter.format(Math.round(numberValue(cents)) / 100)}`;
 
 const formatRefundImpactCurrency = (cents: unknown): string => {
   const value = numberValue(cents);
   if (value === 0) return "$0.00";
   return `${value > 0 ? "-" : "+"}${formatCurrency(Math.abs(value))}`;
 };
-
-const formatInteger = (value: unknown): string =>
-  Math.round(numberValue(value)).toLocaleString("en-US");
-
-const formatDateLong = (value: unknown): string => {
+const formatInteger = (value: unknown): string => integerFormatter.format(Math.round(numberValue(value)));
+const formatDate = (value: unknown, formatter: Intl.DateTimeFormat): string => {
   const date = new Date(`${String(value ?? "")}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) return toAscii(value);
-
-  return toAscii(new Intl.DateTimeFormat("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date));
+  return Number.isNaN(date.getTime()) ? toAscii(value) : toAscii(formatter.format(date));
 };
-
-const formatDateShort = (value: unknown): string => {
-  const date = new Date(`${String(value ?? "")}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) return toAscii(value);
-
-  return toAscii(new Intl.DateTimeFormat("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-  }).format(date));
-};
+const formatDateLong = (value: unknown): string => formatDate(value, longDateFormatter);
+const formatDateShort = (value: unknown): string => formatDate(value, shortDateFormatter);
 
 const formatGeneratedAt = (value: unknown): string => {
   const date = new Date(String(value ?? ""));
@@ -475,6 +463,39 @@ export const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] 
   );
 };
 
+// Embedded fonts are owned by one PDF; WeakMap does not retain issued documents.
+const widthCaches = new WeakMap<PDFFont, Map<string, number>>();
+const encodedCaches = new WeakMap<PDFFont, Map<string, PDFHexString>>();
+const pageFontKeys = new WeakMap<PDFPage, Map<PDFFont, PDFName>>();
+const encodedText = (font: PDFFont, text: string): PDFHexString => {
+  let cache = encodedCaches.get(font);
+  if (!cache) { cache = new Map(); encodedCaches.set(font, cache); }
+  const existing = cache.get(text);
+  if (existing) return existing;
+  const value = font.encodeText(text);
+  if (cache.size >= 4096) cache.clear();
+  cache.set(text, value);
+  return value;
+};
+const pageFontKey = (page: PDFPage, font: PDFFont): PDFName => {
+  let keys = pageFontKeys.get(page);
+  if (!keys) { keys = new Map(); pageFontKeys.set(page, keys); }
+  let key = keys.get(font);
+  if (!key) { key = page.node.newFontDictionary(font.name, font.ref); keys.set(font, key); }
+  return key;
+};
+const measureTextWidth = (font: PDFFont, text: string, size: number): number => {
+  let cache = widthCaches.get(font);
+  if (!cache) { cache = new Map(); widthCaches.set(font, cache); }
+  const key = `${size}:${text}`;
+  const existing = cache.get(key);
+  if (existing !== undefined) return existing;
+  const value = font.widthOfTextAtSize(text, size);
+  if (cache.size >= 4096) cache.clear();
+  cache.set(key, value);
+  return value;
+};
+
 const wrapText = (font: PDFFont, text: string, size: number, maxWidth: number): string[] => {
   const words = toAscii(text).split(" ").filter(Boolean);
   if (words.length === 0) return [""];
@@ -482,7 +503,7 @@ const wrapText = (font: PDFFont, text: string, size: number, maxWidth: number): 
   const lines: string[] = [];
   let line = "";
   words.forEach((word) => {
-    if (font.widthOfTextAtSize(word, size) > maxWidth) {
+    if (measureTextWidth(font, word, size) > maxWidth) {
       if (line) {
         lines.push(line);
         line = "";
@@ -492,7 +513,7 @@ const wrapText = (font: PDFFont, text: string, size: number, maxWidth: number): 
     }
 
     const candidate = line ? `${line} ${word}` : word;
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth || !line) {
+    if (measureTextWidth(font, candidate, size) <= maxWidth || !line) {
       line = candidate;
       return;
     }
@@ -511,16 +532,16 @@ const truncateText = (
   maxWidth: number,
 ): string => {
   const normalized = toAscii(text);
-  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return normalized;
+  if (measureTextWidth(font, normalized, size) <= maxWidth) return normalized;
 
   const ellipsis = "...";
-  const ellipsisWidth = font.widthOfTextAtSize(ellipsis, size);
+  const ellipsisWidth = measureTextWidth(font, ellipsis, size);
   if (ellipsisWidth >= maxWidth) return "";
 
   let clipped = "";
   for (const character of normalized) {
     const candidate = `${clipped}${character}`;
-    if (font.widthOfTextAtSize(candidate, size) + ellipsisWidth > maxWidth) break;
+    if (measureTextWidth(font, candidate, size) + ellipsisWidth > maxWidth) break;
     clipped = candidate;
   }
 
@@ -535,7 +556,7 @@ const fitTextSize = (
   minimumSize: number,
 ): number => {
   let size = preferredSize;
-  while (size > minimumSize && font.widthOfTextAtSize(toAscii(text), size) > maxWidth) {
+  while (size > minimumSize && measureTextWidth(font, toAscii(text), size) > maxWidth) {
     size -= 0.5;
   }
   return size;
@@ -692,7 +713,7 @@ const drawBrandHeader = (
   });
   const headerReference = truncateText(fonts.bold, reportReference, 8.5, 260);
   page.drawText(headerReference, {
-    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(headerReference, 8.5),
+    x: PAGE_WIDTH - MARGIN - measureTextWidth(fonts.bold, headerReference, 8.5),
     y: PAGE_HEIGHT - 45,
     size: 8.5,
     font: fonts.bold,
@@ -742,7 +763,7 @@ const drawFooter = (
     280,
   );
   page.drawText(footerText, {
-    x: PAGE_WIDTH - MARGIN - fonts.regular.widthOfTextAtSize(footerText, 7.5),
+    x: PAGE_WIDTH - MARGIN - measureTextWidth(fonts.regular, footerText, 7.5),
     y: 20,
     size: 7.5,
     font: fonts.regular,
@@ -822,6 +843,13 @@ const drawKeyValue = (
   });
 };
 
+const tableTextBatches = new WeakSet<PDFPage>();
+const drawTableTextBatch = (page: PDFPage, draw: () => void) => {
+  page.pushOperators(pushGraphicsState(), beginText()); tableTextBatches.add(page);
+  try { draw(); }
+  finally { tableTextBatches.delete(page); page.pushOperators(endText(), popGraphicsState()); }
+};
+
 const drawTableText = (
   page: PDFPage,
   fonts: PdfFonts,
@@ -834,14 +862,17 @@ const drawTableText = (
   const size = options.size ?? 8;
   const font = options.bold ? fonts.bold : fonts.regular;
   const clipped = truncateText(font, text, size, width);
-  const textWidth = font.widthOfTextAtSize(clipped, size);
-  page.drawText(clipped, {
-    x: options.align === "right" ? x + width - textWidth : x,
-    y,
-    size,
-    font,
-    color: options.color ?? COLORS.ink,
-  });
+  const textWidth = measureTextWidth(font, clipped, size);
+  // Single-line table cells need no wrapping/rotation setup. Reuse font
+  // resources per page and encoded glyphs instead of allocating one per cell.
+  const color = options.color ?? COLORS.ink;
+  const batched = tableTextBatches.has(page);
+  if (!batched) page.pushOperators(pushGraphicsState(), beginText());
+  page.pushOperators(
+    setFillingRgbColor(color.red, color.green, color.blue), setFontAndSize(pageFontKey(page, font), size),
+    setTextMatrix(1, 0, 0, 1, options.align === "right" ? x + width - textWidth : x, y), showText(encodedText(font, clipped)),
+  );
+  if (!batched) page.pushOperators(endText(), popGraphicsState());
 };
 
 const drawDashboardPage = (
@@ -1172,7 +1203,7 @@ const drawAppendixHeader = (
   });
   const appendixReference = truncateText(fonts.bold, reportReference, 8.5, 240);
   page.drawText(appendixReference, {
-    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(appendixReference, 8.5),
+    x: PAGE_WIDTH - MARGIN - measureTextWidth(fonts.bold, appendixReference, 8.5),
     y: PAGE_HEIGHT - 50,
     size: 8.5,
     font: fonts.bold,
@@ -1248,45 +1279,47 @@ const drawReportRowsPage = (
           color: rgb(1, 0.985, 0.992),
         });
       }
-      drawTableText(page, fonts, formatDateShort(readPeriodStart(row)), columns[0].x, y, columns[0].width, { size: 7.8 });
-      drawTableText(page, fonts, readMachineLabel(row), columns[1].x, y, columns[1].width, {
-        size: 7.8,
-        bold: true,
-      });
-      drawTableText(
-        page,
-        fonts,
-        formatPaymentMethod(readPaymentMethod(row)),
-        columns[2].x,
-        y,
-        columns[2].width,
-        { size: 7.8, color: COLORS.muted },
-      );
-      drawTableText(page, fonts, hasGrossSalesValue(row)
-        ? formatCurrency(readGrossSalesCents(row)) : "Unavailable", columns[3].x, y, columns[3].width, {
-        size: 7.8,
-        align: "right",
-        bold: true,
-      });
-      drawTableText(
-        page,
-        fonts,
-        hasRefundAmountValue(row)
-          ? formatRefundImpactCurrency(readRefundAmountCents(row))
-          : "Unavailable",
-        columns[4].x,
-        y,
-        columns[4].width,
-        { size: 7.8, align: "right", color: COLORS.muted },
-      );
-      drawTableText(page, fonts, hasNetSalesValue(row)
-        ? formatCurrency(readNetSalesCents(row)) : "Unavailable", columns[5].x, y, columns[5].width, {
-        size: 7.8,
-        align: "right",
-      });
-      drawTableText(page, fonts, formatInteger(readTransactionCount(row)), columns[6].x, y, columns[6].width, {
-        size: 7.8,
-        align: "right",
+      drawTableTextBatch(page, () => {
+        drawTableText(page, fonts, formatDateShort(readPeriodStart(row)), columns[0].x, y, columns[0].width, { size: 7.8 });
+        drawTableText(page, fonts, readMachineLabel(row), columns[1].x, y, columns[1].width, {
+          size: 7.8,
+          bold: true,
+        });
+        drawTableText(
+          page,
+          fonts,
+          formatPaymentMethod(readPaymentMethod(row)),
+          columns[2].x,
+          y,
+          columns[2].width,
+          { size: 7.8, color: COLORS.muted },
+        );
+        drawTableText(page, fonts, hasGrossSalesValue(row)
+          ? formatCurrency(readGrossSalesCents(row)) : "Unavailable", columns[3].x, y, columns[3].width, {
+          size: 7.8,
+          align: "right",
+          bold: true,
+        });
+        drawTableText(
+          page,
+          fonts,
+          hasRefundAmountValue(row)
+            ? formatRefundImpactCurrency(readRefundAmountCents(row))
+            : "Unavailable",
+          columns[4].x,
+          y,
+          columns[4].width,
+          { size: 7.8, align: "right", color: COLORS.muted },
+        );
+        drawTableText(page, fonts, hasNetSalesValue(row)
+          ? formatCurrency(readNetSalesCents(row)) : "Unavailable", columns[5].x, y, columns[5].width, {
+          size: 7.8,
+          align: "right",
+        });
+        drawTableText(page, fonts, formatInteger(readTransactionCount(row)), columns[6].x, y, columns[6].width, {
+          size: 7.8,
+          align: "right",
+        });
       });
     });
 
@@ -1394,5 +1427,17 @@ export const buildSalesReportPdf = async ({
   );
   drawReportRowsPage(pdfDoc, fonts, assets, rows, context, 2, calculationVersion);
 
-  return pdfDoc.save();
+  // Use Deno's native deflate implementation for finished page streams instead
+  // of repeating pdf-lib's JavaScript compression work on hundreds of pages.
+  for (const [ref, stream] of pdfDoc.context.enumerateIndirectObjects()) {
+    if (!(stream instanceof PDFContentStream)) continue;
+    const compressed = new Uint8Array(await new Response(
+      new Blob([new Uint8Array(stream.getUnencodedContents())]).stream()
+        .pipeThrough(new CompressionStream("deflate")),
+    ).arrayBuffer());
+    const dictionary = stream.dict.clone(pdfDoc.context);
+    dictionary.set(PDFName.of("Filter"), PDFName.of("FlateDecode"));
+    pdfDoc.context.assign(ref, PDFRawStream.of(dictionary, compressed));
+  }
+  return pdfDoc.save({ useObjectStreams: false });
 };

@@ -236,6 +236,7 @@ serve(async (req) => {
         title: filters.title,
         filters,
         summary: {
+          pdf_generator_version: SALES_REPORT_PDF_GENERATOR_VERSION,
           known_net_sales_cents: summary.knownNetRowCount > 0 ? summary.knownNetSalesCents : null,
           known_refund_amount_cents: summary.knownRefundRowCount > 0 ? summary.knownRefundAmountCents : null,
           known_gross_sales_cents: summary.knownGrossRowCount > 0 ? summary.knownGrossSalesCents : null,
