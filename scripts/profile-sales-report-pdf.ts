@@ -36,9 +36,11 @@ if (import.meta.main) {
     const cpuMs = (elapsed.user + elapsed.system) / 1000; const wallMs = performance.now() - start;
     const totalCpu = process.cpuUsage();
     const coldProcessCpuMs = (totalCpu.user + totalCpu.system) / 1000;
+    const memory = process.memoryUsage(); // Capture before QA reparses the finished PDF.
     const pdf = await PDFDocument.load(bytes);
     await Deno.writeFile(`output/pdf/${baseline ? "baseline-" : ""}sales-${size}.pdf`, bytes);
     console.log(JSON.stringify({ size, pages: pdf.getPageCount(), bytes: bytes.length, cpuMs, wallMs, coldProcessCpuMs,
-      rssMb: process.memoryUsage().rss / 1048576, knownNet: summary.knownNetSalesCents, knownRows: summary.knownNetRowCount }));
+      rssMb: memory.rss / 1048576, heapUsedMb: memory.heapUsed / 1048576,
+      knownNet: summary.knownNetSalesCents, knownRows: summary.knownNetRowCount }));
   }
 }
