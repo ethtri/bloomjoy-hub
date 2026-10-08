@@ -8,21 +8,19 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Reporting blocker
 
-October 7 investigation: annual Sales, Labor and Refunds summaries exceed the
-eight-second API timeout. Shorter periods load but show unavailable money where
-historical source-tax evidence is missing; September 30–October 6 reproduces the
-owner's $6,133.47 known subtotal and 90 unresolved report rows on desktop too.
-Imports include October 7. Remediation is tracked in #1824; see
-`Docs/REPORTING_REMEDIATION_PLAN.md`. Annual query, loading and PDF repairs are
-deployed; the annual export preserves 367 pages, 9,510 rows and 59,828 recorded
-transactions. The rate and operational-receipt follow-up below is pending.
+Annual query, loading and PDF repairs are deployed; the annual export preserves
+367 pages, 9,510 rows and 59,828 recorded transactions. October 8's stable-rate
+and additive receipt SQL repairs are also deployed. The owner confirmed unchanged
+machine rates and chose Nayax's 7.5% for The Avenues; explicit owner evidence
+preserves original observations and transaction-tax precedence.
 
-October 8 follow-up: the owner confirmed stable machine tax rates and selected
-Nayax's 7.5% for The Avenues. The next repair records explicit owner coverage
-without rewriting source observations, and adds independently supported customer
-receipts and known component subtotals to reporting. Net/payroll authority and
-original transaction tax remain unchanged. Deployment and live verification are
-pending this follow-up's SQL/UI review and tests.
+The owner's October 1–7 report retains 215 rows and 1,009 transactions. Missing
+net rows fell from 73 to one, and unresolved sales from 466 to zero; one unresolved
+refund remains. Supported receipts are still partial: 59 source-basis components
+do not establish inclusive customer payment amounts. Machine/receipt UI and export
+follow-up verification remains pending. Net/payroll formulas and issued snapshots
+are unchanged. Current acceptance evidence is tracked in #1824; see
+`Docs/REPORTING_REMEDIATION_PLAN.md`.
 
 ## Machine identity context
 
