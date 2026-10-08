@@ -19,7 +19,7 @@ const rows = [row('paid', {customerReceiptsCents: 1000, customerReceiptsKnownCen
 const scope = {companyId: 'company', locationId: 'all', machineId: 'all'};
 Deno.test('machine roster preserves no-record machines, supported receipts and true partial component values', () => {
   const result = machineSalesRows(rows, dimensions, scope);
-  assert(result.length === 4 && result[0].machineId === 'paid', 'all permitted roster rows, sorted by supported receipts');
+  assert(result.length === 4 && result[0].machineId === 'partial', 'all permitted roster rows, sorted by known sales');
   const paid = result.find(x => x.machineId === 'paid')!;
   assert(paid.receipts.displayValue === 1000 && paid.salesExTax.displayValue === null && paid.transactions === 5, 'tax uncertainty does not hide customer receipts or transactions');
   const partial = result.find(x => x.machineId === 'partial')!;
@@ -34,7 +34,7 @@ Deno.test('machine search, filter, sort and CSV preserve scope and incomplete am
   const sorted = machineSalesRows(rows, dimensions, scope, '', 'name');
   assert(sorted[0].machineId === 'empty', 'name sort includes missing-amount machines');
   const csv = machineSalesCsv(sorted);
-  assert(csv.includes('Customer receipts including tax') && csv.includes('"600","true","550","true","500","true"'), 'CSV preserves receipt versus exclusive partial basis');
+  assert(csv.includes('Customer receipts including tax') && csv.includes('"550","true","500","true","600","true"'), 'CSV preserves receipt versus exclusive partial basis');
   assert(csv.includes('"empty","Location","Company","","true","","true","","true","","0"'), 'missing records stay blank, incomplete and count0');
   const unsafe = machineSalesRows(rows, dimensions.map(x=>({...x,managementArchivedAt:'2026-10-01T00:00:00Z',machineLabel:'=HYPERLINK("unsafe")'})), scope);
   assert(machineSalesCsv(unsafe).includes('Archived - historical reporting'), 'archived machines stay visible and explicitly marked');
@@ -58,6 +58,8 @@ Deno.test('tax-exclusive source keeps available sales and explains absent custom
   const source = row('paid', { customerReceiptsCents: null, customerReceiptsKnownCents: null, customerReceiptsUnknownCount: 59, grossSalesCents: 174640, grossSalesKnownCents: 174640, grossSalesUnknownCount: 0, netSalesCents: 174640, netSalesKnownCents: 174640, netSalesUnknownCount: 0, taxCents: 0, unresolvedSalesCount: 0 });
   const machine = machineSalesRows([source], dimensions, {...scope, machineId: 'paid'})[0];
   assert(machine.receipts.displayValue === null && machine.salesExTax.displayValue === 174640 && machine.net.displayValue === 174640, 'source sales must not be invented inclusive receipts');
+  const ranked = machineSalesRows([source, row('partial', {customerReceiptsCents: 1000, grossSalesCents: 900, netSalesCents: 900})], dimensions, scope);
+  assert(ranked[0].machineId === 'paid' && machineSalesRows([source, row('partial', {customerReceiptsCents: 1000, grossSalesCents: 900})], dimensions, scope, '', 'receipts')[0].machineId === 'partial', 'default ranks known sales, inclusive receipts remains optional');
   assert(machineSalesStatus(machine) === 'Sales are available; total customer payments were not provided', 'plain source capability explanation');
-  assert(machineSalesCsv([machine]).includes('"","true","174640","false","174640","false"'), 'CSV keeps usable sales independently of receipt uncertainty');
+  assert(machineSalesCsv([machine]).includes('"174640","false","174640","false","","true"'), 'CSV keeps usable sales independently of receipt uncertainty');
 });

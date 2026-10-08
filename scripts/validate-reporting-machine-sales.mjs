@@ -11,6 +11,8 @@ try {
     await page.goto('http://127.0.0.1:8097/portal/reports?view=machines&from=2026-07-22&to=2026-07-22&compare=none');
     const view = page.locator('[data-reporting-machine-sales]'); await view.waitFor();
     await assert.doesNotReject(() => view.getByText('Showing 9 of 9 accessible machines in these filters.').waitFor());
+    const firstMachine = width < 1024 ? view.locator('article').first() : view.locator('tbody tr').first();
+    assert.match(await firstMachine.innerText(), /^Sample machine 7/, 'highest known sales remains first despite unavailable inclusive receipts');
     assert.match(await view.innerText(), /Sales are available; total customer payments were not provided/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `${width}px page overflow`);
     const paid = width < 1024 ? view.locator('article').filter({ has: page.getByRole('heading', { name: 'Payments known, tax unavailable', exact: true }) }) : view.locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Payments known, tax unavailable', exact: true }) });
