@@ -7,6 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import pg from 'pg';
 import { fileURLToPath } from 'node:url';
 import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragment-provenance.mjs';
 import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
@@ -24,6 +25,37 @@ const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
 export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
 const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql', 'sheet_refund_atomic_deployment.sql', 'eastridge_owner_rate_recovery.sql', 'machine_rate_policy_atomic_deployment.sql'];
+
+const MACHINE_RATE_POLICY_BASELINE_SQL = `
+create table private.test_machine_rate_policy_baseline as
+select n.nspname schema_name,p.proname name,p.oid::regprocedure::text identity,
+ pg_get_functiondef(p.oid) definition,p.proacl acl
+from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+where n.nspname in ('public','private') and p.prokind='f';
+`;
+
+// Hold this forward and every subsequent file so catalogue capture runs at the
+// exact boundary without modifying a single reviewed migration byte.
+export function stageMachineRatePolicyForward(tempRoot) {
+  const directory = path.join(tempRoot, 'supabase', 'migrations');
+  const files = fs.readdirSync(directory).filter(name => name.endsWith('.sql')).sort();
+  const policies = files.filter(name => name.endsWith('_machine_reporting_rate_policy.sql'));
+  if (policies.length !== 1) throw new Error('Expected exactly one actual machine rate policy migration');
+  const held = files.filter(name => name >= policies[0]);
+  const heldDirectory = fs.mkdtempSync(path.join(tempRoot, 'machine-policy-held-'));
+  for (const name of held) fs.renameSync(path.join(directory, name), path.join(heldDirectory, name));
+  return () => {
+    for (const name of held) fs.renameSync(path.join(heldDirectory, name), path.join(directory, name));
+    fs.rmdirSync(heldDirectory);
+  };
+}
+
+async function captureMachineRatePolicyBaseline(dbPort) {
+  const client = new pg.Client({ host: '127.0.0.1', port: dbPort, user: 'postgres', password: 'postgres', database: 'postgres' });
+  await client.connect();
+  try { await client.query(MACHINE_RATE_POLICY_BASELINE_SQL); }
+  finally { await client.end(); }
+}
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
@@ -367,15 +399,6 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   if (machineRatePolicyFiles.length !== 1) throw new Error('Expected exactly one actual machine rate policy migration');
   const machineRatePolicyFilename = machineRatePolicyFiles[0];
   const machineRatePolicySql = fs.readFileSync(path.join(migrationsDir, machineRatePolicyFilename), 'utf8');
-  const machineRatePolicyPrelude = `
-create table private.test_machine_rate_policy_baseline as
-select n.nspname schema_name,p.proname name,p.oid::regprocedure::text identity,
- pg_get_functiondef(p.oid) definition,p.proacl acl
-from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-where n.nspname in ('public','private') and p.prokind='f';
-`;
-  fs.writeFileSync(path.join(tempSupabaseDir, 'migrations', machineRatePolicyFilename),
-    machineRatePolicyPrelude + machineRatePolicySql, 'utf8');
   fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[3]),
     `begin;\nselect set_config('bloomjoy.test.machine_rate_policy_migration',
       $actual_machine_rate_policy_migration$${machineRatePolicySql}$actual_machine_rate_policy_migration$,true);
@@ -640,6 +663,10 @@ async function main() {
       fs.renameSync(path.join(laterDirectory, name), path.join(migrationDirectory, name));
     }
     if (laterMigrations.length > 0) {
+      const restorePolicyForward = stageMachineRatePolicyForward(tempRoot);
+      run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
+      await captureMachineRatePolicyBaseline(dbPort);
+      restorePolicyForward();
       run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
     }
     const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
