@@ -15,6 +15,12 @@ returns numeric language sql stable security definer set search_path='' as $$
     select history.account_key,history.nayax_machine_id
     from private.machine_nayax_reader_associations history
     where history.reporting_machine_id=p_machine_id
+      -- A purchase date cannot prove within-day ownership. Retain the recorded
+      -- cutoff day conservatively, but exclude later days and earlier starts.
+      and (p_purchase_date is null or (
+        (history.effective_from_date is null or p_purchase_date>=history.effective_from_date)
+        and (history.closed_on is null or p_purchase_date<=history.closed_on)
+        and (history.effective_until is null or p_purchase_date<=(history.effective_until at time zone 'UTC')::date)))
     union
     select upper(coalesce(machine.nayax_account_key,'TGPACI_USA_DB')),btrim(machine.nayax_machine_id)
     from public.reporting_machines machine where machine.id=p_machine_id
@@ -27,7 +33,7 @@ returns numeric language sql stable security definer set search_path='' as $$
     left join lateral (
       select observation.classification from private.nayax_machine_tax_observations observation
       where observation.account_key=reader.account_key and observation.nayax_machine_id=reader.nayax_machine_id
-        and (p_purchase_date is null or observation.source in ('owner_stable_rate','owner_rate_correction')
+        and (p_purchase_date is null or observation.source='owner_stable_rate'
           or (observation.effective_start_date<=p_purchase_date
             and coalesce(observation.effective_end_date,'infinity'::date)>=p_purchase_date))
       order by (observation.source='owner_rate_correction') desc,
@@ -37,14 +43,21 @@ returns numeric language sql stable security definer set search_path='' as $$
     left join private.nayax_machine_tax_observations evidence
       on evidence.account_key=reader.account_key and evidence.nayax_machine_id=reader.nayax_machine_id
       and evidence.classification='verified_tax'
-      and (p_purchase_date is null or evidence.source in ('owner_stable_rate','owner_rate_correction')
+      and (p_purchase_date is null or evidence.source='owner_stable_rate'
         or (evidence.effective_start_date<=p_purchase_date
           and coalesce(evidence.effective_end_date,'infinity'::date)>=p_purchase_date))
-      and (evidence.source='owner_rate_correction' or not exists(
+      and not exists(
         select 1 from private.nayax_machine_tax_observations correction
         where correction.account_key=reader.account_key and correction.nayax_machine_id=reader.nayax_machine_id
           and correction.source='owner_rate_correction' and correction.classification='verified_tax'
-          and correction.observed_at>=evidence.observed_at))
+          and p_purchase_date is not null
+          and correction.effective_start_date<=p_purchase_date
+          and coalesce(correction.effective_end_date,'infinity'::date)>=p_purchase_date
+          and ((evidence.source='owner_rate_correction'
+            and (correction.effective_start_date,correction.observed_at,correction.id)
+              >(evidence.effective_start_date,evidence.observed_at,evidence.id))
+            or (evidence.source<>'owner_rate_correction'
+              and (correction.observed_at>=evidence.observed_at or evidence.source='nayax_api'))))
     group by reader.account_key,reader.nayax_machine_id,current_source.classification
   )
   select case when count(*)>0 and bool_and(observation_count>0 and attested and rate_count=1
@@ -81,9 +94,16 @@ begin
     -- current reader rate, including Machines without a history association.
     if exists(select 1 from private.nayax_machine_tax_observations evidence
       where evidence.source in ('owner_stable_rate','owner_rate_correction')
+        and (p_purchase_date is null or evidence.source='owner_stable_rate'
+          or (evidence.effective_start_date<=p_purchase_date
+            and coalesce(evidence.effective_end_date,'infinity'::date)>=p_purchase_date))
         and (exists(select 1 from private.machine_nayax_reader_associations history
           where history.reporting_machine_id=p_machine_id and history.account_key=evidence.account_key
-            and history.nayax_machine_id=evidence.nayax_machine_id)
+            and history.nayax_machine_id=evidence.nayax_machine_id
+            and (p_purchase_date is null or (
+              (history.effective_from_date is null or p_purchase_date>=history.effective_from_date)
+              and (history.closed_on is null or p_purchase_date<=history.closed_on)
+              and (history.effective_until is null or p_purchase_date<=(history.effective_until at time zone 'UTC')::date))))
           or exists(select 1 from public.reporting_machines machine where machine.id=p_machine_id
             and upper(coalesce(machine.nayax_account_key,'TGPACI_USA_DB'))=evidence.account_key
             and btrim(machine.nayax_machine_id)=evidence.nayax_machine_id))) then

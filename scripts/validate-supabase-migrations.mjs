@@ -382,9 +382,13 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   const sheetVolumePath = path.join(tempSupabaseDir, 'tests', 'sheet_refund_annual_performance.sql');
   const sheetVolumeSql = fs.readFileSync(sheetVolumePath, 'utf8');
   if (!/^begin;\r?\n/.test(sheetVolumeSql)) throw new Error('Sheet volume fixture transaction anchor changed');
-  fs.writeFileSync(sheetVolumePath, sheetVolumeSql.replace(/^begin;\r?\n/,
-    `begin;\nselect set_config('bloomjoy.test.sheet_refund_migration',
-      $actual_sheet_volume_migration$${sheetRefundSql}$actual_sheet_volume_migration$,true);\n`), 'utf8');
+  const stagedSheetVolumeSql = sheetVolumeSql.replace(/^begin;\r?\n/,
+    () => `begin;\nselect set_config('bloomjoy.test.sheet_refund_migration',
+      $actual_sheet_volume_migration$${sheetRefundSql}$actual_sheet_volume_migration$,true);\n`);
+  if (!stagedSheetVolumeSql.includes(sheetRefundSql)) {
+    throw new Error('Sheet volume fixture must contain the byte-identical reviewed migration');
+  }
+  fs.writeFileSync(sheetVolumePath, stagedSheetVolumeSql, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
   const requestBoundaryReceiptFixturePath =
     prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);

@@ -196,5 +196,40 @@ select lives_ok($$update sales_adjustment_facts set raw_payload=jsonb_set(raw_pa
  where id='b1824500-0000-4000-8000-000000000092'$$,'Changed purchase date follows original fingerprint calculation');
 select ok((select refund_business_fingerprint is not null from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000092'),
  'Changed purchase date cannot take metadata preservation path');
+-- Recorded reader closure bounds future unlinked Machine proof without claiming
+-- a physical installation date or deciding ownership within the cutoff day.
+set local session_replication_role=replica;
+insert into reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key) values
+ ('b1824300-0000-4000-8000-000000000097','b1824100-0000-4000-8000-000000000091','b1824200-0000-4000-8000-000000000091','Explicit owner correction','1824000100','TGPACI_USA_DB'),
+ ('b1824300-0000-4000-8000-000000000098','b1824100-0000-4000-8000-000000000091','b1824200-0000-4000-8000-000000000091','Later reader owner','1824000101','TGPACI_USA_DB');
+insert into private.machine_nayax_reader_associations(account_key,nayax_machine_id,reporting_machine_id,ownership_basis,created_by,reason,effective_until,closed_at,closed_by,close_reason) values
+ ('TGPACI_USA_DB','1824000101','b1824300-0000-4000-8000-000000000097','original_transactions_only','b1824000-0000-4000-8000-000000000091','Synthetic retained original reader',
+ '2026-10-08T19:29Z','2026-10-08T19:29Z','b1824000-0000-4000-8000-000000000091','Synthetic recorded closure');
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date) values
+ ('TGPACI_USA_DB','1824000100','2026-10-08','owner_rate_correction','verified_tax',9,'#1824; owner attestation: synthetic unchanged machine rates; verified observation IDs=synthetic','-infinity',null),
+ ('TGPACI_USA_DB','1824000100','2026-10-09','nayax_api','verified_tax',0.09,'Synthetic later unchanged provider echo','2026-10-09',null),
+ ('TGPACI_USA_DB','1824000101','2026-10-08','owner_stable_rate','verified_tax',9,'#1824; owner attestation: synthetic unchanged machine rates; verified observation IDs=synthetic','-infinity','2026-10-08'),
+ ('TGPACI_USA_DB','1824000101','2026-10-08T20:30Z','finance_verified','verified_tax',10,'Synthetic Finance evidence for new reader owner','2026-10-08',null);
+set local session_replication_role=origin;
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-09-15'),9::numeric,'Earlier original reader and owner corrected current reader agree for historical purchase');
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-10-09'),9::numeric,'After recorded reader closure owner correction supersedes repeated API echo');
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-10-08'),null::numeric,'Date-only purchase on recorded cutoff day remains conservative');
+select is((select rate_percent from private.resolve_reporting_machine_source_tax('b1824300-0000-4000-8000-000000000098','2026-10-09')),10::numeric,'New financial reader owner retains independent dated Finance rate');
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date) values
+ ('TGPACI_USA_DB','1824000100','2026-10-10','owner_rate_correction','verified_tax',8,'#1824; owner attestation: synthetic bounded correction; verified observation IDs=synthetic','2026-10-10','2026-10-10');
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-10-10'),8::numeric,'Latest applicable explicit owner correction takes precedence');
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-10-11'),9::numeric,'Expired bounded correction does not replace open-ended owner authority');
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date) values
+ ('TGPACI_USA_DB','1824000100','2026-10-12','finance_verified','verified_tax',7,'Synthetic new conflicting Finance evidence','2026-10-12');
+select is(private.resolve_unique_stable_machine_tax('b1824300-0000-4000-8000-000000000097','2026-10-12'),null::numeric,'Later genuine Finance conflict is not an API echo and remains unresolved');
+set local session_replication_role=replica;
+insert into reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key) values
+ ('b1824300-0000-4000-8000-000000000099','b1824100-0000-4000-8000-000000000091','b1824200-0000-4000-8000-000000000091','Bounded historical correction','1824000102','TGPACI_USA_DB');
+insert into private.nayax_machine_tax_observations(account_key,nayax_machine_id,observed_at,source,classification,rate_percent,provenance,effective_start_date,effective_end_date) values
+ ('TGPACI_USA_DB','1824000102','2026-10-08','owner_rate_correction','verified_tax',8,'#1824; owner attestation: synthetic bounded correction; verified observation IDs=synthetic','2026-09-01','2026-09-30'),
+ ('TGPACI_USA_DB','1824000102','2026-10-09','finance_verified','verified_tax',10,'Synthetic independent future Finance period','2026-10-09',null);
+set local session_replication_role=origin;
+select is((select tax_exclusive_amount_cents from private.normalize_refund_original_reader_amount_cents('b1824300-0000-4000-8000-000000000099','card','2026-10-09',1100,'tax_inclusive',null,null,true)),1000::bigint,
+ 'Expired historical-only owner correction does not suppress sufficient dated future Finance normalization');
 select * from finish();
 rollback;
