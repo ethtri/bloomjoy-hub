@@ -3,6 +3,22 @@ import { moneyCoverage, moneyCoverageText, refundImpactMoney, unresolvedComponen
 import type { SalesReportRow } from './reporting.ts';
 const equal = (actual: unknown, expected: unknown) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); };
 const row = (patch: Partial<SalesReportRow> = {}): SalesReportRow => ({ calculationVersion: 'shared-sales-basis-v1', periodStart: '2026-09-01', machineId: 'a', machineLabel: 'Machine A', locationId: 'north', locationName: 'North', paymentMethod: 'credit', netSalesCents: 1000, grossSalesCents: 1200, refundAmountCents: 200, taxCents: 90, refundRequestDeductionCents: 200, refundReversalCents: 0, refundLegacyPaidDeductionCents: 0, refundPaidContextCents: 0, refundOutstandingContextCents: 200, unresolvedSalesCount: 0, unresolvedSalesCents: 0, unresolvedRefundCount: 0, unresolvedRefundCents: 0, unresolvedPaidContextCount: 0, unresolvedPaidContextCents: 0, transactionCount: 2, ...patch });
+Deno.test('Provisional display adds disjoint estimates once while authoritative totals stay unavailable', () => {
+  const rows = [row(), row({ grossSalesCents: null, netSalesCents: null, refundAmountCents: null, grossSalesKnownCents: 500, netSalesKnownCents: 400, refundAmountKnownCents: 100, taxPolicyEvidence: { status: 'provisional', estimatedSalesExTaxCents: 1000, estimatedRefundExTaxCents: 200, estimatedNetExTaxCents: 800, provisionalSalesComponents: 1, provisionalRefundComponents: 1, provisionalNetComponents: 2 } })];
+  const total = moneyCoverage(rows);
+  equal([total.value, total.displayValue, total.estimatedValue, total.withEstimates], [null, 1400, 800, 2200]);
+  equal(moneyCoverageText(total), '$22.00 including estimates');
+  equal(knownMoney(rows, 'netSalesCents').value, null);
+  equal(moneyCoverage(rows, 'customerReceiptsCents').estimatedValue, null);
+});
+Deno.test('A mixed estimate keeps unestimated components unavailable and zero or negative amounts do not imply completeness', () => {
+  const mixed = row({ netSalesCents: null, netSalesKnownCents: 0, netSalesUnknownCount: 4, grossSalesCents: null, grossSalesKnownCents: 0, grossSalesUnknownCount: 3, refundAmountCents: null, refundAmountKnownCents: 0, refundAmountUnknownCount: 1, taxPolicyEvidence: { status: 'provisional', estimatedSalesExTaxCents: 0, estimatedRefundExTaxCents: 200, estimatedNetExTaxCents: -200, provisionalSalesComponents: 1, provisionalRefundComponents: 1, provisionalNetComponents: 2 } });
+  const net = moneyCoverage([mixed]);
+  equal([net.displayValue, net.estimatedValue, net.withEstimates, net.remainingUnknownComponents], [0, -200, -200, 2]);
+  equal(moneyCoverageText(net), '-$2.00 subtotal including estimates');
+  equal(moneyCoverage([mixed], 'grossSalesCents').remainingUnknownComponents, 2);
+  equal(moneyCoverage([mixed], 'refundAmountCents').remainingUnknownComponents, 0);
+});
 Deno.test('complete-day and week presets cross DST without losing a business date', () => {
   const periods = reportingPeriods(new Date(2026, 2, 9, 12));
   const range = (id: string) => { const value = periods.find(item => item.id === id)!; return [value.dateFrom, value.dateTo]; };

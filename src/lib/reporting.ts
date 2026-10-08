@@ -3,6 +3,7 @@ import type { ReportingMachineType } from '@/lib/machineTypes';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { getOptionalSnapCasePartnershipId } from '@/lib/snapcaseMappingWindow';
 import { ReportingRequestError } from './reportingQuery';
+import { parseTaxPolicyEvidence, type TaxPolicyEvidence } from './reportingTaxPolicyEvidence';
 
 export type { ReportingMachineType } from '@/lib/machineTypes';
 
@@ -46,6 +47,7 @@ export type SalesReportFilters = {
 };
 
 export type SalesReportRow = {
+  taxPolicyEvidence?: TaxPolicyEvidence;
   /** Supported customer receipts including tax; independent of tax normalization. */
   customerReceiptsCents?: number | null;
   customerReceiptsKnownCents?: number | null;
@@ -394,6 +396,7 @@ type SalesReportRpcRow = {
   customer_receipts_known_cents?: number | null;
   customer_receipts_unknown_count?: number;
   gross_sales_known_cents?: number | null;
+  tax_policy_evidence?: unknown;
   gross_sales_unknown_count?: number;
   net_sales_known_cents?: number | null;
   net_sales_unknown_count?: number;
@@ -440,6 +443,7 @@ const supportedSalesReportPdfGeneratorVersions = new Set([
   'sales-report-pdf/company-v4',
   'sales-report-pdf/company-v5',
   'sales-report-pdf/company-v6',
+  'sales-report-pdf/company-v7',
 ]);
 const reportExportBucket = 'sales-report-exports';
 
@@ -744,6 +748,7 @@ const normalizeSalesReportCalculationVersion = (
 
 const mapSalesReportRow = (record: SalesReportRpcRow): SalesReportRow => ({
   customerReceiptsCents: record.customer_receipts_cents == null ? null : Number(record.customer_receipts_cents),
+  taxPolicyEvidence: parseTaxPolicyEvidence(record.tax_policy_evidence, record),
   customerReceiptsKnownCents: record.customer_receipts_known_cents == null ? null : Number(record.customer_receipts_known_cents),
   customerReceiptsUnknownCount: record.customer_receipts_unknown_count === undefined ? undefined : Number(record.customer_receipts_unknown_count),
   grossSalesKnownCents: record.gross_sales_known_cents === undefined ? undefined : record.gross_sales_known_cents === null ? null : Number(record.gross_sales_known_cents),
@@ -944,7 +949,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5', 'sales-report-pdf/company-v6'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
+  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5', 'sales-report-pdf/company-v6', 'sales-report-pdf/company-v7'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );

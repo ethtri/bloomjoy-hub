@@ -1314,3 +1314,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - Completed same-machine source connection: keep the existing machine visible in the initial setup cache with no source; delay refreshed setup after connection. Continue only after exact source identity arrives, change the machine name, save/reopen, and verify the same source ID persists. No production save in smoke tests.
 
 - Reporting #1824: open `/portal/reports?view=machines`; verify every permitted machine appears, search/sort and company/location/tender filters retain scope, no loaded records differs from recorded zero, customer payments including tax remain separate from sales before tax/net, partial known amounts and CSV agree, and cash/card/refund/tax details remain readable at 320/390/768px.
+# Machine tax rate policies (#1824)
+
+- Open an authorized machine's **Reporting** tab in `/admin/machines`. Check the effective rate, evidence status and rate history; legacy configured settings must be separately identified.
+- Choose **Adjust rate**. Check **Past dates**, **Current and future**, and **Past and current**; verify the selected preset is visible and the first/last purchase dates stay editable. Historical starts must come from recorded history or explicit input, with no arbitrary cutoff.
+- Preview a provisional rate. Verify separate known and estimated cents, the actual purchase-date range, unchanged original transaction tax and cash treatment, and counts of changed components. Change any draft field and verify **Save rate** is disabled until another preview succeeds.
+- Save only in a disposable/synthetic test scope. Check provisional estimates in machine, dated and location reports and CSV/PDF; known plus estimated amounts must be added once, clearly labeled, and remain separate from confirmed payout amounts. Verify a later verified source rate replaces a provisional estimate.
+- Check explicit zero, bounded historical dates, ongoing future dates, failed/expired/stale previews, unauthorized machine access and readable layouts at desktop, 390 px and 320 px. Do not change production rates as a smoke-test action.

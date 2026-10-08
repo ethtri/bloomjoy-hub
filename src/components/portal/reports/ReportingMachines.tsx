@@ -6,12 +6,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { ReportingDimension, SalesReportRow } from '@/lib/reporting';
-import { moneyCoverage, moneyCoverageText, number, type WorkspaceState } from '@/lib/reportingWorkspace';
+import { moneyCoverage, moneyCoverageText, moneyCoverageNote, number, type WorkspaceState } from '@/lib/reportingWorkspace';
 import { machineSalesCsv, machineSalesRows, machineSalesStatus, type MachineSalesSort } from '@/lib/machineSales';
 
 type Props = { rows: SalesReportRow[]; dimensions: ReportingDimension[]; state: WorkspaceState; onNavigate: (patch: Partial<WorkspaceState>) => void };
 function Amount({ coverage }: { coverage: ReturnType<typeof moneyCoverage> }) {
-  return <span className="break-words tabular-nums">{coverage.status === 'empty' ? 'No loaded records' : moneyCoverageText(coverage)}</span>;
+  return <span className="break-words tabular-nums">{coverage.status === 'empty' ? 'No loaded records' : moneyCoverageText(coverage)}{coverage.estimatedValue !== null && <span className="mt-1 block text-xs font-normal text-muted-foreground">{moneyCoverageNote(coverage)}</span>}</span>;
 }
 function Breakdown({ rows }: { rows: SalesReportRow[] }) {
   return <details className="mt-2 text-xs"><summary className="min-h-11 cursor-pointer py-3 font-medium">Cash, card, refunds and tax</summary><dl className="grid grid-cols-2 gap-3 pb-3">
