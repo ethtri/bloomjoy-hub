@@ -18,6 +18,12 @@ import {
 } from "./partner-report-export.ts";
 
 export type SalesReportPdfRow = {
+  gross_sales_known_cents?: number | null;
+  grossSalesKnownCents?: number | null;
+  net_sales_known_cents?: number | null;
+  netSalesKnownCents?: number | null;
+  refund_amount_known_cents?: number | null;
+  refundAmountKnownCents?: number | null;
   calculation_version?: string;
   calculationVersion?: string;
   period_start?: string;
@@ -90,6 +96,9 @@ export const getSalesReportCalculationVersion = (
 };
 
 export type SalesReportPdfSummary = {
+  knownNetContributorRowCount?: number;
+  knownRefundContributorRowCount?: number;
+  knownGrossContributorRowCount?: number;
   knownNetSalesCents: number;
   knownRefundAmountCents: number;
   knownGrossSalesCents: number;
@@ -160,10 +169,13 @@ type MachineRollup = {
   grossValueCount: number;
   refundValueCount: number;
   netValueCount: number;
+  grossKnownCount: number;
+  refundKnownCount: number;
+  netKnownCount: number;
   rowCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v5";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/company-v6";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -330,15 +342,28 @@ const hasNetSalesValue = (row: SalesReportPdfRow): boolean =>
   (row.net_sales_cents ?? row.netSalesCents) != null;
 const hasTaxValue = (row: SalesReportPdfRow): boolean =>
   (row.tax_cents ?? row.taxCents) != null;
+// Additive component subtotals retain known money within an unresolved daily
+// row. Complete accounting fields and complete-row counts remain independent.
+const knownGross = (row: SalesReportPdfRow) => row.gross_sales_known_cents ?? row.grossSalesKnownCents ?? row.gross_sales_cents ?? row.grossSalesCents;
+const knownNet = (row: SalesReportPdfRow) => row.net_sales_known_cents ?? row.netSalesKnownCents ?? row.net_sales_cents ?? row.netSalesCents;
+const knownRefund = (row: SalesReportPdfRow) => row.refund_amount_known_cents ?? row.refundAmountKnownCents ?? row.refund_amount_cents ?? row.refundAmountCents;
+export const formatSalesReportRowAmount = (row: SalesReportPdfRow, metric: "gross" | "net" | "refund"): string => {
+  const value = metric === "gross" ? knownGross(row) : metric === "net" ? knownNet(row) : knownRefund(row);
+  if (value == null) return "Unavailable";
+  const complete = metric === "gross" ? hasGrossSalesValue(row) : metric === "net" ? hasNetSalesValue(row) : hasRefundAmountValue(row);
+  const formatted = metric === "refund" ? formatRefundImpactCurrency(value) : formatCurrency(value);
+  return `${formatted}${complete ? "" : "*"}`;
+};
 export const formatMachineRollupCurrency = (
   value: number,
   valueCount: number,
   rowCount: number,
   refundImpact = false,
+  knownValueCount = valueCount,
 ): string =>
   valueCount === rowCount
     ? (refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value))
-    : valueCount > 0
+    : knownValueCount > 0
     ? `${refundImpact ? formatRefundImpactCurrency(value) : formatCurrency(value)}*`
     : "Unavailable";
 
@@ -348,7 +373,7 @@ export const formatKnownSalesReportSubtotal = (value: number, knownRows: number,
     : "Unavailable";
 
 const omittedRowsLabel = (count: number): string =>
-  `${formatInteger(count)} ${count === 1 ? "row" : "rows"} omitted`;
+  `${formatInteger(count)} ${count === 1 ? "row" : "rows"} with missing components`;
 
 export const summarizeSalesReportPdfRows = (
   rows: SalesReportPdfRow[]
@@ -399,9 +424,12 @@ export const summarizeSalesReportPdfRows = (
 
   return {
     ...summary,
-    knownNetSalesCents: summary.netSalesCents ?? 0,
-    knownRefundAmountCents: summary.refundAmountCents ?? 0,
-    knownGrossSalesCents: summary.grossSalesCents ?? 0,
+    knownNetSalesCents: rows.reduce((sum, row) => sum + numberValue(knownNet(row)), 0),
+    knownRefundAmountCents: rows.reduce((sum, row) => sum + numberValue(knownRefund(row)), 0),
+    knownGrossSalesCents: rows.reduce((sum, row) => sum + numberValue(knownGross(row)), 0),
+    knownNetContributorRowCount: rows.filter(row => knownNet(row) != null).length,
+    knownRefundContributorRowCount: rows.filter(row => knownRefund(row) != null).length,
+    knownGrossContributorRowCount: rows.filter(row => knownGross(row) != null).length,
     knownTaxCents: summary.taxCents ?? 0,
     knownNetRowCount: rows.filter(hasNetSalesValue).length,
     knownRefundRowCount: rows.filter(hasRefundAmountValue).length,
@@ -445,12 +473,18 @@ export const buildMachineRollups = (rows: SalesReportPdfRow[]): MachineRollup[] 
       grossValueCount: 0,
       refundValueCount: 0,
       netValueCount: 0,
+      grossKnownCount: 0,
+      refundKnownCount: 0,
+      netKnownCount: 0,
       rowCount: 0,
     };
 
-    current.netSalesCents += readNetSalesCents(row);
-    current.refundAmountCents += readRefundAmountCents(row);
-    current.grossSalesCents += readGrossSalesCents(row);
+    current.netSalesCents += numberValue(knownNet(row));
+    current.refundAmountCents += numberValue(knownRefund(row));
+    current.grossSalesCents += numberValue(knownGross(row));
+    current.grossKnownCount += knownGross(row) != null ? 1 : 0;
+    current.refundKnownCount += knownRefund(row) != null ? 1 : 0;
+    current.netKnownCount += knownNet(row) != null ? 1 : 0;
     current.transactionCount += readTransactionCount(row);
     current.grossValueCount += hasGrossSalesValue(row) ? 1 : 0;
     current.refundValueCount += hasRefundAmountValue(row) ? 1 : 0;
@@ -923,7 +957,7 @@ const drawDashboardPage = (
     width: metricWidth,
     label: summary.grossSalesCents == null ? "Known sales subtotal" : (usesSharedSalesBasis ? "Sales before refunds" : "Gross sales"),
     value: usesSharedSalesBasis && summary.grossSalesCents == null
-      ? formatKnownSalesReportSubtotal(summary.knownGrossSalesCents, summary.knownGrossRowCount)
+      ? formatKnownSalesReportSubtotal(summary.knownGrossSalesCents, (summary.knownGrossContributorRowCount ?? summary.knownGrossRowCount))
       : formatCurrency(summary.grossSalesCents),
     detail: summary.grossSalesCents == null
       ? `${omittedRowsLabel(rows.length - summary.knownGrossRowCount)}; details missing`
@@ -942,7 +976,7 @@ const drawDashboardPage = (
       ? "Refund deductions"
       : "Reported refunds",
     value: usesSharedSalesBasis && summary.refundAmountCents == null
-      ? formatKnownSalesReportSubtotal(summary.knownRefundAmountCents, summary.knownRefundRowCount, true)
+      ? formatKnownSalesReportSubtotal(summary.knownRefundAmountCents, (summary.knownRefundContributorRowCount ?? summary.knownRefundRowCount), true)
       : formatRefundImpactCurrency(summary.refundAmountCents),
     detail: summary.refundAmountCents == null
       ? `${omittedRowsLabel(rows.length - summary.knownRefundRowCount)}; details missing`
@@ -956,7 +990,7 @@ const drawDashboardPage = (
     width: metricWidth,
     label: summary.netSalesCents == null ? "Known net subtotal" : (usesSharedSalesBasis ? "Net sales" : "Sales after refunds"),
     value: usesSharedSalesBasis && summary.netSalesCents == null
-      ? formatKnownSalesReportSubtotal(summary.knownNetSalesCents, summary.knownNetRowCount)
+      ? formatKnownSalesReportSubtotal(summary.knownNetSalesCents, (summary.knownNetContributorRowCount ?? summary.knownNetRowCount))
       : formatCurrency(summary.netSalesCents),
     detail: summary.netSalesCents == null
       ? `Partial; ${omittedRowsLabel(rows.length - summary.knownNetRowCount)}`
@@ -987,7 +1021,7 @@ const drawDashboardPage = (
     page,
     fonts,
     (summary.netSalesCents == null
-      ? `Partial: ${formatInteger(summary.unresolvedSalesCount)} sales and ${formatInteger(summary.unresolvedRefundCount)} refund components have missing amount or original-date tax details. Known subtotals omit unavailable rows. * marks partial machine subtotals. `
+      ? `Partial: ${formatInteger(summary.unresolvedSalesCount)} sales and ${formatInteger(summary.unresolvedRefundCount)} refund components have missing amount or original-date tax details. Known subtotals retain calculable components; missing components are excluded. * marks partial row and machine subtotals. `
       : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
       ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
       : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope."),
@@ -1117,7 +1151,7 @@ const drawDashboardPage = (
         page,
         fonts,
         formatMachineRollupCurrency(
-          machine.grossSalesCents, machine.grossValueCount, machine.rowCount,
+          machine.grossSalesCents, machine.grossValueCount, machine.rowCount, false, machine.grossKnownCount,
         ),
         columns[1].x,
         rowY,
@@ -1128,7 +1162,7 @@ const drawDashboardPage = (
         page,
         fonts,
         formatMachineRollupCurrency(
-          machine.refundAmountCents, machine.refundValueCount, machine.rowCount, true,
+          machine.refundAmountCents, machine.refundValueCount, machine.rowCount, true, machine.refundKnownCount,
         ),
         columns[2].x,
         rowY,
@@ -1139,7 +1173,7 @@ const drawDashboardPage = (
         page,
         fonts,
         formatMachineRollupCurrency(
-          machine.netSalesCents, machine.netValueCount, machine.rowCount,
+          machine.netSalesCents, machine.netValueCount, machine.rowCount, false, machine.netKnownCount,
         ),
         columns[3].x,
         rowY,
@@ -1314,8 +1348,7 @@ const drawReportRowsPage = (
           columns[2].width,
           { size: 7.8, color: COLORS.muted },
         );
-        drawTableText(page, fonts, hasGrossSalesValue(row)
-          ? formatCurrency(readGrossSalesCents(row)) : "Unavailable", columns[3].x, y, columns[3].width, {
+        drawTableText(page, fonts, formatSalesReportRowAmount(row, "gross"), columns[3].x, y, columns[3].width, {
           size: 7.8,
           align: "right",
           bold: true,
@@ -1323,16 +1356,13 @@ const drawReportRowsPage = (
         drawTableText(
           page,
           fonts,
-          hasRefundAmountValue(row)
-            ? formatRefundImpactCurrency(readRefundAmountCents(row))
-            : "Unavailable",
+          formatSalesReportRowAmount(row, "refund"),
           columns[4].x,
           y,
           columns[4].width,
           { size: 7.8, align: "right", color: COLORS.muted },
         );
-        drawTableText(page, fonts, hasNetSalesValue(row)
-          ? formatCurrency(readNetSalesCents(row)) : "Unavailable", columns[5].x, y, columns[5].width, {
+        drawTableText(page, fonts, formatSalesReportRowAmount(row, "net"), columns[5].x, y, columns[5].width, {
           size: 7.8,
           align: "right",
         });

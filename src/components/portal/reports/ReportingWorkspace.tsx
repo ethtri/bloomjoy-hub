@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { exportSalesReportPdf, fetchReportingDimensions, fetchSalesReport, type ReportingAccessContext, type SalesReportFilters } from '@/lib/reporting';
 import { closeReservedSignedExportWindow, openSignedExportUrl, reserveSignedExportWindow } from '@/lib/signedExportWindow';
 import { comparisonRange, defaultWorkspaceState, operationalReportHref, knownMoney, moneyCoverage, moneyCoverageNote, moneyCoverageText, unresolvedComponents, refundImpactMoney, money, number, parseSavedViews, readWorkspaceState, salesGroups, validDate, workspaceViews, writeWorkspaceState, type SavedReportingView, type WorkspaceState, type WorkspaceView } from '@/lib/reportingWorkspace';
+import { ReportingMachines } from './ReportingMachines';
 import { ReportingLocations, ReportingOverview } from './ReportingSalesAnalytics';
 import { ReportingOperations } from './ReportingOperations';
 import { ReportingFilters } from './ReportingFilters';
@@ -34,7 +35,7 @@ type Props = {
   domainAccessLoading?: boolean; domainAccessError?: boolean;
   detailedSales: (filters?: SalesReportFilters) => ReactNode;
 };
-const labels: Record<WorkspaceView, string> = { overview: 'Overview', sales: 'Sales', finance: 'Finance', locations: 'Locations', labor: 'Labor', refunds: 'Refunds & Recovery', partners: 'Partners' };
+const labels: Record<WorkspaceView, string> = { overview: 'Overview', sales: 'Sales details', machines: 'Sales by machine', finance: 'Finance', locations: 'Locations', labor: 'Labor', refunds: 'Refunds & Recovery', partners: 'Partners' };
 
 export function ReportingWorkspace({ accessContext, accessLoading, accessError, canUsePartners, partnerView, laborPanel, refundPanel, laborDimensions, refundDimensions, domainAccessLoading, domainAccessError, detailedSales }: Props) {
   const { user, isCorporatePartner } = useAuth();
@@ -86,7 +87,7 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
   const legacyAllowed = legacyDomain === 'labor' ? hasLaborPanel : legacyDomain === 'refunds' ? hasRefundPanel : false;
   const selectedAllowed = visibleViews.includes(state.view);
   const onlyOperationalDomain = !params.has('view') && !accessLoading && !domainAccessLoading && !financeAccess.isLoading && !visibleViews.length ? (hasLaborPanel ? 'labor' : hasRefundPanel ? 'refunds' : null) : null;
-  const salesView = ['overview', 'locations'].includes(state.view);
+  const salesView = ['overview', 'locations', 'machines'].includes(state.view);
   const rangeTooLong = (Date.parse(state.dateTo) - Date.parse(state.dateFrom)) / 86400000 > 366;
   const fromParam = params.get('from'); const toParam = params.get('to');
   const invalidLinkedDates = (params.has('from') || params.has('to')) && (!validDate(fromParam) || !validDate(toParam) || fromParam > toParam);
@@ -175,7 +176,7 @@ export function ReportingWorkspace({ accessContext, accessLoading, accessError, 
       const before = knownMoney(priorRows, 'netSalesCents').value;
       return { id: group.id, name: group.name, detail: `${machineCountLabel(new Set(companyScope.companyRows.filter(row => row.accountId === group.id).map(row => row.machineId)).size)} in accessible scope`, value: `Net sales ${moneyCoverageText(total)}`, note: total.omittedRows ? moneyCoverageNote(total) : compareAvailable && total.value != null && before != null && before > 0 ? `${((total.value - before) / before * 100).toFixed(1)}% vs comparison period` : 'Recorded sales; coverage unknown' };
     })}/></div>}
-    {!loading && !periodInvalid && selectedAllowed && salesView && dimensions.isSuccess && !dimensions.isFetching && !accessError && report.isSuccess && !scopeInvalid && <>{state.view === 'overview' && <ReportingOverview {...analytics}/>} {state.view === 'locations' && <ReportingLocations {...analytics}/>}</>}
+    {!loading && !periodInvalid && selectedAllowed && salesView && dimensions.isSuccess && !dimensions.isFetching && !accessError && report.isSuccess && !scopeInvalid && <>{state.view === 'overview' && <ReportingOverview {...analytics}/>} {state.view === 'locations' && <ReportingLocations {...analytics}/>} {state.view === 'machines' && <ReportingMachines {...analytics}/>}</>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && salesView && dimensions.isSuccess && !accessError && (hasLaborPanel || hasRefundPanel) && <ReportingOperations key={user?.id} ready={enabled && !report.isFetching && (report.isSuccess || report.isError)} scope={scope} laborScope={{ dateFrom: state.dateFrom, dateTo: state.dateTo, locationIds: state.locationId === 'all' ? undefined : [state.locationId], machineIds: state.machineId === 'all' ? undefined : [state.machineId] }} canUseLabor={hasLaborPanel} canUseRefunds={hasRefundPanel} laborDimensions={laborDimensions} refundDimensions={refundDimensions} onNavigate={view => { if (view === 'labor' && state.companyId !== 'all') toast.info('Labor reports use their own filters.'); navigateToApp(operationalReportHref(view, state)); }} />}
     {legacyDomain && legacyAllowed && !unsupportedCompany && <Navigate replace to={operationalReportHref(legacyDomain, params)}/>}
     {selectedAllowed && !scopeInvalid && !periodInvalid && state.view === 'finance' && !financeAccess.isFetching && <ReportingFinance scope={scope} dimensions={companyScope.companyRows} onCompany={companyId => navigate({ companyId })} onMachine={(machineId, locationId) => navigate({ machineId, locationId })}/>}

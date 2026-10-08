@@ -7,6 +7,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import { companyRpcResponse } from './company-reporting-fixtures.mjs';
 import { financeRpcResponse } from './finance-reporting-fixtures.mjs';
+import { receiptReportingRpcResponse } from './reporting-receipt-fixtures.mjs';
 import { partialReportingRpcResponse } from './reporting-partial-fixtures.mjs';
 import { fixedNowIso, makeSession, makeUser, personas } from './validate-reporting-uat.mjs';
 
@@ -18,7 +19,7 @@ const origin = `http://127.0.0.1:${port}`;
 const backendPath = '/reporting-preview-backend';
 const previewRoutes = ['/portal/reports', '/portal/time-review', '/refunds', '/admin/reporting'];
 const persona = personas.superAdmin;
-const response = process.argv.includes('--partial-samples') ? partialReportingRpcResponse : process.argv.includes('--company-samples') ? companyRpcResponse : financeRpcResponse;
+const response = process.argv.includes('--receipt-samples') ? receiptReportingRpcResponse : process.argv.includes('--partial-samples') ? partialReportingRpcResponse : process.argv.includes('--company-samples') ? companyRpcResponse : financeRpcResponse;
 const session = makeSession(persona);
 // Vite does not read .env files, the repo config, or inherited client env values.
 for (const key of Object.keys(process.env)) if (key.startsWith('VITE_')) delete process.env[key];
