@@ -73,6 +73,32 @@ export const fixtureMachine = (
   refundCases: [fixtureCase()],
   ...overrides,
 });
+/** Explicit synthetic evidence; never implies production source coverage. */
+export const fixtureSalesMetrics = (
+  value: number | null = 42000,
+  overrides: Partial<
+    import("./machine-email-alert.ts").MachineEmailSalesMetrics
+  > = {},
+): import("./machine-email-alert.ts").MachineEmailSalesMetrics => {
+  const metric = {
+    state: value === null ? "unavailable" as const : "reported" as const,
+    knownSubtotal: value,
+    unresolvedCount: 0,
+    reason: value === null
+      ? "no_imported_rows" as const
+      : "reported_snapshot" as const,
+  };
+  return {
+    sourceCoverage: "unverified",
+    importedSalesComponentCount: value === null ? 0 : 1,
+    componentCount: value === null ? 0 : 1,
+    salesExTax: { ...metric },
+    refundImpact: { ...metric, knownSubtotal: value === null ? null : 0 },
+    netSales: { ...metric },
+    transactions: { ...metric, knownSubtotal: value === null ? null : 42 },
+    ...overrides,
+  };
+};
 export function fixtureProjection(): MachineEmailProjection {
   const machines = [
     fixtureMachine(101, {

@@ -24,6 +24,25 @@ scheduled tick; do not force a real email to demonstrate the new template.
 
 ## Release checks
 
+For per-metric sales evidence (#1836), pause the dedicated alert sender, deploy
+the compatible worker, then apply the additive projection migration. The
+optional `salesMetrics` / `previousSalesMetrics` pair preserves independent
+known sales, refund impact, net sales and transaction subtotals with explicit
+reported/partial/unavailable states. Existing saved v1 jobs remain valid;
+`salesComplete` and positive imports do not establish full source coverage.
+Production coverage remains unverified. No recorded sales is not a confirmed
+zero; unresolved tax/amount basis does not hide independently known amounts.
+Archived machines leave the performance roster while legitimate manager cases
+remain represented. Preserve qualified weekly snapshot comparisons.
+
+Validate exact SQL-to-parser projections, HTML/plain-text parity and synthetic
+900/390/320-pixel renders before read-only production previews and the next
+ordinary scheduled tick. No importer/backfill or historical resend is part of
+this release. For rollback, retain the compatible worker while restoring the
+prior SQL projection first; drain or safely handle new-format jobs before
+restoring an older worker. Preserve jobs, preferences and provider-start evidence,
+then repeat read-only checks before resuming delivery.
+
 For technician read access (#1729), require the operational list/detail and
 direct-case route to be deployed before resuming new-request delivery. The new
 optional intake-amount field requires the compatible email worker before the

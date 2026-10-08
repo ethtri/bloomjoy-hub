@@ -26,6 +26,9 @@ type Totals = {
   salesCount: number;
   salesCents: number | null;
   salesRestricted: boolean;
+  salesVerified: boolean;
+  salesUnresolved: number;
+  noImportedCount: number;
   requestCount: number;
   requestedCents: number | null;
   unknownAmountCount: number;
@@ -95,9 +98,63 @@ const periodLabel = (from: string, to: string) => {
   return `${first}–${last}`;
 };
 
+const salesAmount = (machine: DigestMachine) =>
+  machine.salesMetrics
+    ? machine.salesMetrics.salesExTax.knownSubtotal
+    : machine.grossSalesCents;
+function salesStatus(machine: DigestMachine): string {
+  if (!machine.reportingAllowed) return "Sales access not included";
+  const metrics = machine.salesMetrics;
+  if (!metrics) return "";
+  if (metrics.salesExTax.reason === "no_imported_rows") {
+    return "";
+  }
+  if (metrics.salesExTax.reason === "normalization_unresolved") {
+    const transactions = metrics.transactions.knownSubtotal;
+    return `${
+      metrics.salesExTax.state === "partial" ? "Known subtotal · " : ""
+    }Tax or amount basis unresolved${
+      transactions === null
+        ? ""
+        : ` · ${count(transactions, "recorded transaction")}`
+    }`;
+  }
+  return metrics.sourceCoverage === "verified_complete"
+    ? "Coverage verified"
+    : "";
+}
+function machineSalesValue(machine: DigestMachine): string {
+  if (!machine.reportingAllowed) return "Not shared";
+  const metric = machine.salesMetrics?.salesExTax;
+  if (metric?.knownSubtotal === null) {
+    if (metric.reason === "no_imported_rows") {
+      return "No recorded sales";
+    }
+    if (metric.reason === "normalization_unresolved") return "Unresolved";
+  }
+  return money(salesAmount(machine));
+}
+function salesCaption(total: Totals): string {
+  if (total.salesRestricted) return "Sales access not included";
+  const coverage = total.salesVerified
+    ? "Coverage verified"
+    : "Coverage unverified";
+  const known =
+    `${total.salesCount} of ${total.machineCount} machines with known sales`;
+  return `${known} · ${coverage}` +
+    (total.salesUnresolved
+      ? ` · ${total.salesUnresolved} unresolved component${
+        total.salesUnresolved === 1 ? "" : "s"
+      }`
+      : "") +
+    (total.noImportedCount
+      ? ` · ${total.noImportedCount} with no recorded sales`
+      : "");
+}
+
 function totals(machines: DigestMachine[]): Totals {
   const sales = machines.filter((m) =>
-    m.reportingAllowed && m.grossSalesCents !== null
+    m.reportingAllowed && salesAmount(m) !== null
   );
   const requestCount = machines.reduce(
     (sum, m) =>
@@ -123,10 +180,23 @@ function totals(machines: DigestMachine[]): Totals {
     machineCount: machines.length,
     salesCount: sales.length,
     salesCents: sales.length
-      ? sales.reduce((sum, m) => sum + m.grossSalesCents!, 0)
+      ? sales.reduce((sum, m) => sum + salesAmount(m)!, 0)
       : null,
     salesRestricted: machines.length > 0 &&
       machines.every((m) => !m.reportingAllowed),
+    salesVerified: machines.length > 0 &&
+      machines.every((m) =>
+        m.reportingAllowed &&
+        m.salesMetrics?.sourceCoverage === "verified_complete"
+      ),
+    salesUnresolved: machines.reduce(
+      (sum, m) => sum + (m.salesMetrics?.salesExTax.unresolvedCount ?? 0),
+      0,
+    ),
+    noImportedCount:
+      machines.filter((m) =>
+        m.salesMetrics?.salesExTax.reason === "no_imported_rows"
+      ).length,
     requestCount,
     requestedCents: known.length && (requestCount === 0 || knownAmountCount > 0)
       ? known.reduce((sum, m) => sum + m.digest!.requestedAmountCents!, 0)
@@ -154,13 +224,21 @@ function requestCaption(total: Totals): string {
 function weeklyInsights(machines: DigestMachine[]): string[] {
   const insights: string[] = [];
   const comparable = machines.filter((m) =>
-    m.reportingAllowed && m.grossSalesCents !== null &&
-    m.previousGrossSalesCents !== null
+    m.reportingAllowed && salesAmount(m) !== null &&
+    (m.salesMetrics === undefined ||
+      m.salesMetrics.salesExTax.state === "reported") &&
+    (m.previousSalesMetrics
+      ? m.previousSalesMetrics.salesExTax.state === "reported"
+      : m.previousGrossSalesCents !== null)
   );
   if (comparable.length) {
-    const current = comparable.reduce((sum, m) => sum + m.grossSalesCents!, 0);
+    const current = comparable.reduce((sum, m) => sum + salesAmount(m)!, 0);
     const previous = comparable.reduce(
-      (sum, m) => sum + m.previousGrossSalesCents!,
+      (sum, m) =>
+        sum +
+        (m.previousSalesMetrics
+          ? m.previousSalesMetrics.salesExTax.knownSubtotal!
+          : m.previousGrossSalesCents!),
       0,
     );
     const difference = current - previous;
@@ -172,7 +250,7 @@ function weeklyInsights(machines: DigestMachine[]): string[] {
       }`
       : `${money(Math.abs(difference))} ${difference > 0 ? "higher" : "lower"}`;
     insights.push(
-      `Sales ${movement}${
+      `Known sales (ex tax) ${movement}${
         previous > 0 && difference !== 0
           ? ` (${difference > 0 ? "+" : "−"}${money(Math.abs(difference))})`
           : ""
@@ -180,7 +258,7 @@ function weeklyInsights(machines: DigestMachine[]): string[] {
         comparable.length < machines.length
           ? ` (${count(comparable.length, "comparable machine")})`
           : ""
-      }.`,
+      }. Snapshot comparison; source coverage may be incomplete.`,
     );
   }
   const intake = machines.filter((m) => m.digest !== undefined);
@@ -230,13 +308,8 @@ export function buildMachineDigestEmail(
   const salesValue = total.salesRestricted
     ? "Not shared"
     : money(total.salesCents);
-  const salesCaption = total.salesRestricted
-    ? "Sales access not included"
-    : total.salesCount === total.machineCount
-    ? count(total.machineCount, "machine")
-    : `${total.salesCount} of ${total.machineCount} machines reporting`;
-  const partialSales = total.salesCount > 0 &&
-    total.salesCount < total.machineCount;
+  const salesDetail = salesCaption(total);
+  const partialSales = total.salesCents !== null && !total.salesVerified;
   const requested = requestAmount(total);
   const requestDetail = requestCaption(total).replace("request", "new request");
   const requestedMetric = total.requestedCents === null
@@ -246,7 +319,10 @@ export function buildMachineDigestEmail(
     (total.requestedCents !== null && total.unknownAmountCount > 0
       ? "Known amount · "
       : "") + requestDetail;
-  const preheader = `Sales ${salesValue}${partialSales ? " known" : ""}. ` +
+  const preheader =
+    `Sales (ex tax) ${salesValue}${
+      partialSales ? " known" : ""
+    }. ${salesDetail}. ` +
     `Refunds requested ${requested}. ${
       count(total.requestCount, "new request")
     }.`;
@@ -255,7 +331,9 @@ export function buildMachineDigestEmail(
     title,
     period,
     "",
-    `Sales: ${salesValue}${partialSales ? " known" : ""} · ${salesCaption}`,
+    `Sales (ex tax): ${salesValue}${
+      partialSales ? " known" : ""
+    } · ${salesDetail}`,
     `Refunds requested: ${requested} · ${requestDetail}`,
     "",
   ];
@@ -297,12 +375,14 @@ export function buildMachineDigestEmail(
     const groupSales = groupTotal.salesRestricted
       ? "Not shared"
       : money(groupTotal.salesCents);
-    const groupPartial = groupTotal.salesCount < groupTotal.machineCount &&
-      groupTotal.salesCount > 0;
+    const groupPartial = groupTotal.salesCents !== null &&
+      !groupTotal.salesVerified;
     if (group.name !== null || ordered.length > 1) {
       const name = group.name ?? "Company unavailable";
       plain.push(
-        `${name} · Sales ${groupSales}${groupPartial ? " known" : ""} · ` +
+        `${name} · Sales (ex tax) ${groupSales}${
+          groupPartial ? " known" : ""
+        } · ${salesCaption(groupTotal)} · ` +
           `Refunds requested ${requestAmount(groupTotal)} (${
             requestCaption(groupTotal)
           })`,
@@ -311,7 +391,13 @@ export function buildMachineDigestEmail(
         `<tr style="background:${palette.blush}"><th scope="row" style="padding:14px 10px;text-align:left;vertical-align:top;font-size:15px;font-weight:700;line-height:1.4;overflow-wrap:anywhere">${
           escape(name)
         }</th>${
-          numberCell(groupSales, groupPartial ? "Known sales" : "", true)
+          numberCell(
+            groupSales === "Unavailable" ? "Missing" : groupSales,
+            `${groupTotal.salesCount} of ${groupTotal.machineCount} known${
+              groupPartial ? " · Known subtotal" : ""
+            }`,
+            true,
+          )
         }${
           numberCell(
             requestAmount(groupTotal),
@@ -359,22 +445,17 @@ export function buildMachineDigestEmail(
             : ""
         }</th>${
           numberCell(
-            machine.reportingAllowed
-              ? money(machine.grossSalesCents)
-              : "Not shared",
+            machineSalesValue(machine),
+            salesStatus(machine),
           )
         }${
           numberCell(requestAmount(machineTotal), requestCaption(machineTotal))
         }</tr>`,
       );
       plain.push(
-        `${machine.machineLabel}${
-          localPeriod ? ` · ${localPeriod}` : ""
-        }: ` +
-          `Sales ${
-            machine.reportingAllowed
-              ? money(machine.grossSalesCents)
-              : "Not shared"
+        `${machine.machineLabel}${localPeriod ? ` · ${localPeriod}` : ""}: ` +
+          `Sales (ex tax) ${machineSalesValue(machine)}${
+            salesStatus(machine) ? ` · ${salesStatus(machine)}` : ""
           }; ` +
           `refunds requested ${requestAmount(machineTotal)} (${
             requestCaption(machineTotal)
@@ -390,8 +471,9 @@ export function buildMachineDigestEmail(
   const reportUrl = reportDestination ? safeUrl(reportDestination) : null;
   const preferencesUrl = safeUrl(links.preferencesUrl);
   const basis =
-    "USD · Machine-local dates · Sales before refunds, excluding tax. " +
-    "Requested amounts are not completed payments. Late imports may update sales.";
+    "USD · Machine-local dates · Sales exclude tax and are before refunds. " +
+    "Refunds requested are customer-paid amounts (including any tax), not completed payments or a deduction from the sales shown. " +
+    "Figures reflect imported sales; late or missing source data may change totals. No recorded sales is not a confirmed zero.";
   plain.push(basis, "");
   if (hasReporting) plain.push(`Open reporting: ${reportDestination}`, "");
   plain.push(`Email preferences: ${links.preferencesUrl}`);
@@ -419,7 +501,11 @@ export function buildMachineDigestEmail(
     }</h1><p style="margin:0 0 30px;color:${palette.muted};font-size:15px;line-height:1.5">${
       escape(period)
     }</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:30px"><tr>${
-      metric(partialSales ? "Known sales" : "Sales", salesValue, salesCaption)
+      metric(
+        partialSales ? "Known sales (ex tax)" : "Sales (ex tax)",
+        salesValue,
+        salesDetail,
+      )
     }${
       metric(
         "Refunds requested",
@@ -437,7 +523,7 @@ export function buildMachineDigestEmail(
           ).join("")
         }</div>`
         : ""
-    }<table class="data-table" width="100%" cellpadding="0" cellspacing="0" style="width:100%;table-layout:fixed;border-collapse:collapse"><colgroup><col class="name-col" style="width:44%"><col class="sales-col" style="width:25%"><col class="requests-col" style="width:31%"></colgroup><thead><tr><th scope="col" style="text-align:left;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">Machine</th><th scope="col" style="text-align:right;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">Sales</th><th scope="col" style="text-align:right;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">New refunds</th></tr></thead><tbody>${
+    }<table class="data-table" width="100%" cellpadding="0" cellspacing="0" style="width:100%;table-layout:fixed;border-collapse:collapse"><colgroup><col class="name-col" style="width:44%"><col class="sales-col" style="width:25%"><col class="requests-col" style="width:31%"></colgroup><thead><tr><th scope="col" style="text-align:left;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">Machine</th><th scope="col" style="text-align:right;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">Sales (ex tax)</th><th scope="col" style="text-align:right;padding:0 10px 12px;font-size:13px;color:${palette.muted};font-weight:600">New refunds</th></tr></thead><tbody>${
       rows.join("")
     }</tbody></table>${
       reportUrl
