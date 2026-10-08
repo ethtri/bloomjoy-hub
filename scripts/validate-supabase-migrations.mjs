@@ -655,7 +655,7 @@ async function main() {
       );
       databaseEvidence = buildDatabaseEvidence({
         migrationCount: migrationFiles.length,
-        discoveredTestFileCount: testFiles.length,
+        discoveredTestFileCount: getSqlFiles(path.join(tempRoot, 'supabase', 'tests')).length,
         testSummary,
       });
       log('Supabase database persona tests passed.');
