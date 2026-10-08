@@ -1,13 +1,13 @@
 import type { PaymentMethod, SalesReportRow } from './reporting';
 
-export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'labor' | 'refunds' | 'partners';
+export type WorkspaceView = 'overview' | 'sales' | 'finance' | 'locations' | 'machines' | 'labor' | 'refunds' | 'partners';
 export type ComparisonMode = 'previous_period' | 'previous_month' | 'previous_year' | 'none';
 export type WorkspaceState = {
   view: WorkspaceView; dateFrom: string; dateTo: string;
   companyId: string; locationId: string; machineId: string; paymentMethod: PaymentMethod | 'all';
   comparison: ComparisonMode;
 };
-export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'finance', 'locations', 'partners'];
+export const workspaceViews: WorkspaceView[] = ['overview', 'sales', 'machines', 'finance', 'locations', 'partners'];
 const day = 86400000;
 const dateValue = (value: string) => new Date(`${value}T00:00:00Z`);
 export const dateString = (value: Date) => value.toISOString().slice(0, 10);
@@ -84,23 +84,33 @@ export function periodChange(current: number | null, previous: number | null) {
   if (current == null || previous == null) return { absolute: null, percent: null };
   return { absolute: current - previous, percent: previous > 0 ? (current - previous) / previous * 100 : null };
 }
-export function knownMoney(rows: SalesReportRow[], field: 'netSalesCents' | 'grossSalesCents' | 'refundAmountCents' | 'taxCents') {
-  return { value: rows.length && rows.every(row => row[field] != null) ? rows.reduce((sum, row) => sum + row[field]!, 0) : null,
-    knownValue: rows.reduce((sum, row) => sum + (row[field] ?? 0), 0), omittedRows: rows.filter(row => row[field] == null).length };
+export function knownSalesAmount(row: SalesReportRow, field: 'netSalesCents' | 'grossSalesCents' | 'refundAmountCents' | 'taxCents' | 'customerReceiptsCents') {
+  if (field === 'customerReceiptsCents') return row.customerReceiptsKnownCents ?? row.customerReceiptsCents;
+  if (field === 'grossSalesCents' && row.grossSalesKnownCents !== undefined) return row.grossSalesKnownCents;
+  if (field === 'netSalesCents' && row.netSalesKnownCents !== undefined) return row.netSalesKnownCents;
+  if (field === 'refundAmountCents' && row.refundAmountKnownCents !== undefined) return row.refundAmountKnownCents;
+  return row[field];
+}
+export function knownMoney(rows: SalesReportRow[], field: 'netSalesCents' | 'grossSalesCents' | 'refundAmountCents' | 'taxCents' | 'customerReceiptsCents') {
+  const applicable = field === 'customerReceiptsCents' ? rows.filter(row => !(row.customerReceiptsCents == null && row.customerReceiptsKnownCents == null && row.customerReceiptsUnknownCount === 0)) : rows;
+  return { value: applicable.length && applicable.every(row => row[field] != null) ? applicable.reduce((sum, row) => sum + row[field]!, 0) : null,
+    knownValue: applicable.reduce((sum, row) => sum + (knownSalesAmount(row, field) ?? 0), 0), omittedRows: applicable.filter(row => row[field] == null).length };
 }
 /** Display only calculable rows. A complete total stays null if any row is unresolved. */
 export function moneyCoverage(rows: SalesReportRow[], field: Parameters<typeof knownMoney>[1] = 'netSalesCents') {
   const total = knownMoney(rows, field);
-  const knownRows = rows.length - total.omittedRows;
-  return { ...total, knownRows, displayValue: knownRows ? total.knownValue : null,
+  const knownRows = rows.filter(row => knownSalesAmount(row, field) != null).length;
+  return { ...total, knownRows, noSalesRecorded: field === 'customerReceiptsCents' && rows.length > 0 && rows.every(row => row.customerReceiptsCents == null && row.customerReceiptsKnownCents == null && row.customerReceiptsUnknownCount === 0), displayValue: knownRows ? total.knownValue : null,
     status: !rows.length ? 'empty' as const : total.omittedRows ? 'partial' as const : 'complete' as const };
 }
 export function moneyCoverageNote(total: ReturnType<typeof moneyCoverage>) {
   if (total.status === 'empty') return 'No loaded records';
+  if (total.noSalesRecorded) return 'No sales recorded';
   if (total.status === 'complete') return 'Calculated from loaded records';
   return `${number(total.omittedRows)} ${total.omittedRows === 1 ? 'row has' : 'rows have'} missing amounts${total.knownRows ? '; known subtotal only' : '; no calculable amounts'}`;
 }
 export function moneyCoverageText(total: ReturnType<typeof moneyCoverage>, formatter: (value: number | null) => string = money) {
+  if (total.noSalesRecorded) return 'No sales recorded';
   return `${formatter(total.displayValue)}${total.status === 'partial' && total.knownRows ? ' (known subtotal)' : ''}`;
 }
 export function unresolvedComponents(rows: SalesReportRow[]) {

@@ -1312,3 +1312,5 @@ npm run refunds:validate-portal-uat-lifecycle
 - New source setup: with no trusted time zone, verify the required searchable city/time-zone selector is blank, shows why Save is unavailable, and supports keyboard/touch selection and clearing. Select a valid zone to verify reader ownership; managers remain optional. A failed check offers a reads-only Retry reader check.
 
 - Completed same-machine source connection: keep the existing machine visible in the initial setup cache with no source; delay refreshed setup after connection. Continue only after exact source identity arrives, change the machine name, save/reopen, and verify the same source ID persists. No production save in smoke tests.
+
+- Reporting #1824: open `/portal/reports?view=machines`; verify every permitted machine appears, search/sort and company/location/tender filters retain scope, no loaded records differs from recorded zero, customer payments including tax remain separate from sales before tax/net, partial known amounts and CSV agree, and cash/card/refund/tax details remain readable at 320/390/768px.

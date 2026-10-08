@@ -125,7 +125,7 @@ Deno.test('saved view malformed storage cannot introduce arbitrary states', () =
 });
 
 Deno.test('central navigation lists only business reporting destinations', () => {
-  equal(workspaceViews, ['overview', 'sales', 'finance', 'locations', 'partners']);
+  equal(workspaceViews, ['overview', 'sales', 'machines', 'finance', 'locations', 'partners']);
   equal(readWorkspaceState(new URLSearchParams('view=labor')).view, 'labor');
   equal(readWorkspaceState(new URLSearchParams('view=refunds')).view, 'refunds');
 });

@@ -22,6 +22,7 @@ export type ReportingAccessContext = {
 };
 
 export type ReportingDimension = {
+  managementArchivedAt?: string | null;
   accountId: string;
   accountName: string;
   locationId: string;
@@ -45,6 +46,16 @@ export type SalesReportFilters = {
 };
 
 export type SalesReportRow = {
+  /** Supported customer receipts including tax; independent of tax normalization. */
+  customerReceiptsCents?: number | null;
+  customerReceiptsKnownCents?: number | null;
+  customerReceiptsUnknownCount?: number;
+  grossSalesKnownCents?: number | null;
+  grossSalesUnknownCount?: number;
+  netSalesKnownCents?: number | null;
+  netSalesUnknownCount?: number;
+  refundAmountKnownCents?: number | null;
+  refundAmountUnknownCount?: number;
   calculationVersion: SalesReportCalculationVersion;
   periodStart: string;
   machineId: string;
@@ -365,6 +376,7 @@ type ReportingAccessContextRpc = {
 };
 
 type ReportingDimensionRpc = {
+  management_archived_at?: string | null;
   account_id: string;
   account_name: string;
   location_id: string;
@@ -378,6 +390,15 @@ type ReportingDimensionRpc = {
 };
 
 type SalesReportRpcRow = {
+  customer_receipts_cents?: number | null;
+  customer_receipts_known_cents?: number | null;
+  customer_receipts_unknown_count?: number;
+  gross_sales_known_cents?: number | null;
+  gross_sales_unknown_count?: number;
+  net_sales_known_cents?: number | null;
+  net_sales_unknown_count?: number;
+  refund_amount_known_cents?: number | null;
+  refund_amount_unknown_count?: number;
   calculation_version?: string | null;
   period_start: string;
   machine_id: string;
@@ -418,6 +439,7 @@ const supportedSalesReportPdfGeneratorVersions = new Set([
   'sales-report-pdf/company-v3',
   'sales-report-pdf/company-v4',
   'sales-report-pdf/company-v5',
+  'sales-report-pdf/company-v6',
 ]);
 const reportExportBucket = 'sales-report-exports';
 
@@ -702,6 +724,7 @@ const mapAccessContext = (record: ReportingAccessContextRpc | null): ReportingAc
 };
 
 const mapDimension = (record: ReportingDimensionRpc): ReportingDimension => ({
+  managementArchivedAt: record.management_archived_at ?? null,
   accountId: record.account_id,
   accountName: record.account_name,
   locationId: record.location_id,
@@ -720,6 +743,15 @@ const normalizeSalesReportCalculationVersion = (
   value === 'shared-sales-basis-v1' ? 'shared-sales-basis-v1' : 'legacy-sales-basis-v0';
 
 const mapSalesReportRow = (record: SalesReportRpcRow): SalesReportRow => ({
+  customerReceiptsCents: record.customer_receipts_cents == null ? null : Number(record.customer_receipts_cents),
+  customerReceiptsKnownCents: record.customer_receipts_known_cents == null ? null : Number(record.customer_receipts_known_cents),
+  customerReceiptsUnknownCount: record.customer_receipts_unknown_count === undefined ? undefined : Number(record.customer_receipts_unknown_count),
+  grossSalesKnownCents: record.gross_sales_known_cents === undefined ? undefined : record.gross_sales_known_cents === null ? null : Number(record.gross_sales_known_cents),
+  grossSalesUnknownCount: record.gross_sales_unknown_count === undefined ? undefined : Number(record.gross_sales_unknown_count),
+  netSalesKnownCents: record.net_sales_known_cents === undefined ? undefined : record.net_sales_known_cents === null ? null : Number(record.net_sales_known_cents),
+  netSalesUnknownCount: record.net_sales_unknown_count === undefined ? undefined : Number(record.net_sales_unknown_count),
+  refundAmountKnownCents: record.refund_amount_known_cents === undefined ? undefined : record.refund_amount_known_cents === null ? null : Number(record.refund_amount_known_cents),
+  refundAmountUnknownCount: record.refund_amount_unknown_count === undefined ? undefined : Number(record.refund_amount_unknown_count),
   calculationVersion: normalizeSalesReportCalculationVersion(record.calculation_version),
   periodStart: record.period_start,
   machineId: record.machine_id,
@@ -912,7 +944,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
+  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4', 'sales-report-pdf/company-v5', 'sales-report-pdf/company-v6'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );

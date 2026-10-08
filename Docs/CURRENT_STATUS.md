@@ -776,3 +776,5 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 Never paste secrets, raw customer data, payment identifiers, vendor exports, or
 free-text complaint content into documentation, issues, pull requests, or chat.
+
+- #1824 reporting machine view is implemented on its PR branch: all permitted machines remain searchable, supported customer payments including tax are separate from sales before tax/net, and known component subtotals survive partial amounts. Local tests and mobile/desktop preview are passing; release waits for coordinated receipt/stable-tax backend deployment and live acceptance. Not yet deployed.
