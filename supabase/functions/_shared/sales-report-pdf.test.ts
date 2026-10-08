@@ -10,6 +10,7 @@ import {
   summarizeSalesReportEstimates,
   formatSalesReportEstimateSplit,
   readSalesReportTaxPolicyEvidence,
+  buildSalesReportEstimateSnapshotSummary,
 } from "./sales-report-pdf.ts";
 
 Deno.test("provisional portions remain separate from confirmed subtotals and preserve reversals", async () => {
@@ -27,6 +28,11 @@ Deno.test("provisional portions remain separate from confirmed subtotals and pre
   assertEquals([summary.knownGrossSalesCents, summary.knownRefundAmountCents, summary.knownNetSalesCents], [1000,100,900]);
   assertEquals([summary.grossSalesCents, summary.refundAmountCents, summary.netSalesCents], [null,null,null]);
   assertEquals([summary.unresolvedSalesCount, summary.unresolvedRefundCount], [1,3]);
+  assertEquals(buildSalesReportEstimateSnapshotSummary(summary),{
+    estimated_sales_ex_tax_cents:200,estimated_refund_ex_tax_cents:10,estimated_net_ex_tax_cents:190,
+    provisional_sales_components:1,provisional_refund_components:2,provisional_net_components:3,
+    unestimated_sales_components:0,unestimated_refund_components:1,unestimated_net_components:1,
+  });
   assertEquals(summarizeSalesReportEstimates(rows), {estimatedSalesExTaxCents:200,estimatedRefundExTaxCents:10,
     estimatedNetExTaxCents:190,provisionalSalesComponents:1,provisionalRefundComponents:2,provisionalNetComponents:3,
     unestimatedSalesComponents:0,unestimatedRefundComponents:1,unestimatedNetComponents:1});

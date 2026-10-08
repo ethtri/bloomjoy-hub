@@ -8,6 +8,7 @@ import {
   buildSalesReportPdf,
   getSalesReportCalculationVersion,
   summarizeSalesReportPdfRows,
+  buildSalesReportEstimateSnapshotSummary,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
 
@@ -287,6 +288,7 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
       filters,
       summary: {
         pdf_generator_version: SALES_REPORT_PDF_GENERATOR_VERSION,
+        ...buildSalesReportEstimateSnapshotSummary(summary),
         known_net_sales_cents: (summary.knownNetContributorRowCount ?? summary.knownNetRowCount) > 0 ? summary.knownNetSalesCents : null,
         known_refund_amount_cents: (summary.knownRefundContributorRowCount ?? summary.knownRefundRowCount) > 0 ? summary.knownRefundAmountCents : null,
         known_gross_sales_cents: (summary.knownGrossContributorRowCount ?? summary.knownGrossRowCount) > 0 ? summary.knownGrossSalesCents : null,
