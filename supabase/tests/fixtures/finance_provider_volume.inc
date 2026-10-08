@@ -30,6 +30,8 @@ select repeat(md5('finance-volume-export'),2),repeat(md5('finance-volume-export-
 from finance_provider_originals;
 -- Production has over eighty thousand DTM audit rows. A thousand-row fixture
 -- misses the cost of a queued-original guard that cannot use the linked index.
+-- Linked decoys deliberately share a fact chosen for promotion, while their
+-- source identity differs. Promotion must never follow the fact ID alone.
 insert into public.nayax_dtm_export_rows(file_digest,source_row_hash,provider_actor_id,provider_machine_id,
   provider_site_id,provider_transaction_id,settlement_amount_cents,machine_settled_at,provider_type,
   machine_name_hash,mapping_disposition,financial_disposition,history_scope_disposition,disposition,fact_id)
@@ -38,7 +40,7 @@ select repeat(md5('finance-volume-decoy-export'),2),repeat(md5('finance-volume-d
   repeat(md5('finance-volume-decoy-machine'),2),
   case when n%40=0 then 'historical_inactive_exact_link' else 'canonical' end,
   'eligible','in_scope',case when n%40=0 then 'queued_excluded' else 'fact_linked' end,
-  case when n%40=0 then null else (select fact_id from finance_provider_originals limit 1) end
+  case when n%40=0 then null else (select fact_id from finance_provider_originals where nayax_machine_id::bigint%4=0 order by fact_id limit 1) end
 from generate_series(1,80000)n;
 set local session_replication_role=origin;
 analyze public.sales_adjustment_facts;

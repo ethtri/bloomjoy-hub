@@ -43,8 +43,17 @@ create temporary table prior_finance_helper_outputs as select i.*,
 from finance_helper_inputs i;
 do $$declare r record;begin for r in select definition from optimized_finance_helpers loop execute r.definition;end loop;end$$;
 \ir fixtures/finance_promoted_originals.inc
-select is((select count(*) from finance_promoted_originals),4::bigint,
-  'Populated annual fixture exercises four approved promoted originals');
+select ok((select count(*) from finance_promoted_originals)=4
+  and (select count(*) from public.nayax_dtm_export_rows evidence
+    join finance_promoted_originals original on evidence.source_order_hash=original.promoted_order_hash)=4
+  and (select count(*) from public.nayax_pending_sales pending
+    join finance_promoted_originals original on pending.source_order_hash=original.promoted_order_hash)=4
+  and (select count(*) from public.nayax_dtm_export_rows
+    where file_digest=repeat(md5('finance-volume-decoy-export'),2)
+      and source_order_hash is null
+      and ((disposition='fact_linked' and fact_id is not null)
+        or (disposition='queued_excluded' and fact_id is null)))=80000,
+  'Exactly four original transactions promoted while all eighty thousand decoys remain unchanged');
 -- Ordinary linked originals retain the indexed prepared join. This populated
 -- budget catches a promotion resolver accidentally scanning all 125,440 facts
 -- for each of the 1,000 linked originals, without waiting for a workflow timeout.

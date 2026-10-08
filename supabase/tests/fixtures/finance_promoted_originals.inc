@@ -10,7 +10,12 @@ update public.machine_sales_facts fact set source_order_hash=original.promoted_o
 from finance_promoted_originals original where fact.id=original.fact_id;
 update public.nayax_dtm_export_rows evidence set source_order_hash=original.promoted_order_hash,
   fact_id=null,disposition='queued_excluded',mapping_disposition='historical_inactive_exact_link',provider_status=62
-from finance_promoted_originals original where evidence.fact_id=original.fact_id;
+from finance_promoted_originals original where evidence.fact_id=original.fact_id
+  and evidence.file_digest=repeat(md5('finance-volume-export'),2)
+  and evidence.provider_actor_id='2003563806'
+  and evidence.provider_machine_id=original.nayax_machine_id
+  and evidence.provider_transaction_id=original.transaction_id
+  and evidence.provider_site_id='182400';
 insert into public.nayax_dtm_export_completions(file_digest,rows_recorded,facts_linked,adjustments_linked,pending_rows,held_rows)
 select evidence.file_digest,1000,996,0,4,0 from public.nayax_dtm_export_rows evidence
 join finance_promoted_originals original on evidence.source_order_hash=original.promoted_order_hash
