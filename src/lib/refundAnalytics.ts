@@ -1,4 +1,5 @@
 import type { CompanyDimension } from './companyReporting.ts';
+import { ReportingRequestError } from './reportingQuery';
 
 export type RefundAnalyticsScope = {
   companyId?: string; companyName?: string;
@@ -54,7 +55,7 @@ export type RefundAnalyticsAccess = {
 export async function fetchRefundAnalyticsAccess(): Promise<RefundAnalyticsAccess> {
   const { supabaseClient } = await import('@/lib/supabaseClient');
   const { data, error } = await supabaseClient.rpc('get_refund_analytics_access');
-  if (error) throw error;
+  if (error) throw new ReportingRequestError(error, 'Unable to load refund analytics access.');
   return { hasAccess: data?.hasAccess === true, dimensions: Array.isArray(data?.dimensions) ? data.dimensions : [] };
 }
 
@@ -66,7 +67,7 @@ export async function fetchRefundAnalytics(scope: RefundAnalyticsScope): Promise
     p_date_from: scope.dateFrom, p_date_to: scope.dateTo,
     p_machine_ids: scope.machineIds ?? null, p_location_ids: scope.locationIds ?? null,
   });
-  if (error) throw error;
+  if (error) throw new ReportingRequestError(error, 'Unable to load refund analytics.');
   if (data?.calculationVersion !== 'refund-analytics-v1') {
     throw new Error('Refund analytics returned an unsupported calculation version.');
   }

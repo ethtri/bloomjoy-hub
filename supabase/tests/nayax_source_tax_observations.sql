@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(1);
+select plan(3);
 insert into public.customer_accounts(id,name,account_type)
 values('b1763000-0000-4000-8000-000000000001','Source tax fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -68,5 +68,27 @@ begin
 end;
 $$;
 $test$,'Dated source classification, bounds, and permission checks');
+select results_eq(
+  $$select normalized.tax_exclusive_amount_cents,normalized.tax_cents,
+      normalized.normalization_status,normalized.normalization_reason
+    from (values ('tax_inclusive'),('gross_customer_charge_minor'),(' TAX_INCLUSIVE ')) bases(basis)
+    cross join lateral private.normalize_reporting_treated_amount_cents(
+      'b1763000-0000-4000-8000-000000000003','card','2099-09-15',1080,basis,null,null,true) normalized$$,
+  $$values (1000::bigint,80::bigint,'proved'::text,'embedded_tax_extracted'::text),
+    (1000::bigint,80::bigint,'proved'::text,'embedded_tax_extracted'::text),
+    (1000::bigint,80::bigint,'proved'::text,'embedded_tax_extracted'::text)$$,
+  'Rate lookup preserves canonical and raw inclusive aliases');
+select results_eq(
+  $$select normalized.tax_exclusive_amount_cents,normalized.tax_cents,
+      normalized.normalization_status,normalized.normalization_reason
+    from (values ('cash'::text,1080::bigint,'tax_inclusive'::text,null::bigint),
+      ('card',0,'tax_inclusive',null),('card',1080,'tax_inclusive',80))
+      amounts(tender,amount,basis,separate_tax)
+    cross join lateral private.normalize_reporting_treated_amount_cents(
+      'b1763000-0000-4000-8000-000000000003',tender,'2099-08-15',amount,basis,null,separate_tax,true) normalized$$,
+  $$values (1080::bigint,0::bigint,'proved'::text,'cash_not_taxed'::text),
+    (0::bigint,0::bigint,'proved'::text,'source_tax_exclusive'::text),
+    (1000::bigint,80::bigint,'proved'::text,'separate_tax_subtracted'::text)$$,
+  'Cash, zero and original separate tax remain proved without rate evidence');
 select * from finish();
 rollback;

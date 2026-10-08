@@ -2,6 +2,7 @@ import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import type { ReportingMachineType } from '@/lib/machineTypes';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { getOptionalSnapCasePartnershipId } from '@/lib/snapcaseMappingWindow';
+import { ReportingRequestError } from './reportingQuery';
 
 export type { ReportingMachineType } from '@/lib/machineTypes';
 
@@ -415,6 +416,7 @@ const supportedSalesReportPdfGeneratorVersions = new Set([
   'sales-report-pdf/polished-v1',
   'sales-report-pdf/shared-basis-v2',
   'sales-report-pdf/company-v3',
+  'sales-report-pdf/company-v4',
 ]);
 const reportExportBucket = 'sales-report-exports';
 
@@ -869,7 +871,7 @@ export const fetchReportingDimensions = async (): Promise<ReportingDimension[]> 
 
 export const fetchSalesReport = async (filters: SalesReportFilters): Promise<SalesReportRow[]> => {
   if (filters.companyId && filters.companyId !== 'all' && filters.machineIds?.length === 0) throw new Error('No accessible machines in this company scope.');
-  const { data, error } = await supabaseClient.rpc(filters.companyId && filters.companyId !== 'all' ? 'get_company_sales_report' : 'get_sales_report', {
+  const { data, error } = await supabaseClient.rpc('get_sales_report_complete', {
     ...(filters.companyId && filters.companyId !== 'all' ? { p_company_id: filters.companyId } : {}),
     p_date_from: filters.dateFrom,
     p_date_to: filters.dateTo,
@@ -880,7 +882,7 @@ export const fetchSalesReport = async (filters: SalesReportFilters): Promise<Sal
   });
 
   if (error) {
-    throw new Error(error.message || 'Unable to load sales report.');
+    throw new ReportingRequestError(error, 'Unable to load sales report.');
   }
 
   const rows = (data as SalesReportRpcRow[] | null) ?? [];
@@ -909,7 +911,7 @@ export const exportSalesReportPdf = async (
     }
   );
 
-  if ((filters.companyId && filters.companyId !== 'all' && response.pdfGeneratorVersion !== 'sales-report-pdf/company-v3') || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
+  if ((filters.companyId && filters.companyId !== 'all' && !['sales-report-pdf/company-v3', 'sales-report-pdf/company-v4'].includes(response.pdfGeneratorVersion ?? '')) || !supportedSalesReportPdfGeneratorVersions.has(response.pdfGeneratorVersion ?? '')) {
     throw new Error(
       'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
     );
