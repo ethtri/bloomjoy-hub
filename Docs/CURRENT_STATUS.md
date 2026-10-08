@@ -13,7 +13,16 @@ eight-second API timeout. Shorter periods load but show unavailable money where
 historical source-tax evidence is missing; September 30–October 6 reproduces the
 owner's $6,133.47 known subtotal and 90 unresolved report rows on desktop too.
 Imports include October 7. Remediation is tracked in #1824; see
-`Docs/REPORTING_REMEDIATION_PLAN.md`. Production remediation is not yet applied.
+`Docs/REPORTING_REMEDIATION_PLAN.md`. Annual query, loading and PDF repairs are
+deployed; the annual export preserves 367 pages, 9,510 rows and 59,828 recorded
+transactions. The rate and operational-receipt follow-up below is pending.
+
+October 8 follow-up: the owner confirmed stable machine tax rates and selected
+Nayax's 7.5% for The Avenues. The next repair records explicit owner coverage
+without rewriting source observations, and adds independently supported customer
+receipts and known component subtotals to reporting. Net/payroll authority and
+original transaction tax remain unchanged. Deployment and live verification are
+pending this follow-up's SQL/UI review and tests.
 
 ## Machine identity context
 

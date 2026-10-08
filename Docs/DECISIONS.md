@@ -16,6 +16,10 @@
 
 ## 2026-10-05 - Source-backed card tax and untaxed cash reporting
 
+The October 8 stable-rate decision below supersedes this section's restriction
+on historical coverage from current verified rates. Its explicit Avenues 7.5%
+owner correction also supersedes the earlier September Finance 8% estimate.
+
 - For reporting, cash receipts retain the amount collected without a tax
   deduction: $10 cash is $10 sales. This is the owner's reporting instruction.
 - Card tax comes from verified Nayax source evidence, with the exact account,
@@ -1259,3 +1263,25 @@ Mall SnapCase remains outside this rollout. See the source contract and feature 
 # 2026-10-06 — Existing-reader management source reuse (#1799)
 
 An explicitly reviewed same-physical-machine association can reuse an existing source-free, nonarchived Hub and its exact occupied reader. Preserve the existing machine name, company, site/time zone, managers, refund state and financial records. Store the imported management association separately from financial source activation: Sunze/Kex imports remain pending, and no historical orders are promoted or existing revenue recalculated. Show the read-only source identity and a sales-activation-pending notice; this state is Setup needed, never Ready. Source and Hub uniqueness, stale snapshots, permissions and financial-activation guards apply server-side. Occupied readers belonging to a different source remain visible with their current connection and a reconciliation path; ordinary Save cannot take them over. No provider time zone may be inferred from names or a universal default.
+
+## 2026-10-08 — Stable machine rates and independent recorded receipts (#1824)
+
+The owner confirmed that machine tax rates have not changed across reporting
+history. The October 5 source-observation date is an application cutoff, not a
+business rate change. Apply each existing verified exact account/reader rate
+across its applicable reporting history, including retained reader associations.
+Append explicit owner-attested coverage and retain original observation IDs and
+review time; do not rewrite API observations or invent rates. Original transaction
+tax remains first, source amount basis prevents double tax, and cash remains cash.
+
+The owner separately resolved The Avenues' conflicting September Finance 8%
+estimate and Nayax 7.5% setting: use Nayax's 7.5% across its stable history. Append
+an explicit owner correction with priority over the old estimate, preserving both
+observations. Unrelated conflicting tuples do not receive arbitrary latest rates.
+
+Operational reports show supported recorded customer payment amounts independently
+of tax normalization. Receipts include eligible cash and proven inclusive or
+separate-tax source amounts, preserving publisher authority and deduplication.
+Known component subtotals and unknown component counts survive an unavailable
+aggregate row. This changes neither net/refund/payroll formulas nor issued
+snapshots, and imported records do not prove complete provider coverage or zero.
