@@ -137,6 +137,8 @@
 
 ## Reporting workspace
 
+- Heavy report admission (#1824): run `node scripts/validate-reporting-admission-uat.mjs --app-url http://127.0.0.1:8099` against the local sample preview. With two-second browser fetch latency, current Sales renders first, at most one Sales/comparison/Labor/Refund/Finance/manual-PDF request is active, pending stale scope/access work is cancelled, and one timeout does not block independent reports. Verify a fresh live annual reload with real request timings after deployment; this client queue cannot coordinate other browser tabs or server jobs.
+
 - [ ] Open `/portal/reports` with authorized sales access. Overview, Sales and
   Locations retain the selected dates, comparison, location, machine and sales
   tender in the URL. Saved views store filters for the current user only; reopening

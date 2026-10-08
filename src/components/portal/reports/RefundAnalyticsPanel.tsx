@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { assertCompanyExportScope, companyBasis, groupCompanyRows, type CompanyDimension } from '@/lib/companyReporting';
 import { CompanySummary } from './CompanySummary';
-import { useQuery } from '@tanstack/react-query';
+import { useQueuedReportingQuery } from '@/hooks/useQueuedReportingQuery';
 import { Link } from 'react-router-dom';
 import { Download, ArrowUpRight, RotateCcw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,9 +24,9 @@ export function RefundAnalyticsPanel({ scope, showQueueLink = true, showHeading 
   const SectionHeading = showHeading ? 'h3' : 'h2';
   const MachineHeading = showHeading ? 'h4' : 'h3';
   const { user } = useAuth();
-  const query = useQuery({
+  const query = useQueuedReportingQuery({
     queryKey: ['refund-analytics', user?.id, scope.dateFrom, scope.dateTo,
-      [...(scope.machineIds ?? [])].sort(), [...(scope.locationIds ?? [])].sort(), scope.companyId ?? 'all'],
+      [...(scope.machineIds ?? [])].sort(), [...(scope.locationIds ?? [])].sort(), scope.companyId ?? 'all', dimensions.map(row => row.machineId).sort()],
     queryFn: () => fetchRefundAnalytics(scope), enabled: Boolean(user), staleTime: 60_000,
   });
   if (query.isPending) return <div className="rounded-xl border p-6" role="status">Loading refund analytics…</div>;
