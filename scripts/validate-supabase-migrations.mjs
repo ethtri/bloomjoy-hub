@@ -23,7 +23,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
 export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
-const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql', 'sheet_refund_atomic_deployment.sql', 'eastridge_owner_rate_recovery.sql'];
+const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql', 'sheet_refund_atomic_deployment.sql', 'eastridge_owner_rate_recovery.sql', 'machine_rate_policy_atomic_deployment.sql'];
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
@@ -361,6 +361,26 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
     });
   }
   normalizeSqlLineEndings(tempSupabaseDir);
+  // Capture the exact pre-policy catalogue only in the disposable replay. The
+  // atomic fixture restores it before replaying the unmodified actual statement.
+  const machineRatePolicyFiles = getMigrationFiles().filter(name => name.endsWith('_machine_reporting_rate_policy.sql'));
+  if (machineRatePolicyFiles.length !== 1) throw new Error('Expected exactly one actual machine rate policy migration');
+  const machineRatePolicyFilename = machineRatePolicyFiles[0];
+  const machineRatePolicySql = fs.readFileSync(path.join(migrationsDir, machineRatePolicyFilename), 'utf8');
+  const machineRatePolicyPrelude = `
+create table private.test_machine_rate_policy_baseline as
+select n.nspname schema_name,p.proname name,p.oid::regprocedure::text identity,
+ pg_get_functiondef(p.oid) definition,p.proacl acl
+from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+where n.nspname in ('public','private') and p.prokind='f';
+`;
+  fs.writeFileSync(path.join(tempSupabaseDir, 'migrations', machineRatePolicyFilename),
+    machineRatePolicyPrelude + machineRatePolicySql, 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[3]),
+    `begin;\nselect set_config('bloomjoy.test.machine_rate_policy_migration',
+      $actual_machine_rate_policy_migration$${machineRatePolicySql}$actual_machine_rate_policy_migration$,true);
+      \\ir fixtures/machine_rate_policy_atomic_guard.inc
+      rollback;\n`, 'utf8');
   // Exercise the actual atomic forward statement, including rejection rollback.
   // Read the reviewed file instead of duplicating its DDL or budget logic.
   const originalReaderForward = '20261008204327_indexed_promoted_original_source_tax.sql';
