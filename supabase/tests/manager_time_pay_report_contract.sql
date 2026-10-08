@@ -9,7 +9,8 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(159);
+select plan(165);
+\ir fixtures/reporting_missing_nayax_before.inc
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -2447,6 +2448,45 @@ select ok(
   ),
   'known K card observations without Nayax facts keep the existing missing-sales finding even when another sales fact exists'
 );
+
+-- Prepared-query parity covers the demonstrated mixed-source finding and
+-- account/profile scope. A retained zeroed Nayax fact still proves existence.
+select results_eq(
+  $$select * from private.operator_snapcase_missing_nayax_card_machines(
+    'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+    '2026-07-01','2026-07-31') order by machine_id$$,
+  $$select * from pg_temp.reporting_missing_nayax_before(
+    'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+    '2026-07-01','2026-07-31') order by machine_id$$,
+  'Prepared readiness query matches old helper with observed card and other-source facts');
+select is((select count(*) from private.operator_snapcase_missing_nayax_card_machines(
+  'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+  '2026-07-01','2026-07-31')),1::bigint,'Observed card with only cash facts remains a missing-Nayax finding');
+select is((select count(*) from private.operator_snapcase_missing_nayax_card_machines(
+  'b1824100-0000-4000-8000-000000000001','a6000000-0000-0000-0000-000000000001',
+  '2026-07-01','2026-07-31')),0::bigint,'Different company cannot acquire the profile readiness scope');
+select is((select count(*) from private.operator_snapcase_missing_nayax_card_machines(
+  'a2000000-0000-0000-0000-000000000001','b1824000-0000-4000-8000-000000000001',
+  '2026-07-01','2026-07-31')),0::bigint,'Different profile cannot acquire machine readiness scope');
+insert into public.machine_sales_facts(
+  id,reporting_machine_id,reporting_location_id,sale_date,payment_method,
+  net_sales_cents,transaction_count,source,source_row_hash,source_order_hash)
+values('a9100000-0000-0000-0000-000000000098',
+  'a4000000-0000-0000-0000-000000000001','a3000000-0000-0000-0000-000000000001',
+  '2026-07-20','credit',0,0,'nayax_scheduled_report',
+  'manager-report-retained-zero-nayax','manager-report-retained-zero-nayax-order');
+select is((select count(*) from private.operator_snapcase_missing_nayax_card_machines(
+  'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+  '2026-07-01','2026-07-31')),0::bigint,'Zeroed retained Nayax fact satisfies the unchanged source-existence rule');
+select results_eq(
+  $$select * from private.operator_snapcase_missing_nayax_card_machines(
+    'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+    '2026-07-01','2026-07-31') order by machine_id$$,
+  $$select * from pg_temp.reporting_missing_nayax_before(
+    'a2000000-0000-0000-0000-000000000001','a6000000-0000-0000-0000-000000000001',
+    '2026-07-01','2026-07-31') order by machine_id$$,
+  'Prepared readiness query matches old helper with zeroed Nayax evidence');
+delete from public.machine_sales_facts where id='a9100000-0000-0000-0000-000000000098';
 
 update private.snapcase_completed_import_windows
 set payment_observed_count = 0,
