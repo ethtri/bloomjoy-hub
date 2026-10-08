@@ -15,15 +15,22 @@ transaction-tax precedence and unchanged machine rates, including the owner's
 Nayax 7.5% correction for The Avenues. The indexed original-import lookup passed
 the atomic eight-second production annual guard; no reporting budget was raised.
 
-Latest production January 1–October 7 reporting has 9,515 rows and 59,837 recorded
-transactions, with zero unresolved imported sales and 73 unresolved refund
-components. October 1–7 has 220 rows/1,018 transactions and two unresolved refund
-components; September has 854 rows/4,433 transactions and 16. Remaining refund
-evidence is under review: one exact legacy case (#1848), 54 Sheet components and
-18 hosted requests. Supported receipts remain partial where source amount basis
-does not establish inclusive customer payments. Final browser/PDF acceptance
-follows those reviews. Net/payroll formulas and issued snapshots are unchanged.
-Current acceptance evidence is tracked in #1824; see `Docs/REPORTING_REMEDIATION_PLAN.md`.
+Latest production January 1–October 7 reporting has 9,511 rows and 59,837 recorded
+transactions, with zero unresolved imported sales and 33 unresolved refund
+components. The exact legacy case repair (#1848) and reviewed original Sheet
+payment evidence (#1849) are deployed. All 54 Sheet identities matched; metadata
+repair and replay preserved every financial field, including 23 populated and
+31 NULL fingerprints, without a whole-Sheet sync. Known ex-tax refunds increased
+by the independently verified $550.82; sales stayed unchanged. Worker v133 matches
+all three reviewed files and preserves custom authentication. The atomic annual
+monetary guard passed without raising the eight-second budget; Auth and security
+checks remain unchanged.
+
+Remaining refund evidence and the separate Machine tax-rate editor are tracked
+in #1824/#1850. Supported receipts remain partial where source amount basis does
+not establish inclusive customer payments. Final browser/PDF acceptance follows
+those reviews. Net/payroll formulas and issued snapshots are unchanged.
+See `Docs/REPORTING_REMEDIATION_PLAN.md` for current acceptance evidence.
 
 ## Machine identity context
 
