@@ -1377,6 +1377,15 @@ const drawAppendixHeader = (
   });
 };
 
+const drawEstimateText = (page:PDFPage,fonts:PdfFonts,text:string,options:DrawTextOptions) => {
+  const font=options.font ?? fonts.regular;
+  const size=options.size ?? 10;
+  const lines=options.maxWidth ? wrapText(font,text,size,options.maxWidth) : [toAscii(text)];
+  lines.forEach((line,index)=>drawTableText(page,fonts,line,options.x,
+    options.y-index*(options.lineHeight ?? size+4),options.maxWidth ?? CONTENT_WIDTH,
+    {size,bold:font===fonts.bold,color:options.color}));
+};
+
 const drawProvisionalEstimatePages = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
@@ -1395,7 +1404,7 @@ const drawProvisionalEstimatePages = (
   for (let offset = 0; offset < estimateRows.length; offset += rowsPerPage) {
     const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     drawAppendixHeader(page, fonts, assets, "Provisional tax estimates", context.reportReference);
-    drawText(page, fonts,
+    drawEstimateText(page, fonts,
       "Estimated amounts cover only unresolved components with a provisional rate. They are separate from confirmed figures and do not authorize payouts. Unknown components may remain; this is not a complete accounting total.",
       { x: MARGIN, y: 699, size: 9, maxWidth: CONTENT_WIDTH, lineHeight: 12, color: COLORS.muted });
     let y = 644;
@@ -1407,14 +1416,14 @@ const drawProvisionalEstimatePages = (
       `Still unestimated: ${formatInteger(totals.unestimatedSalesComponents)} sales; ${formatInteger(totals.unestimatedRefundComponents)} refund; ${formatInteger(totals.unestimatedNetComponents)} net components`,
     ];
     for (const line of totalLines) {
-      drawText(page, fonts, line, { x: MARGIN, y, size: 8.2, maxWidth: CONTENT_WIDTH, lineHeight: 11, color: COLORS.ink });
+      drawEstimateText(page, fonts, line, { x: MARGIN, y, size: 8.2, maxWidth: CONTENT_WIDTH, lineHeight: 11, color: COLORS.ink });
       y -= 20;
     }
     y -= 14;
     for (const row of estimateRows.slice(offset, offset + rowsPerPage)) {
       const evidence = readSalesReportTaxPolicyEvidence(row)!;
       const remaining=remainingEstimateComponents(row);
-      drawText(page, fonts, `${formatDateShort(readPeriodStart(row))} | ${readMachineLabel(row)} | ${readPaymentMethod(row)}`,
+      drawEstimateText(page, fonts, `${formatDateShort(readPeriodStart(row))} | ${readMachineLabel(row)} | ${readPaymentMethod(row)}`,
         { x: MARGIN, y, size: 8.3, maxWidth: CONTENT_WIDTH, lineHeight: 10, font: fonts.bold, color: COLORS.ink });
       y -= 21;
       for (const line of [
@@ -1423,7 +1432,7 @@ const drawProvisionalEstimatePages = (
         `Net: ${formatSalesReportEstimateSplit(knownNet(row), evidence.estimatedNetExTaxCents, false, remaining.net)}`,
         `Still unestimated: ${remaining.sales} sales; ${remaining.refunds} refund; ${remaining.net} net components`,
       ]) {
-        drawText(page, fonts, line, { x: MARGIN, y, size: 7.3, maxWidth: CONTENT_WIDTH, lineHeight: 10, color: COLORS.muted });
+        drawEstimateText(page, fonts, line, { x: MARGIN, y, size: 7.3, maxWidth: CONTENT_WIDTH, lineHeight: 10, color: COLORS.muted });
         y -= 12;
       }
       y -= 12;

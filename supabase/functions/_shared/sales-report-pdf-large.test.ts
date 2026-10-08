@@ -74,6 +74,8 @@ Deno.test("annual provisional sections retain all confirmed rows and paginate ev
   const estimatePages = pdf.getPages().slice(1,5);
   let rendered=0;
   for (const page of estimatePages) {
+    const fonts=page.node.Resources()!.lookup(PDFName.of("Font"),PDFDict);
+    assert(fonts.keys().length<=6,"Estimate continuation pages must reuse bounded font resources");
     const contents=page.node.Contents()!;
     const streams=contents instanceof PDFArray ? contents.asArray().map(ref=>pdf.context.lookup(ref)) : [contents];
     const operators=streams.map(stream=>new TextDecoder().decode(decodePDFRawStream(stream as PDFRawStream).decode())).join("");
