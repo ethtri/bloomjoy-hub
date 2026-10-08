@@ -28,6 +28,18 @@ insert into public.nayax_dtm_export_rows(file_digest,source_row_hash,provider_ac
 select repeat(md5('finance-volume-export'),2),repeat(md5('finance-volume-export-'||fact_id),2),'2003563806',nayax_machine_id,
   '182400',transaction_id,1080,sale_date::timestamp,0,identity_hash,'canonical','eligible','in_scope','fact_linked',fact_id
 from finance_provider_originals;
+-- Production has over eighty thousand DTM audit rows. A thousand-row fixture
+-- misses the cost of a queued-original guard that cannot use the linked index.
+insert into public.nayax_dtm_export_rows(file_digest,source_row_hash,provider_actor_id,provider_machine_id,
+  provider_site_id,provider_transaction_id,settlement_amount_cents,machine_settled_at,provider_type,
+  machine_name_hash,mapping_disposition,financial_disposition,history_scope_disposition,disposition,fact_id)
+select repeat(md5('finance-volume-decoy-export'),2),repeat(md5('finance-volume-decoy-'||n),2),
+  '2003563806','18450000','182400',(1845000000+n)::text,1080,'2026-01-01'::timestamp,0,
+  repeat(md5('finance-volume-decoy-machine'),2),
+  case when n%40=0 then 'historical_inactive_exact_link' else 'canonical' end,
+  'eligible','in_scope',case when n%40=0 then 'queued_excluded' else 'fact_linked' end,
+  case when n%40=0 then null else (select fact_id from finance_provider_originals limit 1) end
+from generate_series(1,80000)n;
 set local session_replication_role=origin;
 analyze public.sales_adjustment_facts;
 analyze public.nayax_provider_refund_events;

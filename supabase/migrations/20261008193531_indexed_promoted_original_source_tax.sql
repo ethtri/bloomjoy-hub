@@ -11,6 +11,14 @@ begin
 -- a former location has no current reader or explicit replacement association.
 -- Source imports already bind these settled USD facts to TGPACI_USA_DB. Use
 -- that original tuple for tax; do not infer physical ownership or move money.
+-- Linked-original indexes exclude the queued historical guard candidates.
+-- Index the exact proof predicate so each ordinary call avoids a full DTM scan.
+create index nayax_dtm_historical_original_guard_idx
+on public.nayax_dtm_export_rows(provider_actor_id,provider_machine_id,provider_transaction_id)
+where fact_id is null and disposition='queued_excluded'
+  and mapping_disposition='historical_inactive_exact_link'
+  and history_scope_disposition='in_scope' and financial_disposition='eligible';
+
 do $source_reader$
 declare definition text; signature text; anchor text;
 begin
@@ -134,15 +142,16 @@ begin
     -- so a linked and promoted ambiguity still counts every eligible fact.
     definition:=replace(definition,E'begin\n',E'begin\n' ||
       $fast$  if not exists(select 1 from public.nayax_provider_refund_events event
-        join public.nayax_dtm_export_rows original
-          on original.provider_actor_id=event.provider_actor_id
+        join lateral(select 1 from public.nayax_dtm_export_rows original
+          where original.provider_actor_id=event.provider_actor_id
           and original.provider_machine_id=event.provider_machine_id
           and original.provider_transaction_id=event.original_transaction_id
-        where event.adjustment_id=p_adjustment_id
           and original.fact_id is null and original.disposition='queued_excluded'
           and original.mapping_disposition='historical_inactive_exact_link'
           and original.history_scope_disposition='in_scope'
-          and original.financial_disposition='eligible') then
+          and original.financial_disposition='eligible'
+          offset 0) queued_original on true
+        where event.adjustment_id=p_adjustment_id) then
 $fast$ || direct_query || E'\n  return result;\n  end if;\n');
     if signature='private.provider_refund_original_source_tax_cents(uuid,bigint)' then
       -- Resolve the stable original date once. In a promoted plan PostgreSQL

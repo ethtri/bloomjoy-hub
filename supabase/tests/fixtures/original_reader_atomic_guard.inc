@@ -3,7 +3,10 @@
 -- the reviewed production file and its eight-second budget remain unchanged.
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(4);
+select plan(6);
+-- The normal replay already has this index. Remove it only in this rollback
+-- fixture so the actual migration must create it during each guarded attempt.
+drop index if exists public.nayax_dtm_historical_original_guard_idx;
 set local session_replication_role=replica;
 insert into auth.users(id,email) values('b1842600-0000-4000-8000-000000000001','atomic-original-reader@example.invalid');
 insert into public.admin_roles(user_id,role,active) values('b1842600-0000-4000-8000-000000000001','super_admin',true);
@@ -33,6 +36,10 @@ select is((select count(*) from atomic_guard_catalog old join pg_proc p on p.oid
   (pg_get_functiondef(p.oid),p.prosecdef,p.provolatile,p.proconfig,p.proacl) is distinct from
   (old.definition,old.prosecdef,old.provolatile,old.proconfig,old.proacl)),0::bigint,
   'Rejected atomic deployment preserves all six definitions, ACLs and execution security');
+select is(to_regclass('public.nayax_dtm_historical_original_guard_idx'),null::regclass,
+  'Rejected deployment rolls back its new historical-original guard index');
 select is(pg_temp.try_atomic_original_reader(current_setting('bloomjoy.test.original_reader_migration')),
   'applied','Unmodified real forward migration commits its guarded definitions together');
+select ok(to_regclass('public.nayax_dtm_historical_original_guard_idx') is not null,
+  'Successful guarded deployment includes the narrow historical-original guard index');
 select * from finish();
