@@ -2476,17 +2476,18 @@ function TaxHistorySheet({
     <Sheet open={Boolean(machine)} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>Reporting tax history</SheetTitle>
+          <SheetTitle>Legacy reporting tax settings</SheetTitle>
         <SheetDescription className="sr-only">
             {machine
-              ? `${machine.machine_label} reporting tax rates used for historical partner reports.`
-              : 'Machine reporting tax rates used for historical partner reports.'}
+              ? `${machine.machine_label} earlier saved reporting settings, retained for reference.`
+              : 'Earlier saved reporting settings, retained for reference.'}
           </SheetDescription>
         </SheetHeader>
         <div className="mt-6 grid gap-3">
+          <p className="text-sm text-muted-foreground">These are earlier saved settings. The Tax rate section on the machine's Reporting tab shows the effective rate and current correction history.</p>
           {rates.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No reporting tax rates have been saved for this machine.
+              No legacy reporting tax settings are saved for this machine.
             </div>
           ) : (
             rates.map((taxRate) => (
@@ -2495,11 +2496,11 @@ function TaxHistorySheet({
                   <div>
                     <div className="font-medium text-foreground">{Number(taxRate.tax_rate_percent).toFixed(2)}%</div>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      Applies {formatDate(taxRate.effective_start_date)}
+                      Saved window: {formatDate(taxRate.effective_start_date)}
                       {taxRate.effective_end_date ? ` through ${formatDate(taxRate.effective_end_date)}` : ' onward'}
                     </div>
                   </div>
-                  <Badge variant={taxRate.status === 'active' ? 'default' : 'outline'}>{formatLabel(taxRate.status)}</Badge>
+                  <Badge variant="outline">Legacy {formatLabel(taxRate.status)}</Badge>
                 </div>
               </div>
             ))
