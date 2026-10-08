@@ -6,6 +6,15 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Reporting blocker
+
+October 7 investigation: annual Sales, Labor and Refunds summaries exceed the
+eight-second API timeout. Shorter periods load but show unavailable money where
+historical source-tax evidence is missing; September 30–October 6 reproduces the
+owner's $6,133.47 known subtotal and 90 unresolved report rows on desktop too.
+Imports include October 7. Remediation is tracked in #1824; see
+`Docs/REPORTING_REMEDIATION_PLAN.md`. Production remediation is not yet applied.
+
 ## Machine identity context
 
 Issue #1815 / PR #1817 adds the guarded already-bound source + historical reader duplicate correction for both Sunze and Kex. The user-selected current source machine governs future name/company/Managers; archived historical owners remain in original-company financial reporting and retain original refund routing. Management identity and historical ledger ownership are distinct. The existing reader picker requires one same-physical-machine confirmation without a fabricated date; actual hardware moves keep dated review. See `Docs/MACHINE_IDENTITY_RECONCILIATION.md` for rollout and acceptance. No production identity join is part of release verification.
