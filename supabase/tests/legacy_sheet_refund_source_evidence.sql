@@ -125,5 +125,76 @@ select is((select tax_exclusive_amount_cents from private.normalize_refund_origi
  'Current-only conflicting stable proof cannot borrow the latest current-reader rate');
 select is((select tax_exclusive_amount_cents from private.normalize_refund_original_reader_amount_cents('b1824300-0000-4000-8000-000000000096','card','2026-09-15',1080,'tax_inclusive',null,null,true)),1000::bigint,
  'Current-only dated source normalization without an owner attestation retains its prior behavior');
+-- Legacy duplicate context must not re-adjudicate an evidence-only UPDATE.
+set local session_replication_role=replica;
+insert into sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status,refund_business_fingerprint,refund_review_row_id,match_confidence)
+select 'b1824500-0000-4000-8000-000000000092',reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,'legacy-null-fingerprint',repeat('b',64),raw_payload-'source_evidence_reconciliation','applied',null,refund_review_row_id,match_confidence
+from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091';
+insert into sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status,refund_business_fingerprint,refund_review_row_id,match_confidence)
+select 'b1824500-0000-4000-8000-000000000093',reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,'legacy-duplicate-context',repeat('c',64),raw_payload,'applied',refund_business_fingerprint,refund_review_row_id,match_confidence
+from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091';
+set local session_replication_role=origin;
+select lives_ok($$select public.service_reconcile_sheet_refund_source_evidence((select proof from sheet_proof),'Synthetic legacy duplicate evidence')$$,
+ 'Existing populated fingerprint evidence repair ignores only unchanged duplicate context');
+select is((public.service_reconcile_sheet_refund_source_evidence(jsonb_set(jsonb_set(jsonb_set((select proof from sheet_proof),
+ '{0,id}','"b1824500-0000-4000-8000-000000000092"'),'{0,sourceRowReference}','"legacy-null-fingerprint"'),
+ '{0,sourceRowHash}',to_jsonb(repeat('b',64))),'Synthetic legacy null fingerprint')->>'changed')::integer,1,
+ 'Legacy NULL fingerprint evidence repair succeeds despite matching older duplicate context');
+select is((select refund_business_fingerprint from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000092'),null::text,
+ 'Evidence repair preserves NULL fingerprint without retroactive filling');
+select is((select refund_business_fingerprint from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091'),
+ (select financial->>'refund_business_fingerprint' from original_sheet_financial),'Evidence repair preserves populated fingerprint');
+select lives_ok($$update sales_adjustment_facts set import_run_id=null,updated_at=now(),raw_payload=raw_payload-'source_evidence_reconciliation'
+ where id='b1824500-0000-4000-8000-000000000092'$$,'Unchanged audit-run replay preserves legacy NULL identity');
+select throws_ok($$insert into sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status)
+ select reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,amount_cents,source,source_reference,
+ 'new-duplicate',repeat('d',64),raw_payload,'applied' from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091'$$,
+ '23505','Potential duplicate refund settlement adjustment requires review','New duplicate INSERT retains original settlement guard');
+select throws_ok($$update sales_adjustment_facts set source_row_hash=repeat('e',64)
+ where id='b1824500-0000-4000-8000-000000000092'$$,'23505','Potential duplicate refund settlement adjustment requires review',
+ 'Changed source hash retains original duplicate guard');
+select throws_ok($$update sales_adjustment_facts set raw_payload=jsonb_set(raw_payload,'{original_order_date}','"2026-09-15"'),adjustment_date='2026-09-29'
+ where id='b1824500-0000-4000-8000-000000000092'$$,'23505','Potential duplicate refund settlement adjustment requires review',
+ 'Changed booking date retains original duplicate guard');
+set local session_replication_role=replica;
+insert into sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status,refund_business_fingerprint,refund_review_row_id,match_confidence)
+select 'b1824500-0000-4000-8000-000000000094',reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ 1090,source,source_reference,'changed-amount-duplicate',repeat('f',64),raw_payload,'applied',
+ public.build_refund_business_fingerprint(reporting_machine_id,'2026-09-15',1090,'credit'),refund_review_row_id,match_confidence
+from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091';
+insert into sales_adjustment_facts(id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status,refund_business_fingerprint,refund_review_row_id,match_confidence)
+select 'b1824500-0000-4000-8000-000000000095','b1824300-0000-4000-8000-000000000092',reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,'changed-machine-duplicate',repeat('0',64),raw_payload,'applied',
+ public.build_refund_business_fingerprint('b1824300-0000-4000-8000-000000000092','2026-09-15',amount_cents,'credit'),refund_review_row_id,match_confidence
+from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091';
+set local session_replication_role=origin;
+select throws_ok($$update sales_adjustment_facts set amount_cents=1090 where id='b1824500-0000-4000-8000-000000000092'$$,
+ '23505','Potential duplicate refund settlement adjustment requires review','Changed amount retains original duplicate protection');
+select throws_ok($$update sales_adjustment_facts set reporting_machine_id='b1824300-0000-4000-8000-000000000092' where id='b1824500-0000-4000-8000-000000000092'$$,
+ '23505','Potential duplicate refund settlement adjustment requires review','Changed financial Machine retains original duplicate protection');
+select throws_ok($$insert into sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+ amount_cents,source,source_reference,source_row_reference,source_row_hash,raw_payload,match_status)
+ select reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,amount_cents,source,source_reference,
+ source_row_reference,source_row_hash,raw_payload,'applied' from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000091'
+ on conflict(source,source_reference,source_row_reference) do update set raw_payload=excluded.raw_payload$$,
+ '23505','Potential duplicate refund settlement adjustment requires review','Existing-owner upsert still runs INSERT guard; importer must take UPDATE');
+create temporary table stale_sheet_payload as select raw_payload from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000092';
+update sales_adjustment_facts set raw_payload=jsonb_set(raw_payload,'{source_evidence}', '{"schema":"original_refund_payment.v1","concurrent":"new proof"}')
+ where id='b1824500-0000-4000-8000-000000000092';
+with changed as (update sales_adjustment_facts set raw_payload=(select raw_payload from stale_sheet_payload)
+ where id='b1824500-0000-4000-8000-000000000092' and raw_payload=(select raw_payload from stale_sheet_payload) returning id)
+ select is((select count(*) from changed),0::bigint,'Stale importer raw-payload predicate refuses overwriting concurrent evidence');
+-- A changed original purchase date must recompute, rather than retain NULL.
+select lives_ok($$update sales_adjustment_facts set raw_payload=jsonb_set(raw_payload,'{original_order_date}','"2026-09-14"')
+ where id='b1824500-0000-4000-8000-000000000092'$$,'Changed purchase date follows original fingerprint calculation');
+select ok((select refund_business_fingerprint is not null from sales_adjustment_facts where id='b1824500-0000-4000-8000-000000000092'),
+ 'Changed purchase date cannot take metadata preservation path');
 select * from finish();
 rollback;

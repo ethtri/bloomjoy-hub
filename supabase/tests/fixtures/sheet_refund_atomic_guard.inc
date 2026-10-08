@@ -12,6 +12,7 @@ insert into public.admin_roles(user_id,role,active) values('b1842600-0000-4000-8
 set local session_replication_role=origin;
 create temporary table sheet_atomic_catalog as select p.oid,pg_get_functiondef(p.oid) definition,
  p.prosecdef,p.provolatile,p.proconfig,p.proacl from pg_proc p where p.oid in (
+ 'public.set_sales_adjustment_refund_business_fingerprint()'::regprocedure,
  'private.resolve_unique_stable_machine_tax(uuid,date)'::regprocedure,
  'private.normalize_refund_original_reader_amount_cents(uuid,text,date,bigint,text,numeric,bigint,boolean)'::regprocedure,
  'private.preserve_sheet_refund_evidence_review()'::regprocedure,

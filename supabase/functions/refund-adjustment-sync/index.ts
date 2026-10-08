@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { buildRefundFinancialHashPayload, buildRefundSourceEvidence, extractOriginalRefundTender } from "../_shared/refund-adjustment-source-evidence.ts";
+import { buildRefundFinancialHashPayload, buildRefundSourceEvidence, extractOriginalRefundTender, isUnchangedRefundFinancialOwner, overlayRefundSourceEvidence } from "../_shared/refund-adjustment-source-evidence.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -929,9 +929,15 @@ const importRows = async (
 
       if (canApply && match.matchedMachine) {
         if (!dryRun) {
-          const { data: adjustment, error: adjustmentError } = await supabase
+          const { data: existingOwner, error: ownerError } = await supabase
             .from("sales_adjustment_facts")
-            .upsert({
+            .select("id,source,source_reference,source_row_reference,source_row_hash,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,amount_cents,complaint_count,match_status,raw_payload")
+            .eq("source", "google_sheets")
+            .eq("source_reference", resolvedSourceReference)
+            .eq("source_row_reference", input.sourceRowReference)
+            .maybeSingle();
+          if (ownerError) throw new Error(ownerError.message || "Unable to inspect retained refund owner.");
+          const incomingAdjustment = {
               reporting_machine_id: match.matchedMachine.id,
               reporting_location_id: match.matchedMachine.locationId,
               adjustment_date: input.refundDate,
@@ -948,9 +954,27 @@ const importRows = async (
               match_confidence: match.confidence,
               notes: null,
               raw_payload: rawPayload,
-            }, { onConflict: "source,source_reference,source_row_reference" })
-            .select("id")
-            .single();
+          };
+          const unchangedOwner = isUnchangedRefundFinancialOwner(existingOwner, incomingAdjustment);
+          const adjustmentWrite = unchangedOwner
+            ? supabase.from("sales_adjustment_facts")
+              .update({ raw_payload: overlayRefundSourceEvidence(existingOwner!.raw_payload, rawPayload), import_run_id: runId })
+              .eq("id", existingOwner!.id)
+              .eq("source_row_hash", hash)
+              .eq("source", "google_sheets")
+              .eq("source_reference", resolvedSourceReference)
+              .eq("source_row_reference", input.sourceRowReference)
+              .eq("reporting_machine_id", match.matchedMachine.id)
+              .eq("reporting_location_id", match.matchedMachine.locationId)
+              .eq("adjustment_date", input.refundDate)
+              .eq("adjustment_type", input.adjustmentType)
+              .eq("amount_cents", input.amountCents)
+              .eq("complaint_count", input.complaintCount)
+              .eq("match_status", "applied")
+              .eq("raw_payload", JSON.stringify(existingOwner!.raw_payload))
+            : supabase.from("sales_adjustment_facts")
+              .upsert(incomingAdjustment, { onConflict: "source,source_reference,source_row_reference" });
+          const { data: adjustment, error: adjustmentError } = await adjustmentWrite.select("id").single();
 
           if (adjustmentError || !adjustment) {
             const adjustmentMessage = adjustmentError?.message || "Unable to apply refund adjustment.";

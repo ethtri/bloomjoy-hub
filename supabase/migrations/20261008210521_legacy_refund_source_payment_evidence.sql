@@ -206,6 +206,33 @@ revoke all on function private.sheet_refund_source_purchase_date(jsonb) from pub
 
 -- This is a tax evidence date only. The refund's booking date and existing
 -- purchase/partner attribution remain unchanged.
+-- Preserve immutable legacy duplicate identity on evidence-only updates.
+-- All financial/source identity changes and INSERTs retain the original guard.
+do $sheet_fingerprint_metadata$
+declare definition text; original_anchor text:=E'begin\n  if new.source in (''google_sheets'', ''refund_case'')';
+ metadata_guard text:=replace($guard$begin
+  if tg_op='UPDATE' and old.source='google_sheets'
+    and old.adjustment_type in ('refund','complaint_refund')
+    and (to_jsonb(new)-array['raw_payload','updated_at','import_run_id'])
+      is not distinct from (to_jsonb(old)-array['raw_payload','updated_at','import_run_id'])
+    and (new.raw_payload-array['payment_method','payment_method_source','amountBasis','source_evidence_parser',
+      'source_evidence','source_evidence_reconciliation','superseded_source_evidence_reconciliation'])
+      is not distinct from (old.raw_payload-array['payment_method','payment_method_source','amountBasis','source_evidence_parser',
+      'source_evidence','source_evidence_reconciliation','superseded_source_evidence_reconciliation']) then
+    new.refund_business_fingerprint:=old.refund_business_fingerprint;
+    return new;
+  end if;
+  if new.source in ('google_sheets', 'refund_case')$guard$,E'\r\n',E'\n');
+begin
+ definition:=replace(pg_get_functiondef('public.set_sales_adjustment_refund_business_fingerprint()'::regprocedure),E'\r\n',E'\n');
+ if strpos(definition,metadata_guard)>0 then return; end if;
+ if (length(definition)-length(replace(definition,original_anchor,'')))/length(original_anchor)<>1 then
+  raise exception 'Sheet fingerprint metadata guard seam changed';
+ end if;
+ execute replace(definition,original_anchor,metadata_guard);
+end;
+$sheet_fingerprint_metadata$;
+
 do $sheet_source_date$
 declare signature text; definition text; anchor text; replacement text;
 begin

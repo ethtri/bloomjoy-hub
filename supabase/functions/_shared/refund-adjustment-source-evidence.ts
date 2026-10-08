@@ -61,3 +61,33 @@ export const buildRefundSourceEvidence = (
     },
   };
 };
+
+/** Existing exact financial owners take UPDATE, avoiding INSERT trigger re-adjudication. */
+export const isUnchangedRefundFinancialOwner = (
+  existing: Record<string, unknown> | null,
+  incoming: Record<string, unknown>,
+): boolean => {
+  if (!existing || existing.source !== "google_sheets" || existing.match_status !== "applied") return false;
+  const fields = ["source", "source_reference", "source_row_reference", "source_row_hash",
+    "reporting_machine_id", "reporting_location_id", "adjustment_date", "adjustment_type",
+    "amount_cents", "complaint_count"];
+  if (fields.some((field) => existing[field] !== incoming[field])) return false;
+  const oldRaw = (existing.raw_payload ?? {}) as Record<string, unknown>;
+  const newRaw = (incoming.raw_payload ?? {}) as Record<string, unknown>;
+  return ["original_order_date", "amount_source"].every((key) =>
+    (oldRaw[key] ?? null) === (newRaw[key] ?? null));
+};
+
+/** Replace only newly checked evidence, retaining nonfinancial importer audit payload. */
+export const overlayRefundSourceEvidence = (
+  existing: Record<string, unknown>, incoming: Record<string, unknown>,
+): Record<string, unknown> => {
+  const keys = ["payment_method", "payment_method_source", "amountBasis", "source_evidence_parser",
+    "source_evidence", "source_evidence_reconciliation", "superseded_source_evidence_reconciliation"];
+  const payload = { ...existing };
+  for (const key of keys) {
+    delete payload[key];
+    if (Object.hasOwn(incoming, key)) payload[key] = incoming[key];
+  }
+  return payload;
+};
