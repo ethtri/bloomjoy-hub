@@ -301,6 +301,12 @@ insert into public.machine_sales_facts (
   'nayax_scheduled_report', repeat('8',32), repeat('8',64), 0,
   '{"amountBasis":"gross_customer_charge_minor"}'
 );
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'fd300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
@@ -405,6 +411,12 @@ insert into public.machine_sales_facts (
   ('fd600000-0000-4000-8000-000000000004', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-3, 'other', 1100, 1, 'manual_csv', null, repeat('e',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
   ('fd600000-0000-4000-8000-000000000005', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-3, 'other', 700, 1, 'manual_csv', null, repeat('f',64), 0, '{}'),
   ('fd600000-0000-4000-8000-000000000006', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'credit', 0, 9, 'nayax_scheduled_report', repeat('6',32), repeat('6',64), 0, '{"amountBasis":"gross_customer_charge_minor"}');
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'fd300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 
 select is((select sum(recorded_sales_cents)::bigint
   from private.machine_sales_daily_components(
@@ -452,6 +464,12 @@ insert into public.machine_sales_facts (
   ('fd600000-0000-4000-8000-000000000013', 'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002', current_date-9, 'cash', 1100, 1, 'sunze_browser', repeat('13',16), repeat('13',32), 0, '{}'),
   ('fd600000-0000-4000-8000-000000000014', 'fd300000-0000-4000-8000-000000000012', 'fd200000-0000-4000-8000-000000000002', current_date-8, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('14',16), repeat('14',32), 0, '{"amountBasis":"tax_exclusive"}'),
   ('fd600000-0000-4000-8000-000000000015', 'fd300000-0000-4000-8000-000000000013', 'fd200000-0000-4000-8000-000000000002', current_date-10, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('15',16), repeat('15',32), 0, '{}');
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'fd300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 
 select results_eq($$
   select sales_ex_tax_cents, sales_tax_cents, normalization_status

@@ -23,6 +23,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const testsDir = path.join(repoRoot, 'supabase', 'tests');
 export const DATABASE_EVIDENCE_FILENAME = 'refund-database-counts.json';
+const GENERATED_DATABASE_TEST_FILENAMES = ['original_reader_atomic_deployment.sql'];
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [--debug] [--evidence-dir <path>]
@@ -247,7 +248,10 @@ values('fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000
 export function getDatabaseEvidenceExpectations() {
   return {
     migrationCount: getMigrationFiles().length,
-    testFileCount: getSqlFiles(testsDir).length,
+    testFileCount: new Set([
+      ...getSqlFiles(testsDir).map(file => path.relative(testsDir, file)),
+      ...GENERATED_DATABASE_TEST_FILENAMES,
+    ]).size,
   };
 }
 
@@ -357,6 +361,17 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
     });
   }
   normalizeSqlLineEndings(tempSupabaseDir);
+  // Exercise the actual atomic forward statement, including rejection rollback.
+  // Read the reviewed file instead of duplicating its DDL or budget logic.
+  const originalReaderForward = '20261008204327_indexed_promoted_original_source_tax.sql';
+  const originalReaderSql = fs.readFileSync(path.join(migrationsDir, originalReaderForward), 'utf8');
+  const originalReaderRollback = fs.readFileSync(path.join(migrationsDir,
+    '20261008193346_restore_reporting_query_performance.sql'), 'utf8');
+  fs.writeFileSync(path.join(tempSupabaseDir, 'tests', GENERATED_DATABASE_TEST_FILENAMES[0]),
+    `begin;\n${originalReaderRollback}\nselect set_config('bloomjoy.test.original_reader_migration',
+      $actual_original_reader_migration$${originalReaderSql}$actual_original_reader_migration$,true);
+      \\ir fixtures/original_reader_atomic_guard.inc
+      rollback;\n`, 'utf8');
   prepareCorrectionMigrationWindowsRegression(tempSupabaseDir);
   const requestBoundaryReceiptFixturePath =
     prepareRefundRequestBoundaryReceiptRegression(tempSupabaseDir);
@@ -644,7 +659,7 @@ async function main() {
       );
       databaseEvidence = buildDatabaseEvidence({
         migrationCount: migrationFiles.length,
-        discoveredTestFileCount: testFiles.length,
+        discoveredTestFileCount: getSqlFiles(path.join(tempRoot, 'supabase', 'tests')).length,
         testSummary,
       });
       log('Supabase database persona tests passed.');

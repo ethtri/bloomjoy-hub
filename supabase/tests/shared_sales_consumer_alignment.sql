@@ -57,6 +57,12 @@ insert into public.machine_sales_facts (
   ('ca400000-0000-4000-8000-000000000004', 'ca300000-0000-4000-8000-000000000001', 'ca200000-0000-4000-8000-000000000001', current_date-1, 'other', 500, 1, 1, 'manual_csv', null, repeat('4',64), 0, '{"amountBasis":"tax_exclusive"}'),
   ('ca400000-0000-4000-8000-000000000005', 'ca300000-0000-4000-8000-000000000004', 'ca200000-0000-4000-8000-000000000001', current_date, 'other', 1000, 1, 1, 'manual_csv', null, repeat('5',64), 0, '{}'),
   ('ca400000-0000-4000-8000-000000000007', 'ca300000-0000-4000-8000-000000000001', 'ca200000-0000-4000-8000-000000000001', current_date, 'credit', 0, 9, 0, 'nayax_scheduled_report', repeat('7',32), repeat('7',64), 0, '{"amountBasis":"gross_customer_charge_minor"}');
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'ca300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 
 select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', 'ca000000-0000-4000-8000-000000000001', true);
@@ -733,6 +739,12 @@ insert into public.machine_sales_facts (
   1100, 1, 1, 'nayax_scheduled_report', repeat('6',32), repeat('6',64), 0,
   '{"amountBasis":"gross_customer_charge_minor"}'
 );
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'ca300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 select lives_ok($$
   select public.get_current_technician_pay_report_context(current_date)
 $$, 'Actual late sales evidence refreshes the shared report snapshot');
@@ -807,6 +819,12 @@ insert into public.machine_sales_facts (
   'ca200000-0000-4000-8000-000000000001', current_date, 'credit',
   1100, 1, 1, 'nayax_scheduled_report', repeat('8',32), repeat('8',64), 0, '{}'
 );
+-- Synthetic verified card facts use the native importer identity contract.
+update public.machine_sales_facts fact set raw_payload=fact.raw_payload||jsonb_build_object(
+  'actorId','2003563806','currencyCode','USD','providerMachineId',machine.nayax_machine_id)
+from public.reporting_machines machine where machine.id=fact.reporting_machine_id
+  and machine.id::text like 'ca300000-%' and fact.source='nayax_scheduled_report'
+  and not (fact.raw_payload ? 'actorId') and machine.nayax_machine_id is not null;
 insert into public.reporting_machine_partnership_assignments (
   machine_id, partnership_id, assignment_role, effective_start_date, status
 ) values (
