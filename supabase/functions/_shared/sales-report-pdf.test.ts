@@ -1,10 +1,54 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { PDFDocument, PDFRawStream, decodePDFRawStream } from "https://esm.sh/pdf-lib@1.17.1";
 import {
   buildMachineRollups,
+  buildSalesReportPdf,
   formatMachineRollupCurrency,
   formatKnownSalesReportSubtotal,
+  formatSalesReportRowAmount,
   summarizeSalesReportPdfRows,
 } from "./sales-report-pdf.ts";
+
+Deno.test("PDF retains known components inside unresolved rows without claiming complete money", async () => {
+  const rows = [{ calculation_version: "shared-sales-basis-v1", machine_label: "Mixed components",
+    gross_sales_cents: null, gross_sales_known_cents: 2300,
+    refund_amount_cents: null, refund_amount_known_cents: 600,
+    net_sales_cents: null, net_sales_known_cents: 1700, tax_cents: null,
+    transaction_count: 4 },
+    { calculationVersion: "shared-sales-basis-v1", machineLabel: "Mixed components",
+      grossSalesCents: null, grossSalesKnownCents: 0,
+      refundAmountCents: null, refundAmountKnownCents: -100,
+      netSalesCents: null, netSalesKnownCents: 100, taxCents: null,
+      transactionCount: 1 }];
+  const summary = summarizeSalesReportPdfRows(rows);
+  assertEquals([summary.grossSalesCents, summary.refundAmountCents, summary.netSalesCents], [null, null, null]);
+  assertEquals([summary.knownGrossSalesCents, summary.knownRefundAmountCents, summary.knownNetSalesCents], [2300, 500, 1800]);
+  assertEquals([summary.knownGrossRowCount, summary.knownRefundRowCount, summary.knownNetRowCount], [0, 0, 0]);
+  assertEquals([summary.knownGrossContributorRowCount, summary.knownRefundContributorRowCount, summary.knownNetContributorRowCount], [2, 2, 2]);
+  assertEquals(summary.transactionCount, 5);
+  assertEquals(formatSalesReportRowAmount(rows[0], "net"), "$17.00*");
+  assertEquals(formatSalesReportRowAmount(rows[1], "gross"), "$0.00*");
+  assertEquals(formatSalesReportRowAmount(rows[1], "refund"), "+$1.00*");
+  const [machine] = buildMachineRollups(rows);
+  assertEquals(formatMachineRollupCurrency(machine.netSalesCents, machine.netValueCount, machine.rowCount, false, machine.netKnownCount), "$18.00*");
+  const bytes = await buildSalesReportPdf({ rows, summary, dateFrom: "2026-01-01", dateTo: "2026-10-07" });
+  const pdf = await PDFDocument.load(bytes);
+  const contents = pdf.context.enumerateIndirectObjects().filter(([, value]) => value instanceof PDFRawStream)
+    .map(([, value]) => new TextDecoder().decode(decodePDFRawStream(value as PDFRawStream).decode())).join("\n").toUpperCase();
+  // Check the finished PDF's actual text operators for the independently known
+  // aggregate, rather than trusting only the summary object passed to it.
+  assert(contents.includes("2431382E3030")); // $18.00
+  assert(contents.includes("2432332E3030")); // $23.00
+  assert(contents.includes("2431372E30302A")); // $17.00* in the partial appendix row
+});
+
+Deno.test("component subtotal zero is known while an entirely unknown component stays unavailable", () => {
+  const zero = summarizeSalesReportPdfRows([{net_sales_cents:null,net_sales_known_cents:0}]);
+  assertEquals(zero.netSalesCents, null);
+  assertEquals(formatKnownSalesReportSubtotal(zero.knownNetSalesCents, zero.knownNetContributorRowCount!), "$0.00");
+  const unknown = summarizeSalesReportPdfRows([{net_sales_cents:null,net_sales_known_cents:null}]);
+  assertEquals(formatKnownSalesReportSubtotal(unknown.knownNetSalesCents, unknown.knownNetContributorRowCount!), "Unavailable");
+});
 
 Deno.test("sales report export preserves recorded, refund, and after-refund totals", () => {
   const summary = summarizeSalesReportPdfRows([
