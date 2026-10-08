@@ -1,7 +1,7 @@
 # Recovering historical source tax
 
-Card reporting uses original transaction tax first, then applicable dated
-account/reader observations. Follow the source-backed tax decision in
+Card reporting uses original transaction tax first, then applicable exact
+account/reader observations and owner-attested stable rate coverage. Follow the source-backed tax decision in
 `DECISIONS.md` and the amount contract in `SALES_SOURCE_FIELD_CONTRACT.md`.
 Cash remains the amount collected. Recovery never changes a reader setting,
 source ownership, refund decision, payment or issued statement.
@@ -52,8 +52,15 @@ Finance evidence. Reuse the existing `nayax_machine_tax_observations` ledger and
 its bounded `nayax_portal_history` path for reviewed historical evidence. Retain
 the real review time, exact account/reader, event timestamp, displayed timezone
 or its uncertainty, checked history range, source field and evidence digest.
-Current API observations cannot be backdated. A Finance confirmation bounded to
-September cannot cover October or another reader with a similar venue name.
+Keep current API observations at their actual observation date. The owner's
+October 8 confirmation that machine rates have not changed supports a separate
+`owner_stable_rate` observation across applicable history, using existing verified
+exact account/reader rates and retaining their observation IDs. This supersedes
+the artificial October 5 reporting cutoff without falsifying API provenance.
+The Avenues' owner-directed Nayax 7.5% correction is separately recorded as
+`owner_rate_correction`, superseding the old Finance 8% estimate while preserving
+both observations. Original transaction tax and original purchase identity still
+take precedence; rates never transfer by venue name.
 
 After an authorized correction, recalculate the affected interval through the
 shared reporting path and rerun the inventory. Preserve raw imports and issued

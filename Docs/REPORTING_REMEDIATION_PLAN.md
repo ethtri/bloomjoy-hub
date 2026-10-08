@@ -1,5 +1,12 @@
 # Reporting root cause and remediation plan
 
+October 8 update: the owner confirmed stable machine rates and selected Nayax's
+7.5% for The Avenues, superseding the artificial historical observation cutoff
+described below. Annual query/loading/PDF and stable-rate/additive receipt SQL
+repairs are deployed; supported operational receipts remain partial where source
+amount basis is unknown. The following investigation records the original
+failure. Current live acceptance and remaining UI/export work are in #1824.
+
 Reporting has two confirmed failures: long periods exceed the database request
 timeout, while shorter periods load records whose tax split cannot be calculated
 for their original dates. The UI turns incomplete monetary rows into unavailable
@@ -7,8 +14,8 @@ totals and an unexplained blank trend. These failures reproduce on desktop and a
 390×844 mobile viewport; the evidence does not point to a mobile layout defect.
 
 Track remediation in [#1824](https://github.com/ethtri/bloomjoy-hub/issues/1824).
-This is an investigation and proposed implementation sequence. Production
-remediation has not been applied.
+This is the original investigation and proposed implementation sequence; use the
+October 8 update above and issue acceptance evidence for current release status.
 
 ## Confirmed production evidence
 
