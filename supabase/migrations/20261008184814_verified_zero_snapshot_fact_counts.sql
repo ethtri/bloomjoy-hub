@@ -42,4 +42,3 @@ revoke all on function private.pay_stub_has_verified_zero_snapshot(uuid,uuid)
   from public,anon,authenticated;
 grant execute on function private.pay_stub_has_verified_zero_snapshot(uuid,uuid)
   to service_role;
-
