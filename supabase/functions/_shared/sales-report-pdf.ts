@@ -439,6 +439,18 @@ export const formatSalesReportEstimateSplit = (known: number | null | undefined,
   const total=safeEstimateSum([known??0,estimated??0]);
   return `Confirmed ${known == null ? "Unavailable" : format(known)} | Estimated ${estimated == null ? "Unavailable" : format(estimated)} | Known + estimated${remainingComponents > 0 ? " subtotal" : ""} ${known == null && estimated == null ? "Unavailable" : format(total)}`;
 };
+
+export const buildSalesReportEstimateSnapshotSummary = (summary:SalesReportPdfSummary) => ({
+  estimated_sales_ex_tax_cents:summary.estimatedSalesExTaxCents ?? null,
+  estimated_refund_ex_tax_cents:summary.estimatedRefundExTaxCents ?? null,
+  estimated_net_ex_tax_cents:summary.estimatedNetExTaxCents ?? null,
+  provisional_sales_components:summary.provisionalSalesComponents ?? 0,
+  provisional_refund_components:summary.provisionalRefundComponents ?? 0,
+  provisional_net_components:summary.provisionalNetComponents ?? 0,
+  unestimated_sales_components:summary.unestimatedSalesComponents ?? 0,
+  unestimated_refund_components:summary.unestimatedRefundComponents ?? 0,
+  unestimated_net_components:summary.unestimatedNetComponents ?? 0,
+});
 export const formatSalesReportRowAmount = (row: SalesReportPdfRow, metric: "gross" | "net" | "refund"): string => {
   const value = metric === "gross" ? knownGross(row) : metric === "net" ? knownNet(row) : knownRefund(row);
   if (value == null) return "Unavailable";
@@ -1116,7 +1128,7 @@ const drawDashboardPage = (
     (summary.netSalesCents == null
       ? `Partial: ${formatInteger(summary.unresolvedSalesCount)} sales and ${formatInteger(summary.unresolvedRefundCount)} refund components have missing amount or original-date tax details. Known subtotals retain calculable components; missing components are excluded. * marks partial row and machine subtotals. `
       : "") + (rows.some(row => readSalesReportTaxPolicyEvidence(row) !== null)
-      ? "Provisional estimates are listed separately after this summary; confirmed figures remain unchanged. " : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
+      ? "Provisional estimates follow on separate pages. " : "") + (context.companyScopeLabel ? "Grouped by current machine company. " : "") + (usesSharedSalesBasis
       ? "Sales and refund figures exclude tax. Net sales include refund requests and later corrections; paid and outstanding amounts are shown separately."
       : "This report summarizes recorded sales and reported refund adjustments for the selected operator machine scope."),
     {

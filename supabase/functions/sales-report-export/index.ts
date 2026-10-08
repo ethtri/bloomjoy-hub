@@ -9,6 +9,7 @@ import {
   getSalesReportCalculationVersion,
   SALES_REPORT_PDF_GENERATOR_VERSION,
   summarizeSalesReportPdfRows,
+  buildSalesReportEstimateSnapshotSummary,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
 
@@ -237,6 +238,7 @@ serve(async (req) => {
         filters,
         summary: {
           pdf_generator_version: SALES_REPORT_PDF_GENERATOR_VERSION,
+          ...buildSalesReportEstimateSnapshotSummary(summary),
           known_net_sales_cents: (summary.knownNetContributorRowCount ?? summary.knownNetRowCount) > 0 ? summary.knownNetSalesCents : null,
           known_refund_amount_cents: (summary.knownRefundContributorRowCount ?? summary.knownRefundRowCount) > 0 ? summary.knownRefundAmountCents : null,
           known_gross_sales_cents: (summary.knownGrossContributorRowCount ?? summary.knownGrossRowCount) > 0 ? summary.knownGrossSalesCents : null,
