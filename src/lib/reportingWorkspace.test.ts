@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { alignedTrend, operationalReportHref, workspaceViews, comparisonRange, defaultWorkspaceState, knownMoney, parseSavedViews, periodChange, readWorkspaceState, reportingPeriods, salesGroups, writeWorkspaceState } from './reportingWorkspace.ts';
+import { moneyCoverage, moneyCoverageText, refundImpactMoney, unresolvedComponents, alignedTrend, operationalReportHref, workspaceViews, comparisonRange, defaultWorkspaceState, knownMoney, parseSavedViews, periodChange, readWorkspaceState, reportingPeriods, salesGroups, writeWorkspaceState } from './reportingWorkspace.ts';
 import type { SalesReportRow } from './reporting.ts';
 const equal = (actual: unknown, expected: unknown) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); };
 const row = (patch: Partial<SalesReportRow> = {}): SalesReportRow => ({ calculationVersion: 'shared-sales-basis-v1', periodStart: '2026-09-01', machineId: 'a', machineLabel: 'Machine A', locationId: 'north', locationName: 'North', paymentMethod: 'credit', netSalesCents: 1000, grossSalesCents: 1200, refundAmountCents: 200, taxCents: 90, refundRequestDeductionCents: 200, refundReversalCents: 0, refundLegacyPaidDeductionCents: 0, refundPaidContextCents: 0, refundOutstandingContextCents: 200, unresolvedSalesCount: 0, unresolvedSalesCents: 0, unresolvedRefundCount: 0, unresolvedRefundCents: 0, unresolvedPaidContextCount: 0, unresolvedPaidContextCents: 0, transactionCount: 2, ...patch });
@@ -69,6 +69,32 @@ Deno.test('nullable totals keep known subtotal separate and empty source unknown
   equal(knownMoney([row(), row({ netSalesCents: null })], 'netSalesCents'), { value: null, knownValue: 1000, omittedRows: 1 });
   equal(knownMoney([], 'netSalesCents'), { value: null, knownValue: 0, omittedRows: 0 });
   equal(knownMoney([row({ netSalesCents: 0 })], 'netSalesCents').value, 0);
+});
+Deno.test('partial daily amounts keep the subtotal, complete total and independent transactions distinct', () => {
+  const rows = [row({ netSalesCents: 613347, transactionCount: 532 }), row({ netSalesCents: null, taxCents: null, transactionCount: 508, unresolvedSalesCount: 508, unresolvedRefundCount: 5 })];
+  const coverage = moneyCoverage(rows);
+  equal([coverage.value, coverage.displayValue, coverage.omittedRows, coverage.status], [null, 613347, 1, 'partial']);
+  equal(moneyCoverageText(coverage), '$6,133.47 (known subtotal)');
+  const trend = alignedTrend(rows, [], '2026-09-01', '2026-09-02');
+  equal([trend[0].current, trend[0].currentKnown, trend[0].transactions], [null, 613347, 1040]);
+  equal([trend[1].currentKnown, trend[1].currentCoverage.status], [null, 'empty']);
+  equal(unresolvedComponents(rows), { sales: 508, refunds: 5, taxRows: 1 });
+  equal(salesGroups(rows, [row()], 'machine')[0].change.absolute, null);
+});
+Deno.test('no calculable rows cannot display a zero subtotal; a known zero remains valid', () => {
+  const unknown = moneyCoverage([row({ netSalesCents: null })]);
+  equal([unknown.displayValue, unknown.status, moneyCoverageText(unknown)], [null, 'partial', 'Unavailable']);
+  equal(moneyCoverage([]).displayValue, null);
+  equal(moneyCoverage([row({ netSalesCents: 0 })]).displayValue, 0);
+  equal(moneyCoverage([row({ netSalesCents: 0 }), row({ netSalesCents: null })]).displayValue, 0);
+});
+Deno.test('refund subtotals preserve canonical signs and present deductions, reversals and zero consistently', () => {
+  for (const [amount, text] of [[1000, '-$10.00'], [-1000, '+$10.00'], [0, '$0.00']] as const) {
+    const coverage = moneyCoverage([row({ refundAmountCents: amount }), row({ refundAmountCents: null })], 'refundAmountCents');
+    equal(coverage.value, null); equal(coverage.knownValue, amount);
+    equal(moneyCoverageText(coverage, refundImpactMoney), `${text} (known subtotal)`);
+  }
+  equal(refundImpactMoney(null), 'Unavailable');
 });
 Deno.test('cohort separates unmatched records without treating absence as zero', () => {
   const groups = salesGroups([row(), row({ machineId: 'new', netSalesCents: 500 })], [row({ netSalesCents: 800 }), row({ machineId: 'old' })], 'machine');

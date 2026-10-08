@@ -16,7 +16,7 @@ try {
   await page.goto(`${origin}/portal/reports?view=${view}&from=2026-07-15&to=2026-07-21`,{waitUntil:'networkidle'});
   await page.getByRole('heading',{name:'By company',exact:true}).waitFor();await fit();
   await page.getByRole('button',{name:'Sample North Company',exact:true}).click();
-  await page.waitForURL(`**company=${a}**`);await page.waitForLoadState('networkidle');await fit();assert(requests.some(request=>request.name===`get_company_${view==='finance'?'finance_reporting':'sales_report'}`&&request.body.p_company_id===a&&request.body.p_machine_ids?.length===1));
+  await page.waitForURL(`**company=${a}**`);await page.waitForLoadState('networkidle');await fit();assert(requests.some(request=>(view==='finance' ? request.name==='get_company_finance_reporting' : ['get_company_sales_report','get_sales_report_complete'].includes(request.name))&&request.body.p_company_id===a&&request.body.p_machine_ids?.length===1));
   assert.equal(await page.getByRole('heading',{name:'By company',exact:true}).count(),0);
   await page.screenshot({path:`output/company-${view}-390.png`,fullPage:true});
  }
@@ -49,7 +49,7 @@ try {
  await page.goto(`${origin}/refunds?demo=on&company=unavailable`,{waitUntil:'networkidle'});await page.getByRole('button',{name:'Choose all companies',exact:true}).waitFor();assert.equal(await page.locator('[data-testid="refund-case-queue-item"]').filter({visible:true}).count(),0);
  const countBeforeInvalid=requests.length;
  await page.goto(`${origin}/portal/reports?view=overview&company=${a}&machine=operator-machine-annex&from=2026-07-15&to=2026-07-21`,{waitUntil:'networkidle'});await page.getByRole('button',{name:'Choose all companies',exact:true}).waitFor();
- assert(!requests.slice(countBeforeInvalid).some(request=>['get_sales_report','get_company_sales_report'].includes(request.name)), 'Empty company intersection must not query all sales');
+ assert(!requests.slice(countBeforeInvalid).some(request=>['get_sales_report', 'get_sales_report_complete','get_company_sales_report'].includes(request.name)), 'Empty company intersection must not query all sales');
  for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:844});await page.goto(`${origin}/portal/reports?view=finance&from=2026-07-15&to=2026-07-21`,{waitUntil:'networkidle'});await page.getByRole('heading',{name:'By company',exact:true}).waitFor();await fit();}
  await page.screenshot({path:'output/company-finance-desktop.png',fullPage:true});
  await page.setViewportSize({width:640,height:844}); await page.evaluate(()=>document.body.style.zoom='2'); await fit(); await page.screenshot({path:'output/company-finance-200-percent.png',fullPage:true});

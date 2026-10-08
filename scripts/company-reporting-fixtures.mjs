@@ -8,6 +8,7 @@ export const sampleCompanies = [
 ];
 export const companyDimensions = domainDimensions.map((row, index) => ({ ...row, accountId: sampleCompanies[index % 2].id, accountName: sampleCompanies[index % 2].name }));
 export function companyRpcResponse(name, persona, body = {}, freshness = 'fresh') {
+  if (name === 'get_sales_report_complete') return companyRpcResponse(body.p_company_id ? 'get_company_sales_report' : 'get_sales_report', persona, body, freshness);
   if (name === 'get_reporting_dimensions') return persona.hasReportingAccess ? operatorDimensions.map((row, index) => ({ ...row, account_id: sampleCompanies[index % 2].id, account_name: sampleCompanies[index % 2].name })) : [];
   if (name === 'get_refund_analytics_access') return { hasAccess: persona.isSuperAdmin, dimensions: persona.isSuperAdmin ? companyDimensions : [] };
   if (name === 'get_refund_portal_queue_projection') {

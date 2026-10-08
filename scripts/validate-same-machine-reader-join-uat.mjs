@@ -39,7 +39,7 @@ try {
       return r.fulfill(json({ machineId, retainedHistoricalMachineId: owner, inventoryId: inventory }));
     });
     await context.route('**/rest/v1/rpc/get_reporting_dimensions', r => r.fulfill(json([{ account_id: earlier.companyId, account_name: earlier.companyName, machine_id: owner, machine_label: 'Earlier sales for Capital City', machine_type: 'snapcase', location_id: 'historical-location-1815', location_name: 'Capital City', latest_sale_date: earlier.lastSaleDate, status: 'active', sunze_machine_id: null }])));
-    await context.route('**/rest/v1/rpc/get_company_sales_report', r => {
+    await context.route(/\/rest\/v1\/rpc\/(get_company_sales_report|get_sales_report_complete)$/,  r => {
       const body = r.request().postDataJSON();
       assert.equal(body.p_company_id, earlier.companyId); assert.deepEqual(body.p_machine_ids, [owner]); assert.equal(body.p_date_from, earlier.firstSaleDate); assert.equal(body.p_date_to, earlier.lastSaleDate);
       salesReads.push(body);

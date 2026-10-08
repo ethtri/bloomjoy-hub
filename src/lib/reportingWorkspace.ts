@@ -88,30 +88,54 @@ export function knownMoney(rows: SalesReportRow[], field: 'netSalesCents' | 'gro
   return { value: rows.length && rows.every(row => row[field] != null) ? rows.reduce((sum, row) => sum + row[field]!, 0) : null,
     knownValue: rows.reduce((sum, row) => sum + (row[field] ?? 0), 0), omittedRows: rows.filter(row => row[field] == null).length };
 }
-export type SalesGroup = { id: string; label: string; current: number | null; previous: number | null; transactions: number | null; previousTransactions: number | null; change: ReturnType<typeof periodChange>; cohort: 'both' | 'current_only' | 'previous_only'; rows: SalesReportRow[] };
+/** Display only calculable rows. A complete total stays null if any row is unresolved. */
+export function moneyCoverage(rows: SalesReportRow[], field: Parameters<typeof knownMoney>[1] = 'netSalesCents') {
+  const total = knownMoney(rows, field);
+  const knownRows = rows.length - total.omittedRows;
+  return { ...total, knownRows, displayValue: knownRows ? total.knownValue : null,
+    status: !rows.length ? 'empty' as const : total.omittedRows ? 'partial' as const : 'complete' as const };
+}
+export function moneyCoverageNote(total: ReturnType<typeof moneyCoverage>) {
+  if (total.status === 'empty') return 'No loaded records';
+  if (total.status === 'complete') return 'Calculated from loaded records';
+  return `${number(total.omittedRows)} ${total.omittedRows === 1 ? 'row has' : 'rows have'} missing amounts${total.knownRows ? '; known subtotal only' : '; no calculable amounts'}`;
+}
+export function moneyCoverageText(total: ReturnType<typeof moneyCoverage>, formatter: (value: number | null) => string = money) {
+  return `${formatter(total.displayValue)}${total.status === 'partial' && total.knownRows ? ' (known subtotal)' : ''}`;
+}
+export function unresolvedComponents(rows: SalesReportRow[]) {
+  return { sales: rows.reduce((sum, row) => sum + row.unresolvedSalesCount, 0),
+    refunds: rows.reduce((sum, row) => sum + row.unresolvedRefundCount, 0),
+    taxRows: rows.filter(row => row.taxCents == null).length };
+}
+export type SalesGroup = { id: string; label: string; current: number | null; previous: number | null; currentCoverage: ReturnType<typeof moneyCoverage>; previousCoverage: ReturnType<typeof moneyCoverage>; transactions: number | null; previousTransactions: number | null; change: ReturnType<typeof periodChange>; cohort: 'both' | 'current_only' | 'previous_only'; rows: SalesReportRow[] };
 export function salesGroups(current: SalesReportRow[], previous: SalesReportRow[], kind: 'location' | 'machine'): SalesGroup[] {
   const key = kind === 'location' ? 'locationId' : 'machineId'; const label = kind === 'location' ? 'locationName' : 'machineLabel';
   const ids = new Set([...current, ...previous].map(row => row[key]));
   return [...ids].map(id => {
     const rows = current.filter(row => row[key] === id); const prior = previous.filter(row => row[key] === id);
-    const now = knownMoney(rows, 'netSalesCents').value; const before = knownMoney(prior, 'netSalesCents').value;
-    return { id, label: (rows[0] ?? prior[0])[label], current: now, previous: before, transactions: rows.length ? rows.reduce((sum, row) => sum + row.transactionCount, 0) : null,
+    const currentCoverage = moneyCoverage(rows); const previousCoverage = moneyCoverage(prior);
+    const now = currentCoverage.value; const before = previousCoverage.value;
+    return { id, label: (rows[0] ?? prior[0])[label], current: now, previous: before, currentCoverage, previousCoverage, transactions: rows.length ? rows.reduce((sum, row) => sum + row.transactionCount, 0) : null,
       previousTransactions: prior.length ? prior.reduce((sum, row) => sum + row.transactionCount, 0) : null, change: periodChange(now, before),
       cohort: rows.length && prior.length ? 'both' : rows.length ? 'current_only' : 'previous_only', rows } as SalesGroup;
-  }).sort((a, b) => (b.current ?? -Infinity) - (a.current ?? -Infinity));
+  }).sort((a, b) => (b.currentCoverage.displayValue ?? -Infinity) - (a.currentCoverage.displayValue ?? -Infinity));
 }
 export function alignedTrend(current: SalesReportRow[], previous: SalesReportRow[], from: string, to: string, priorFrom?: string, comparison: ComparisonMode = 'previous_period') {
-  const result: { date: string; priorDate: string | null; current: number | null; previous: number | null; transactions: number | null }[] = [];
+  const result: { date: string; priorDate: string | null; current: number | null; previous: number | null; currentCoverage: ReturnType<typeof moneyCoverage>; previousCoverage: ReturnType<typeof moneyCoverage>; currentKnown: number | null; previousKnown: number | null; transactions: number | null }[] = [];
   for (let stamp = dateValue(from).getTime(), index = 0; stamp <= dateValue(to).getTime(); stamp += day, index++) {
     const currentDate = new Date(stamp); const date = dateString(currentDate);
     const calendarPrior = comparison === 'previous_year' ? priorYearDate(currentDate) : null;
     const priorDate = !priorFrom ? null : calendarPrior ? calendarPrior.getUTCDate() === currentDate.getUTCDate() ? dateString(calendarPrior) : null : dateString(new Date(dateValue(priorFrom).getTime() + index * day));
     const rows = current.filter(row => row.periodStart.slice(0, 10) === date); const prior = previous.filter(row => row.periodStart.slice(0, 10) === priorDate);
-    result.push({ date, priorDate, current: knownMoney(rows, 'netSalesCents').value, previous: knownMoney(prior, 'netSalesCents').value, transactions: rows.length ? rows.reduce((sum, row) => sum + row.transactionCount, 0) : null });
+    const currentCoverage = moneyCoverage(rows); const previousCoverage = moneyCoverage(prior);
+    result.push({ date, priorDate, current: currentCoverage.value, previous: previousCoverage.value, currentCoverage, previousCoverage,
+      currentKnown: currentCoverage.displayValue, previousKnown: previousCoverage.displayValue, transactions: rows.length ? rows.reduce((sum, row) => sum + row.transactionCount, 0) : null });
   }
   return result;
 }
 export const money = (cents: number | null) => cents == null ? 'Unavailable' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+export const refundImpactMoney = (cents: number | null) => cents == null ? 'Unavailable' : cents === 0 ? money(0) : `${cents > 0 ? '-' : '+'}${money(Math.abs(cents))}`;
 export const number = (value: number | null) => value == null ? 'Unavailable' : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
 export const changeLabel = (value: ReturnType<typeof periodChange>, monetary = true) => value.absolute == null ? 'Not comparable' : `${value.absolute > 0 ? '+' : ''}${monetary ? money(value.absolute) : number(value.absolute)}${value.percent == null ? ' · no positive prior denominator' : ` (${value.percent > 0 ? '+' : ''}${value.percent.toFixed(1)}%)`}`;
 export type SavedReportingView = { id: string; name: string; state: WorkspaceState };

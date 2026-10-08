@@ -1,3 +1,4 @@
+import { reportingQueryRetry } from '@/lib/reportingQuery';
 import {
   lazy,
   Suspense,
@@ -12,7 +13,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
 import { CompanySummary } from '@/components/portal/reports/CompanySummary';
 import { machineCountLabel, companyBasis, companyChange, groupCompanyRows, resolveCompanyScope } from '@/lib/companyReporting';
-import { knownMoney, money } from '@/lib/reportingWorkspace';
+import { moneyCoverage, moneyCoverageNote, moneyCoverageText, money } from '@/lib/reportingWorkspace';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -145,6 +146,7 @@ type OperatorPeriodSummaryRow = {
   grossSalesCents: number | null;
   refundAmountCents: number | null;
   transactionCount: number;
+  rows: SalesReportRow[];
 };
 type OperatorFreshnessState = 'fresh' | 'stale' | 'unavailable';
 type PartnerPeriodMode = PartnerDashboardPeriodMode;
@@ -733,6 +735,7 @@ const groupRows = <TKey extends string>(
       grossSalesCents: number | null;
       refundAmountCents: number | null;
       transactionCount: number;
+      rows: SalesReportRow[];
     }
   >();
 
@@ -747,12 +750,14 @@ const groupRows = <TKey extends string>(
         grossSalesCents: 0,
         refundAmountCents: 0,
         transactionCount: 0,
+        rows: [],
       };
 
     current.netSalesCents = addNullableMoney(current.netSalesCents, row.netSalesCents);
     current.grossSalesCents = addNullableMoney(current.grossSalesCents, row.grossSalesCents);
     current.refundAmountCents = addNullableMoney(current.refundAmountCents, row.refundAmountCents);
     current.transactionCount += row.transactionCount;
+    current.rows.push(row);
     groups.set(key, current);
   });
 
@@ -806,17 +811,14 @@ const buildOperatorPeriodSummaryRows = (
       grossSalesCents: totals ? totals.grossSalesCents : 0,
       refundAmountCents: totals ? totals.refundAmountCents : 0,
       transactionCount: totals?.transactionCount ?? 0,
+      rows: totals?.rows ?? [],
     });
   }
 
   return dailyRows;
 };
 
-const isOperatorPeriodSummaryRowZero = (row: OperatorPeriodSummaryRow) =>
-  row.netSalesCents === 0 &&
-  row.grossSalesCents === 0 &&
-  row.refundAmountCents === 0 &&
-  row.transactionCount === 0;
+const isOperatorPeriodSummaryRowEmpty = (row: OperatorPeriodSummaryRow) => row.rows.length === 0;
 
 const formatSalesRowCurrency = (value: number | null) =>
   value == null ? 'Unavailable' : formatCurrency(value, true);
@@ -840,8 +842,8 @@ export default function ReportsPage() {
       domainAccessError={analyticsAccess.labor.isError || analyticsAccess.refunds.isError}
       laborDimensions={analyticsAccess.labor.data?.dimensions}
       refundDimensions={analyticsAccess.refunds.data?.dimensions}
-      laborPanel={analyticsAccess.canUseLabor ? scope => <LaborAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
-      refundPanel={analyticsAccess.canUseRefunds ? scope => <RefundAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
+      laborPanel={analyticsAccess.canUseLabor && !analyticsAccess.labor.isFetching ? scope => <LaborAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
+      refundPanel={analyticsAccess.canUseRefunds && !analyticsAccess.refunds.isFetching ? scope => <RefundAnalyticsPanel key={user?.id} scope={scope} /> : undefined}
       partnerView={<PartnerDashboardView />}
       detailedSales={(filters) => <OperatorReportingView key={JSON.stringify(filters)} accessContext={accessContext} accessContextFetching={accessLoading} workspaceFilters={filters} />}
     /></Suspense>
@@ -902,6 +904,7 @@ function OperatorReportingView({
   const {
     data: dimensions = [],
     isLoading: dimensionsLoading,
+    isFetching: dimensionsFetching,
     error: dimensionsError,
   } = useQuery({
     queryKey: ['reporting-dimensions', user?.id],
@@ -932,18 +935,24 @@ function OperatorReportingView({
   );
 
   const {
-    data: reportRows = [],
-    isLoading,
+    data: loadedReportRows = [],
+    isLoading: reportLoading,
     isFetching,
     error,
   } = useQuery({
-    queryKey: ['sales-report', user?.id, filters],
+    queryKey: ['sales-report', user?.id, [...new Set(dimensions.map(row => row.machineId))].sort(), filters],
     queryFn: () => fetchSalesReport(filters),
+    retry: reportingQueryRetry,
     enabled: !dimensionsLoading && !dimensionsError && !machineUnavailable,
     staleTime: 1000 * 30,
   });
 
+  const reportRows = useMemo(() => !dimensionsLoading && !dimensionsFetching && !dimensionsError && !machineUnavailable && accessContext.hasReportingAccess && !accessContextFetching ? loadedReportRows : [], [dimensionsLoading, dimensionsFetching, dimensionsError, machineUnavailable, accessContext.hasReportingAccess, accessContextFetching, loadedReportRows]);
+  const isLoading = reportLoading || dimensionsLoading || dimensionsFetching || accessContextFetching;
   const summary = useMemo(() => summarizeSalesReport(reportRows), [reportRows]);
+  const netCoverage = moneyCoverage(reportRows);
+  const grossCoverage = moneyCoverage(reportRows, 'grossSalesCents');
+  const refundCoverage = moneyCoverage(reportRows, 'refundAmountCents');
   const usesSharedSalesBasis = reportRows.length > 0 &&
     reportRows.every((row) => row.calculationVersion === 'shared-sales-basis-v1');
   const periodSummaryRows = useMemo(
@@ -960,10 +969,10 @@ function OperatorReportingView({
 
   const chartRows = useMemo(
     () =>
-      periodSummaryRows.map((row) => ({
-        period: grain === 'day' ? formatShortDate(row.key) : row.label,
-        netSales: row.netSalesCents == null ? null : row.netSalesCents / 100,
-      })),
+      periodSummaryRows.map((row) => {
+        const net = moneyCoverage(row.rows).displayValue;
+        return { period: grain === 'day' ? formatShortDate(row.key) : row.label, netSales: net == null ? null : net / 100 };
+      }),
     [grain, periodSummaryRows]
   );
 
@@ -1007,6 +1016,7 @@ function OperatorReportingView({
     selectedPayments.length > 0;
 
   const exportPdf = async () => {
+    if (!reportRows.length || dimensionsFetching || dimensionsError || machineUnavailable || !accessContext.hasReportingAccess || accessContextFetching) return;
     const exportWindow = reserveSignedExportWindow();
     setIsExporting(true);
     try {
@@ -1290,7 +1300,7 @@ function OperatorReportingView({
         </Collapsible>
       </Card>
 
-      {companyId === 'all' && !hasLoadError && !isLoading && <CompanySummary onCompany={changeCompany} rows={groupCompanyRows(reportRows, dimensions).map(group => { const total = knownMoney(group.rows, 'netSalesCents'); return { id: group.id, name: group.name, detail: `${machineCountLabel(new Set(dimensions.filter(row => row.accountId === group.id).map(row => row.machineId)).size)} in accessible scope`, value: `Net sales ${money(total.value)}`, note: total.omittedRows ? `Known subtotal ${money(total.knownValue)}; ${total.omittedRows} unknown amounts` : 'Recorded sales; coverage unknown' }; })}/>}
+      {companyId === 'all' && !hasLoadError && !isLoading && <CompanySummary onCompany={changeCompany} rows={groupCompanyRows(reportRows, dimensions).map(group => { const total = moneyCoverage(group.rows); return { id: group.id, name: group.name, detail: `${machineCountLabel(new Set(dimensions.filter(row => row.accountId === group.id).map(row => row.machineId)).size)} in accessible scope`, value: `Net sales ${moneyCoverageText(total)}`, note: total.omittedRows ? moneyCoverageNote(total) : 'Recorded sales; coverage unknown' }; })}/>}
 
       <div
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
@@ -1306,18 +1316,18 @@ function OperatorReportingView({
         ) : (
           <>
             <MetricCard
-              label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
-              value={formatCurrency(summary.grossSalesCents, true)}
-              context={usesSharedSalesBasis
+              label={grossCoverage.status === 'partial' ? 'Known sales subtotal' : t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
+              value={money(grossCoverage.displayValue)}
+              context={grossCoverage.status === 'partial' ? moneyCoverageNote(grossCoverage) : usesSharedSalesBasis
                 ? (summary.taxCents == null
                   ? t('reports.salesTaxUnavailable')
                   : t('reports.taxRemoved', { value: formatCurrency(summary.taxCents, true) }))
                 : t('reports.beforeRefundAdjustments')}
             />
             <MetricCard
-              label={t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
-              value={formatSalesRefundCurrency(summary.refundAmountCents, usesSharedSalesBasis)}
-              context={usesSharedSalesBasis ? t(summary.refundLegacyPaidDeductionCents > 0
+              label={refundCoverage.status === 'partial' ? 'Known refund impact subtotal' : t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
+              value={formatSalesRefundCurrency(refundCoverage.displayValue, usesSharedSalesBasis)}
+              context={refundCoverage.status === 'partial' ? moneyCoverageNote(refundCoverage) : usesSharedSalesBasis ? t(summary.refundLegacyPaidDeductionCents > 0
                 ? 'reports.requestReversalLegacyContext'
                 : 'reports.requestAndReversalContext', {
                 requests: formatCurrency(summary.refundRequestDeductionCents, true),
@@ -1326,16 +1336,16 @@ function OperatorReportingView({
               }) : t('reports.appliedToDate')}
             />
             <MetricCard
-              label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
-              value={formatCurrency(summary.netSalesCents, true)}
-              context={usesSharedSalesBasis ? t('reports.refundBalanceContext', {
+              label={netCoverage.status === 'partial' ? 'Known net sales subtotal' : t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
+              value={money(netCoverage.displayValue)}
+              context={netCoverage.status === 'partial' ? moneyCoverageNote(netCoverage) : usesSharedSalesBasis ? t('reports.refundBalanceContext', {
                 paid: formatCurrency(summary.refundPaidContextCents, true),
                 outstanding: formatCurrency(summary.refundOutstandingContextCents, true),
               }) : t('reports.afterRefundAdjustments')}
             />
             <MetricCard
               label={t('reports.transactions')}
-              value={numberFormatter.format(summary.transactionCount)}
+              value={reportRows.length ? numberFormatter.format(summary.transactionCount) : 'Unavailable'}
               context={t('reports.assignedMachines', { count: companyScope.machineIds.length })}
             />
           </>
@@ -1451,23 +1461,23 @@ function OperatorReportingView({
                           {grain === 'day' && (
                             <TableCell>
                               <Badge variant="outline" className="whitespace-nowrap font-normal">
-                                {isOperatorPeriodSummaryRowZero(row)
+                                {isOperatorPeriodSummaryRowEmpty(row)
                                   ? t('reports.noSalesLoaded')
                                   : t('reports.salesRecorded')}
                               </Badge>
                             </TableCell>
                           )}
                           <TableCell className="text-right tabular-nums">
-                            {formatCurrency(row.grossSalesCents, true)}
+                            {moneyCoverageText(moneyCoverage(row.rows, 'grossSalesCents'))}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
+                            {moneyCoverageText(moneyCoverage(row.rows, 'refundAmountCents'), value => formatSalesRefundCurrency(value, usesSharedSalesBasis))}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {formatCurrency(row.netSalesCents, true)}
+                            {moneyCoverageText(moneyCoverage(row.rows))}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {numberFormatter.format(row.transactionCount)}
+                            {row.rows.length ? numberFormatter.format(row.transactionCount) : 'Unavailable'}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1484,7 +1494,7 @@ function OperatorReportingView({
           <CardHeader>
             <CardTitle className="text-xl">{t('reports.salesTrend')}</CardTitle>
             <CardDescription>
-              {t(usesSharedSalesBasis
+              {netCoverage.status === 'partial' ? 'Known net sales subtotals. Missing amounts are excluded; gaps have no calculable amounts or no loaded rows.' : t(usesSharedSalesBasis
                 ? 'reports.netSalesTrendDescription'
                 : 'reports.salesTrendDescription')}
             </CardDescription>
@@ -1519,8 +1529,8 @@ function OperatorReportingView({
                     key={row.key}
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
-                    primary={formatCurrency(row.netSalesCents, true)}
-                    secondary={`${t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')} ${formatCurrency(row.grossSalesCents, true)}`}
+                    primary={moneyCoverageText(moneyCoverage(row.rows))}
+                    secondary={`${t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')} ${moneyCoverageText(moneyCoverage(row.rows, 'grossSalesCents'))}`}
                   />
                 ))}
               </div>
@@ -3481,7 +3491,7 @@ function OperatorPeriodSummaryMobileCard({
   usesSharedSalesBasis: boolean;
 }) {
   const { t } = useLanguage();
-  const isZeroSales = isOperatorPeriodSummaryRowZero(row);
+  const hasNoLoadedRows = isOperatorPeriodSummaryRowEmpty(row);
 
   return (
     <div
@@ -3495,29 +3505,29 @@ function OperatorPeriodSummaryMobileCard({
         <div className="font-medium text-foreground">{row.label}</div>
         {grain === 'day' && (
           <Badge variant="outline" className="max-w-full whitespace-normal text-left font-normal leading-snug">
-            {isZeroSales ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
+            {hasNoLoadedRows ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
           </Badge>
         )}
       </div>
       <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
           label={t(usesSharedSalesBasis ? 'reports.taxExclusiveSales' : 'reports.recordedSales')}
-          value={formatCurrency(row.grossSalesCents, true)}
+          value={moneyCoverageText(moneyCoverage(row.rows, 'grossSalesCents'))}
           detail={t('reports.beforeRefundAdjustments')}
         />
         <MobileProofItem
           label={t(usesSharedSalesBasis ? 'reports.periodRefundImpact' : 'reports.reportedRefunds')}
-          value={formatSalesRefundCurrency(row.refundAmountCents, usesSharedSalesBasis)}
+          value={moneyCoverageText(moneyCoverage(row.rows, 'refundAmountCents'), value => formatSalesRefundCurrency(value, usesSharedSalesBasis))}
           detail={t('reports.appliedToDate')}
         />
         <MobileProofItem
           label={t(usesSharedSalesBasis ? 'reports.salesAfterPeriodRefunds' : 'reports.salesAfterRefunds')}
-          value={formatCurrency(row.netSalesCents, true)}
+          value={moneyCoverageText(moneyCoverage(row.rows))}
           detail={t('reports.afterRefundAdjustments')}
         />
         <MobileProofItem
           label={t('reports.transactions')}
-          value={numberFormatter.format(row.transactionCount)}
+          value={row.rows.length ? numberFormatter.format(row.transactionCount) : 'Unavailable'}
           detail={t('reports.ordersCounted')}
         />
       </div>

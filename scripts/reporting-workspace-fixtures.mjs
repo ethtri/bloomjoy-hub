@@ -41,7 +41,7 @@ export function workspaceRpcResponse(name, persona, body = {}, freshness = 'fres
     categories: [{ category: 'product_issue', requestCount: 3, requestedCents: 4500, unknownAmountCount: 0 }, { category: 'unclassified', requestCount: 1, requestedCents: 1500, unknownAmountCount: 1 }],
     aging: [{ band: '0–7 days', requestCount: 1, outstandingCents: 1500, unknownBalanceCount: 0 }, { band: '8–30 days', requestCount: 1, outstandingCents: 2000, unknownBalanceCount: 0 }],
   };
-  if (name === 'get_sales_report') {
+  if (name === 'get_sales_report' || name === 'get_sales_report_complete') {
     const records = rpcResponse(name, persona, body, freshness);
     return records.map(row => ({ ...row, calculation_version: 'shared-sales-basis-v1', tax_cents: 0,
       refund_request_deduction_cents: row.refund_amount_cents, refund_reversal_cents: 0 }));

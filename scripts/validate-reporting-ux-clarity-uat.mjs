@@ -15,8 +15,8 @@ const checks = [];
 const url = extra => `${appUrl}/portal/reports?view=locations&from=2026-07-15&to=2026-07-21&compare=previous_year${extra ?? ''}`;
 const open = empty => createPageForPersona(browser, workspacePersonas.superAdmin, { width: 390, height: 844 }, {
   rpcHandler: (name, persona, body = {}, freshness) => {
-    if (empty && name === 'get_sales_report') return [];
-    if (name === 'get_sales_report' && body.p_date_from?.startsWith('2025')) {
+    if (empty && ['get_sales_report', 'get_sales_report_complete'].includes(name)) return [];
+    if (['get_sales_report', 'get_sales_report_complete'].includes(name) && body.p_date_from?.startsWith('2025')) {
       const aligned = { ...body, p_date_from: body.p_date_from.replace('2025', '2026'), p_date_to: body.p_date_to.replace('2025', '2026') };
       return financeRpcResponse(name, persona, aligned, freshness).map(row => ({ ...row, period_start: row.period_start.replace('2026', '2025'), net_sales_cents: Math.round(row.net_sales_cents * 0.8) }));
     }

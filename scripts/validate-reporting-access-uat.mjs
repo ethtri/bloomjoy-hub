@@ -62,12 +62,12 @@ try {
         : route.fallback());
       await page.goto(`${appUrl}/portal/reports?view=overview&${invalidScope}`, { waitUntil: 'networkidle' });
       await page.getByText('Sales report unavailable', { exact: true }).waitFor();
-      assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'));
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)));
       dimensionsUnavailable = false;
       await page.getByRole('button', { name: 'Retry', exact: true }).click();
       await page.getByText(invalidScope.startsWith('from=2026-02-30') ? 'The linked dates are invalid' : 'Selected scope is unavailable', { exact: true }).waitFor();
       await page.waitForTimeout(500);
-      assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Retrying dimensions cannot bypass invalid linked dates or location scope');
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)), 'Retrying dimensions cannot bypass invalid linked dates or location scope');
       console.log(`Dimensions retry retains invalid report scope without aggregate reads: ${invalidScope}`);
     } finally { await context.close(); }
   }
