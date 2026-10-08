@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { buildSalesReportEmailSummary } from "../_shared/sales-report-email-summary.ts";
 import {
   SALES_REPORT_PDF_GENERATOR_VERSION,
   buildSalesReportReference,
@@ -277,8 +278,6 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
   const { rows, filters } = await buildScheduledReportRows(schedule, now);
   const summary = summarizeSalesReportPdfRows(rows);
   const calculationVersion = getSalesReportCalculationVersion(rows);
-  const formatSummaryMoney = (value: number | null) =>
-    value == null ? "Unavailable" : (value / 100).toFixed(2);
   const { data: snapshot, error: snapshotError } = await supabase
     .from("report_view_snapshots")
     .insert({
@@ -388,20 +387,7 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
     .update({ export_status: "ready", export_storage_path: storagePath })
     .eq("id", snapshot.id);
 
-  const calculationLines = calculationVersion === "shared-sales-basis-v1"
-    ? [
-      `Sales before refunds: ${formatSummaryMoney(summary.grossSalesCents)}`,
-      `Sales tax separated: ${formatSummaryMoney(summary.taxCents)}`,
-      `Refund deductions: ${formatSummaryMoney(summary.refundAmountCents)}`,
-      `Paid in period: ${formatSummaryMoney(summary.refundPaidContextCents)}`,
-      `Outstanding requested: ${formatSummaryMoney(summary.refundOutstandingContextCents)}`,
-      `Net sales: ${formatSummaryMoney(summary.netSalesCents)}`,
-    ]
-    : [
-      `Gross sales: ${formatSummaryMoney(summary.grossSalesCents)}`,
-      `Reported refunds: ${formatSummaryMoney(summary.refundAmountCents)}`,
-      `Sales after refunds: ${formatSummaryMoney(summary.netSalesCents)}`,
-    ];
+  const calculationLines = buildSalesReportEmailSummary(summary, calculationVersion);
   const text = [
     filters.title,
     "",
@@ -417,6 +403,7 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
       <h1 style="font-size:20px;line-height:28px;">${escapeHtml(filters.title)}</h1>
       <p>Date range: ${escapeHtml(filters.dateFrom)} through ${escapeHtml(filters.dateTo)}</p>
       <p>Rows: ${rows.length}</p>
+      ${calculationLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("\n")}
       <p>
         <a href="${escapeHtml(
           signedUrlData.signedUrl
