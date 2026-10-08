@@ -70,12 +70,12 @@ try {
     await tab(page, 'Labor').click(); await page.getByRole('region', { name: 'Labor report', exact: true }).waitFor();
     const laborDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
     const laborCsv = fs.readFileSync(await (await laborDownload).path(), 'utf8');
-    assert(laborCsv.includes('North Hall')); assert(!laborCsv.includes('Garden Hall')); assert(laborCsv.includes('Recorded minutes'));
+    assert(laborCsv.includes('North Atrium')); assert(!laborCsv.includes('Garden Annex')); assert(laborCsv.includes('Recorded minutes'));
     await page.screenshot({ path: path.join(output, 'labor-desktop.png'), fullPage: true });
     await tab(page, 'Refunds & Recovery').click(); await page.getByRole('region', { name: 'Refunds and recovery analytics', exact: true }).waitFor();
     const refundDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
     const refundCsv = fs.readFileSync(await (await refundDownload).path(), 'utf8');
-    assert(refundCsv.includes('Request cohort')); assert(refundCsv.includes('As of period end')); assert(!refundCsv.includes('Garden Hall'));
+    assert(refundCsv.includes('Request cohort')); assert(refundCsv.includes('As of period end')); assert(!refundCsv.includes('Garden Annex'));
     await page.screenshot({ path: path.join(output, 'refunds-desktop.png'), fullPage: true });
     checks.push('Labor and refund CSV retain visible filter and distinct metric definitions');
 
@@ -172,14 +172,14 @@ try {
     try {
       await page.goto(url('sales', '&machine=operator-machine-north&location=location-north'), { waitUntil: 'networkidle' });
       await page.locator('[data-reporting-operator-period-summary]').waitFor();
-      const scoped = state.rpcCalls.filter(call => call.rpcName === 'get_sales_report');
+      const scoped = state.rpcCalls.filter(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName));
       assert(scoped.length > 0);
       assert(scoped.every(call => call.body.p_machine_ids?.[0] === 'operator-machine-north' && call.body.p_location_ids?.[0] === 'location-north'), 'Detailed Sales must not widen inherited scope while dimensions load');
       assert((await page.locator('[data-reporting-operator-location-scope]').innerText()).includes('North Hall'));
       const resetResponse = page.waitForResponse(response => response.url().includes('/rpc/get_sales_report'));
       await page.locator('[data-reporting-operator-reset]').click();
       await resetResponse;
-      const reset = state.rpcCalls.filter(call => call.rpcName === 'get_sales_report').at(-1).body;
+      const reset = state.rpcCalls.filter(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)).at(-1).body;
       assert(!reset.p_machine_ids?.length && !reset.p_location_ids?.length, 'Reset clears visible and inherited scope together');
       assert.equal(await page.locator('[data-reporting-operator-location-scope]').count(), 0);
       await page.goto(url('sales', '&machine=unauthorized-machine'), { waitUntil: 'networkidle' });
@@ -200,9 +200,9 @@ try {
       for (const name of forbidden) assert.equal(await tab(page, name).count(), 0, `${personaName} must not see ${name}`);
       if (personaName === 'timeOnly') {
         assert.equal(await page.getByRole('heading', { name: 'Authorized account earnings' }).count(), 0);
-        assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'));
+        assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)));
       }
-      if (personaName === 'refundOnly') assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report' || call.rpcName === 'get_labor_analytics_report'));
+      if (personaName === 'refundOnly') assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName) || call.rpcName === 'get_labor_analytics_report'));
       if (personaName === 'operator') assert(!state.rpcCalls.some(call => ['get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)));
       checks.push(`${personaName} receives only authorized views/data; time-only never receives pay`);
     } finally { await context.close(); }
@@ -249,7 +249,7 @@ try {
     await page.goto(`${appUrl}/portal/reports?view=refunds&from=2026-02-30&to=2026-07-22`, { waitUntil: 'networkidle' });
     await page.getByRole('alert').filter({ hasText: /valid date/ }).waitFor();
     assert(!state.rpcCalls.some(call => call.rpcName === 'get_refund_analytics'));
-    await page.route('**/rest/v1/rpc/get_sales_report', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable source' }) }));
+    await page.route('**/rest/v1/rpc/get_sales_report*', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Synthetic unavailable source' }) }));
     await page.goto(url('overview'), { waitUntil: 'networkidle' });
     await page.getByText('Sales report unavailable', { exact: true }).waitFor({ timeout: 20000 });
     checks.push('Unauthorized scope, invalid dates and oversized period fail closed; failed sales read is not zero');

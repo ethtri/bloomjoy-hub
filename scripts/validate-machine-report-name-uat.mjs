@@ -13,8 +13,8 @@ try{for(const width of [1440,390]){const {page,context,state}=await createPageFo
 await page.goto(`${root}/portal/reports?view=overview&from=2026-07-15&to=2026-07-21&machine=operator-machine-north`);await page.getByRole('button',{name:`Remove machine filter: ${effective}`,exact:true}).waitFor();
 await page.getByText('Machine and payment breakdown',{exact:true}).click(); await page.getByText(effective,{exact:true}).filter({visible:true}).first().waitFor();
 await page.screenshot({path:`${dir}/report-${width}.png`,fullPage:true});
-console.log(JSON.stringify({width,nameVisible:await page.getByText(effective,{exact:true}).count(),oldAliasVisible:await page.getByText('North Atrium',{exact:true}).count(),calls:state.rpcCalls.filter(c=>c.rpcName==='get_sales_report')}));
-assert(await page.getByText(effective,{exact:true}).filter({visible:true}).count()>0); assert(state.rpcCalls.filter(c=>c.rpcName==='get_sales_report').every(c=>c.body.p_machine_ids.join(',')==='operator-machine-north'&&c.body.p_location_ids===null));assert.equal(await page.getByText('North Atrium',{exact:true}).count(),0);results.push({width,effectiveNameVisible:true,legacyAliasAbsent:true,scopeIdsPreserved:true});await context.close();}}
+console.log(JSON.stringify({width,nameVisible:await page.getByText(effective,{exact:true}).count(),oldAliasVisible:await page.getByText('North Atrium',{exact:true}).count(),calls:state.rpcCalls.filter(c=>['get_sales_report','get_sales_report_complete'].includes(c.rpcName))}));
+assert(await page.getByText(effective,{exact:true}).filter({visible:true}).count()>0); assert(state.rpcCalls.filter(c=>['get_sales_report','get_sales_report_complete'].includes(c.rpcName)).every(c=>c.body.p_machine_ids.join(',')==='operator-machine-north'&&c.body.p_location_ids===null));assert.equal(await page.getByText('North Atrium',{exact:true}).count(),0);results.push({width,effectiveNameVisible:true,legacyAliasAbsent:true,scopeIdsPreserved:true});await context.close();}}
 finally{await browser.close();}
 
 await writeFile(`${dir}/results.json`,JSON.stringify(results,null,2));

@@ -430,6 +430,7 @@ const rpcResponse = (rpcName, persona, body, freshness) => {
       return reportingAccessContext(persona, freshness);
     case 'get_reporting_dimensions':
       return persona.hasReportingAccess ? operatorDimensions : [];
+    case 'get_sales_report_complete':
     case 'get_sales_report':
       return persona.hasReportingAccess ? operatorReportResponse(body) : [];
     case 'get_partner_dashboard_partnerships':

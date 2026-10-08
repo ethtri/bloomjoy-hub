@@ -7,6 +7,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import { companyRpcResponse } from './company-reporting-fixtures.mjs';
 import { financeRpcResponse } from './finance-reporting-fixtures.mjs';
+import { partialReportingRpcResponse } from './reporting-partial-fixtures.mjs';
 import { fixedNowIso, makeSession, makeUser, personas } from './validate-reporting-uat.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,7 +18,7 @@ const origin = `http://127.0.0.1:${port}`;
 const backendPath = '/reporting-preview-backend';
 const previewRoutes = ['/portal/reports', '/portal/time-review', '/refunds', '/admin/reporting'];
 const persona = personas.superAdmin;
-const response = process.argv.includes('--company-samples') ? companyRpcResponse : financeRpcResponse;
+const response = process.argv.includes('--partial-samples') ? partialReportingRpcResponse : process.argv.includes('--company-samples') ? companyRpcResponse : financeRpcResponse;
 const session = makeSession(persona);
 // Vite does not read .env files, the repo config, or inherited client env values.
 for (const key of Object.keys(process.env)) if (key.startsWith('VITE_')) delete process.env[key];
@@ -28,7 +29,7 @@ const allowedRpcs = new Set([
   'get_my_plus_access', 'get_my_admin_access_context', 'get_my_portal_access_context',
   'get_my_reporting_access_context', 'get_my_time_report_access', 'get_reporting_dimensions',
   'get_company_sales_report', 'get_company_finance_reporting', 'get_company_refund_analytics', 'get_refund_portal_queue_projection',
-  'get_sales_report', 'get_finance_reporting_access', 'get_finance_reporting',
+  'get_sales_report', 'get_sales_report_complete', 'get_finance_reporting_access', 'get_finance_reporting',
   'get_labor_analytics_access', 'get_labor_analytics_report',
   'get_refund_analytics_access', 'get_refund_analytics',
   'get_partner_dashboard_partnerships', 'admin_preview_partner_period_report',

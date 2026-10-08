@@ -37,7 +37,7 @@ try {
       assert(!await main.getByText('Reporting tax removed', { exact: true }).isVisible(), 'Breakdown starts collapsed');
       assert.equal(await page.locator('#reporting-tender').count(), 0);
       assert.equal(await page.locator('#reporting-comparison').count(), 0);
-      assert(!state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Finance uses its own authorized projection');
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)), 'Finance uses its own authorized projection');
       const basis = main.getByText('Imported records; coverage unknown. Net sales is not profit or payment settlement.', { exact: true });
       assert(await basis.isVisible(), 'Report basis is visible beside the summary before opening details');
       await page.locator('#reporting-coverage summary').click();
@@ -192,12 +192,12 @@ try {
       await page.getByText('The linked dates are invalid', { exact: true }).waitFor();
       const actual = new URL(page.url()).searchParams;
       for (const key of ['from', 'to', 'location', 'machine', 'compare', 'tender']) assert.equal(actual.get(key), scope.get(key), `Unavailable-view fallback preserves raw ${key}`);
-      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_finance_reporting', 'get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)), 'Invalid linked dates never load a substitute reporting period');
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete', 'get_finance_reporting', 'get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)), 'Invalid linked dates never load a substitute reporting period');
       assert(await page.getByRole('button', { name: 'Save view', exact: true }).isDisabled(), 'Invalid linked dates cannot be silently replaced in a saved view');
       await page.locator('#reporting-period').click();
       await page.getByRole('menuitem', { name: 'Last 7 complete days', exact: true }).click();
       await page.getByRole('heading', { name: 'Sales over time', exact: true }).waitFor();
-      assert(state.rpcCalls.some(call => call.rpcName === 'get_sales_report'), 'Explicit period selection restores the report');
+      assert(state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete'].includes(call.rpcName)), 'Explicit period selection restores the report');
       assert(await page.getByRole('button', { name: 'Save view', exact: true }).isEnabled(), 'Valid dates restore saving');
       checks.push(`Unavailable Finance preserves invalid linked dates until explicit repair: ${JSON.stringify(linkedDates)}`);
     } finally { await context.close(); }

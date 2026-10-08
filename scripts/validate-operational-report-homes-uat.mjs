@@ -45,7 +45,7 @@ try {
       await page.getByRole('option', { name: 'Locations', exact: true }).click();
       assert.equal(new URL(page.url()).searchParams.get('from'), '2026-02-30');
       assert.equal(new URL(page.url()).searchParams.get('to'), '2026-07-22');
-      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)));
+      assert(!state.rpcCalls.some(call => ['get_sales_report', 'get_sales_report_complete', 'get_labor_analytics_report', 'get_refund_analytics'].includes(call.rpcName)));
     } finally { await context.close(); }
   });
   for (const width of [320, 390, 1440]) await run(`${width}px central navigation, summary links and fit`, async () => {
