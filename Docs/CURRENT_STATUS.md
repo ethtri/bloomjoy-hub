@@ -8,19 +8,22 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Reporting blocker
 
-Annual query, loading and PDF repairs are deployed; the annual export preserves
-367 pages, 9,510 rows and 59,828 recorded transactions. October 8's stable-rate
-and additive receipt SQL repairs are also deployed. The owner confirmed unchanged
-machine rates and chose Nayax's 7.5% for The Avenues; explicit owner evidence
-preserves original observations and transaction-tax precedence.
+Annual query/loading, machine sales and receipt UI/CSV, and PDF repairs are
+deployed; export v138 and scheduler v134 match the reviewed source. Stable-rate
+and exact original-reader tax repairs preserve recorded financial ownership,
+transaction-tax precedence and unchanged machine rates, including the owner's
+Nayax 7.5% correction for The Avenues. The indexed original-import lookup passed
+the atomic eight-second production annual guard; no reporting budget was raised.
 
-The owner's October 1–7 report retains 215 rows and 1,009 transactions. Missing
-net rows fell from 73 to one, and unresolved sales from 466 to zero; one unresolved
-refund remains. Supported receipts are still partial: 59 source-basis components
-do not establish inclusive customer payment amounts. Machine/receipt UI and export
-follow-up verification remains pending. Net/payroll formulas and issued snapshots
-are unchanged. Current acceptance evidence is tracked in #1824; see
-`Docs/REPORTING_REMEDIATION_PLAN.md`.
+Latest production January 1–October 7 reporting has 9,515 rows and 59,837 recorded
+transactions, with zero unresolved imported sales and 73 unresolved refund
+components. October 1–7 has 220 rows/1,018 transactions and two unresolved refund
+components; September has 854 rows/4,433 transactions and 16. Remaining refund
+evidence is under review: one exact legacy case (#1848), 54 Sheet components and
+18 hosted requests. Supported receipts remain partial where source amount basis
+does not establish inclusive customer payments. Final browser/PDF acceptance
+follows those reviews. Net/payroll formulas and issued snapshots are unchanged.
+Current acceptance evidence is tracked in #1824; see `Docs/REPORTING_REMEDIATION_PLAN.md`.
 
 ## Machine identity context
 

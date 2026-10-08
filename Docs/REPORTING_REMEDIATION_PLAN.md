@@ -2,10 +2,15 @@
 
 October 8 update: the owner confirmed stable machine rates and selected Nayax's
 7.5% for The Avenues, superseding the artificial historical observation cutoff
-described below. Annual query/loading/PDF and stable-rate/additive receipt SQL
-repairs are deployed; supported operational receipts remain partial where source
-amount basis is unknown. The following investigation records the original
-failure. Current live acceptance and remaining UI/export work are in #1824.
+described below. Annual query/loading, machine/receipt UI and CSV/PDF, stable-rate
+and exact original-reader SQL repairs are deployed (export v138, scheduler v134).
+The original-import lookup now uses an indexed, bounded identity probe and an
+atomic eight-second annual reporting guard. Latest January 1–October 7 reporting
+retains 9,515 rows/59,837 transactions with zero unresolved imported sales and
+73 refund components still under evidence review. Supported operational receipts
+remain partial where source amount basis is unknown; final browser/PDF acceptance
+follows the remaining legacy/Sheet/request reviews. The investigation below is
+historical. Current release evidence and follow-up work are in #1824/#1848.
 
 Reporting has two confirmed failures: long periods exceed the database request
 timeout, while shorter periods load records whose tax split cannot be calculated
