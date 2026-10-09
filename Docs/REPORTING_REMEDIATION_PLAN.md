@@ -3,7 +3,7 @@
 October 8 update: the owner confirmed stable machine rates and selected Nayax's
 7.5% for The Avenues, superseding the artificial historical observation cutoff
 described below. Annual query/loading, machine/receipt UI and CSV/PDF, stable-rate
-and exact original-reader SQL repairs are deployed (export v138, scheduler v134).
+and exact original-reader SQL repairs are deployed (export v139, scheduler v135).
 The original-import lookup uses an indexed, bounded identity probe and an atomic
 eight-second annual reporting guard. Exact original case and Sheet payment
 repairs are deployed through #1848/#1849 (Sheet worker v133). Latest January
@@ -20,7 +20,7 @@ UI/CSV/PDF checks agree with the database, including a 375px mobile check.
 The remaining 19 entries have $223.60 in recorded original refund amounts across
 seven Bloomjoy NC machines without supported rate evidence. No provisional
 percentages were recovered from the searched records. The separate audited
-Machine rate editor and clearly labeled estimates remain in release verification
+Machine rate editor and clearly labeled estimates are deployed through #1853
 under #1824. Its database migration `20261008235817` is deployed with no policies
 entered; January–October totals are unchanged. All 500 migrations and 8,007
 assertions passed in the disposable replay. The exact SQL rollback rehearsal
@@ -30,7 +30,13 @@ took 1.734 seconds and save 1.322 seconds. All temporary changes rolled back.
 Representative synthetic annual volume passed at 6.380 seconds. A larger
 15,680-row stress scope exceeded eight seconds both before and after this change,
 and a provider-dense preview took 13.446 seconds; these remain scaling limits,
-not proof of performance at every volume. The investigation below is historical.
+not proof of performance at every volume. All required GitHub checks passed,
+including end-to-end customer/manager UAT; production frontend commit `caba9a74`
+passed 139 served-asset checks. Both workers retain their custom authentication
+and all six deployed files match the reviewed source. No scheduled email was
+invoked for verification. Use Machines → Reporting → Tax rate → Adjust rate for
+historical/current changes, with preview and an audit trail. The investigation
+below is historical; live acceptance evidence is recorded on #1824/#1853.
 
 Reporting has two confirmed failures: long periods exceed the database request
 timeout, while shorter periods load records whose tax split cannot be calculated
