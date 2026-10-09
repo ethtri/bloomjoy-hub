@@ -428,7 +428,7 @@ export const sendRefundManagerActionNotice = async ({
   try {
     const { data: rawEmailContext, error: emailContextError } = await supabase
       .rpc(
-        "service_get_refund_manager_action_email_context",
+        "service_get_refund_manager_action_email_context_v2",
         {
           p_refund_case_id: refundCaseId,
           p_notice_reason: noticeReason,

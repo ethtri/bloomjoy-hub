@@ -151,7 +151,7 @@ Deno.test("notice transport includes case context only for the current manager r
     let sends = 0;
     const supabase = { rpc: async (name: string) => {
       if (name === "service_begin_refund_manager_notification") return { data: { ...reservation, recipientRoute: route }, error: null };
-      if (name === "service_get_refund_manager_action_email_context") return { data: enrichedEmailContext, error: null };
+      if (name === "service_get_refund_manager_action_email_context_v2") return { data: enrichedEmailContext, error: null };
       if (name === "service_resolve_refund_customer_manager_cc") return { data: { status, managerCcEmails: operations ? [] : recipients }, error: null };
       if (name === "service_mark_refund_manager_notification_provider_started" || name === "service_complete_refund_manager_notification") return { data: true, error: null };
       throw new Error("Unexpected notice RPC");
@@ -190,7 +190,7 @@ Deno.test("changed recipient routes stop both ordinary and caller-reserved notic
       };
       const supabase = { rpc: async (name: string, args: Record<string, unknown>) => {
         if (name === "service_begin_refund_manager_notification") return { data: { ...reservation, recipientRoute }, error: null };
-        if (name === "service_get_refund_manager_action_email_context") return { data: enrichedEmailContext, error: null };
+        if (name === "service_get_refund_manager_action_email_context_v2") return { data: enrichedEmailContext, error: null };
         if (name === "service_resolve_refund_customer_manager_cc") return { data: { status: scenario.status, managerCcEmails: scenario.after }, error: null };
         if (name === "service_mark_refund_manager_notification_provider_started") { providerStarts++; return { data: true, error: null }; }
         if (name === "service_complete_refund_manager_notification") { outcomes.push(args.p_outcome); return { data: true, error: null }; }
@@ -219,7 +219,7 @@ Deno.test("manager notice marks provider access before send and validates settle
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_get_refund_manager_action_email_context") {
+      if (name === "service_get_refund_manager_action_email_context_v2") {
         return { data: emailContext, error: null };
       }
       if (name === "service_resolve_refund_customer_manager_cc") {
@@ -250,7 +250,7 @@ Deno.test("manager notice marks provider access before send and validates settle
   });
   assertEquals(calls, [
     "service_begin_refund_manager_notification",
-    "service_get_refund_manager_action_email_context",
+    "service_get_refund_manager_action_email_context_v2",
     "service_resolve_refund_customer_manager_cc",
     "service_mark_refund_manager_notification_provider_started",
     "provider_send",
@@ -304,7 +304,7 @@ Deno.test("manager notice never reaches provider when the start marker fails", a
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_get_refund_manager_action_email_context") {
+      if (name === "service_get_refund_manager_action_email_context_v2") {
         return { data: emailContext, error: null };
       }
       if (name === "service_resolve_refund_customer_manager_cc") {
@@ -349,7 +349,7 @@ Deno.test("manager notice settles known-not-sent when safe context cannot be loa
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_get_refund_manager_action_email_context") {
+      if (name === "service_get_refund_manager_action_email_context_v2") {
         return { data: null, error: new Error("synthetic context failure") };
       }
       if (name === "service_complete_refund_manager_notification") {
@@ -378,7 +378,7 @@ Deno.test("manager notice settles known-not-sent when safe context cannot be loa
   assertEquals(outcomes, ["known_not_sent"], "safe context settlement");
   assertEquals(calls, [
     "service_begin_refund_manager_notification",
-    "service_get_refund_manager_action_email_context",
+    "service_get_refund_manager_action_email_context_v2",
     "service_complete_refund_manager_notification",
   ], "context failure never marks provider start");
 });
@@ -391,7 +391,7 @@ Deno.test("manager notice holds provider and settlement uncertainty without rese
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_get_refund_manager_action_email_context") {
+      if (name === "service_get_refund_manager_action_email_context_v2") {
         return { data: emailContext, error: null };
       }
       if (name === "service_resolve_refund_customer_manager_cc") {
