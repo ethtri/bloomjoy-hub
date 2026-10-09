@@ -71,8 +71,8 @@ select is((select jsonb_agg(key order by key) from legacy_manager_email_context
  cross join lateral jsonb_object_keys(value) keys(key)),
  '["actionCode","actionOwner","ageMinutes","amountCents","currencyCode","lifecycleActor","locationName","machineLabel","payloadRedacted","paymentMethodCategory","publicReference","queueLabel","schemaVersion","whatChanged"]'::jsonb,
  'Legacy v1 keys stay unchanged for strict deployed parsers');
-select is((select value->>'machineLabel' from legacy_manager_email_context),'Lobby treats',
- 'Legacy v1 display behavior stays unchanged');
+select is((select value->>'machineLabel' from legacy_manager_email_context),'Atrium cotton candy',
+ 'Legacy v1 reads the public label synchronized by the existing Machine name trigger');
 select ok((select value::text not like '%Spinner stopped%' from legacy_manager_email_context),
  'Legacy v1 still excludes complaint text');
 select ok(not has_function_privilege('authenticated',
@@ -95,7 +95,7 @@ select is((
 ), '["actionCode","actionOwner","ageMinutes","amountCents","currencyCode","customerCommentExcerpt","issueLabel","lifecycleActor","locationName","machineLabel","payloadRedacted","paymentMethodCategory","paymentOutcomeUnknown","publicReference","queueLabel","requestedAmountCents","requestedCurrencyCode","schemaVersion","whatChanged"]'::jsonb,
   'Email context exposes only the fixed allowlist');
 select is((select value ->> 'locationName' from manager_email_context),
-  'Lobby treats', 'Internal location placeholders use the approved public label');
+  'Atrium cotton candy', 'Internal location placeholders use the synchronized public Machine name');
 
 select set_config(
   'request.jwt.claims',
@@ -139,7 +139,7 @@ select is((select value->>'requestedCurrencyCode' from manager_email_context),nu
  'Legacy currency is not guessed');
 select is((select value->>'paymentOutcomeUnknown' from manager_email_context),'false',
  'Unknown lookup notice does not imply a payment has an unknown outcome');
-select like((select value->>'customerCommentExcerpt' from manager_email_context),'Spinner stopped.%',
+select ok((select value->>'customerCommentExcerpt' like 'Spinner stopped.%' from manager_email_context),
  'Useful customer-reported symptom remains intact');
 select ok((select value->>'customerCommentExcerpt' !~ '[[:cntrl:]]' from manager_email_context),
  'Narrative has no control characters');
