@@ -1,9 +1,10 @@
 import {
   REFUND_MANAGER_NOTIFICATION_POLICY,
+  RefundManagerNoticeRouteChangedError,
   type RefundManagerNotificationReason,
   sendRefundManagerActionNotice,
 } from "./refund-manager-notification.ts";
-import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
+import { getInternalNotificationRecipients, TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -124,6 +125,92 @@ const emailContext = {
   payloadRedacted: true,
 };
 
+const enrichedEmailContext = {
+  ...emailContext,
+  requestedAmountCents: 1090,
+  requestedCurrencyCode: "USD",
+  issueLabel: "Product not dispensed",
+  customerCommentExcerpt: "The machine charged me but no cotton candy came out.",
+  paymentOutcomeUnknown: false,
+};
+
+Deno.test("notice transport includes case context only for the current manager route", async () => {
+  for (const operations of [false, true]) {
+    const recipients = operations
+      ? getInternalNotificationRecipients().sort()
+      : reservation.recipientRoute.recipients;
+    const status = operations ? "no_active_managers" : "resolved";
+    const route = {
+      ...reservation.recipientRoute,
+      recipients,
+      routeType: operations ? "operations" : "manager",
+      managerRecipientCount: operations ? 0 : recipients.length,
+      recipientCount: recipients.length,
+      resolutionStatus: status,
+    };
+    let sends = 0;
+    const supabase = { rpc: async (name: string) => {
+      if (name === "service_begin_refund_manager_notification") return { data: { ...reservation, recipientRoute: route }, error: null };
+      if (name === "service_get_refund_manager_action_email_context") return { data: enrichedEmailContext, error: null };
+      if (name === "service_resolve_refund_customer_manager_cc") return { data: { status, managerCcEmails: operations ? [] : recipients }, error: null };
+      if (name === "service_mark_refund_manager_notification_provider_started" || name === "service_complete_refund_manager_notification") return { data: true, error: null };
+      throw new Error("Unexpected notice RPC");
+    }};
+    await sendRefundManagerActionNotice({ ...noticeInput, supabase: supabase as never, sendEmail: async (message) => {
+      sends++;
+      const content = `${message.subject}\n${message.text}\n${message.html}`;
+      assertEquals(content.includes(enrichedEmailContext.customerCommentExcerpt), !operations, "comment follows manager authority");
+      assertEquals(content.includes(enrichedEmailContext.issueLabel), !operations, "issue follows manager authority");
+      assertEquals(content.includes("10.90"), !operations, "requested amount follows manager authority");
+      assertEquals(message.senderName, "Bloomjoy Hub", "recognizable sender name");
+      return { provider: "resend", providerMessageId: "synthetic_context_delivery", acceptedAt: new Date().toISOString() };
+    }});
+    assertEquals(sends, 1, "one synthetic provider call");
+  }
+});
+
+Deno.test("changed recipient routes stop both ordinary and caller-reserved notices before provider access", async () => {
+  const scenarios = [
+    { before: ["notice-manager@example.test"], after: ["replacement@example.test"], status: "resolved" },
+    { before: ["notice-manager@example.test", "second@example.test"], after: ["notice-manager@example.test"], status: "resolved" },
+    { before: ["notice-manager@example.test"], after: [], status: "no_active_managers" },
+    { before: getInternalNotificationRecipients().sort(), after: ["notice-manager@example.test"], status: "resolved", operations: true },
+    { before: ["notice-manager@example.test"], after: [noticeInput.customerEmail], status: "resolved" },
+  ];
+  for (const callerReserved of [false, true]) {
+    for (const scenario of scenarios) {
+      let providerStarts = 0, sends = 0;
+      const outcomes: unknown[] = [];
+      const recipientRoute = { ...reservation.recipientRoute,
+        recipients: scenario.before,
+        routeType: scenario.operations ? "operations" : "manager",
+        managerRecipientCount: scenario.operations ? 0 : scenario.before.length,
+        recipientCount: scenario.before.length,
+        resolutionStatus: scenario.operations ? "no_active_managers" : "resolved",
+      };
+      const supabase = { rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === "service_begin_refund_manager_notification") return { data: { ...reservation, recipientRoute }, error: null };
+        if (name === "service_get_refund_manager_action_email_context") return { data: enrichedEmailContext, error: null };
+        if (name === "service_resolve_refund_customer_manager_cc") return { data: { status: scenario.status, managerCcEmails: scenario.after }, error: null };
+        if (name === "service_mark_refund_manager_notification_provider_started") { providerStarts++; return { data: true, error: null }; }
+        if (name === "service_complete_refund_manager_notification") { outcomes.push(args.p_outcome); return { data: true, error: null }; }
+        throw new Error("Unexpected notice RPC");
+      }};
+      let error: unknown;
+      try {
+        await sendRefundManagerActionNotice({ ...noticeInput, supabase: supabase as never,
+          ...(callerReserved ? { resolvedRouting: { ...recipientRoute, refundCaseId: noticeInput.refundCaseId, customerEmail: noticeInput.customerEmail, usedOpsFallback: scenario.operations === true } } : {}),
+          sendEmail: async () => { sends++; throw new Error("Provider must not run"); },
+        });
+      } catch (caught) { error = caught; }
+      assertEquals(error instanceof RefundManagerNoticeRouteChangedError, true, "route change is proven pre-provider failure");
+      assertEquals(providerStarts, 0, "provider start never marked");
+      assertEquals(sends, 0, "no case context sent to a stale route");
+      assertEquals(outcomes, callerReserved ? [] : ["known_not_sent"], "reservation owner settles confirmed non-send");
+    }
+  }
+});
+
 Deno.test("manager notice marks provider access before send and validates settlement", async () => {
   const calls: string[] = [];
   const supabase = {
@@ -134,6 +221,9 @@ Deno.test("manager notice marks provider access before send and validates settle
       }
       if (name === "service_get_refund_manager_action_email_context") {
         return { data: emailContext, error: null };
+      }
+      if (name === "service_resolve_refund_customer_manager_cc") {
+        return { data: { status: "resolved", managerCcEmails: reservation.recipientRoute.recipients }, error: null };
       }
       if (
         name === "service_mark_refund_manager_notification_provider_started"
@@ -161,6 +251,7 @@ Deno.test("manager notice marks provider access before send and validates settle
   assertEquals(calls, [
     "service_begin_refund_manager_notification",
     "service_get_refund_manager_action_email_context",
+    "service_resolve_refund_customer_manager_cc",
     "service_mark_refund_manager_notification_provider_started",
     "provider_send",
     "service_complete_refund_manager_notification",
@@ -215,6 +306,9 @@ Deno.test("manager notice never reaches provider when the start marker fails", a
       }
       if (name === "service_get_refund_manager_action_email_context") {
         return { data: emailContext, error: null };
+      }
+      if (name === "service_resolve_refund_customer_manager_cc") {
+        return { data: { status: "resolved", managerCcEmails: reservation.recipientRoute.recipients }, error: null };
       }
       if (
         name === "service_mark_refund_manager_notification_provider_started"
@@ -299,6 +393,9 @@ Deno.test("manager notice holds provider and settlement uncertainty without rese
       }
       if (name === "service_get_refund_manager_action_email_context") {
         return { data: emailContext, error: null };
+      }
+      if (name === "service_resolve_refund_customer_manager_cc") {
+        return { data: { status: "resolved", managerCcEmails: reservation.recipientRoute.recipients }, error: null };
       }
       if (
         name === "service_mark_refund_manager_notification_provider_started"

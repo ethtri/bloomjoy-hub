@@ -13,6 +13,7 @@ import {
   getRefundManagerCaseUrl,
   getRefundManagerNoticeReservationRouteInputs,
   getRefundManagerQueueUrl,
+  RefundManagerNoticeRouteChangedError,
   sendRefundManagerActionNotice,
 } from "../_shared/refund-manager-notification.ts";
 import {
@@ -4150,6 +4151,7 @@ const runEnabledManagerAgingSweep = async (
     } catch (error) {
       counters.managerNoticesFailed += 1;
       if (milestone === "escalation") counters.escalationsFailed += 1;
+      const routeNotSent = error instanceof RefundManagerNoticeRouteChangedError;
       if (attemptReserved) {
         try {
           const { error: deliveryReviewError } = await supabase.rpc(
@@ -4157,7 +4159,7 @@ const runEnabledManagerAgingSweep = async (
             {
               p_refund_case_id: refundCase.id,
               p_action_key: actionKey,
-              p_outcome: "delivery_unknown",
+              p_outcome: routeNotSent ? "known_not_sent" : "delivery_unknown",
             },
           );
           if (deliveryReviewError) throw deliveryReviewError;
@@ -4173,7 +4175,9 @@ const runEnabledManagerAgingSweep = async (
       await finishAction(
         action,
         "failed",
-        attemptReserved
+        routeNotSent
+          ? "manager_notice_route_changed_before_send"
+          : attemptReserved
           ? "manager_notice_delivery_unknown"
           : beginRequested
           ? "manager_notice_attempt_state_unknown"

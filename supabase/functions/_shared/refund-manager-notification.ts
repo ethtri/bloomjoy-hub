@@ -442,7 +442,30 @@ export const sendRefundManagerActionNotice = async ({
       caseUrl: getRefundManagerCaseUrl(refundCaseId),
       queueUrl: getRefundManagerQueueUrl(),
       routingNote,
+      audience: routing.usedOpsFallback ? "operations" : "manager",
     });
+    // The reservation may predate an assignment change. Check the exact route
+    // again before the provider can receive any case context, including aging
+    // notices whose reservation is owned by the caller.
+    try {
+      const currentRouting = await resolveRefundManagerActionNoticeRouting({
+        supabase,
+        refundCaseId,
+        customerEmail: normalizedCustomerEmail,
+      });
+      if (
+        currentRouting.usedOpsFallback !== routing.usedOpsFallback ||
+        currentRouting.resolutionStatus !== routing.resolutionStatus ||
+        currentRouting.managerRecipientCount !== routing.managerRecipientCount ||
+        currentRouting.recipientCount !== routing.recipientCount ||
+        JSON.stringify([...currentRouting.recipients].sort()) !==
+          JSON.stringify([...routing.recipients].sort())
+      ) {
+        throw new Error("Refund manager notice route changed.");
+      }
+    } catch {
+      throw new RefundManagerNoticeRouteChangedError();
+    }
     if (actionId && claimToken) {
       const { data: marked, error: markError } = await supabase.rpc(
         "service_mark_refund_manager_notification_provider_started",
@@ -461,6 +484,7 @@ export const sendRefundManagerActionNotice = async ({
     }
     const receipt = await sendEmail({
       to: routing.recipients,
+      senderName: "Bloomjoy Hub",
       subject: rendered.subject,
       text: rendered.text,
       html: rendered.html,
@@ -518,3 +542,11 @@ export const sendRefundManagerActionNotice = async ({
     usedOpsFallback: routing.usedOpsFallback,
   };
 };
+
+/** A route failed its final check before any provider request was made. */
+export class RefundManagerNoticeRouteChangedError extends Error {
+  constructor() {
+    super("Refund manager notice route could not be confirmed before sending.");
+    this.name = "RefundManagerNoticeRouteChangedError";
+  }
+}
