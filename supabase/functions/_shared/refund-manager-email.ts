@@ -25,7 +25,7 @@ const SAFE_CONTEXT_KEYS = [
 export const REFUND_MANAGER_ACTION_EMAIL_SCHEMA_VERSION =
   "refund_manager_action_email_v1";
 export const REFUND_MANAGER_ACTION_EMAIL_TEMPLATE_VERSION =
-  "refund_manager_action_email_v1";
+  "refund_manager_action_email_v2";
 
 export type RefundManagerActionEmailContext = {
   schemaVersion: typeof REFUND_MANAGER_ACTION_EMAIL_SCHEMA_VERSION;
@@ -42,6 +42,11 @@ export type RefundManagerActionEmailContext = {
   lifecycleActor: "system" | "manager";
   whatChanged: string;
   payloadRedacted: true;
+  requestedAmountCents?: number | null;
+  requestedCurrencyCode?: string | null;
+  issueLabel?: string | null;
+  customerCommentExcerpt?: string | null;
+  paymentOutcomeUnknown?: boolean;
 };
 
 const readSafeText = (value: unknown, field: string) => {
@@ -64,12 +69,65 @@ export const parseRefundManagerActionEmailContext = (
     throw new Error("Refund manager email context is invalid.");
   }
   const context = value as Record<string, unknown>;
-  const keys = Object.keys(context).sort();
+  const caseKeys = [
+    "requestedAmountCents",
+    "requestedCurrencyCode",
+    "issueLabel",
+    "customerCommentExcerpt",
+  ];
+  const keys = Object.keys(context);
+  const caseKeyCount = caseKeys.filter((key) => key in context).length;
   if (
-    keys.length !== SAFE_CONTEXT_KEYS.length ||
-    keys.some((key, index) => key !== [...SAFE_CONTEXT_KEYS].sort()[index])
+    SAFE_CONTEXT_KEYS.some((key) => !(key in context)) ||
+    keys.some((key) =>
+      ![...SAFE_CONTEXT_KEYS, ...caseKeys, "paymentOutcomeUnknown"].includes(
+        key,
+      )
+    ) ||
+    (caseKeyCount !== 0 && caseKeyCount !== caseKeys.length)
   ) {
     throw new Error("Refund manager email context contains unsafe fields.");
+  }
+  if (
+    "paymentOutcomeUnknown" in context &&
+    typeof context.paymentOutcomeUnknown !== "boolean"
+  ) {
+    throw new Error("Refund manager email payment outcome is invalid.");
+  }
+  if (caseKeyCount) {
+    const amount = context.requestedAmountCents;
+    const currency = context.requestedCurrencyCode;
+    if (
+      amount !== null &&
+      (typeof amount !== "number" || !Number.isSafeInteger(amount) ||
+        amount < 0)
+    ) {
+      throw new Error("Refund manager email requested amount is invalid.");
+    }
+    if (
+      currency !== null &&
+      (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency))
+    ) {
+      throw new Error("Refund manager email requested currency is invalid.");
+    }
+    for (
+      const [key, max] of [["issueLabel", 160], [
+        "customerCommentExcerpt",
+        320,
+      ]] as const
+    ) {
+      const value = context[key];
+      if (
+        value !== null &&
+        (typeof value !== "string" || Array.from(value).length < 1 ||
+          Array.from(value).length > max ||
+          Array.from(value).some((character) =>
+            character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+          ))
+      ) {
+        throw new Error(`Refund manager email ${key} is invalid.`);
+      }
+    }
   }
   if (
     context.schemaVersion !== REFUND_MANAGER_ACTION_EMAIL_SCHEMA_VERSION ||
@@ -130,9 +188,21 @@ export const parseRefundManagerActionEmailContext = (
       .lifecycleActor as RefundManagerActionEmailContext["lifecycleActor"],
     whatChanged: readSafeText(context.whatChanged, "change summary"),
     payloadRedacted: true,
+    ...("paymentOutcomeUnknown" in context
+      ? { paymentOutcomeUnknown: context.paymentOutcomeUnknown as boolean }
+      : {}),
+    ...(caseKeyCount
+      ? {
+        requestedAmountCents: context.requestedAmountCents as number | null,
+        requestedCurrencyCode: context.requestedCurrencyCode as string | null,
+        issueLabel: context.issueLabel as string | null,
+        customerCommentExcerpt: context.customerCommentExcerpt as string | null,
+      }
+      : {}),
   };
 };
 
+// Presentation copy never substitutes for the current case's payment state.
 const reasonCopy: Record<RefundManagerNotificationReason, {
   variant:
     | "new_decision"
@@ -140,138 +210,154 @@ const reasonCopy: Record<RefundManagerNotificationReason, {
     | "urgent_exception"
     | "escalation"
     | "digest_item";
-  subjectLead: string;
-  whyNow: string;
+  heading: string;
+  summary: string;
 }> = {
   intake_created: {
     variant: "changed_action",
-    subjectLead: "Action changed",
-    whyNow: "A refund request was added to the manager portal.",
+    heading: "New refund request",
+    summary: "",
   },
   wallet_match_ready: {
     variant: "new_decision",
-    subjectLead: "Decision required",
-    whyNow:
-      "A corrected wallet report now has one high-confidence transaction match.",
+    heading: "Refund ready for review",
+    summary: "",
   },
   customer_reply: {
     variant: "digest_item",
-    subjectLead: "Digest item",
-    whyNow: "A verified customer reply is ready for review in the linked case.",
+    heading: "Customer replied",
+    summary: "A new reply is available in this case.",
   },
   hard_bounce: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow:
-      "Customer email delivery failed and automatic contact is paused for review.",
+    heading: "Customer email not delivered",
+    summary:
+      "The customer's email could not be delivered. Delivery needs review before another message is sent.",
   },
   provider_setup: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow:
-      "The payment-provider mapping is not ready for an automatic lookup.",
+    heading: "Purchase lookup unavailable",
+    summary:
+      "A payment connection issue is blocking purchase lookup. No refund decision is needed yet.",
   },
   provider_outage: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow: "The payment-provider lookup is temporarily unavailable.",
+    heading: "Transaction lookup unavailable",
+    summary:
+      "The payment service is unavailable. No refund decision is requested while the lookup is unavailable.",
   },
   provider_rejection: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow: "The payment provider rejected the lookup request.",
+    heading: "Transaction lookup failed",
+    summary:
+      "The payment service did not accept the lookup. This needs system review; no refund decision is requested.",
   },
   provider_timeout: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow: "The payment-provider lookup timed out.",
+    heading: "Transaction lookup delayed",
+    summary:
+      "The transaction lookup did not finish. No refund decision is requested while the lookup is unresolved.",
   },
   provider_unknown: {
     variant: "urgent_exception",
-    subjectLead: "Exception",
-    whyNow: "The payment-provider result is not conclusive and needs review.",
+    heading: "Transaction lookup inconclusive",
+    summary:
+      "The transaction lookup did not return a clear result. This needs system review; no refund decision is requested.",
   },
   follow_up_manual_review: {
     variant: "changed_action",
-    subjectLead: "Action changed",
-    whyNow:
-      "Automatic follow-up is complete and the assigned Manager must review the new evidence.",
+    heading: "Refund needs review",
+    summary: "",
   },
   manager_reminder: {
     variant: "digest_item",
-    subjectLead: "Digest item",
-    whyNow: "The case remains eligible for manager attention.",
+    heading: "Refund awaiting review",
+    summary: "",
   },
   manager_escalation: {
     variant: "escalation",
-    subjectLead: "Escalation",
-    whyNow:
-      "The case has remained ready for manager attention through the escalation milestone.",
+    heading: "Refund still awaiting review",
+    summary: "",
   },
   routine_customer_message: {
     variant: "changed_action",
-    subjectLead: "Action changed",
-    whyNow: "The customer conversation changed.",
+    heading: "Customer conversation updated",
+    summary: "The latest message is available in this case.",
   },
   manager_authored_conversation: {
     variant: "changed_action",
-    subjectLead: "Action changed",
-    whyNow: "A manager-authored conversation update was recorded.",
+    heading: "Case conversation updated",
+    summary: "The latest message is available in this case.",
   },
   customer_completion_copy: {
     variant: "changed_action",
-    subjectLead: "Action changed",
-    whyNow: "The customer completion copy was recorded.",
+    heading: "Customer notification updated",
+    summary: "View the case for the recorded customer notification.",
   },
 };
 
 const nextActionCopy: Record<string, string> = {
-  refund:
-    "Review the confirmed transaction and choose the official refund action in the portal.",
+  refund: "Review the selected purchase and approve or decline the refund.",
   mark_external_refund:
-    "Complete the approved external payment workflow, then record completion in the portal.",
+    "Confirm the refund only after you have sent it through Zelle.",
   select_transaction:
-    "Review the current candidates and select the supported transaction in the portal.",
+    "The purchase still needs to be identified before a refund decision.",
   retry_read_only_lookup:
-    "Review the case, then use the portal's read-only lookup retry if it is still offered.",
+    "The transaction lookup needs system review. No refund decision is requested.",
   review_inbound_case_link:
-    "Review the proposed inbound-message case link in the portal.",
+    "The customer's reply needs to be linked to the correct case.",
   review_delivery_no_resend:
-    "Review delivery evidence in the portal. Do not resend or repeat payment from this email.",
+    "Customer email delivery needs review before another message is sent.",
   recover_customer_delivery:
-    "Review customer delivery evidence in the portal before choosing a recovery step.",
+    "Customer email delivery needs review before another message is sent.",
   refund_operations:
-    "The assigned Manager should check the Nayax result in the portal. Do not retry payment.",
+    "The case needs system review. No refund decision is requested.",
   reconcile_lifecycle_integrity:
-    "The assigned Manager should correct the durable case evidence. Do not retry payment.",
+    "The case record needs system review. No refund decision is requested.",
   request_payout_destination:
-    "Review the case and request the missing payout destination through the approved portal flow.",
+    "The case is waiting for the customer's payout details.",
   resolve_manager_access:
-    "Resolve the current Machine Manager assignment before any official refund action.",
+    "A machine manager assignment is needed before a refund decision.",
   wait_for_customer_reply:
-    "No manager action is due now; review the current waiting state in the portal.",
+    "Waiting for the customer to reply. No decision is needed now.",
   wait_for_customer_notification:
-    "No payment action is due; review the pending customer notification state in the portal.",
-  wait:
-    "Review the current state in the portal; do not repeat an in-progress action.",
-  none:
-    "Review the current case record in the portal; no official refund action is due.",
+    "The customer notification is pending. No payment action is needed.",
+  wait: "The case is in progress. No decision is needed now.",
+  none: "No refund decision is needed now.",
+};
+
+const currentActionHeading: Record<string, string> = {
+  refund: "Refund ready for review",
+  mark_external_refund: "Cash refund needs confirmation",
+  select_transaction: "Purchase needs review",
+  retry_read_only_lookup: "Transaction lookup needs review",
+  review_inbound_case_link: "Customer reply needs review",
+  review_delivery_no_resend: "Customer email needs review",
+  recover_customer_delivery: "Customer email needs review",
+  refund_operations: "Refund needs system review",
+  reconcile_lifecycle_integrity: "Refund needs system review",
+  request_payout_destination: "Waiting for payout details",
+  resolve_manager_access: "Machine manager assignment needed",
+  wait_for_customer_reply: "Waiting for customer reply",
+  wait_for_customer_notification: "Customer notification pending",
+  wait: "Refund request in progress",
+  none: "Refund request update",
 };
 
 export const getRefundManagerNextActionCopy = (actionCode: string) =>
   nextActionCopy[actionCode] ??
-    "Open the case and follow the current server-owned action shown in the portal.";
+    "View the case for its current status and available actions.";
 
 const escapeHtml = (value: string) =>
-  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  value.replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 
 const formatAmount = (
-  amountCents: number | null,
-  currencyCode: string | null,
+  amountCents: number | null | undefined,
+  currencyCode: string | null | undefined,
 ) => {
-  if (amountCents === null) return "Amount not recorded";
+  if (amountCents == null) return "Not available";
   if (!currencyCode) {
     return `${(amountCents / 100).toFixed(2)} (currency not recorded)`;
   }
@@ -285,102 +371,120 @@ const formatAmount = (
   }
 };
 
-const formatAge = (ageMinutes: number) => {
-  if (ageMinutes < 60) {
-    return `${ageMinutes} minute${ageMinutes === 1 ? "" : "s"}`;
-  }
-  const hours = Math.floor(ageMinutes / 60);
-  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"}`;
-};
-
-export const buildRefundManagerActionEmail = ({
-  context,
-  noticeReason,
-  caseUrl,
-  queueUrl,
-  routingNote,
-}: {
-  context: RefundManagerActionEmailContext;
-  noticeReason: RefundManagerNotificationReason;
-  caseUrl: string;
-  queueUrl: string;
-  routingNote: string;
-}) => {
+export const buildRefundManagerActionEmail = (
+  { context, noticeReason, caseUrl, audience = "manager" }: {
+    context: RefundManagerActionEmailContext;
+    noticeReason: RefundManagerNotificationReason;
+    caseUrl: string;
+    // Kept for callers with immutable v1 jobs. Neither creates a second email link.
+    queueUrl: string;
+    routingNote: string;
+    audience?: "manager" | "operations";
+  },
+) => {
   const reason = reasonCopy[noticeReason];
-  const amount = formatAmount(context.amountCents, context.currencyCode);
-  const nextStep = getRefundManagerNextActionCopy(context.actionCode);
-  const subject =
-    `[${reason.subjectLead}] Refund ${amount} · ${context.locationName} · ${context.publicReference}`;
-  const details = [
-    ["Reference", context.publicReference],
-    ["Amount", amount],
-    ["Machine", context.machineLabel],
-    ["Location", context.locationName],
-    ["Case age", formatAge(context.ageMinutes)],
-    [
-      "Payment type",
-      context.paymentMethodCategory === "not_recorded"
-        ? "Not recorded"
-        : context.paymentMethodCategory,
-    ],
-    ["Portal state", context.queueLabel],
-    ["Action owner", context.actionOwner],
-    ["Current action", context.actionCode.replaceAll("_", " ")],
-    [
-      "Last changed by",
-      context.lifecycleActor === "manager" ? "Manager" : "System",
-    ],
-  ] as const;
-  const navigationSafety =
-    "Opening these links is navigation only. It does not approve, decline, complete, send, or retry a refund.";
-  const privacyNote =
-    "Customer contact details, complaint text, payment identifiers, provider payloads, and diagnostics are intentionally omitted.";
+  const operations = audience === "operations";
+  const heading = operations
+    ? "Refund notice routing needs review"
+    : context.paymentOutcomeUnknown
+    ? "Refund status needs verification"
+    : [
+        "wallet_match_ready",
+        "follow_up_manual_review",
+        "manager_reminder",
+        "manager_escalation",
+      ].includes(noticeReason)
+    ? currentActionHeading[context.actionCode] ?? "Refund request update"
+    : reason.heading;
+  const summary = operations
+    ? "This notice could not be routed to a current machine manager. Review the assignment in Bloomjoy Hub."
+    : context.paymentOutcomeUnknown
+    ? "Do not issue another refund until its status is confirmed."
+    : reason.summary || getRefundManagerNextActionCopy(context.actionCode);
+  // The original requested amount is deliberately never inferred from a selected
+  // transaction, approved payment, or the ambiguous amount in historical v1 jobs.
+  const requested = formatAmount(
+    context.requestedAmountCents,
+    context.requestedCurrencyCode,
+  );
+  const subject = operations
+    ? `Refund notice routing: ${context.publicReference}`
+    : `${heading}: ${context.machineLabel} · ${context.publicReference}`;
+  const preheader = operations
+    ? "Review the machine manager assignment."
+    : Array.from(
+      `Requested: ${requested}${
+        context.issueLabel ? ` · ${context.issueLabel}` : ""
+      }`,
+    ).slice(0, 89).join("");
   const text = [
-    `Action needed: ${nextStep}`,
-    `Why now: ${reason.whyNow}`,
-    `What changed: ${context.whatChanged}`,
+    "Bloomjoy Hub",
+    heading,
+    ...(!operations
+      ? [
+        context.machineLabel,
+        `Requested amount: ${requested}`,
+        ...(context.issueLabel
+          ? [`Reported issue: ${context.issueLabel}`]
+          : []),
+        ...(context.customerCommentExcerpt
+          ? [`Customer comment: ${context.customerCommentExcerpt}`]
+          : []),
+      ]
+      : []),
     "",
-    ...details.map(([label, value]) => `${label}: ${value}`),
+    summary,
     "",
-    `Open this case: ${caseUrl}`,
-    `Open the refund queue: ${queueUrl}`,
-    "",
-    navigationSafety,
-    routingNote,
-    privacyNote,
+    `View case: ${caseUrl}`,
+    `Reference: ${context.publicReference}`,
   ].join("\n");
-  const detailRows = details.map(([label, value]) =>
-    `<tr><th scope="row" style="padding:6px 12px 6px 0;text-align:left;vertical-align:top;color:#475569;font-weight:600">${
-      escapeHtml(label)
-    }</th><td style="padding:6px 0;color:#0f172a">${
-      escapeHtml(String(value))
-    }</td></tr>`
-  ).join("");
+  const details = operations
+    ? ""
+    : `<h2 style="margin:18px 0 14px;font-size:20px;line-height:1.35;font-weight:600;overflow-wrap:anywhere">${
+      escapeHtml(context.machineLabel)
+    }</h2>
+<p style="margin:0 0 12px;line-height:1.5"><span class="muted" style="color:#65616a">Requested amount</span><br><strong style="font-size:20px">${
+      escapeHtml(requested)
+    }</strong></p>
+${
+      context.issueLabel
+        ? `<p style="margin:0 0 8px;line-height:1.5"><span class="muted" style="color:#65616a">Reported issue</span><br><strong>${
+          escapeHtml(context.issueLabel)
+        }</strong></p>`
+        : ""
+    }
+${
+      context.customerCommentExcerpt
+        ? `<p class="comment" lang="und" dir="auto" style="margin:0 0 16px;line-height:1.5;overflow-wrap:anywhere">${
+          escapeHtml(context.customerCommentExcerpt)
+        }</p>`
+        : ""
+    }`;
   const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><style>@media (prefers-color-scheme:dark){body,.email-bg{background:#111827!important}.card{background:#1f2937!important}h1,p,td{color:#f8fafc!important}th{color:#cbd5e1!important}a{color:#f8fafc!important}}</style></head>
-<body class="email-bg" style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><main style="padding:24px"><div class="card" style="max-width:640px;margin:0 auto;background:#fff;border-radius:16px;padding:28px"><p style="margin:0 0 8px;color:#475569;font-size:14px">Bloomjoy refund manager notice</p><h1 style="margin:0 0 18px;font-size:24px;line-height:1.25">${
-    escapeHtml(reason.subjectLead)
-  }</h1><p style="line-height:1.55"><strong>Action needed:</strong> ${
-    escapeHtml(nextStep)
-  }</p><p style="line-height:1.55"><strong>Why now:</strong> ${
-    escapeHtml(reason.whyNow)
-  }</p><p style="line-height:1.55"><strong>What changed:</strong> ${
-    escapeHtml(context.whatChanged)
-  }</p><table style="width:100%;border-collapse:collapse;margin:18px 0">${detailRows}</table><p><a href="${
+<html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${
+    escapeHtml(subject)
+  }</title>
+<style>@media only screen and (max-width:480px){.outer{padding:0!important}.content{padding:24px 20px!important}.case-link{display:block!important;text-align:center!important}}@media(prefers-color-scheme:dark){.email-bg{background:#201c20!important}.surface{background:#2c252c!important;color:#faf5f7!important}.muted{color:#c5bfc7!important}.brand{color:#f0b6cb!important}.divider{border-color:#51444b!important}.case-link{background:#f0b6cb!important;color:#35202a!important}}</style></head>
+<body class="email-bg" style="margin:0;padding:0;background:#faf7f8;color:#292b34;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-text-size-adjust:100%">
+<div lang="en" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0">${
+    escapeHtml(preheader)
+  }</div>
+<table lang="en" dir="ltr" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td class="outer" style="padding:24px 12px">
+<table class="surface" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;margin:0 auto;background:#fffdfd;color:#292b34;table-layout:fixed"><tr><td class="content" style="padding:28px 32px;overflow-wrap:anywhere">
+<p class="brand" style="margin:0 0 20px;color:#923c58;font-size:16px;font-weight:700;letter-spacing:-.3px">Bloomjoy <span style="font-weight:400">Hub</span></p>
+<h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:700">${
+    escapeHtml(heading)
+  }</h1>${details}
+<p class="divider" style="margin:18px 0 20px;padding-top:16px;border-top:1px solid #eadfe3;font-size:16px;line-height:1.5">${
+    escapeHtml(summary)
+  }</p>
+<a class="case-link" href="${
     escapeHtml(caseUrl)
-  }" style="display:inline-block;background:#0f172a;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700">Open refund case ${
+  }" style="display:inline-block;background:#923c58;color:#fffafa;text-decoration:none;font-size:16px;font-weight:600;line-height:24px;padding:12px 24px;border-radius:6px;mso-padding-alt:12px 24px">View case</a>
+<p class="muted" style="margin:18px 0 0;color:#65616a;font-size:13px;line-height:1.5">${
     escapeHtml(context.publicReference)
-  }</a></p><p><a href="${
-    escapeHtml(queueUrl)
-  }" style="color:#0f172a;font-weight:600">Open the refund manager queue</a></p><p style="line-height:1.55;font-size:13px;color:#475569">${
-    escapeHtml(navigationSafety)
-  }</p><p style="line-height:1.55;font-size:13px;color:#475569">${
-    escapeHtml(routingNote)
-  }</p><p style="line-height:1.55;font-size:13px;color:#475569">${
-    escapeHtml(privacyNote)
-  }</p></div></main></body></html>`;
+  }</p>
+</td></tr></table></td></tr></table></body></html>`;
   return {
     subject,
     text,

@@ -1329,3 +1329,11 @@ npm run refunds:validate-portal-uat-lifecycle
 - Preview a provisional rate. Verify separate known and estimated cents, the actual purchase-date range, unchanged original transaction tax and cash treatment, and counts of changed components. Change any draft field and verify **Save rate** is disabled until another preview succeeds.
 - Save only in a disposable/synthetic test scope. Check provisional estimates in machine, dated and location reports and CSV/PDF; known plus estimated amounts must be added once, clearly labeled, and remain separate from confirmed payout amounts. Verify a later verified source rate replaces a provisional estimate.
 - Check explicit zero, bounded historical dates, ongoing future dates, failed/expired/stale previews, unauthorized machine access and readable layouts at desktop, 390 px and 320 px. Do not change production rates as a smoke-test action.
+
+## Refund manager case notices (#1863)
+
+- Generate the synthetic notice previews with `node scripts/validate-refund-manager-email.mjs` (see the script's output directory). At 320px, 375px and desktop widths, check that Machine name, original requested amount, selected issue, customer comment and one View case button are readable without horizontal scrolling.
+- Verify setup/lookup problems describe system work, ready headings match the current action, and only canonical payment uncertainty adds a no-repeat-payment caution. Do not infer payment state from a lookup error.
+- Check missing/historical context, long comments, dark preference, blocked images and plain text. Never substitute the matched/approved amount for the original requested amount or add a duplicate Location name.
+- Run the manager notification transport tests: current managers receive the bounded case summary; operations fallback receives no complaint/request enrichment; reassignment or revocation before send prevents provider access in both ordinary and aging notices. A proven pre-send routing failure must not become an unknown email delivery.
+- Use synthetic fixtures only; do not create a live refund or send a customer/manager test email for visual verification.

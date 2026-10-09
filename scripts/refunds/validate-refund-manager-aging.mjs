@@ -200,8 +200,10 @@ check(
     managerNotification.includes('service_get_refund_manager_action_email_context') &&
     managerNotification.includes('buildRefundManagerActionEmail') &&
     managerEmail.includes('REFUND_MANAGER_ACTION_EMAIL_TEMPLATE_VERSION') &&
-    managerEmail.includes('Opening these links is navigation only') &&
-    managerEmail.includes('provider payloads, and diagnostics are intentionally omitted') &&
+    managerEmail.includes('requestedAmountCents') &&
+    managerEmail.includes('customerCommentExcerpt') &&
+    managerEmail.includes('audience === \"operations\"') &&
+    managerEmail.includes('>View case</a>') &&
     migration.includes("'payload_redacted', true")
 );
 
