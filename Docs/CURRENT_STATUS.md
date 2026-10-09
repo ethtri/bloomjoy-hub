@@ -31,9 +31,13 @@ superseded (#1850). One current-reader correction preserves original tax, all
 source observations and former-reader/Stoneridge history; it corrected $4.18
 of historical sales tax and recovered $153.05 across 14 refund components.
 Independent annual, September and Eastridge UI/CSV/PDF/mobile checks passed.
-The remaining 19 refund components lack supported machine-rate evidence; the
-separate historical/current rate editor and explicitly provisional estimates
-remain in progress under #1824. Supported receipts remain partial where source
+The remaining 19 refund entries (17 grouped unknown refund amounts) lack
+supported machine-rate evidence. The audited historical/current rate-policy
+database is deployed under #1824; its editor and matching estimate exports are
+in release verification. All 500 migrations and 8,007 assertions passed in a
+fresh disposable database. The exact deployed SQL passed a rolled-back live
+annual/preview/save rehearsal; post-deploy totals and Auth checks are unchanged.
+No provisional NC percentages have been entered. Supported receipts remain partial where source
 basis does not establish inclusive customer payments. Net/payroll formulas and
 issued snapshots are unchanged.
 See `Docs/REPORTING_REMEDIATION_PLAN.md` for current acceptance evidence.
