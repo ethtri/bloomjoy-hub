@@ -120,12 +120,15 @@ check(
     followUpMigration.includes('message.content_deleted_at is null')
 );
 check(
-  'Provider exceptions are redacted manager-only actions',
+  'Provider exceptions use scoped case context without payment internals',
   sweep.includes('service_claim_refund_provider_exception_action') &&
     sweep.includes('sendRefundManagerActionNotice') &&
     !sweep.includes('summaryText: [') &&
     managerNotification.includes('service_get_refund_manager_action_email_context') &&
-    managerEmail.includes('Customer contact details, complaint text, payment identifiers, provider payloads, and diagnostics are intentionally omitted.') &&
+    managerEmail.includes('customerCommentExcerpt') &&
+    managerEmail.includes('audience === "operations"') &&
+    managerNotification.includes('resolveRefundManagerActionNoticeRouting') &&
+    !managerEmail.includes('providerTransactionId') &&
     followUpMigration.includes("'provider_exception'") &&
     followUpMigration.includes("'payload_redacted', true")
 );
@@ -201,10 +204,13 @@ check(
     sweep.includes('failureStage = "provider_delay_status"')
 );
 check(
-  'The response and alert paths expose aggregate redacted fields only',
+  'Scheduler responses stay aggregate and notice case summaries retain scoped privacy',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
-    managerEmail.includes('Customer contact details, complaint text, payment identifiers, provider payloads, and diagnostics are intentionally omitted.')
+    managerEmail.includes('customerCommentExcerpt') &&
+    managerEmail.includes('audience === "operations"') &&
+    managerNotification.includes('resolveRefundManagerActionNoticeRouting') &&
+    !managerEmail.includes('providerTransactionId')
 );
 check(
   'A safe failure-test mode exercises the ops alert without customer actions',

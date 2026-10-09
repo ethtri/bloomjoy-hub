@@ -1591,10 +1591,11 @@ assert(
   managerNotification.includes('service_get_refund_manager_action_email_context') &&
     managerNotification.includes('buildRefundManagerActionEmail') &&
     managerNotification.includes('html: rendered.html') &&
-    managerEmail.includes('Current action') &&
-    managerEmail.includes('Last changed by') &&
-    managerEmail.includes('Opening these links is navigation only') &&
-    managerEmail.includes('provider payloads, and diagnostics are intentionally omitted') &&
+    managerEmail.includes('requestedAmountCents') &&
+    managerEmail.includes('customerCommentExcerpt') &&
+    managerEmail.includes('audience === "operations"') &&
+    managerEmail.includes('>View case</a>') &&
+    managerNotification.includes('RefundManagerNoticeRouteChangedError') &&
     !managerEmail.includes('customerEmail') &&
     !managerEmail.includes('cardLast4') &&
     !managerEmail.includes('providerTransactionId'),
