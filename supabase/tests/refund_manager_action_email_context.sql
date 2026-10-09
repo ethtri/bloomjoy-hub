@@ -206,7 +206,8 @@ select is(public.service_get_refund_manager_action_email_context_v2(
  'Verification caution follows canonical payment truth rather than notice reason');
 
 set local session_replication_role=replica;
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=now()
+update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),
+ revoke_reason='Synthetic reassignment privacy test'
  where id='12840000-0000-4000-8000-000000000001';
 update public.refund_cases set issue_summary='Spinner stopped.',issue_category='charged_no_product',status='needs_review'
  where id='12850000-0000-4000-8000-000000000001';
