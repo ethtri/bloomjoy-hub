@@ -1337,4 +1337,3 @@ npm run refunds:validate-portal-uat-lifecycle
 - Check missing/historical context, long comments, dark preference, blocked images and plain text. Never substitute the matched/approved amount for the original requested amount or add a duplicate Location name.
 - Run the manager notification transport tests: current managers receive the bounded case summary; operations fallback receives no complaint/request enrichment; reassignment or revocation before send prevents provider access in both ordinary and aging notices. A proven pre-send routing failure must not become an unknown email delivery.
 - Use synthetic fixtures only; do not create a live refund or send a customer/manager test email for visual verification.
-
