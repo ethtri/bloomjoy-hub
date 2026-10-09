@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(30);
+select plan(35);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -57,11 +57,30 @@ insert into public.refund_cases (
 );
 
 create temporary table manager_email_context as
-select public.service_get_refund_manager_action_email_context(
+select public.service_get_refund_manager_action_email_context_v2(
   '12850000-0000-4000-8000-000000000001',
   'provider_unknown',
   '2026-09-10T16:00:00Z'
 ) as value;
+
+-- Old deployed workers still consume the exact original v1 projection.
+create temporary table legacy_manager_email_context as
+select public.service_get_refund_manager_action_email_context(
+ '12850000-0000-4000-8000-000000000001','provider_unknown','2026-09-10T16:00Z') value;
+select is((select jsonb_agg(key order by key) from legacy_manager_email_context
+ cross join lateral jsonb_object_keys(value) keys(key)),
+ '["actionCode","actionOwner","ageMinutes","amountCents","currencyCode","lifecycleActor","locationName","machineLabel","payloadRedacted","paymentMethodCategory","publicReference","queueLabel","schemaVersion","whatChanged"]'::jsonb,
+ 'Legacy v1 keys stay unchanged for strict deployed parsers');
+select is((select value->>'machineLabel' from legacy_manager_email_context),'Lobby treats',
+ 'Legacy v1 display behavior stays unchanged');
+select ok((select value::text not like '%Spinner stopped%' from legacy_manager_email_context),
+ 'Legacy v1 still excludes complaint text');
+select ok(not has_function_privilege('authenticated',
+ 'public.service_get_refund_manager_action_email_context(uuid,text,timestamptz)','execute'),
+ 'Legacy v1 remains inaccessible to browser sessions');
+select ok(has_function_privilege('service_role',
+ 'public.service_get_refund_manager_action_email_context(uuid,text,timestamptz)','execute'),
+ 'Legacy v1 remains available to old server workers');
 
 select is((select value ->> 'schemaVersion' from manager_email_context),
   'refund_manager_action_email_v1', 'Email context has a stable schema');
@@ -108,7 +127,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.service_get_refund_manager_action_email_context(uuid,text,timestamptz)',
+    'public.service_get_refund_manager_action_email_context_v2(uuid,text,timestamptz)',
     'execute'
   ),
   'Browser sessions cannot read manager email context'
@@ -125,10 +144,10 @@ select like((select value->>'customerCommentExcerpt' from manager_email_context)
 select ok((select value->>'customerCommentExcerpt' !~ '[[:cntrl:]]' from manager_email_context),
  'Narrative has no control characters');
 select ok(not has_function_privilege('anon',
- 'public.service_get_refund_manager_action_email_context(uuid,text,timestamptz)','execute'),
+ 'public.service_get_refund_manager_action_email_context_v2(uuid,text,timestamptz)','execute'),
  'Anonymous sessions cannot read manager email context');
 select ok(has_function_privilege('service_role',
- 'public.service_get_refund_manager_action_email_context(uuid,text,timestamptz)','execute'),
+ 'public.service_get_refund_manager_action_email_context_v2(uuid,text,timestamptz)','execute'),
  'Existing server-only execution remains available');
 
 -- Seed original intake evidence, then deliberately different selected/paid values.
@@ -144,7 +163,7 @@ insert into private.refund_request_recognition_events(event_key,refund_case_id,e
  '2026-09-08T12:00Z','2026-09-08T12:00Z','card','hosted_refund_intake',0,1000,
  'tax_inclusive','hosted_intake_customer_charge_estimate');
 set local session_replication_role=origin;
-update manager_email_context set value=public.service_get_refund_manager_action_email_context(
+update manager_email_context set value=public.service_get_refund_manager_action_email_context_v2(
  '12850000-0000-4000-8000-000000000001','provider_setup','2026-09-10T16:00Z');
 select is((select value->>'requestedAmountCents' from manager_email_context),'1000',
  'Original intake amount stays distinct from selected, current payment and refund amounts');
@@ -161,7 +180,7 @@ set local session_replication_role=replica;
 update public.refund_cases set issue_summary=repeat('Spins without dispensing. 🍬 ',30)
  where id='12850000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
-select is(char_length(public.service_get_refund_manager_action_email_context(
+select is(char_length(public.service_get_refund_manager_action_email_context_v2(
  '12850000-0000-4000-8000-000000000001','provider_setup')->>'customerCommentExcerpt'),320,
  'Narrative is bounded at 320 characters, including Unicode');
 
@@ -169,7 +188,7 @@ set local session_replication_role=replica;
 update public.refund_cases set issue_summary=E' \n\t ',issue_category='other'
  where id='12850000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
-update manager_email_context set value=public.service_get_refund_manager_action_email_context(
+update manager_email_context set value=public.service_get_refund_manager_action_email_context_v2(
  '12850000-0000-4000-8000-000000000001','provider_setup');
 select is((select value->>'customerCommentExcerpt' from manager_email_context),null::text,
  'Absent useful comments remain absent');
@@ -182,7 +201,7 @@ update public.refund_cases set status='card_refund_pending'
 set local session_replication_role=origin;
 select is(public.refund_lifecycle_contract('12850000-0000-4000-8000-000000000001')->>'paymentState',
  'integrity_unknown','Synthetic inconsistent payment state is a canonical verification hold');
-select is(public.service_get_refund_manager_action_email_context(
+select is(public.service_get_refund_manager_action_email_context_v2(
  '12850000-0000-4000-8000-000000000001','provider_unknown')->>'paymentOutcomeUnknown','true',
  'Verification caution follows canonical payment truth rather than notice reason');
 
@@ -192,7 +211,7 @@ update public.reporting_machine_refund_managers set status='revoked',revoked_at=
 update public.refund_cases set issue_summary='Spinner stopped.',issue_category='charged_no_product',status='needs_review'
  where id='12850000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
-update manager_email_context set value=public.service_get_refund_manager_action_email_context(
+update manager_email_context set value=public.service_get_refund_manager_action_email_context_v2(
  '12850000-0000-4000-8000-000000000001','provider_setup');
 select is((select value->'requestedAmountCents' from manager_email_context),'null'::jsonb,
  'No current assigned manager means no added requested amount');
