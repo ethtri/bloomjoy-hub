@@ -8,14 +8,29 @@ The original-import lookup uses an indexed, bounded identity probe and an atomic
 eight-second annual reporting guard. Exact original case and Sheet payment
 repairs are deployed through #1848/#1849 (Sheet worker v133). Latest January
 1–October 7 reporting has 9,511 rows/59,837 transactions, zero unresolved imported
-sales and 33 unresolved refund components. All 54 reviewed Sheet repairs changed
+sales and 19 unresolved refund components. All 54 reviewed Sheet repairs changed
 only payment evidence/audit timestamps, with financial amounts, dates, hashes
 and populated/NULL fingerprints preserved; replay changed zero. The supported
 refund recovery is $550.82 ex-tax and the annual deployment rehearsal took
 2.200 seconds. Supported receipts remain partial where source amount basis is
-unknown. Remaining refund evidence, the explicit Eastridge correction and the
-separate Machine rate editor are tracked in #1824/#1850. Final browser/PDF
-acceptance follows those reviews. The investigation below is historical.
+unknown. The owner's corrected Eastridge rate is 9% (#1850), recovering another
+$153.05 across 14 refund components and correcting $4.18 of historical sales tax;
+the withdrawn 10% answer was never deployed. Annual, September and Eastridge
+UI/CSV/PDF checks agree with the database, including a 375px mobile check.
+The remaining 19 entries have $223.60 in recorded original refund amounts across
+seven Bloomjoy NC machines without supported rate evidence. No provisional
+percentages were recovered from the searched records. The separate audited
+Machine rate editor and clearly labeled estimates remain in release verification
+under #1824. Its database migration `20261008235817` is deployed with no policies
+entered; January–October totals are unchanged. All 500 migrations and 8,007
+assertions passed in the disposable replay. The exact SQL rollback rehearsal
+completed annual reporting in 2.711 seconds without policies and 3.176 seconds
+with seven temporary synthetic provisional policies; busiest-machine preview
+took 1.734 seconds and save 1.322 seconds. All temporary changes rolled back.
+Representative synthetic annual volume passed at 6.380 seconds. A larger
+15,680-row stress scope exceeded eight seconds both before and after this change,
+and a provider-dense preview took 13.446 seconds; these remain scaling limits,
+not proof of performance at every volume. The investigation below is historical.
 
 Reporting has two confirmed failures: long periods exceed the database request
 timeout, while shorter periods load records whose tax split cannot be calculated

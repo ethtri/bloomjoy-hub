@@ -1,6 +1,7 @@
 import { machineSalesCsv, machineSalesRows, machineSalesStatus } from './machineSales.ts';
 import { moneyCoverage } from './reportingWorkspace.ts';
 import type { ReportingDimension, SalesReportRow } from './reporting.ts';
+/// <reference lib="deno.ns" />
 const assert = (condition: unknown, message: string) => { if (!condition) throw Error(message); };
 const dimensions: ReportingDimension[] = ['paid', 'partial', 'zero', 'empty', 'foreign'].map((id) => ({
   accountId: id === 'foreign' ? 'other' : 'company', accountName: 'Company', machineId: id, machineLabel: id,
@@ -62,4 +63,21 @@ Deno.test('tax-exclusive source keeps available sales and explains absent custom
   assert(ranked[0].machineId === 'paid' && machineSalesRows([source, row('partial', {customerReceiptsCents: 1000, grossSalesCents: 900})], dimensions, scope, '', 'receipts')[0].machineId === 'partial', 'default ranks known sales, inclusive receipts remains optional');
   assert(machineSalesStatus(machine) === 'Sales are available; total customer payments were not provided', 'plain source capability explanation');
   assert(machineSalesCsv([machine]).includes('"174640","false","174640","false","","true"'), 'CSV keeps usable sales independently of receipt uncertainty');
+});
+
+Deno.test('Machine CSV separates confirmed and estimated cents without counting a known subtotal twice', () => {
+  const mixed = row('paid', { grossSalesKnownCents: 500, netSalesKnownCents: 400, refundAmountKnownCents: 100, taxPolicyEvidence: { status: 'provisional', estimatedSalesExTaxCents: 1000, estimatedRefundExTaxCents: 200, estimatedNetExTaxCents: 800, provisionalSalesComponents: 1, provisionalRefundComponents: 1, provisionalNetComponents: 2 } });
+  const machine = machineSalesRows([mixed], dimensions, { ...scope, machineId: 'paid' })[0];
+  assert(machine.salesExTax.displayValue === 500 && machine.salesExTax.withEstimates === 1500 && machine.net.withEstimates === 1200, 'Keep known and estimated contributions separate');
+  const csv = machineSalesCsv([machine]);
+  assert(csv.includes('Provisional estimated sales excluding tax') && csv.includes('Estimates are not payout amounts'), 'Explicit estimate headers');
+  assert(csv.includes('"1000","200","800","1500","1200","true"'), 'CSV known+estimate parity');
+  assert(machineSalesStatus(machine).includes('provisional tax estimate'), 'Visible estimation status');
+});
+Deno.test('Machine estimate status and CSV retain remaining missing components and the receipt gap', () => {
+  const mixed = row('paid', { grossSalesKnownCents: 0, grossSalesUnknownCount: 3, netSalesKnownCents: 0, netSalesUnknownCount: 4, refundAmountCents: null, refundAmountKnownCents: 0, refundAmountUnknownCount: 1, customerReceiptsCents: null, customerReceiptsKnownCents: null, customerReceiptsUnknownCount: 1, taxPolicyEvidence: { status: 'provisional', estimatedSalesExTaxCents: 0, estimatedRefundExTaxCents: 200, estimatedNetExTaxCents: -200, provisionalSalesComponents: 1, provisionalRefundComponents: 1, provisionalNetComponents: 2 } });
+  const machine = machineSalesRows([mixed], dimensions, { ...scope, machineId: 'paid' })[0];
+  assert(machine.net.withEstimates === -200 && machine.net.remainingUnknownComponents === 2, 'Negative estimate remains partial');
+  assert(machineSalesStatus(machine).includes('2 components are still unavailable') && machineSalesStatus(machine).includes('Customer payment totals remain incomplete'), 'Neither gap is hidden by estimate');
+  assert(machineSalesCsv([machine]).includes('Components still unavailable'), 'CSV preserves unresolved completeness');
 });
