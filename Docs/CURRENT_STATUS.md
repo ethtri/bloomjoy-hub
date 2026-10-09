@@ -9,7 +9,7 @@ orientation snapshot; it is not a backlog or release ledger.
 ## Reporting blocker
 
 Annual query/loading, machine sales and receipt UI/CSV, and PDF repairs are
-deployed; export v138 and scheduler v134 match the reviewed source. Stable-rate
+deployed; export v139 and scheduler v135 match the reviewed source. Stable-rate
 and exact original-reader tax repairs preserve recorded financial ownership,
 transaction-tax precedence and unchanged machine rates, including the owner's
 Nayax 7.5% correction for The Avenues. The indexed original-import lookup passed
@@ -33,10 +33,14 @@ of historical sales tax and recovered $153.05 across 14 refund components.
 Independent annual, September and Eastridge UI/CSV/PDF/mobile checks passed.
 The remaining 19 refund entries (17 grouped unknown refund amounts) lack
 supported machine-rate evidence. The audited historical/current rate-policy
-database is deployed under #1824; its editor and matching estimate exports are
-in release verification. All 500 migrations and 8,007 assertions passed in a
+database, editor and matching estimate exports are deployed through #1853 under
+#1824. All 500 migrations and 8,007 assertions passed in a
 fresh disposable database. The exact deployed SQL passed a rolled-back live
 annual/preview/save rehearsal; post-deploy totals and Auth checks are unchanged.
+The frontend's 139 served assets and both workers' six source files match the
+reviewed release. Use Machines → Reporting → Tax rate → Adjust rate for past,
+current/future or combined purchase dates, preview and audited save history.
+Provisional estimates remain separate from confirmed amounts and payouts.
 No provisional NC percentages have been entered. Supported receipts remain partial where source
 basis does not establish inclusive customer payments. Net/payroll formulas and
 issued snapshots are unchanged.
