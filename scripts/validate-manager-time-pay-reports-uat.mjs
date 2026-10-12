@@ -383,6 +383,16 @@ const installRoutes = async (context) => {
       }));
     }
     if (rpcName === 'get_current_technician_pay_report_context') {
+      if (state.publicationStatus) {
+        const closed = structuredClone(payContext);
+        for (const technician of closed.technicians) {
+          technician.calculationMeta.periodInProgress = false;
+          technician.publishable = true;
+          technician.payStubRegenerationRequired = false;
+          technician.payStubPublication = { status: state.publicationStatus };
+        }
+        return route.fulfill(json(closed));
+      }
       return route.fulfill(json(body.p_month === '2026-08-01' ? historicalAssignmentGapContext : payContext));
     }
     if (rpcName === 'get_operator_contact_directory') return route.fulfill(json([state.contact]));
@@ -676,6 +686,30 @@ const run = async () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1365, height: 900 });
+    for (const [status, label] of [
+      ['queued', 'Pay Stub generating automatically…'],
+      ['processing', 'Pay Stub generating automatically…'],
+      ['issued', 'Pay Stub published'],
+      ['failed', 'Pay Stub generation will retry automatically.'],
+      ['blocked', 'Pay Stub needs corrected inputs; generation retries automatically.'],
+    ]) {
+      state.publicationStatus = status;
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByText(label, { exact: true }).waitFor();
+      check(`Manager sees ${status} Pay Stub status`, await page.getByText(label, { exact: true }).isVisible());
+      if (status === 'queued' || status === 'processing') {
+        check('Generation in progress cannot create another manual request', await page.getByRole('button', { name: 'Publish Pay Stub' }).isDisabled());
+      }
+      if (status === 'issued') {
+        check('Published Pay Stub retains an explicit regeneration action', await page.getByRole('button', { name: 'Regenerate Pay Stub' }).isEnabled());
+        await page.screenshot({ path: path.join(artifactDir, 'pay-stub-published-desktop.png'), fullPage: true });
+        await page.setViewportSize({ width: 390, height: 667 });
+        check('Publication status has no mobile overflow', await noOverflow(page));
+        await page.screenshot({ path: path.join(artifactDir, 'pay-stub-published-mobile.png'), fullPage: true });
+        await page.setViewportSize({ width: 1365, height: 900 });
+      }
+    }
   } finally {
     await browser.close();
   }
