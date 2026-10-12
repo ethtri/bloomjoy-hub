@@ -826,7 +826,8 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 - Refund repair #1757 is verified and closed. #1758 remains open for supported
   case recovery after the deployed reviewed-cash association correction. Passive
-  readback confirms the proof; the existing single follow-up is still waiting.
+  readback confirms the retained association; the existing single follow-up is
+  still waiting.
   Release verification sent no customer contact or payment.
 
 - Product and design: `PRODUCT.md`, `DESIGN.md`
