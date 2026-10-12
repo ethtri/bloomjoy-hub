@@ -13,9 +13,11 @@ created a new internal Location and cash publication replay stranded the retaine
 reviewed purchase. The SQL correction requires the exact prior reviewed source
 digest, unchanged provider lineage and one audited administrative association;
 it preserves original intake and financial facts under the October 3
-current-company policy. Deployment and actual supported re-correlation/current
-reviewed selection are separate recovery dependencies. No real case action is
-part of verification.
+current-company policy. The correction is deployed and verified against the
+reviewed SQL, permissions and unchanged worker sources. Passive case readback
+proves the retained association and new source discriminator; supported
+re-correlation and authorized current reviewed selection remain pending. Release
+verification performed no real case action.
 
 ## Machine email alerts
 
@@ -822,10 +824,11 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 ## Durable references
 
-- Refund repairs #1757/#1758 are deployed; the continuation owner still needs
-  passive case readback to verify exhausted payout contact projects internal
-  review and current reviewed cash proof permits the existing single follow-up
-  during customer wait. Release verification sent no customer contact or payment.
+- Refund repair #1757 is verified and closed. #1758 remains open for supported
+  case recovery after the deployed reviewed-cash association correction. Passive
+  readback confirms the retained association; the existing single follow-up is
+  still waiting.
+  Release verification sent no customer contact or payment.
 
 - Product and design: `PRODUCT.md`, `DESIGN.md`
 - Durable decisions: `Docs/DECISIONS.md`
