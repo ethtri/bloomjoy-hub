@@ -768,6 +768,11 @@ export type TechnicianPayReportTechnician = {
   currentTotalCents: number;
   publishable: boolean;
   payStubRegenerationRequired?: boolean;
+  payStubPublication?: {
+    status: 'queued' | 'processing' | 'blocked' | 'failed' | 'issued' | 'not_generated';
+    retryAfter?: string | null;
+    errorMessage?: string | null;
+  };
   entries: TechnicianPayReportEntry[];
   shiftRateLines: TechnicianPayReportShiftRateLine[];
   machines: TechnicianPayReportMachine[];
@@ -842,6 +847,7 @@ export type TimekeepingMachineCompensation = {
 };
 
 export type SetupTimekeepingTechnicianInput = {
+  payerAccountId: string;
   userEmail: string;
   displayName: string;
   workerType: OperatorWorkerType;
@@ -1361,6 +1367,7 @@ export const fetchTimekeepingSetupContext = async (): Promise<TimekeepingSetupCo
 };
 
 export const setupTimekeepingTechnicianAdmin = async ({
+  payerAccountId,
   userEmail,
   displayName,
   workerType,
@@ -1371,7 +1378,8 @@ export const setupTimekeepingTechnicianAdmin = async ({
   effectiveStartDate,
   machineCompensation,
 }: SetupTimekeepingTechnicianInput): Promise<SetupTimekeepingTechnicianResult> => {
-  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician_arrangements_with_contact', {
+  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_for_payer_with_contact', {
+    p_payer_account_id: payerAccountId,
     p_user_email: userEmail,
     p_display_name: displayName,
     p_worker_type: workerType,

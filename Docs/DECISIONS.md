@@ -1,5 +1,25 @@
 # Decisions
 
+## 2026-10-11 - Automatic post-cutoff Pay Stub publication
+
+Owner authorized production automatic publication immediately after timesheet
+cutoff. A dedicated one-minute scheduler starts first publication without a
+manager action. Requests are reserved individually, retries preserve audit
+history, and an interrupted worker cannot abandon a preclaimed batch. Missing
+required inputs remain explicit calculation exceptions; other contractors
+continue. Regeneration remains a manager action with immutable earlier PDFs
+and automatic refresh of affected later year-to-date statements.
+
+## 2026-10-11 - Explicit contractor payroll payer
+
+Per owner direction, current contractors use Bloomjoy Enterprises as payroll payer
+except the two explicitly retained TGPaci contractors. Payroll payer is chosen
+independently of Machine ownership during Technician setup. Exact private payroll
+Machine scopes permit the arrangement without transferring Machine financial
+ownership or granting general company access. Consolidate identical-worker
+arrangements with matching rates and consecutive assignment windows; retain
+historical profiles, audit evidence and prior issued statement versions.
+
 ## 2026-10-08 - Audited Machine rate corrections and provisional estimates (#1824)
 
 - The owner requested easy adjustment of both historical and current rates. This supersedes the October 5 removal of editable rates: authorized Machine administrators may select past purchase dates, current/future purchases, or both, preview the monetary effect, and save a reason and optional evidence reference. Purchase dates select the rate; later refund booking dates remain unchanged.

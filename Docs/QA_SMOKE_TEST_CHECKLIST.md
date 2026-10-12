@@ -6,6 +6,38 @@
 
 # QA Smoke Test Checklist
 
+## Automatic Pay Stubs
+
+- At the monthly Pacific cutoff, verify a payable synthetic Technician receives
+  one automatically issued private PDF without opening the manager portal.
+  Check winter/summer cutoff offsets, scheduler replay and duplicate prevention.
+- In `/admin/payouts`, verify generating, published and retry/blocked states;
+  a published or corrected statement offers **Regenerate Pay Stub**. Correct
+  an earlier month and verify immutable versions and later YTD refresh.
+- Interrupt a worker or simulate a PDF failure. Other contractors must continue;
+  the abandoned request must retry automatically. Missing required inputs must
+  remain a specific manager exception, with no incomplete statement issued.
+
+## Explicit payroll payer
+
+- In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
+  Machines belonging to another company within your existing pay authority.
+  Activation must create one payer-scoped arrangement with the selected rates.
+- Verify the resulting Pay Report and Pay Stub show the selected payer, while
+  Machines and sales reporting retain their original company. Another Technician
+  cannot access this time or statement. Check the form on desktop and mobile.
+
+## Exhausted legacy payout contact (#1757)
+
+- Use disposable synthetic data with a delivered original payout question, its
+  single delivered reminder and a current exhausted payout follow-up. At
+  `/refunds`, confirm the next step is Agent purchase research/internal review.
+- Confirm useful replies and current submitted same-case answers retain their
+  continuation; stale facts, unknown delivery and an unexpired response window
+  do not acquire the exhaustion exception. A gift-card resolution does not
+  inherit the historical payout question. Message receipts, decisions and the
+  consumed contact budget remain unchanged.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.

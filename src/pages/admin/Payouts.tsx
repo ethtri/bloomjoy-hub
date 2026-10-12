@@ -88,6 +88,7 @@ type AssignmentInputDraft = {
 };
 
 type TechnicianSetupDraft = {
+  payerAccountId: string;
   userEmail: string;
   displayName: string;
   workerType: OperatorWorkerType;
@@ -130,6 +131,7 @@ const newMachinePayDraft = (): MachinePayDraft => ({
 const copyMachinePayDraft = (machinePay: MachinePayDraft): MachinePayDraft => ({ ...machinePay });
 
 const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
+  payerAccountId: '',
   userEmail: '',
   displayName: '',
   workerType: 'contractor_1099',
@@ -377,6 +379,9 @@ function TechnicianReport({
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
   const periodInProgress = technician.calculationMeta.periodInProgress === true;
+  const publication = technician.payStubPublication;
+  const generating = publication?.status === 'queued' || publication?.status === 'processing';
+  const published = publication?.status === 'issued';
   const usesSharedSalesBasis = technician.calculationMeta.salesCalculationVersion === 'shared-sales-basis-v1';
   const hasAssignmentInPeriod = technician.calculationMeta.hasAssignmentInPeriod
     ?? technician.machines.length > 0;
@@ -411,6 +416,16 @@ function TechnicianReport({
             <p className="mt-1 text-sm text-muted-foreground">
               {technician.workerIdentifier || technician.positionTitle || 'Technician'}
             </p>
+            {!periodInProgress && publication && (
+              <p className="mt-2 text-sm text-muted-foreground" role="status">
+                {generating ? 'Pay Stub generating automatically…'
+                  : technician.payStubRegenerationRequired ? 'Pay Stub needs regeneration'
+                    : published ? 'Pay Stub published'
+                      : publication.status === 'blocked' ? 'Pay Stub needs corrected inputs; generation retries automatically.'
+                        : publication.status === 'failed' ? 'Pay Stub generation will retry automatically.'
+                          : 'Pay Stub publishes automatically after the timesheet cutoff.'}
+              </p>
+            )}
             {(technician.contactEmail || technician.contactPhone || technician.mailingAddress) && (
               <address className="mt-2 space-y-0.5 not-italic text-sm text-muted-foreground">
                 {technician.contactEmail && <div>{technician.contactEmail}</div>}
@@ -455,13 +470,13 @@ function TechnicianReport({
               type="button"
               size="sm"
               className="min-h-11"
-              disabled={!technician.publishable || isGeneratingPayStub}
+              disabled={!technician.publishable || isGeneratingPayStub || generating}
               onClick={onGeneratePayStub}
             >
               {isGeneratingPayStub ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Banknote className="mr-2 h-4 w-4" />}
               {isGeneratingPayStub
                 ? technician.payStubRegenerationRequired ? 'Regenerating…' : 'Publishing…'
-                : technician.payStubRegenerationRequired ? 'Regenerate Pay Stub' : 'Publish Pay Stub'}
+                : technician.payStubRegenerationRequired || published ? 'Regenerate Pay Stub' : 'Publish Pay Stub'}
             </Button>
           </div>
         </div>
@@ -710,6 +725,7 @@ export default function AdminPayoutsPage() {
   const { data: context, isLoading, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
     queryFn: () => fetchTechnicianPayReportContext(month),
+    refetchInterval: 15_000,
     staleTime: 20_000,
     retry: false,
   });
@@ -776,9 +792,9 @@ export default function AdminPayoutsPage() {
   const setupMachineById = new Map(
     setupAccounts.flatMap((account) => account.machines.map((machine) => [machine.machineId, { ...machine, accountId: account.accountId, accountName: account.accountName }] as const))
   );
-  const selectedPayerCount = setupDraft
-    ? setupAccounts.filter((account) => account.machines.some((machine) => setupDraft.machineIds.includes(machine.machineId))).length
-    : 0;
+  const defaultPayerId = setupAccounts.find((account) => account.accountName === 'Bloomjoy Enterprises')?.accountId
+    ?? (setupAccounts.length === 1 ? setupAccounts[0].accountId : '');
+  const selectedPayerId = setupDraft?.payerAccountId || defaultPayerId;
   const advancedFilterCount = Number(accountId !== 'all') + Number(machineId !== 'all');
 
   const openTechnicianSetup = () => {
@@ -849,6 +865,7 @@ export default function AdminPayoutsPage() {
       });
 
       return setupTimekeepingTechnicianAdmin({
+        payerAccountId: draft.payerAccountId || defaultPayerId,
         userEmail: draft.userEmail.trim(),
         displayName: draft.displayName.trim(),
         workerType: draft.workerType,
@@ -1023,9 +1040,11 @@ export default function AdminPayoutsPage() {
   const generatePayStub = useMutation({
     mutationFn: (operatorProfileId: string) => requestPayStubGenerationAdmin(operatorProfileId, month),
     onMutate: (operatorProfileId) => setGeneratingProfileId(operatorProfileId),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
-      toast.success('Pay Stub published. The Technician can download the PDF now.');
+      toast.success(result.status === 'queued' || result.status === 'processing'
+        ? 'Pay Stub queued. It will appear here automatically.'
+        : 'Pay Stub published. The Technician can download the PDF now.');
     },
     onError: (generationError) => {
       toast.error(generationError instanceof Error ? generationError.message : 'Unable to publish the Pay Stub.');
@@ -1543,11 +1562,14 @@ export default function AdminPayoutsPage() {
                         </div>
                       </fieldset>
 
-                      {selectedPayerCount > 1 && (
-                        <p className="rounded-lg border border-sage/30 bg-sage-light/50 px-3 py-2 text-sm text-foreground">
-                          This setup spans {selectedPayerCount} businesses, so {setupDraft.displayName || 'this Technician'} will receive {selectedPayerCount} separate Pay Stubs.
-                        </p>
-                      )}
+                      <div>
+                        <label htmlFor="setup-payroll-payer" className="text-sm font-medium text-foreground">Payroll payer</label>
+                        <Select value={selectedPayerId} onValueChange={(payerAccountId) => setSetupDraft((current) => current ? { ...current, payerAccountId } : current)}>
+                          <SelectTrigger id="setup-payroll-payer" className="mt-2 min-h-11"><SelectValue placeholder="Choose the business that pays this Technician" /></SelectTrigger>
+                          <SelectContent>{setupAccounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent>
+                        </Select>
+                        <p className="mt-2 text-sm text-muted-foreground">This business appears on the Pay Stub, regardless of which company owns the machines.</p>
+                      </div>
 
                       {setupDraft.machineIds.length > 0 && (
                         <section aria-labelledby="setup-pay-heading">
@@ -1653,7 +1675,7 @@ export default function AdminPayoutsPage() {
 
                 <DialogFooter className="shrink-0 gap-2 border-t border-border bg-background px-5 py-4 sm:px-6">
                   <Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => setSetupDraft(null)}>Cancel</Button>
-                  <Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error) || !setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>
+                  <Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error) || !selectedPayerId || !setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>
                     {setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
                     Activate Timekeeping
                   </Button>
