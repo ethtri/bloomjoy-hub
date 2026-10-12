@@ -351,6 +351,7 @@ export const createAuthorizationChecks = ({
 
     const exception = page.getByTestId('refund-acknowledgement-delivery-exception');
     const disposition = page.getByTestId('refund-record-later-contact-disposition');
+    await exception.waitFor();
     recorder.assert(
       'A later message cannot hide the single skipped-acknowledgement recovery panel',
       await exception.isVisible() &&
@@ -694,7 +695,8 @@ export const createAuthorizationChecks = ({
     await page.getByTestId('refund-confirm-internal-test-classification').click();
     await page.getByText('More details', { exact: true }).click();
     const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
-    await archiveButton.waitFor({ timeout: 10000 });
+    try { await archiveButton.waitFor({ timeout: 10000 }); }
+    catch (error) { throw new Error(`Archive read after classification: ${(await page.locator('body').innerText()).slice(0, 2400)} ${error}`); }
     await archiveButton.click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();

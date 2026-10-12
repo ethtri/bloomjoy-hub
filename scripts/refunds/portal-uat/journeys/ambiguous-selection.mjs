@@ -1504,6 +1504,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         JSON.stringify({ functionCalls, elapsedMs: Date.now() - simpleJourneyStartedAt })
       );
     } else if (scenario.queueView === 'Waiting on customer') {
+      await page.getByTestId('refund-manager-state').getByText('Waiting on customer', { exact: true }).waitFor();
       recorder.assert(
         `Opening the ${scenario.name} case preserves the customer wait without exposing transaction-search controls`,
         functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&

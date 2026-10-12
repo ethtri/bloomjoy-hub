@@ -3934,7 +3934,7 @@ const installMockSupabaseRoutes = async (
         const closed = work ? !work.isOpen || row.lifecycle?.paymentState === 'confirmed' && row.lifecycle?.accountingState?.state === 'pending'
           && ['sent', 'delivered'].includes(row.lifecycle?.messageState?.state) : ['completed', 'denied', 'closed'].includes(row.status);
         const rec = row.lifecycle?.decisionRecommendation;
-        const decision = !closed && row.decision == null && row.canPerformOfficialAction === true
+        const decision = (!model.lifecycleContractVersion || model.lifecycleContractVersion === 'refund_lifecycle_v2') && !closed && row.decision == null && row.canPerformOfficialAction === true
           && work?.actor === 'manager' && rec?.decisionReady === true
           && rec.officialActionVersion === row.officialActionVersion;
         const waiting = !closed && work?.actor === 'customer' && row.lifecycle?.customerOutreach?.state === 'waiting_for_customer';
@@ -4791,6 +4791,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   const noFreshDecisionsInQueue = (await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
     await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).isVisible();
   await queueCase(skewPage, 'RF-UAT-CARD').click();
+  await skewPage.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).waitFor();
   recorder.assert('Unsupported lifecycle version retains case but removes fresh money action',
     await skewPage.getByTestId('refund-manager-state').getByText(
       'Finding the purchase', { exact: true },
@@ -4850,9 +4851,12 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   await signInRefundUser(unavailablePage, appUrl);
   await queueCase(unavailablePage, 'RF-UAT-CARD').click();
   await unavailablePage.getByText('This case could not be loaded. Try again.', { exact: true }).waitFor({ timeout: 10000 });
+  const failedDetailHadRetry = await unavailablePage.getByRole('button', { name: 'Retry case', exact: true }).isVisible();
+  await unavailablePage.getByTestId('refund-detail-back-to-queue').click();
+  await waitForQueueCount(unavailablePage, 1);
   const unavailableBody = await unavailablePage.locator('body').innerText();
   recorder.assert('Failed selected-case detail keeps the healthy queue and offers retry without a money action',
-    await unavailablePage.getByRole('button', { name: 'Retry case', exact: true }).isVisible() &&
+    failedDetailHadRetry &&
       (await unavailablePage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       !unavailableBody.includes('No refund cases are assigned here yet.') &&
       (await unavailablePage.getByRole('button', { name: /^Decision needed 1$/ }).count()) === 1,
@@ -5410,6 +5414,11 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (process.argv.includes('--recovery-authority-only')) {
+      await runAcknowledgementRecoveryChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runCustomerLocaleCorrectionChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runInternalTestDispositionChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runInboundCaseLinkReviewChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
     } else if (process.argv.includes('--read-budget-only')) {
       await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
     } else if (process.argv.includes('--manager-clarity-only')) {
@@ -5686,7 +5695,7 @@ const run = async () => {
     return;
   }
 
-  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only')) {
+  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only')) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
       console.error(`Focused refund read/clarity UAT failed: ${focusedFailures.length} check(s).`);
@@ -5879,6 +5888,6 @@ const run = async () => {
 };
 
 run().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(error instanceof Error ? error.stack : String(error));
   process.exit(1);
 });

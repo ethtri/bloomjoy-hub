@@ -3075,11 +3075,12 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     gmailHealth?.status === 'paused' ||
     gmailHealth?.status === 'revoked';
   const gmailRecoveryActive = gmailHealth?.status === 'recovering';
-  const refresh = async () => {
-    await Promise.all([
+  const refreshCaseAndQueue = () => Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }),
     ]);
+  const refresh = async () => {
+    await refreshCaseAndQueue();
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-operations-supplements'] }),
@@ -4233,9 +4234,9 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
       // post-confirmation queue. Otherwise the old filter can clear selection
       // in the same render that receives the new server projection.
       if (targetStillSelected) setStatusFilter('all_open');
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
       const authoritativeCase = queryClient
-        .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
+        .getQueryData<RefundOperationsOverview>(caseReadKey(targetCase.id))
         ?.cases.find((refundCase) => refundCase.id === confirmedCase.id);
       if (targetStillSelected && authoritativeCase) {
         // A confirmed transaction can change queues. Keep the selected detail
@@ -5502,7 +5503,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           toast.success(foundMessage);
         }
       }
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
     } catch (lookupError) {
       if (lookupRequestSequenceRef.current !== requestSequence) return;
       const guardedFailure = isEdgeFunctionError(lookupError) &&
@@ -5525,10 +5526,10 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           toast.error(message);
         }
       }
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
       if (lookupRequestSequenceRef.current !== requestSequence) return;
       const authoritativeCase = queryClient
-        .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
+        .getQueryData<RefundOperationsOverview>(caseReadKey(lookupCaseId))
         ?.cases.find((refundCase) => refundCase.id === lookupCaseId);
       setNayaxLookupSummary(authoritativeCase?.nayaxLookupSummary ?? null);
     } finally {
@@ -6143,13 +6144,13 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           ? 'This customer-language correction was already recorded.'
           : 'Customer language saved for future approved messages.'
       );
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
     } catch (localeError) {
       const message = localeError instanceof Error
         ? localeError.message
         : 'Unable to correct the customer language.';
       toast.error(message);
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
     } finally {
       setIsCorrectingCustomerLocale(false);
     }
@@ -6180,13 +6181,13 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           ? 'This Internal/test disposition was already recorded.'
           : 'Moved to the Internal/test archive. Customer work is suppressed.'
       );
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
     } catch (classificationError) {
       const message = classificationError instanceof Error
         ? classificationError.message
         : 'Unable to classify this Internal/test case.';
       toast.error(message);
-      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      await refreshCaseAndQueue();
     } finally {
       setIsClassifyingInternalTest(false);
     }
@@ -7274,7 +7275,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.decision && (
             <details className="border-t border-border pt-3"><summary className="cursor-pointer text-sm text-muted-foreground">Administration</summary>
             <RefundOwnerNonrefundResolution key={`owner-nonrefund-${selectedCase.id}`} caseId={selectedCase.id}
-              onSaved={() => void queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })} />
+              onSaved={() => void refreshCaseAndQueue()} />
             </details>
           )}
 
