@@ -128,6 +128,8 @@ export const refundSpanishCopy = {
   'From memory': 'De memoria',
   'I am not sure': 'No estoy seguro/a',
   'A bank posting time can differ from when you used the machine.': 'La hora registrada por el banco puede ser distinta de cuando usó la máquina.',
+  'What happened? (optional)': '¿Qué pasó? (opcional)',
+  'For example, nothing came out, the machine stopped, or the screen showed an error.': 'Por ejemplo, no salió nada, la máquina se detuvo o la pantalla mostró un error.',
   'Anything else? (optional)': '¿Algo más? (opcional)',
   'For example, whether anything came out or what the screen showed.': 'Por ejemplo, si salió algún producto o qué mostró la pantalla.',
   'Your request goes to the manager responsible for that machine.': 'Su solicitud se envía al gerente responsable de esa máquina.',

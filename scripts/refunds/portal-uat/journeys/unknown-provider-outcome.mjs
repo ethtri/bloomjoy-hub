@@ -398,6 +398,8 @@ export const createUnknownProviderOutcomeChecks = ({
     await signInRefundUser(uncertainPage, appUrl);
     await uncertainPage.getByRole('button', { name: 'All active 1', exact: true }).click();
     await uncertainPage.getByRole('button', { name: /RF-UAT-CARD/ }).first().click();
+    await uncertainPage.getByTestId('refund-nayax-completion-recovery')
+      .getByText('Check whether the customer email was sent', { exact: true }).waitFor();
     const uncertainGenericSend = uncertainPage.getByRole('button', {
       name: 'Send manual/retry email',
       exact: true,
@@ -723,6 +725,7 @@ export const createUnknownProviderOutcomeChecks = ({
       await queueCase(page, 'RF-UAT-CARD').click();
 
       if (scenario.name === 'loading') {
+        await page.getByRole('status', { name: 'Checking refund availability', exact: true }).waitFor();
         recorder.assert(
           'Card refund availability loading state fails closed',
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&

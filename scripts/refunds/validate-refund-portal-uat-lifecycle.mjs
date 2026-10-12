@@ -158,11 +158,11 @@ assert.match(
   /scenario\.queueView === 'Waiting on customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
 );
 assert.equal(
-  [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,
+  [...portalSource.matchAll(/rpcName === 'admin_get_refund_operations_overview'/g)].length,
   1
 );
 assert.equal(
-  [...portalSource.matchAll(/jsonResponse\(withOfficialActionState\(settledOverview\)\)/g)].length,
+  [...portalSource.matchAll(/return withOfficialActionState\(settledOverview\)/g)].length,
   1
 );
 
@@ -271,7 +271,7 @@ assert.match(
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all_open'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(refundManagerView\(authoritativeCase\)\)/
+  /setStatusFilter\('all_open'\);[\s\S]*?await refreshCaseAndQueue\(\);[\s\S]*?getQueryData<RefundOperationsOverview>\(caseReadKey\(targetCase.id\)\)[\s\S]*?setStatusFilter\(refundManagerView\(authoritativeCase\)\)/
 );
 assert.match(
   refundsSource,

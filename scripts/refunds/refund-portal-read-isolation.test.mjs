@@ -229,54 +229,34 @@ test('overview parser omits only cases with malformed message or candidate colle
   );
 });
 
-test('the portal schedules manager work only after the core overview succeeds', () => {
-  const overviewQuery = functionBody(
-    pageSource,
-    "queryKey: ['admin-refund-operations-overview']",
-    "queryKey: ['refund-manager-work-projection']",
-  );
-  assert.match(overviewQuery, /fetchRefundOperationsOverview/);
-  assert.doesNotMatch(overviewQuery, /fetchRefundManagerWorkProjection/);
-
-  const managerQuery = functionBody(
-    pageSource,
-    "queryKey: ['refund-manager-work-projection']",
-    "queryKey: ['refund-operations-supplements']",
-  );
-  assert.match(managerQuery, /queryFn: fetchRefundManagerWorkProjection/);
-  assert.match(managerQuery, /overviewReadStatus === 'success'/);
-  assert.match(managerQuery, /retry: false/);
-
-  const supplementQuery = functionBody(
-    pageSource,
-    "queryKey: ['refund-operations-supplements']",
-    'const liveOverview = useMemo',
-  );
-  assert.match(supplementQuery, /queryFn: fetchRefundOperationsSupplements/);
-  assert.match(supplementQuery, /overviewReadStatus === 'success'/);
-  assert.match(supplementQuery, /retry: false/);
-
-  const liveOverview = functionBody(
-    pageSource,
-    'const liveOverview = useMemo',
-    'const availabilityCaseIsTerminal',
-  );
-  assert.match(liveOverview, /mergeRefundOperationsSupplements/);
+test('selected-case API preserves alternate evidence and rejects another case response', async () => {
+  const { supabaseClient } = await vite.ssrLoadModule('/src/lib/supabaseClient.ts');
+  const rpc = supabaseClient.rpc;
+  const model = refundOperations.buildLocalRefundDemoOverview();
+  const target = model.cases.find(row => row.nayaxLookupCandidates?.length) ?? model.cases[0];
+  const calls = [];
+  let response = { ...model, cases: [target], internalTestCases: [] };
+  supabaseClient.rpc = (name, args) => {
+    calls.push({ name, args });
+    return { abortSignal: () => Promise.resolve({ data: response, error: null }) };
+  };
+  try {
+    const result = await refundOperations.fetchRefundCaseDetail(target.id);
+    assert.deepEqual(result.cases[0].nayaxLookupCandidates, refundOperations.parseRefundOperationsOverview(response).cases[0].nayaxLookupCandidates);
+    assert.equal(result.cases.length, 1);
+    assert.deepEqual(calls[0], { name: 'get_refund_portal_case_detail', args: { p_case_id: target.id } });
+    response = { ...response, cases: [{ ...target, id: 'another-authorized-case' }] };
+    await assert.rejects(refundOperations.fetchRefundCaseDetail(target.id), /Unexpected refund case response/);
+  } finally { supabaseClient.rpc = rpc; }
 });
 
-test('manual refresh completes the critical overview before optional manager work', () => {
-  const refresh = functionBody(pageSource, 'const refresh = async () => {', 'const isUsingDemoData');
-  const overviewIndex = refresh.indexOf(
-    "queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })",
-  );
-  const managerIndex = refresh.indexOf(
-    "queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })",
-  );
-  assert.ok(overviewIndex >= 0);
-  assert.ok(managerIndex > overviewIndex);
-  assert.ok(refresh.indexOf(
-    "queryClient.invalidateQueries({ queryKey: ['refund-operations-supplements'] })",
-  ) > overviewIndex);
+test('revoked case access is distinct from a retryable transport failure', async () => {
+  const { supabaseClient } = await vite.ssrLoadModule('/src/lib/supabaseClient.ts');
+  const rpc = supabaseClient.rpc;
+  supabaseClient.rpc = () => ({ abortSignal: () => Promise.resolve({ data: null, error: { code: '42501', message: 'Private denial' } }) });
+  try {
+    await assert.rejects(refundOperations.fetchRefundCaseDetail('revoked-case'), refundOperations.RefundCaseAccessError);
+  } finally { supabaseClient.rpc = rpc; }
 });
 
 test('manager queue projection reuses the delegated lifecycle without an N+1 call', () => {

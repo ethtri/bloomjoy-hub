@@ -12,6 +12,17 @@ insert into expected_catalog values ('public.refund_current_sunze_cash_source_ke
 ('public.service_select_sunze_cash_candidate(uuid,uuid,uuid,bigint,bigint,uuid)','865d8791a69aee8beade99f67e1fda184f12e8ff4063b778a8538efbc86c30b3','a735958b8785d54a98e3db6bf804d8ace397ab4ce942704aedc3b457deca412e','{postgres=X/postgres,service_role=X/postgres}');
 do $restore$ declare definition text; begin
   definition := pg_get_functiondef('public.refund_current_sunze_cash_source_key(uuid,timestamp with time zone,timestamp with time zone)'::regprocedure);
+  -- Reconstruct the historical source before reversing its reviewed-catalog
+  -- migration. The later queue-only read optimization changes these two exact
+  -- membership expressions, but must not weaken the captured historical hash.
+  if strpos(definition,'private.refund_timezone_name_supported(location.timezone)')>0 then
+    if cardinality(string_to_array(definition,
+      'private.refund_timezone_name_supported(location.timezone)'))<>3 then
+      raise exception 'Read optimization reverse anchor changed';
+    end if;
+    definition:=replace(definition,'private.refund_timezone_name_supported(location.timezone)',
+      'exists(select 1 from pg_catalog.pg_timezone_names zone where zone.name=location.timezone)');
+  end if;
   if (length(definition)-length(replace(definition,'if exists(select 1 from public.refund_cases retained
       where retained.reporting_machine_id=p_reporting_machine_id
         and retained.incident_at=p_incident_at

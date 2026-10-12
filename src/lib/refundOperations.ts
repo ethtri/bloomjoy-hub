@@ -1,3 +1,4 @@
+import { withRequestTimeout } from './requestTimeout';
 import { requireRefundGiftCardStatus, type RefundGiftCardStatus, type RefundResolutionMethod } from './refundGiftCard';
 import { parseRefundPortalQueueProjection, type RefundPortalQueueProjection } from './refundPortalQueue';
 export type { RefundPortalQueueItem, RefundPortalQueueProjection } from './refundPortalQueue';
@@ -3007,15 +3008,44 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   return parseRefundOperationsOverview(overviewResult.data);
 };
 
-export const fetchRefundPortalQueueProjection = async (): Promise<RefundPortalQueueProjection> => {
-  const result = await supabaseClient.rpc('get_refund_portal_queue_projection', {
+/** Same protected evidence contract, scoped before expensive per-case work. */
+export class RefundCaseAccessError extends Error {
+  constructor() { super('This case is not available in your current assignments.'); }
+}
+
+export const fetchRefundCaseDetail = async (caseId: string, parentSignal?: AbortSignal): Promise<RefundOperationsOverview> => {
+  const result = await withRequestTimeout(async signal => await supabaseClient.rpc(
+    'get_refund_portal_case_detail', { p_case_id: caseId },
+  ).abortSignal(signal), 10_000, parentSignal);
+  if (result.error?.code === '42501') throw new RefundCaseAccessError();
+  if (result.error) throw new Error(result.error.message || 'Unable to load this refund case.');
+  const overview = parseRefundOperationsOverview(result.data);
+  if ([...overview.cases, ...(overview.internalTestCases ?? [])].some(row => row.id !== caseId)) {
+    throw new Error('Unexpected refund case response.');
+  }
+  return overview;
+};
+
+export const fetchRefundPortalQueueProjection = async (parentSignal?: AbortSignal): Promise<RefundPortalQueueProjection> => {
+  const result = await withRequestTimeout(async signal => await supabaseClient.rpc('get_refund_portal_queue_projection', {
     p_observed_at: new Date().toISOString(),
-  });
+  }).abortSignal(signal), 10_000, parentSignal);
+  if (result.error?.code === '42501') throw new RefundCaseAccessError();
   if (result.error) {
     throw new Error(result.error.message || 'Unable to load the refund queue.');
   }
   return parseRefundPortalQueueProjection(result.data);
 };
+
+export async function searchRefundPortalQueue(query: string, parentSignal?: AbortSignal): Promise<string[]> {
+  const result = await withRequestTimeout(async signal => await supabaseClient.rpc(
+    'search_refund_portal_queue', { p_query: query },
+  ).abortSignal(signal), 10_000, parentSignal);
+  if (result.error?.code === '42501') throw new RefundCaseAccessError();
+  if (result.error) throw new Error('Refund search is temporarily unavailable.');
+  if (!Array.isArray(result.data) || result.data.some(id => typeof id !== 'string')) throw new Error('Unsupported refund search response.');
+  return result.data;
+}
 
 export type RefundOperationsSupplements = {
   gmailDrafts: RefundCaseRecord[];
@@ -3349,16 +3379,16 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
 };
 
 export const fetchRefundGmailCaseContext = async (
-  caseId: string
+  caseId: string, parentSignal?: AbortSignal,
 ): Promise<RefundGmailCaseContext> => {
-  const [contextResult, triageResult] = await Promise.all([
+  const [contextResult, triageResult] = await withRequestTimeout(async signal => await Promise.all([
     supabaseClient.rpc('admin_get_refund_gmail_case_context', {
       p_refund_case_id: caseId,
-    }),
+    }).abortSignal(signal),
     supabaseClient.rpc('admin_get_refund_gpt_triage', {
       p_refund_case_id: caseId,
-    }),
-  ]);
+    }).abortSignal(signal),
+  ]), 10_000, parentSignal);
   if (contextResult.error) {
     throw new Error(contextResult.error.message || 'Unable to load the Gmail conversation.');
   }

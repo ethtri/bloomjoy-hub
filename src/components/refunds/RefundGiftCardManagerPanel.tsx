@@ -1,3 +1,4 @@
+import { RefundCustomerNotes } from './RefundCustomerNotes';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -10,14 +11,15 @@ import { giftCardAmount, giftCardExpiry, giftCardStatusCopy } from '@/lib/refund
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { parseManagerRefundAmount, roundedManagerGiftAmount } from '@/lib/refundManagerAmount';
 
-export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundCaseRecord }) {
+export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }: { refundCase: RefundCaseRecord; onActionPendingChange?: (pending: boolean) => void }) {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ['refund-gift-card-manager', refundCase.id],
     queryFn: () => fetchRefundGiftCardManagerContext(refundCase.id), refetchInterval: 15000 });
   const [notes, setNotes] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [decided, setDecided] = useState(false);
+  const decisionKey = ['refund-gift-decision-confirmed', refundCase.id];
+  const { data: decided = false } = useQuery({ queryKey: decisionKey, queryFn: () => false, enabled: false, gcTime: Infinity });
   const [recipient, setRecipient] = useState<string | null>(null);
   const [resendIntent, setResendIntent] = useState(() => crypto.randomUUID());
   const [resent, setResent] = useState(false);
@@ -29,31 +31,31 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
     if (pending || query.data?.can_resend !== true) return;
     const email = (recipient ?? query.data.customer_email).trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid customer email.'); return; }
-    setPending(true); setError(''); setResent(false);
+    setPending(true); onActionPendingChange?.(true); setError(''); setResent(false);
     try {
       await resendRefundGiftCard(refundCase.id, resendIntent, email);
       setResent(true); setResendIntent(crypto.randomUUID());
-      await queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
+      void queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to resend this gift card.'); }
-    finally { setPending(false); }
+    finally { setPending(false); onActionPendingChange?.(false); }
   };
   const decide = async (approve: boolean) => {
     if (pending || decided || query.data?.can_decide !== true || (approve && !affectedAmountCents)) return;
-    setPending(true); setError('');
+    setPending(true); onActionPendingChange?.(true); setError('');
     try {
       await decideRefundGiftCard(refundCase.id, approve, notes.trim(), approve ? affectedAmountCents! : undefined);
-      setDecided(true);
-      await queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }), queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }), queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })]);
+      queryClient.setQueryData(decisionKey, true);
+      void queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
+      void Promise.all([queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }), queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }), queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save this decision.'); }
-    finally { setPending(false); }
+    finally { setPending(false); onActionPendingChange?.(false); }
   };
   const card = query.data;
   return <section data-testid="refund-gift-card-manager" className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5">
     <h3 className="text-xl font-semibold">{card?.state === 'manager_review' ? 'Review gift card request' : 'Gift card request'}</h3>
     <div>
       <p className="text-sm font-medium">{refundCase.publicReference} · {refundCase.customerName || refundCase.customerEmail}</p>
-      <p className="mt-2 whitespace-pre-line break-words text-sm leading-6">{refundCase.issueSummary || 'No additional comments.'}</p>
+      <RefundCustomerNotes refundCase={refundCase} />
       <p className="mt-2 text-sm text-muted-foreground">Purchase: {giftCardAmount(refundCase.paymentAmountCents, 'USD')} · {refundCase.machineLabel} · {refundCase.paymentMethod}</p>
     </div>
     {query.isPending && <p role="status">Loading the gift card and previous issuance…</p>}

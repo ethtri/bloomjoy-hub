@@ -52,3 +52,16 @@ Deno.test('non-timeout responses remain available for unavailable-link handling'
 
   assert(error === unavailable);
 });
+
+Deno.test('superseded reads abort promptly even when transport ignores cancellation', async () => {
+  const controller = new AbortController();
+  let childSignal: AbortSignal | undefined;
+  const pending = withRequestTimeout(signal => {
+    childSignal = signal;
+    return new Promise(() => {});
+  }, 10_000, controller.signal);
+  controller.abort();
+  const error = await assertRejects(() => pending, DOMException);
+  assertEquals(error.name, 'AbortError');
+  assert(childSignal?.aborted);
+});

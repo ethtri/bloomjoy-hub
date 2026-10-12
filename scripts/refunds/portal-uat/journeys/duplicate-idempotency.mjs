@@ -215,6 +215,7 @@ export const createDuplicateIdempotencyChecks = ({
     await page.getByRole('button', { name: /^All active 3$/ }).click();
     await waitForQueueCount(page, 3);
     await queueCase(page, 'RF-UAT-VERSION-MISSING').click();
+    await page.getByTestId('refund-manager-state').getByText('Manager action needed', { exact: true }).waitFor();
     recorder.assert(
       'A case with a missing review version leaves the actionable queue and cannot inherit the previous case version',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
@@ -227,6 +228,7 @@ export const createDuplicateIdempotencyChecks = ({
     );
 
     await queueCase(page, 'RF-UAT-AUTHORITY-MISSING').click();
+    await page.getByTestId('refund-manager-state').getByText('Manager action needed', { exact: true }).waitFor();
     recorder.assert(
       'A case without current manager authority stays visible without suggesting this viewer can act',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&

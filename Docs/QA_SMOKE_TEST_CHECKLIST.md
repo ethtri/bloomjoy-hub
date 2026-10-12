@@ -1416,3 +1416,13 @@ npm run refunds:validate-portal-uat-lifecycle
 - At `/admin/support`, open the first and last mobile tickets, edit a note, return to the queue, and reopen the same ticket. Filters/search, scroll position, original row focus, and unsaved ticket edits must survive. Refresh must preserve dirty edits. If a ticket disappears on refresh, Back to queue remains reachable. At desktop width, the list and editor stay side by side with keyboard-accessible ticket selection.
 - Open `/portal/training/software-setup-quickstart` with training access. Progress appears near the title; Finish this training follows written essentials and action items, before companion/next-task resources. The synthetic runner checks save failure leaves completion available and success shows Completed. Reference-only items retain reference status and no completion action. Confirm original access restrictions remain in force.
 - Real iOS/Android keyboard behavior and production permissions must be checked separately with an authorized test account. Do not submit a real request or save real progress solely to collect mobile UI evidence.
+
+
+## Refund responsive case review (#1892-#1896)
+
+- Open /refunds on 320/390px mobile and desktop. Confirm a scoped queue loads without downloading the full evidence overview; search customer/reference/machine and company/status views retain current counts.
+- Open A, return to its queue, reopen A and open B; test direct links, Back/Forward, focus/scroll and unsaved drafts. Slow/failed case reads retain the shell and offer Retry within ten seconds; confirmed access denial hides protected details.
+- With synthetic transport, approve A and delay/fail queue/availability refresh. Open B immediately after confirmed approval; late A responses do not alter B and reopening A cannot request the same decision. Verify pending/unknown outcomes still prevent a blind retry.
+- Compare the recommended and alternate transactions, including a weaker candidate; review material differences and select an alternative. Verify exact selected transaction/amount after refresh. General caveats are expandable and decision controls follow essential facts.
+- Submit optional comments in English/Spanish without requiring them. Review original notes and latest verified customer replies across card/cash/gift cases; staff/automated/untrusted/deleted messages never become customer comments. Empty/loading/unavailable states never disable decisions.
+- Record database, HTTP and browser timings and payload sizes separately; use three fresh page loads, twenty repeated selected reads and larger synthetic fixtures. Report actual results against #1892 targets and verify deployed source separately. Use synthetic effects and read-only production checks.

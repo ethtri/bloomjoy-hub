@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { withRequestTimeout } from './requestTimeout';
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export type RefundRequestMachine = {
@@ -38,8 +39,9 @@ export async function fetchRefundRequests(period: RefundRequestPeriod): Promise<
   if (error) throw error;
   return z.object({ requests: z.array(requestSchema), hasMore: z.boolean() }).parse(data);
 }
-export async function fetchRefundRequest(caseId: string): Promise<RefundRequest | null> {
-  const { data, error } = await supabaseClient.rpc('get_refund_request', { p_case_id: caseId });
+export async function fetchRefundRequest(caseId: string, parentSignal?: AbortSignal): Promise<RefundRequest | null> {
+  const { data, error } = await withRequestTimeout(async signal =>
+    await supabaseClient.rpc('get_refund_request', { p_case_id: caseId }).abortSignal(signal), 10_000, parentSignal);
   if (error) throw error;
   return requestSchema.nullable().parse(data);
 }

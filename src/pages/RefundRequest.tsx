@@ -991,6 +991,18 @@ export default function RefundRequestPage() {
                   )}
                 </div>
 
+                    <div>
+                      <Label htmlFor="issue-summary">{t("What happened? (optional)")}</Label>
+                      <Textarea
+                        id="issue-summary"
+                        value={form.issueSummary}
+                        onChange={(event) => updateForm('issueSummary', event.target.value)}
+                        rows={3}
+                        placeholder={t("For example, nothing came out, the machine stopped, or the screen showed an error.")}
+                        className="mt-2 bg-white"
+                      />
+                    </div>
+
                 {isPartialItems && <p className="text-sm leading-6 text-muted-foreground">{t('Tell us how many items you paid for and how many you received in the optional details below.')}</p>}
                 {isCashChange && <fieldset className="space-y-4 rounded-xl border border-pink-200 bg-pink-50 p-4">
                   <legend className="px-1 text-sm font-semibold">{t('Expected change from a cash payment')}</legend>
@@ -1134,17 +1146,7 @@ export default function RefundRequestPage() {
                       </div>
                     )}
 
-                    <div>
-                      <Label htmlFor="issue-summary">{t("Anything else? (optional)")}</Label>
-                      <Textarea
-                        id="issue-summary"
-                        value={form.issueSummary}
-                        onChange={(event) => updateForm('issueSummary', event.target.value)}
-                        rows={4}
-                        placeholder={t("For example, whether anything came out or what the screen showed.")}
-                        className="mt-2 bg-white"
-                      />
-                    </div>
+
                   </div>
                 </details>
 

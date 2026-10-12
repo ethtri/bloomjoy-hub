@@ -102,7 +102,7 @@ assert(
 );
 assert(
   purchaseReview.includes('Supports this purchase') &&
-    purchaseReview.includes('Uncertain or different') &&
+    purchaseReview.includes('Evidence limits') && purchaseReview.includes('Differences to review') &&
     purchaseReview.includes('evidence.supporting.map') &&
     purchaseReview.includes('evidence.conflicts') &&
     purchaseReview.includes('evidence.uncertainties') &&
@@ -208,7 +208,9 @@ assert(
     lookupBeginError.includes("return null;") &&
     portal.includes("'lookup_precondition_conflict', 'lookup_access_required'") &&
     portal.includes("lookupError.data?.error || lookupError.message") &&
-    portal.includes("await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })"),
+    portal.includes('await refreshCaseAndQueue();') &&
+    portal.includes("queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })") &&
+    portal.includes("queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] })"),
   "guarded lookup conflicts must stop before provider work and refresh the authoritative next step without unsafe retry guidance",
 );
 assert(
