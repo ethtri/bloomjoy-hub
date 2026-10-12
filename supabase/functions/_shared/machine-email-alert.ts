@@ -858,6 +858,109 @@ export type MachineEmailMessage = {
   itemCount: number;
 };
 
+/** A new request is an operational FYI, not a refund decision or repair diagnosis. */
+function buildNewRefundEmail(
+  p: MachineEmailProjection,
+  links: MachineEmailLinks,
+): MachineEmailMessage {
+  const machine = p.machines[0];
+  const request = machine.refundCases[0];
+  const formatTime = (value: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: machine.timezone,
+      timeZoneName: "short",
+    }).format(new Date(value));
+  const received = request.receivedAt
+    ? formatTime(request.receivedAt)
+    : "Request date unavailable";
+  const incident = request.incidentAt ? formatTime(request.incidentAt) : null;
+  const issue = request.issueCategory === null
+    ? "not recorded"
+    : reasons[request.issueCategory] ?? "Other reported issue";
+  const amount = dollars(request.requestedAmountCents ?? null);
+  const caseLink = request.canOpenCase
+    ? link(links.caseUrl(request.caseId))
+    : null;
+  const preferenceLink = link(links.preferencesUrl);
+  const subject = `New refund request: ${machine.machineLabel}`;
+  const commentLabel = request.commentKind === "sanitized-narrative"
+    ? "Customer said"
+    : "Reported symptom";
+  const preheader = Array.from(`${issue}. Requested: ${amount}`).slice(0, 89)
+    .join("");
+  const text = [
+    "Bloomjoy Hub",
+    "New refund request",
+    machine.machineLabel,
+    `Received: ${received}`,
+    ...(incident ? [`Reported purchase: ${incident}`] : []),
+    "",
+    `Customer selected: ${issue}`,
+    ...(request.commentExcerpt
+      ? [`${commentLabel}: ${request.commentExcerpt}`]
+      : []),
+    "",
+    `Requested: ${amount}`,
+    `Refund status: ${request.statusLabel}`,
+    ...(caseLink ? ["", `View request: ${caseLink}`] : []),
+    "",
+    request.publicReference,
+    `Email preferences: ${preferenceLink}`,
+  ].join("\n");
+  const html =
+    `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${
+      esc(subject)
+    }</title>
+<style>@media only screen and (max-width:480px){.outer{padding:0!important}.content{padding:24px 20px!important}.request-link{display:block!important;text-align:center!important}}@media(prefers-color-scheme:dark){.email-bg{background:#201c20!important}.surface{background:#2c252c!important;color:#faf5f7!important}.muted{color:#c5bfc7!important}.brand,.preferences{color:#f0b6cb!important}.divider{border-color:#51444b!important}.request-link{background:#f0b6cb!important;color:#35202a!important}}</style></head>
+<body class="email-bg" style="margin:0;padding:0;background:#faf7f8;color:#292b34;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;-webkit-text-size-adjust:100%">
+<div lang="en" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0">${
+      esc(preheader)
+    }</div>
+<table lang="en" dir="ltr" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td class="outer" style="padding:24px 12px"><table class="surface" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;margin:0 auto;background:#fffdfd;color:#292b34;table-layout:fixed"><tr><td class="content" style="padding:28px 32px;overflow-wrap:anywhere">
+<p class="brand" style="margin:0 0 20px;color:#923c58;font-size:16px;font-weight:700">Bloomjoy <span style="font-weight:400">Hub</span></p>
+<p class="muted" style="margin:0 0 6px;color:#65616a;font-size:16px">New refund request</p>
+<h1 style="margin:0 0 12px;font-size:24px;line-height:1.25">${
+      esc(machine.machineLabel)
+    }</h1>
+<p class="muted" style="margin:0 0 20px;color:#65616a;font-size:14px;line-height:1.5">Received: ${
+      esc(received)
+    }${incident ? `<br>Reported purchase: ${esc(incident)}` : ""}</p>
+<p style="margin:0 0 8px;font-size:16px;line-height:1.5"><strong>${
+      esc(issue === "not recorded" ? "Issue not recorded" : issue)
+    }</strong></p>
+${
+      request.commentExcerpt
+        ? `<p lang="und" dir="auto" style="margin:0 0 20px;font-size:16px;line-height:1.5">${
+          esc(request.commentExcerpt)
+        }</p>`
+        : ""
+    }
+<p class="divider" style="margin:0 0 20px;padding-top:16px;border-top:1px solid #eadfe3;font-size:16px;line-height:1.5">Requested: <strong>${
+      esc(amount)
+    }</strong><br><span class="muted" style="color:#65616a">Refund status: ${
+      esc(request.statusLabel)
+    }</span></p>
+${
+      caseLink
+        ? `<a class="request-link" href="${
+          esc(caseLink)
+        }" style="display:inline-block;background:#923c58;color:#fffafa;text-decoration:none;font-size:16px;font-weight:600;line-height:24px;padding:12px 24px;border-radius:6px;mso-padding-alt:12px 24px">View request</a>`
+        : ""
+    }
+<p class="muted" style="margin:18px 0 0;color:#65616a;font-size:13px;line-height:1.6">${
+      esc(request.publicReference)
+    }<br><a class="preferences" href="${
+      esc(preferenceLink)
+    }" style="color:#923c58;text-decoration:underline">Email preferences</a></p>
+</td></tr></table></td></tr></table></body></html>`;
+  return { subject, text, html, itemCount: 1 };
+}
+
 export function buildMachineEmail(
   { projection, links }: {
     projection: MachineEmailProjection;
@@ -869,13 +972,12 @@ export function buildMachineEmail(
   if (p.category === "daily" || p.category === "weekly") {
     return buildMachineDigestEmail({ projection: p, links });
   }
+  if (p.category === "new-refund") return buildNewRefundEmail(p, links);
   const machine = p.machines[0];
   const salesScope = p.category === "sales-quiet"
     ? (p.signal as QuietSalesSignal).paymentScope
     : "all";
-  const title = p.category === "new-refund"
-    ? "A customer reported a problem"
-    : p.category === "sales-quiet"
+  const title = p.category === "sales-quiet"
     ? `${
       salesScope === "cash"
         ? "Cash sales"
@@ -894,14 +996,6 @@ export function buildMachineEmail(
   const paragraph = (value: string) => {
     plain.push(value, "");
     parts.push(`<p style="margin:0 0 16px;line-height:1.55">${esc(value)}</p>`);
-  };
-  const heading = (value: string, level = 2) => {
-    plain.push(value, "");
-    parts.push(
-      `<h${level} style="font-size:${
-        level === 2 ? 20 : 16
-      }px;margin:26px 0 12px;color:#282c35">${esc(value)}</h${level}>`,
-    );
   };
   const measures = (values: Array<[string, string]>) => {
     plain.push(...values.map(([name, value]) => `${name}: ${value}`), "");
@@ -930,56 +1024,7 @@ export function buildMachineEmail(
       }</a></p>`,
     );
   };
-  const renderCase = (c: MachineEmailCase, m: MachineEmailMachine) => {
-    heading(c.publicReference);
-    measures([
-      ["Requested", dollars(c.requestedAmountCents ?? null)],
-      ["Refund status", c.statusLabel],
-    ]);
-    paragraph(
-      `${
-        c.receivedAt
-          ? `Received ${when(c.receivedAt, m.timezone)}`
-          : "Request date unavailable"
-      }. Reported incident: ${
-        c.incidentAt ? when(c.incidentAt, m.timezone) : "not recorded"
-      }. ${m.timezone}.`,
-    );
-    paragraph(
-      `Customer selected: ${
-        c.issueCategory === null
-          ? "not recorded"
-          : reasons[c.issueCategory] ?? c.issueCategory
-      }.`,
-    );
-    paragraph(
-      c.commentExcerpt
-        ? `${
-          c.commentKind === "sanitized-narrative"
-            ? "Customer comment (details removed)"
-            : "Reported operational symptom"
-        }: ${c.commentExcerpt}`
-        : "No shareable customer comment available.",
-    );
-    anchor(
-      c.canOpenCase
-        ? "View request"
-        : m.reportingAllowed
-        ? "View machine report"
-        : "Manage this alert",
-      c.canOpenCase
-        ? links.caseUrl(c.caseId)
-        : m.reportingAllowed
-        ? links.machineUrl(m.machineId)
-        : links.preferencesUrl,
-    );
-  };
-  if (p.category === "new-refund") {
-    paragraph(
-      "A customer submitted a refund request for a machine you follow.",
-    );
-    renderCase(machine.refundCases[0], machine);
-  } else if (p.category === "sales-quiet") {
+  if (p.category === "sales-quiet") {
     const signal = p.signal as QuietSalesSignal;
     paragraph(machine.machineLabel);
     paragraph(
