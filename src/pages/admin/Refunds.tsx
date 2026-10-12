@@ -3261,15 +3261,16 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
   const hasAnyCases = queueProjectionActive
     ? visibleQueueItems.length > 0
     : overview.cases.length + internalTestCases.length > 0;
+  const queueAccessDenied = queueReadError instanceof RefundCaseAccessError;
   const refundQueueTruthUnavailable = !isUsingDemoData &&
-    Boolean(queueReadError) && !liveQueueProjection;
+    Boolean(queueReadError) && (!liveQueueProjection || queueAccessDenied);
   const isSearching = search.trim().length > 0;
   const searchScope = `${statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views'}${companyId === 'all' ? '' : ' in the selected company'}`;
-  const emptyQueueTitle = companyUnavailable ? 'Selected company is unavailable.' : refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
+  const emptyQueueTitle = queueAccessDenied ? 'Refund access is no longer available.' : companyUnavailable ? 'Selected company is unavailable.' : refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
     : isSearching && (debouncedSearch !== search.trim() || queueSearch.isFetching) ? 'Searching cases…'
     : isSearching && queueSearch.isError ? 'Search is temporarily unavailable.'
     : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
-  const emptyQueueDescription = refundQueueTruthUnavailable
+  const emptyQueueDescription = queueAccessDenied ? 'Refresh to check your access and current assignments.' : refundQueueTruthUnavailable
     ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
     : isSearching
     ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
@@ -7704,14 +7705,14 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
                 </button>}
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
-                    <p role={overviewReadStatus === 'error' || caseAccess === 'error' ? 'alert' : 'status'}>
+                    <p role={overviewReadStatus === 'error' || caseAccess === 'error' || queueAccessDenied ? 'alert' : 'status'}>
                     {selectedId
-                      ? caseAccess === 'error' ? 'Request access could not be checked. Try again.' : caseAccess === 'pending' ? 'Checking request access…' : overviewReadStatus === 'error'
+                      ? queueAccessDenied ? 'Refund access is no longer available.' : caseAccess === 'error' ? 'Request access could not be checked. Try again.' : caseAccess === 'pending' ? 'Checking request access…' : overviewReadStatus === 'error'
                         ? error instanceof RefundCaseAccessError ? error.message : 'This case could not be loaded. Try again.'
                         : 'Loading the current case details and available actions…'
                       : 'Select a refund case to review the details and choose the next step.'}
                     </p>
-                    {selectedId && (caseAccess === 'error' || overviewReadStatus === 'error') && !(error instanceof RefundCaseAccessError) && <Button variant="outline" className="mt-3 min-h-11" onClick={() => caseAccess === 'error' ? retryCaseAccess?.() : void refresh()}>Retry case</Button>}
+                    {selectedId && !queueAccessDenied && (caseAccess === 'error' || overviewReadStatus === 'error') && !(error instanceof RefundCaseAccessError) && <Button variant="outline" className="mt-3 min-h-11" onClick={() => caseAccess === 'error' ? retryCaseAccess?.() : void refresh()}>Retry case</Button>}
                   </div>
                 ) : (
                   <div className="space-y-5">

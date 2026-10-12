@@ -2647,6 +2647,7 @@ const installMockSupabaseRoutes = async (
     refundCaseReadPayloadSizes = [],
     refundOverviewReadBarrier = null,
     refundPortalQueueProjection,
+    refundPortalQueueReadStatus = () => 200,
     onRefundOverviewFailedRead = null,
   } = {}
 ) => {
@@ -3930,6 +3931,9 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/get_refund_portal_queue_projection')) {
+      const queueStatus = refundPortalQueueReadStatus();
+      if (queueStatus >= 400) return route.fulfill({ ...jsonResponse({ code: queueStatus === 403 ? '42501' : 'PGRST000', message: 'Synthetic queue read failure.' }),
+        status: queueStatus, headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'refund-queue-read' } });
       if (refundPortalQueueProjection !== undefined) return route.fulfill(jsonResponse(refundPortalQueueProjection));
       const model = currentRefundOverview();
       const items = [...model.cases, ...(model.refundOperationsAccess ? model.internalTestCases ?? [] : [])].map(row => {
@@ -4214,6 +4218,12 @@ const isExpectedPortalUatResponse = (response) => {
   ) {
     return true;
   }
+
+  if (
+    [403, 503].includes(status) && marker === 'refund-queue-read' &&
+    path === '/rest/v1/rpc/get_refund_portal_queue_projection' &&
+    fixtureOwnedPortalRpcLabels.get(request) === 'get_refund_portal_queue_projection'
+  ) return true;
 
   if (
     status === 503 &&
@@ -4952,6 +4962,44 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
   await closeRefundPortalContext(missingEvidenceContext);
 };
 
+const runRefundQueueRecoveryChecks = async ({ browser, appUrl, recorder }) => {
+  for (const failure of [503, 403]) {
+    let status = 200;
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, { refundOverview: buildManagerApprovalRefundOverview,
+      refundPortalQueueReadStatus: () => status });
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-CARD').click();
+    await page.getByTestId('refund-run-nayax-refund').waitFor();
+    status = failure;
+    const failedRead = page.waitForResponse(response => requestPath(response.request()) === '/rest/v1/rpc/get_refund_portal_queue_projection' && response.status() === failure);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await failedRead;
+    if (failure === 403) {
+      await page.getByRole('alert').getByText('Refund access is no longer available.', { exact: true }).waitFor();
+      const body = await page.locator('body').innerText();
+      recorder.assert('Revoked Manager queue access hides cached case data and reports denial instead of empty or loading',
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          (await page.getByTestId('refund-case-queue-item').count()) === 0 &&
+          !body.includes('Card Customer') && !body.includes('No refund cases are assigned here yet.') &&
+          !body.includes('Loading the current case details and available actions'));
+    } else {
+      await page.getByTestId('refund-run-nayax-refund').waitFor();
+      recorder.assert('Transient queue read failure retains the authorized case and last known queue',
+        await queueCase(page, 'RF-UAT-CARD').isVisible() &&
+          (await page.getByTestId('refund-queue-count').innerText()).trim() === '1 case');
+    }
+    status = 200;
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByTestId('refund-run-nayax-refund').waitFor();
+    recorder.assert(`Queue recovery after HTTP ${failure} restores a freshly authorized case`,
+      await queueCase(page, 'RF-UAT-CARD').isVisible());
+    await closeRefundPortalContext(context);
+  }
+};
+
 const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
   const freshLoads = []; const detailReads = []; const payloadBytes = [];
   for (let fresh = 0; fresh < 3; fresh += 1) {
@@ -5422,6 +5470,8 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (process.argv.includes('--queue-recovery-only')) {
+      await runRefundQueueRecoveryChecks({ browser, appUrl: args.appUrl, recorder });
     } else if (process.argv.includes('--recovery-authority-only')) {
       await runAcknowledgementRecoveryChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
       await runCustomerLocaleCorrectionChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
@@ -5543,6 +5593,7 @@ const run = async () => {
         ],
       });
     } else {
+      await runRefundQueueRecoveryChecks({ browser, appUrl: args.appUrl, recorder });
       await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
       await runManagerApprovalChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
       await runMixedVersionWorkflowChecks({
@@ -5704,7 +5755,7 @@ const run = async () => {
     return;
   }
 
-  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only') || process.argv.some(value => value.startsWith('--journeys='))) {
+  if (process.argv.includes('--queue-recovery-only') || process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only') || process.argv.some(value => value.startsWith('--journeys='))) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
       console.error(`Focused refund UAT failed: ${focusedFailures.length} check(s).`);
