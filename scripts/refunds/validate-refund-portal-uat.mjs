@@ -3932,7 +3932,8 @@ const installMockSupabaseRoutes = async (
       const items = [...model.cases, ...(model.refundOperationsAccess ? model.internalTestCases ?? [] : [])].map(row => {
         const work = row.lifecycle?.nextWork;
         const closed = work ? !work.isOpen || row.lifecycle?.paymentState === 'confirmed' && row.lifecycle?.accountingState?.state === 'pending'
-          && ['sent', 'delivered'].includes(row.lifecycle?.messageState?.state) : ['completed', 'denied', 'closed'].includes(row.status);
+          && ['sent', 'delivered'].includes(row.lifecycle?.messageState?.state)
+          : row.lifecycle ? row.lifecycle.managerQueue?.bucket === 'completed' : ['completed', 'denied', 'closed'].includes(row.status);
         const rec = row.lifecycle?.decisionRecommendation;
         const decision = (!model.lifecycleContractVersion || model.lifecycleContractVersion === 'refund_lifecycle_v2') && !closed && row.decision == null && row.canPerformOfficialAction === true
           && work?.actor === 'manager' && rec?.decisionReady === true
@@ -5550,6 +5551,7 @@ const run = async () => {
         recorder,
       };
       await runRefundPortalJourneys({
+        journeyNames: process.argv.find(value => value.startsWith('--journeys='))?.slice('--journeys='.length).split(','),
         checks: {
           'unauthenticated-entry': () => runUnauthenticatedChecks({
             ...commonCheckContext,
@@ -5695,14 +5697,14 @@ const run = async () => {
     return;
   }
 
-  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only')) {
+  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only') || process.argv.some(value => value.startsWith('--journeys='))) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
-      console.error(`Focused refund read/clarity UAT failed: ${focusedFailures.length} check(s).`);
+      console.error(`Focused refund UAT failed: ${focusedFailures.length} check(s).`);
       process.exitCode = 1;
       return;
     }
-    console.log('Focused refund read/clarity UAT passed.');
+    console.log('Focused refund UAT passed.');
     return;
   }
 
