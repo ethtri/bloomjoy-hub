@@ -379,6 +379,9 @@ function TechnicianReport({
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
   const periodInProgress = technician.calculationMeta.periodInProgress === true;
+  const publication = technician.payStubPublication;
+  const generating = publication?.status === 'queued' || publication?.status === 'processing';
+  const published = publication?.status === 'issued';
   const usesSharedSalesBasis = technician.calculationMeta.salesCalculationVersion === 'shared-sales-basis-v1';
   const hasAssignmentInPeriod = technician.calculationMeta.hasAssignmentInPeriod
     ?? technician.machines.length > 0;
@@ -413,6 +416,16 @@ function TechnicianReport({
             <p className="mt-1 text-sm text-muted-foreground">
               {technician.workerIdentifier || technician.positionTitle || 'Technician'}
             </p>
+            {!periodInProgress && publication && (
+              <p className="mt-2 text-sm text-muted-foreground" role="status">
+                {generating ? 'Pay Stub generating automatically…'
+                  : technician.payStubRegenerationRequired ? 'Pay Stub needs regeneration'
+                    : published ? 'Pay Stub published'
+                      : publication.status === 'blocked' ? 'Pay Stub needs corrected inputs; generation retries automatically.'
+                        : publication.status === 'failed' ? 'Pay Stub generation will retry automatically.'
+                          : 'Pay Stub publishes automatically after the timesheet cutoff.'}
+              </p>
+            )}
             {(technician.contactEmail || technician.contactPhone || technician.mailingAddress) && (
               <address className="mt-2 space-y-0.5 not-italic text-sm text-muted-foreground">
                 {technician.contactEmail && <div>{technician.contactEmail}</div>}
@@ -457,13 +470,13 @@ function TechnicianReport({
               type="button"
               size="sm"
               className="min-h-11"
-              disabled={!technician.publishable || isGeneratingPayStub}
+              disabled={!technician.publishable || isGeneratingPayStub || generating}
               onClick={onGeneratePayStub}
             >
               {isGeneratingPayStub ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Banknote className="mr-2 h-4 w-4" />}
               {isGeneratingPayStub
                 ? technician.payStubRegenerationRequired ? 'Regenerating…' : 'Publishing…'
-                : technician.payStubRegenerationRequired ? 'Regenerate Pay Stub' : 'Publish Pay Stub'}
+                : technician.payStubRegenerationRequired || published ? 'Regenerate Pay Stub' : 'Publish Pay Stub'}
             </Button>
           </div>
         </div>
@@ -712,6 +725,7 @@ export default function AdminPayoutsPage() {
   const { data: context, isLoading, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
     queryFn: () => fetchTechnicianPayReportContext(month),
+    refetchInterval: 15_000,
     staleTime: 20_000,
     retry: false,
   });
@@ -1026,9 +1040,11 @@ export default function AdminPayoutsPage() {
   const generatePayStub = useMutation({
     mutationFn: (operatorProfileId: string) => requestPayStubGenerationAdmin(operatorProfileId, month),
     onMutate: (operatorProfileId) => setGeneratingProfileId(operatorProfileId),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
-      toast.success('Pay Stub published. The Technician can download the PDF now.');
+      toast.success(result.status === 'queued' || result.status === 'processing'
+        ? 'Pay Stub queued. It will appear here automatically.'
+        : 'Pay Stub published. The Technician can download the PDF now.');
     },
     onError: (generationError) => {
       toast.error(generationError instanceof Error ? generationError.message : 'Unable to publish the Pay Stub.');
