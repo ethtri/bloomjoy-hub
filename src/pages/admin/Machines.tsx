@@ -2593,6 +2593,9 @@ function MachineDialog({
   const [partnershipDraftDirty, setPartnershipDraftDirty] = useState(false);
   const [isSavingPartnership, setIsSavingPartnership] = useState(false);
   const [partnershipResetVersion, setPartnershipResetVersion] = useState(0);
+  const [rateDraftDirty, setRateDraftDirty] = useState(false);
+  const [isSavingRate, setIsSavingRate] = useState(false);
+  const [rateResetVersion, setRateResetVersion] = useState(0);
   const workspaceMetadata = useQuery({ queryKey: machineWorkspaceQueryKey, queryFn: fetchMachineWorkspaceMetadata, enabled: open && !isLocalDemoMode, staleTime: 30000 });
   const retainedHistory = workspaceMetadata.data?.find((item) => item.machineId === machine?.id)?.retainedHistory ?? [];
   const [sourceStateDraft, setSourceStateDraft] = useState<'setup' | 'live' | 'inactive'>('setup');
@@ -3220,7 +3223,7 @@ function MachineDialog({
     form.operationalPhase !== 'setup'
   );
   const machineHasUnsavedChanges = !committedImportedMachineId && (importedIdentityHasChanges || mappingHasChanges || machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges);
-  const hasUnsavedChanges = machineHasUnsavedChanges || partnershipDraftDirty;
+  const hasUnsavedChanges = machineHasUnsavedChanges || partnershipDraftDirty || rateDraftDirty;
 
   const cancelMachineIdentityChanges = useCallback(() => {
     setSourceStateDraft(savedSourceState);
@@ -3260,6 +3263,8 @@ function MachineDialog({
   const discardAllPendingChanges = useCallback(() => {
     setPartnershipDraftDirty(false);
     setPartnershipResetVersion((version) => version + 1);
+    setRateDraftDirty(false);
+    setRateResetVersion((version) => version + 1);
     setMappingHasChanges(false);
     cancelMachineIdentityChanges();
     cancelMachineManagerChanges();
@@ -3291,7 +3296,7 @@ function MachineDialog({
   }, [hasUnsavedChanges, mode]);
 
   const machineManagerCount = selectedMachineManagerEmails.length;
-  const isSavingMachineChanges = isSaving || isSavingMachineManagers || isSavingRefundReadiness || isActivatingCardRefunds || isPublishingCustomerRefunds || isSavingPartnership;
+  const isSavingMachineChanges = isSaving || isSavingMachineManagers || isSavingRefundReadiness || isActivatingCardRefunds || isPublishingCustomerRefunds || isSavingPartnership || isSavingRate;
   const refundReadinessBlocks = [
     savedMachineManagerEmails.length > 0 ? null : 'Assign and save at least one Machine Manager.',
     refundManagerSetup?.nayaxMachineId ? null : 'An imported Nayax match is needed for card lookup.',
@@ -3623,12 +3628,12 @@ function MachineDialog({
           </section>
         )}
 
-        {/* Keep the partnership draft mounted across tabs; other reporting queries stay lazy. */}
+        {/* Keep reporting drafts mounted across tabs; queries stay lazy until Reporting is active. */}
         <section hidden={activeTab !== 'reporting'} className="mt-6 max-w-3xl" aria-labelledby="machine-reporting-title">
             <h2 id="machine-reporting-title" className="text-lg font-semibold text-foreground">Reporting</h2>
             <MachinePartnershipAssignment key={machine.id} machineId={machine.id} machineName={machine.machine_label} setup={partnershipSetup} canManage={canManagePartnership} verified={Boolean(stateSource && !stateSource.archivedMapping && !stateSource.mappingConflict && !stateInventory.isError && !stateInventory.isFetching)} loading={isPartnershipSetupLoading} readError={partnershipSetupError} machineDirty={machineHasUnsavedChanges} busy={isSavingMachineChanges && !isSavingPartnership} resetVersion={partnershipResetVersion} demo={isLocalDemoMode} onDirtyChange={setPartnershipDraftDirty} onSavingChange={setIsSavingPartnership} />
+            <MachineRatePolicyPanel machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} active={activeTab === 'reporting'} resetVersion={rateResetVersion} onDirtyChange={setRateDraftDirty} onSavingChange={setIsSavingRate} />
             {activeTab === 'reporting' && <>
-            <MachineRatePolicyPanel machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} />
             {onShowTaxHistory && <details className="mt-4 border-t border-border pt-3"><summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">Legacy tax settings</summary><p className="mt-1 text-sm text-muted-foreground">These earlier configured rates are retained for reference. The effective reporting rate and saved policies are shown above.</p><Button variant="outline" className="mt-3" onClick={() => onShowTaxHistory(machine)}>View legacy rate history</Button></details>}
             <div className="mt-5"><MachineCashReporting key={machine.id} machineId={machine.id} canEdit={canManageReportingTax} demo={isLocalDemoMode} /></div>
             <EarlierMachineSales history={retainedHistory} />

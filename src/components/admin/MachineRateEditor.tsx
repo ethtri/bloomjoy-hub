@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
@@ -10,25 +10,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { applyMachineRatePeriod, machineRateDraftError, machineRateDraftKey, type MachineRateDraft, type MachineRatePolicyState, type MachineRatePreview, type MachineRatePeriod } from '@/lib/reportingMachineRatePolicy';
 import { fetchMachineRatePolicy, previewMachineRatePolicy, saveMachineRatePolicy } from '@/lib/reportingMachineRatePolicyApi';
 
-export function MachineRatePolicyPanel({ machineId, canEdit, demo = false }: { machineId: string; canEdit: boolean; demo?: boolean }) {
+type EditorContinuity = { onDirtyChange?: (dirty: boolean) => void; onSavingChange?: (saving: boolean) => void };
+
+export function MachineRatePolicyPanel({ machineId, canEdit, demo = false, active = true, resetVersion = 0, onDirtyChange, onSavingChange }: { machineId: string; canEdit: boolean; demo?: boolean; active?: boolean; resetVersion?: number } & EditorContinuity) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const queryKey = ['admin-machine-rate-policy', user?.id, machineId];
-  const policy = useQuery({ queryKey, queryFn: () => fetchMachineRatePolicy(machineId), enabled: !demo && Boolean(user?.id), staleTime: 30000 });
+  const policy = useQuery({ queryKey, queryFn: () => fetchMachineRatePolicy(machineId), enabled: !demo && active && Boolean(user?.id), staleTime: 30000 });
   if (demo) return <div className="mt-5 rounded-lg border p-4 text-sm">Tax rate editing is available for authorized machines in the live admin workspace.</div>;
   if (policy.isPending) return <p className="mt-5 text-sm text-muted-foreground" role="status">Loading tax rate and history…</p>;
-  if (policy.isError || !policy.data) return <section className="mt-5 rounded-lg border p-4"><h3 className="font-semibold">Tax rate</h3><p className="mt-2 text-sm text-muted-foreground">The tax rate editor is unavailable. Try loading it again.</p><Button className="mt-3" variant="outline" onClick={() => void policy.refetch()}>Retry</Button></section>;
-  return <MachineRateEditor key={machineId} state={policy.data} canEdit={canEdit} preview={draft => previewMachineRatePolicy(machineId, draft)} save={async (draft, token) => {
+  if (!policy.data) return <section className="mt-5 rounded-lg border p-4"><h3 className="font-semibold">Tax rate</h3><p className="mt-2 text-sm text-muted-foreground">The tax rate editor is unavailable. Try loading it again.</p><Button className="mt-3" variant="outline" onClick={() => void policy.refetch()}>Retry</Button></section>;
+  return <>
+    {policy.isError && <div className="mt-5 text-sm"><p role="alert">The latest tax rate could not be loaded. Your draft is still here.</p><Button className="mt-2" variant="outline" onClick={() => void policy.refetch()}>Retry</Button></div>}
+    <MachineRateEditor key={`${machineId}-${resetVersion}`} state={policy.data} canEdit={canEdit} onDirtyChange={onDirtyChange} onSavingChange={onSavingChange} preview={draft => previewMachineRatePolicy(machineId, draft)} save={async (draft, token) => {
     let saved: MachineRatePolicyState;
     try { saved = await saveMachineRatePolicy(machineId, draft, token); }
     catch (error) { await queryClient.invalidateQueries({ queryKey }); throw error; }
     queryClient.setQueryData(queryKey, saved);
     toast.success('Tax rate saved. Recalculated reports use the selected purchase dates.');
     await queryClient.invalidateQueries({ predicate: query => /sales|finance|revenue|payout|technician-pay|partner.*(report|preview|dashboard)|admin-machine-tax-source/i.test(String(query.queryKey[0])) });
-  }} />;
+  }} /></>;
 }
 
-type Props = {
+type Props = EditorContinuity & {
   state: MachineRatePolicyState;
   canEdit: boolean;
   preview: (draft: MachineRateDraft) => Promise<MachineRatePreview>;
@@ -38,12 +42,18 @@ type Props = {
 const money = (cents: number | null) => cents === null ? 'Unavailable' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const statusLabel = (status: string) => status === 'provisional' ? 'Provisional estimate' : status === 'confirmed' ? 'Confirmed' : status === 'source_verified' ? 'Verified source' : 'Unavailable';
 
-export function MachineRateEditor({ state, canEdit, preview, save }: Props) {
+const initialDraft = (state: MachineRatePolicyState): MachineRateDraft => ({ ratePercent: state.current.ratePercent === null ? '' : String(state.current.ratePercent), status: state.current.status === 'confirmed' ? 'confirmed' : 'provisional', startsOn: state.asOfDate, endsOn: '', reason: '', evidenceReference: '' });
+
+export function MachineRateEditor({ state, canEdit, preview, save, onDirtyChange, onSavingChange }: Props) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<MachineRateDraft>({ ratePercent: state.current.ratePercent === null ? '' : String(state.current.ratePercent), status: state.current.status === 'confirmed' ? 'confirmed' : 'provisional', startsOn: state.asOfDate, endsOn: '', reason: '', evidenceReference: '' });
+  const [draft, setDraft] = useState<MachineRateDraft>(() => initialDraft(state));
+  const [draftBaseline, setDraftBaseline] = useState(() => machineRateDraftKey(initialDraft(state)));
   const [impact, setImpact] = useState<{ key: string; value: MachineRatePreview } | null>(null);
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const dirty = editing && machineRateDraftKey(draft) !== draftBaseline;
+  useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
+  useEffect(() => { onSavingChange?.(busy === 'save'); return () => onSavingChange?.(false); }, [busy, onSavingChange]);
   const change = (next: MachineRateDraft) => { setDraft(next); setImpact(null); setError(null); };
   const selectPeriod = (period: MachineRatePeriod) => change(applyMachineRatePeriod(draft, period, state.asOfDate, state.historyStartsOn));
   const currentImpact = impact?.key === machineRateDraftKey(draft) && impact.value.revision === state.revision ? impact.value : null;
@@ -69,7 +79,7 @@ export function MachineRateEditor({ state, canEdit, preview, save }: Props) {
   return <section className="mt-5 rounded-lg border border-border p-4" aria-labelledby="machine-tax-policy-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h3 id="machine-tax-policy-title" className="font-semibold">Tax rate</h3><div className="mt-2 flex flex-wrap items-center gap-2"><span className="text-xl font-semibold">{state.current.ratePercent === null ? 'Unavailable' : `${state.current.ratePercent}%`}</span><Badge variant="outline">{statusLabel(state.current.status)}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{state.current.label}</p></div>
-      {canEdit && !editing && <Button variant="outline" onClick={() => { setEditing(true); setError(null); }}>Adjust rate</Button>}
+      {canEdit && !editing && <Button variant="outline" onClick={() => { const next = initialDraft(state); setDraft(next); setDraftBaseline(machineRateDraftKey(next)); setEditing(true); setError(null); }}>Adjust rate</Button>}
     </div>
     <p className="mt-3 text-sm text-muted-foreground">Tax recorded on the original transaction takes priority. Cash and sales already recorded excluding tax keep their existing treatment.</p>
     {editing && <div className="mt-5 space-y-4 border-t border-border pt-4">
