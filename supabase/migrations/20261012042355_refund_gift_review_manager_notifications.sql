@@ -72,7 +72,7 @@ begin
     case when gift->'review_reasons' ? 'partial_items' then 'Partial order' end,
     case when gift->'review_reasons' ? 'expected_cash_change' then 'Customer expected change' end,
     case when gift->'review_reasons' ? 'gift_value_over_25' then 'Gift-card value over $25' end,
-    case when gift->'review_reasons' ? 'repeat_within_12_months' then 'Gift card received within the past 12 months' end
+    case when gift->'review_reasons' ? 'repeat_within_12_months' then 'Gift card issued within the past 12 months' end
   ),'');
   summary:=coalesce(summary||'.','Gift-card request awaiting your decision.');
   -- No customer identity, raw code, invented proof, renewable token, inventory
