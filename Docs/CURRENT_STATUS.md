@@ -14,6 +14,15 @@ gift-specific presentation and compatible strict consumers; deployment remains
 pending the reviewed consumer-first release sequence and migration-history
 prerequisites. The standalone new-request renderer (#1866) is already deployed.
 
+## Contractor Timekeeping and Pay Stubs
+
+Current contractor payroll uses Bloomjoy Enterprises, with the two designated
+TGPaci exceptions retained. The dedicated one-minute scheduler automatically
+publishes complete monthly Pay Stubs after the Pacific timesheet cutoff.
+Missing inputs remain specific retryable exceptions; regeneration retains
+prior PDFs and refreshes affected later YTD. All 15 September statements are
+published under their correct payers with private contractor access verified.
+
 ## Reporting blocker
 
 Annual query/loading, machine sales and receipt UI/CSV, and PDF repairs are

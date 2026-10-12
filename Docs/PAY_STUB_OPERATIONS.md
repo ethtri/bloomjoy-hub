@@ -17,9 +17,10 @@ Only the database owner can configure or dispatch the private scheduler.
    before and after deployment using the existing production runbook checks.
 2. Reconcile deployed migration versions exactly; do not reapply the older
    verified-zero/publication migrations already recorded in production.
-3. Apply the explicit-payer and automatic-recovery migrations, deploy the reviewed
-   `pay-stub-generator` and its full shared dependency tree with its existing
-   custom-authentication setting, then complete authorized payer corrections.
+3. Apply the explicit-payer migration and complete authorized payer corrections.
+   Deploy the reviewed compatible `pay-stub-generator` and its full shared
+   dependency tree with its existing custom-authentication setting before applying
+   the automatic-recovery migration. Keep the clock disabled until both are verified.
 4. As database owner, call
    `select private.configure_pay_stub_scheduler('<confirmed-project-ref>',true);`
    The function generates a dedicated secret if absent, retains it on replay and
