@@ -320,6 +320,8 @@
     "20261003171036_refund_daily_health_open_presence.sql",
     "20261003220644_technician_refund_read_access.sql",
     "20261004022303_provider_refund_purchase_tax_attribution.sql",
+    "20261005161430_refund_reviewed_cash_payout_followup_currentness.sql",
+    "20261005162202_refund_exhausted_payout_contact_projection.sql",
     "20261005172717_refund_info_autoresponse_repair.sql",
     "20261005201647_nayax_source_tax_observations.sql",
     "20261005221713_nayax_bounded_portal_tax_history.sql",
@@ -329,7 +331,12 @@
     "20261006223809_source_nayax_reader_history_safe_resolution.sql",
     "20261007014415_nayax_original_reader_owner_lookup_index.sql",
     "20261007042121_nayax_completed_source_identity_integrity.sql",
-    "20261007201551_same_physical_bound_source_nayax_reader_join.sql"
+    "20261007201551_same_physical_bound_source_nayax_reader_join.sql",
+    "20261008063050_finance_refund_prepared_queries.sql",
+    "20261008210627_legacy_refund_exact_source_tax.sql",
+    "20261008221944_legacy_refund_source_payment_evidence.sql",
+    "20261009155358_refund_manager_notice_case_context.sql",
+    "20261012042355_refund_gift_review_manager_notifications.sql"
   ],
   "migrationFilesSha256": "dd293f8306088c795ee8086fc960259c7c7f233acf53a7131b9ad58bd0f28bf3",
   "migrationVersionSetSha256": "e19ccd0ec8b897fe8de151c38f0597ea7897a251ea1b1619bbb94e32e92eb630",
