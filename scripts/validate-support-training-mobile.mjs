@@ -34,6 +34,7 @@ const browser = await chromium.launch();
 let saveFails = false;
 let completeFails = false;
 let intakeFails = true;
+let delayedCompletion = null;
 let progress = [];
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 await context.addInitScript((session) => {
@@ -61,6 +62,11 @@ await context.route('**/*', async route => {
   }
   if (url.pathname === '/rest/v1/rpc/save_training_progress') {
     const body = route.request().postDataJSON();
+    if (body.mark_complete_input && delayedCompletion) {
+      delayedCompletion.started();
+      await delayedCompletion.gate;
+      return reply({ message: 'Synthetic delayed completion failure for previous training.' }, 503);
+    }
     if (body.mark_complete_input && completeFails) return reply({ message: 'Synthetic completion unavailable.' }, 503);
     progress = [{ training_id: body.training_id_input, started_at: '2026-10-11T12:00:00Z', completed_at: body.mark_complete_input ? '2026-10-11T12:05:00Z' : null }];
     return reply(null);
@@ -147,6 +153,7 @@ try {
   }
   await rows.first().click();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  tickets[0].internal_notes = 'External triage note while a local draft is dirty';
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.getByLabel('Internal Notes').inputValue(), 'Synthetic draft 0', 'Refresh keeps dirty edits');
@@ -173,6 +180,18 @@ try {
   await page.locator('main table button').first().click();
   await noOverflow();
   await capture('admin-support-desktop.png');
+  // A clean editor follows external triage rather than caching its obsolete values as a draft.
+  tickets[0].status = 'triaged';
+  tickets[0].priority = 'high';
+  tickets[0].internal_notes = 'External clean ticket update';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#support-admin-status')?.value === 'triaged');
+  assert.equal(await page.getByLabel('Internal Notes').inputValue(), 'External clean ticket update');
+  await page.locator('main table button').nth(1).click();
+  await page.locator('main table button').first().click();
+  assert.equal(await page.getByLabel('Status', { exact: true }).inputValue(), 'triaged');
+  assert.equal(await page.getByLabel('Priority', { exact: true }).inputValue(), 'high');
+  assert.equal(await page.getByLabel('Internal Notes').inputValue(), 'External clean ticket update');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${origin}/portal/training/software-setup-quickstart`);
@@ -194,8 +213,30 @@ try {
   await page.getByRole('button', { name: 'Mark complete' }).click();
   await page.getByRole('button', { name: 'Completed', exact: true }).waitFor();
   await capture('training-completed-390.png');
+  progress = [];
+  await page.reload();
+  await page.getByRole('button', { name: 'Mark complete' }).waitFor();
+  let releaseCompletion;
+  let reportCompletionStarted;
+  const completionStarted = new Promise(resolve => { reportCompletionStarted = resolve; });
+  delayedCompletion = {
+    started: reportCompletionStarted,
+    gate: new Promise(resolve => { releaseCompletion = resolve; }),
+  };
+  await page.getByRole('button', { name: 'Mark complete' }).click();
+  await completionStarted;
+  const nextTraining = page.getByRole('link', { name: 'Open guide', exact: true }).first();
+  const nextTrainingPath = await nextTraining.getAttribute('href');
+  await nextTraining.click();
+  await page.waitForURL(`${origin}${nextTrainingPath}`);
+  const previousResponse = page.waitForResponse(response => response.url().endsWith('/rpc/save_training_progress') && response.request().postDataJSON()?.mark_complete_input === true);
+  releaseCompletion();
+  await previousResponse;
+  await page.getByRole('button', { name: 'Mark complete' }).waitFor();
+  assert.equal(await page.locator('#training-completion [role=alert]').count(), 0, 'Late failure from a previous lesson cannot become the new lesson error');
+  assert.equal(await page.getByText('Synthetic delayed completion failure for previous training.', { exact: true }).count(), 0, 'No stale completion toast after navigating');
   assert.deepEqual(errors, [], 'No uncaught browser errors');
-  console.log('PASS support intents, isolated drafts, focus, labels, phone semantics, synthetic failure/success, admin first/last return/reopen/scroll, desktop split view, training completion order and failure/success.');
+  console.log('PASS support intents, isolated drafts, focus, labels, phone semantics, synthetic failure/success, admin first/last return/reopen/scroll, desktop split view, clean/dirty refresh, training completion order, failure/success and delayed failure after navigation.');
   console.log(`Synthetic screenshots: ${output}`);
 } finally {
   await browser.close();

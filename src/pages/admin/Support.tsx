@@ -102,6 +102,7 @@ export default function AdminSupportPage() {
   const queueScrollRef = useRef(0);
   const ticketRowsRef = useRef(new Map<string, HTMLButtonElement>());
   const draftsRef = useRef(new Map<string, EditorState>());
+  const editorBaselineRef = useRef<EditorState | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,8 +114,7 @@ export default function AdminSupportPage() {
 
   const handleBackToQueue = () => {
     if (selectedId && editor) {
-      const current = requests.find(request => request.id === selectedId);
-      if (!current || JSON.stringify(editor) !== JSON.stringify(toEditorState(current))) draftsRef.current.set(selectedId, editor);
+      if (JSON.stringify(editor) !== JSON.stringify(editorBaselineRef.current)) draftsRef.current.set(selectedId, editor);
       else draftsRef.current.delete(selectedId);
     }
     setMobileDetailOpen(false);
@@ -179,14 +179,24 @@ export default function AdminSupportPage() {
 
   const selectedRequest = filteredRequests.find((item) => item.id === selectedId) ?? null;
 
+  useEffect(() => {
+    if (!selectedRequest || !editor || isSaving) return;
+    // Compare against the row that initialized this editor, not a newer server row.
+    // A clean editor can follow external triage; an actual local draft keeps its values.
+    if (JSON.stringify(editor) !== JSON.stringify(editorBaselineRef.current)) return;
+    const refreshed = toEditorState(selectedRequest);
+    editorBaselineRef.current = refreshed;
+    if (JSON.stringify(editor) !== JSON.stringify(refreshed)) setEditor(refreshed);
+  }, [selectedRequest, editor, isSaving]);
+
   const handleSelectRequest = (request: SupportRequestRecord) => {
     if (selectedId && editor) {
-      const current = requests.find(request => request.id === selectedId);
-      if (!current || JSON.stringify(editor) !== JSON.stringify(toEditorState(current))) draftsRef.current.set(selectedId, editor);
+      if (JSON.stringify(editor) !== JSON.stringify(editorBaselineRef.current)) draftsRef.current.set(selectedId, editor);
       else draftsRef.current.delete(selectedId);
     }
     queueScrollRef.current = window.scrollY;
     setSelectedId(request.id);
+    editorBaselineRef.current = toEditorState(request);
     setEditor(draftsRef.current.get(request.id) ?? toEditorState(request));
     setSaveError(null);
     setMobileDetailOpen(true);
@@ -218,6 +228,7 @@ export default function AdminSupportPage() {
         priority: editor.priority,
       });
       draftsRef.current.delete(savedRequest.id);
+      editorBaselineRef.current = toEditorState(savedRequest);
       setEditor(toEditorState(savedRequest));
       toast.success('Support request updated.');
       await handleRefresh();

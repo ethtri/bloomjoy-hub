@@ -104,6 +104,9 @@ export default function TrainingDetailPage() {
   const [videoLoadStartedAt, setVideoLoadStartedAt] = useState<number | null>(null);
   const hasTrackedStart = useRef(false);
   const [completionError, setCompletionError] = useState<string | null>(null);
+  const completionRequestRef = useRef(0);
+  const currentTrainingIdRef = useRef(trainingItem?.id);
+  currentTrainingIdRef.current = trainingItem?.id;
 
   const progressRecord = trainingItem
     ? canonicalProgress.find((entry) => entry.trainingId === trainingItem.id)
@@ -113,6 +116,8 @@ export default function TrainingDetailPage() {
   useEffect(() => {
     hasTrackedStart.current = false;
     setCompletionError(null);
+    completionRequestRef.current += 1;
+    return () => { completionRequestRef.current += 1; };
   }, [trainingItem?.id]);
 
   useEffect(() => {
@@ -242,6 +247,8 @@ export default function TrainingDetailPage() {
       return;
     }
 
+    const requestId = ++completionRequestRef.current;
+    const trainingId = trainingItem.id;
     try {
       await saveProgressMutation.mutateAsync({
         trainingId: trainingItem.id,
@@ -249,9 +256,11 @@ export default function TrainingDetailPage() {
         markComplete: true,
         completionSource: 'detail_complete',
       });
-      toast.success('Training marked complete.');
       trackEvent('training_mark_completed', { id: trainingItem.id, title: trainingItem.title });
+      if (currentTrainingIdRef.current !== trainingId || completionRequestRef.current !== requestId) return;
+      toast.success('Training marked complete.');
     } catch (error) {
+      if (currentTrainingIdRef.current !== trainingId || completionRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : 'Unable to save training progress.';
       setCompletionError(message);
       toast.error(message);
