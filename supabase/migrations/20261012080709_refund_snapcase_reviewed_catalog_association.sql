@@ -26,11 +26,7 @@ begin
   if c.id is null or m.id is null
     or c.reporting_location_id=m.location_id
     or c.case_population<>'customer' or c.intake_source<>'form'
-    or c.payment_method<>'cash' or c.decision is not null
-    or c.status not in('submitted','needs_review','waiting_on_customer','correlated')
-    or c.refund_completed_at is not null or c.reporting_adjustment_id is not null
-    or c.duplicate_of_refund_case_id is not null
-    or public.refund_case_has_unresolved_reconciliation(c.id)
+    or c.payment_method<>'cash'
     or c.matched_sales_fact_id is distinct from p_sales_fact_id
     or c.intake_selection_kind is distinct from 'exact_machine'
     or c.intake_selection_machine_ids is distinct from array[m.id]
@@ -45,9 +41,12 @@ begin
     or c.incident_time_resolution is distinct from 'exact'
     or c.incident_timezone is distinct from original_location.timezone
     or current_location.timezone is distinct from original_location.timezone
-    or exists(select 1 from public.refund_authoritative_receipts r where r.refund_case_id=c.id)
-    or exists(select 1 from public.refund_case_nayax_refund_attempts r where r.refund_case_id=c.id)
   then return false; end if;
+
+  -- This proves source association, not workflow/payment eligibility. Approval,
+  -- settlement or an outcome hold must not change the source identity or hide
+  -- accepted purchase evidence. Existing consumers enforce their own authority,
+  -- reconciliation, contact-budget and terminal-state boundaries.
 
   -- A single recorded company correction is the supported chain. A second
   -- association change, relocation, explicit transfer/date or other changed
