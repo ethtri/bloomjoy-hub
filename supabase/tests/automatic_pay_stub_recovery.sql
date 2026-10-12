@@ -92,6 +92,14 @@ select public.service_enqueue_automatic_pay_stubs('2025-02-05 08:00:00+00');
 select is((select count(*)::integer from public.pay_stub_generation_requests where operator_profile_id=pg_temp.fixture_id(51)),1,'Payable credit-only worker needs no time entry');
 select is(jsonb_array_length(public.service_claim_pay_stub_generation_requests(10)),1,'Worker reserves only one request, even when asked for a batch');
 select is((select count(*)::integer from public.pay_stub_generation_requests where status='queued' and operator_profile_id in (pg_temp.fixture_id(50),pg_temp.fixture_id(51))),1,'Other contractor stays queued instead of abandoned processing');
+insert into public.payout_periods(id,account_id,payout_policy_id,period_start_date,period_end_date,submission_due_date,lock_date,target_payout_date,status)
+values(pg_temp.fixture_id(81),pg_temp.fixture_id(10),pg_temp.fixture_id(40),'2025-02-01','2025-02-28','2025-03-04','2025-03-04','2025-03-05','locked');
+insert into public.pay_stub_generation_requests(id,account_id,operator_profile_id,payout_period_id,trigger_kind)
+values(pg_temp.fixture_id(93),pg_temp.fixture_id(10),pg_temp.fixture_id(50),pg_temp.fixture_id(81),'manager_regeneration');
+select is(public.service_claim_pay_stub_generation_request(pg_temp.fixture_id(93))->>'status','queued','Interactive regeneration waits for an in-flight earlier statement');
+select is((select status from public.pay_stub_generation_requests where id=pg_temp.fixture_id(93)),'queued','Deferred regeneration remains durably queued');
+select is(public.service_claim_pay_stub_generation_request((select id from public.pay_stub_generation_requests where status='processing' and operator_profile_id=pg_temp.fixture_id(50)))->>'status','processing','Replayed interactive request reports existing processing state');
+delete from public.pay_stub_generation_requests where id=pg_temp.fixture_id(93);
 select public.service_fail_pay_stub((select id from public.pay_stub_generation_requests where status='processing' and operator_profile_id in (pg_temp.fixture_id(50),pg_temp.fixture_id(51))),'Synthetic temporary upload failure');
 select ok((select retry_after>now() from public.pay_stub_generation_requests where status='failed' and operator_profile_id in (pg_temp.fixture_id(50),pg_temp.fixture_id(51))),'Transient failure receives future retry time');
 select public.service_enqueue_automatic_pay_stubs(now());

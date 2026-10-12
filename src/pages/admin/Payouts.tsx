@@ -1040,9 +1040,11 @@ export default function AdminPayoutsPage() {
   const generatePayStub = useMutation({
     mutationFn: (operatorProfileId: string) => requestPayStubGenerationAdmin(operatorProfileId, month),
     onMutate: (operatorProfileId) => setGeneratingProfileId(operatorProfileId),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
-      toast.success('Pay Stub published. The Technician can download the PDF now.');
+      toast.success(result.status === 'queued' || result.status === 'processing'
+        ? 'Pay Stub queued. It will appear here automatically.'
+        : 'Pay Stub published. The Technician can download the PDF now.');
     },
     onError: (generationError) => {
       toast.error(generationError instanceof Error ? generationError.message : 'Unable to publish the Pay Stub.');

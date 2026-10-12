@@ -137,6 +137,10 @@ serve(async (req) => {
         p_request_id: requestedId,
       });
       if (error) throw new Error(error.message);
+      const state = data as { requestId: string; status?: string };
+      if (state.status === "queued" || state.status === "processing") {
+        return json({ processedCount: 0, results: [state], pdfGeneratorVersion: PAY_STUB_PDF_GENERATOR_VERSION }, 202);
+      }
       claimed = [data as ClaimedRequest];
     }
 

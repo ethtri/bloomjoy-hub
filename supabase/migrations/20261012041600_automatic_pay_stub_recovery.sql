@@ -81,6 +81,7 @@ returns jsonb language plpgsql security definer set search_path='' as $$
 declare result jsonb;
 begin
   if coalesce(auth.role(),'') not in ('','service_role') then raise exception 'Service role required'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('automatic-pay-stub-enqueue',0));
   with candidate as (
     select r.id from public.pay_stub_generation_requests r join public.payout_periods p on p.id=r.payout_period_id
     where r.status='queued' and p.status<>'voided' and now()>=public.operator_time_entry_cutoff_at(p.period_end_date)
@@ -102,6 +103,35 @@ end;
 $$;
 revoke all on function public.service_claim_pay_stub_generation_requests(integer) from public,anon,authenticated;
 grant execute on function public.service_claim_pay_stub_generation_requests(integer) to service_role;
+
+-- The interactive regeneration path shares the same claim serialization. A
+-- simultaneous request waits in the existing queue rather than calculating YTD
+-- before another month's publication finishes.
+create or replace function public.service_claim_pay_stub_generation_request(p_request_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare request_row public.pay_stub_generation_requests; period_row public.payout_periods;
+begin
+  if coalesce(auth.role(),'') not in ('','service_role') then raise exception 'Service role required'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('automatic-pay-stub-enqueue',0));
+  select * into request_row from public.pay_stub_generation_requests where id=p_request_id for update;
+  if request_row.id is null or request_row.status not in ('queued','processing') then
+    raise exception 'Queued Pay Stub request not found'; end if;
+  if request_row.status='processing' then return jsonb_build_object('requestId',request_row.id,'status','processing'); end if;
+  select * into period_row from public.payout_periods where id=request_row.payout_period_id;
+  if period_row.status='voided' or now()<public.operator_time_entry_cutoff_at(period_row.period_end_date) then
+    raise exception 'Monthly pay period is not ready for publication'; end if;
+  if exists(select 1 from public.pay_stub_generation_requests r join public.payout_periods p on p.id=r.payout_period_id
+    where r.operator_profile_id=request_row.operator_profile_id and r.status='processing'
+      and extract(year from p.period_start_date)=extract(year from period_row.period_start_date)) then
+    return jsonb_build_object('requestId',request_row.id,'status','queued');
+  end if;
+  update public.pay_stub_generation_requests set status='processing',started_at=now(),attempt_count=attempt_count+1,error_message=null
+    where id=request_row.id returning * into request_row;
+  return jsonb_build_object('requestId',request_row.id,'status','claimed');
+end;
+$$;
+revoke all on function public.service_claim_pay_stub_generation_request(uuid) from public,anon,authenticated;
+grant execute on function public.service_claim_pay_stub_generation_request(uuid) to service_role;
 
 -- A late first publication affects already-issued later YTD just as a revision.
 do $patch$
