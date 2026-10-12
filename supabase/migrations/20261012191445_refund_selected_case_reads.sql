@@ -47,9 +47,10 @@ $function$;
 revoke all on function public.get_refund_portal_case_detail(uuid) from public,anon,service_role;
 grant execute on function public.get_refund_portal_case_detail(uuid) to authenticated;
 
--- The canonical contract produces nextWork already. Manager redaction changes
--- neither its actor nor action. Avoid preparing/researching every queue case a
--- second time; malformed/old contracts retain the exact previous reader.
+-- The canonical contract usually produces final nextWork already. Cash
+-- research rewrites the legacy stage after producing nextWork, so that state
+-- still needs the existing outer projection. Avoid repeating equivalent work
+-- for other queue cases; malformed/old contracts retain the previous reader.
 do $migration$
 declare definition text:=pg_get_functiondef('public.get_refund_lifecycle_for_manager(uuid)'::regprocedure);
 begin
@@ -69,6 +70,7 @@ declare base jsonb;
 begin
  base:=public.get_refund_lifecycle_for_manager_pre_next_work_v1(p_refund_case_id);
  if base->>'schemaVersion'='refund_lifecycle_v2' and base->>'payloadRedacted'='true'
+   and base->>'reasonCode' is distinct from 'cash_purchase_research_required'
    and base#>>'{nextWork,schemaVersion}'='refund_next_work_v1'
    and base#>>'{nextWork,payloadRedacted}'='true'
    and jsonb_typeof(base#>'{nextWork,isOpen}')='boolean'

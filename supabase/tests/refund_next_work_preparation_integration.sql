@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(20);
+select plan(24);
 
 -- This fixture intentionally requires the independent completed-work producer.
 -- It runs only after #1429 has landed in the normal migration order.
@@ -102,6 +102,29 @@ select is(public.get_refund_lifecycle_for_manager(
 )->'nextWork'->>'actionCode', 'research_purchase',
   'the Manager projection preserves Agent research without a clear sale');
 reset role;
+-- Both completed research outcomes rewrite awaiting_payout to matching after
+-- creating their first nextWork. The outer Manager projection must retain its
+-- final copy/blocker truth rather than reusing that intermediate contract.
+create temporary table cash_manager_read_parity on commit drop as
+select c.id,
+  public.get_refund_lifecycle_for_manager_pre_next_work_v1(c.id) intermediate,
+  public.get_refund_lifecycle_for_manager(c.id) current,
+  private.refund_manager_lifecycle_pre_read_v1(c.id) prior
+from public.refund_cases c where c.id in (
+  'd8660000-0000-4000-8000-000000000001',
+  'd8660000-0000-4000-8000-000000000002');
+select ok((select intermediate->'nextWork' is distinct from prior->'nextWork'
+  from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000001'),
+  'unavailable-coverage fixture reproduces the intermediate cash work mismatch');
+select is((select current from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000001'),
+  (select prior from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000001'),
+  'optimized unavailable-coverage read retains the complete prior Manager contract');
+select ok((select intermediate->'nextWork' is distinct from prior->'nextWork'
+  from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000002'),
+  'covered-no-sale fixture reproduces the intermediate cash work mismatch');
+select is((select current from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000002'),
+  (select prior from cash_manager_read_parity where id='d8660000-0000-4000-8000-000000000002'),
+  'optimized covered-no-sale read retains the complete prior Manager contract');
 select set_config('request.jwt.claims', '{}', true);
 
 insert into public.sales_import_runs (
