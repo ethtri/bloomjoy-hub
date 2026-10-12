@@ -387,7 +387,7 @@ const installRoutes = async (context) => {
     }
     if (rpcName === 'get_operator_contact_directory') return route.fulfill(json([state.contact]));
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
-    if (rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact') {
+    if (rpcName === 'admin_setup_timekeeping_for_payer_with_contact') {
       if (body.p_user_email === 'pending-technician@example.test') {
         return route.fulfill(json({ code: 'P0001', message: 'Technician must accept the invitation and sign in once before Timekeeping setup' }, 400));
       }
@@ -579,11 +579,11 @@ const run = async () => {
     check('An unaccepted invitation keeps the completed setup form available to retry', (await page.locator('#setup-technician-name').inputValue()) === 'New Technician' && await page.getByRole('dialog').isVisible());
     await page.locator('#setup-technician-email').fill('new-technician@example.test');
     const retryActivation = page.getByRole('button', { name: 'Activate Timekeeping' });
-    check('A corrected invitation can be retried without reopening setup', !(await retryActivation.isDisabled()) && !state.rpcCalls.some((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact' && call.body.p_user_email === 'new-technician@example.test'));
+    check('A corrected invitation can be retried without reopening setup', !(await retryActivation.isDisabled()) && !state.rpcCalls.some((call) => call.rpcName === 'admin_setup_timekeeping_for_payer_with_contact' && call.body.p_user_email === 'new-technician@example.test'));
     await retryActivation.click();
     await page.getByText('New Technician can now use Timekeeping across 2 machines.').waitFor();
-    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact' && call.body.p_user_email === 'new-technician@example.test');
-    check('One manager action sends contact, profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_contact_email === 'new-technician@example.test' && setupCall?.body.p_contact_phone === '+1 555 010 3000' && setupCall?.body.p_mailing_address === '3000 Setup Avenue' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
+    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_for_payer_with_contact' && call.body.p_user_email === 'new-technician@example.test');
+    check('One manager action sends contact, profile, both machines, and starting rates atomically', setupCall?.body.p_payer_account_id === ACCOUNT_ID && setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_contact_email === 'new-technician@example.test' && setupCall?.body.p_contact_phone === '+1 555 010 3000' && setupCall?.body.p_mailing_address === '3000 Setup Avenue' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
 
     await page.getByRole('button', { name: 'View machine breakdown' }).click();
     await page.getByRole('button', { name: 'More filters' }).click();

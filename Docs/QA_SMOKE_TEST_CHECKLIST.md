@@ -6,6 +6,15 @@
 
 # QA Smoke Test Checklist
 
+## Explicit payroll payer
+
+- In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
+  Machines belonging to another company within your existing pay authority.
+  Activation must create one payer-scoped arrangement with the selected rates.
+- Verify the resulting Pay Report and Pay Stub show the selected payer, while
+  Machines and sales reporting retain their original company. Another Technician
+  cannot access this time or statement. Check the form on desktop and mobile.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.

@@ -88,6 +88,7 @@ type AssignmentInputDraft = {
 };
 
 type TechnicianSetupDraft = {
+  payerAccountId: string;
   userEmail: string;
   displayName: string;
   workerType: OperatorWorkerType;
@@ -130,6 +131,7 @@ const newMachinePayDraft = (): MachinePayDraft => ({
 const copyMachinePayDraft = (machinePay: MachinePayDraft): MachinePayDraft => ({ ...machinePay });
 
 const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
+  payerAccountId: '',
   userEmail: '',
   displayName: '',
   workerType: 'contractor_1099',
@@ -776,9 +778,9 @@ export default function AdminPayoutsPage() {
   const setupMachineById = new Map(
     setupAccounts.flatMap((account) => account.machines.map((machine) => [machine.machineId, { ...machine, accountId: account.accountId, accountName: account.accountName }] as const))
   );
-  const selectedPayerCount = setupDraft
-    ? setupAccounts.filter((account) => account.machines.some((machine) => setupDraft.machineIds.includes(machine.machineId))).length
-    : 0;
+  const defaultPayerId = setupAccounts.find((account) => account.accountName === 'Bloomjoy Enterprises')?.accountId
+    ?? (setupAccounts.length === 1 ? setupAccounts[0].accountId : '');
+  const selectedPayerId = setupDraft?.payerAccountId || defaultPayerId;
   const advancedFilterCount = Number(accountId !== 'all') + Number(machineId !== 'all');
 
   const openTechnicianSetup = () => {
@@ -849,6 +851,7 @@ export default function AdminPayoutsPage() {
       });
 
       return setupTimekeepingTechnicianAdmin({
+        payerAccountId: draft.payerAccountId || defaultPayerId,
         userEmail: draft.userEmail.trim(),
         displayName: draft.displayName.trim(),
         workerType: draft.workerType,
@@ -1543,11 +1546,14 @@ export default function AdminPayoutsPage() {
                         </div>
                       </fieldset>
 
-                      {selectedPayerCount > 1 && (
-                        <p className="rounded-lg border border-sage/30 bg-sage-light/50 px-3 py-2 text-sm text-foreground">
-                          This setup spans {selectedPayerCount} businesses, so {setupDraft.displayName || 'this Technician'} will receive {selectedPayerCount} separate Pay Stubs.
-                        </p>
-                      )}
+                      <div>
+                        <label htmlFor="setup-payroll-payer" className="text-sm font-medium text-foreground">Payroll payer</label>
+                        <Select value={selectedPayerId} onValueChange={(payerAccountId) => setSetupDraft((current) => current ? { ...current, payerAccountId } : current)}>
+                          <SelectTrigger id="setup-payroll-payer" className="mt-2 min-h-11"><SelectValue placeholder="Choose the business that pays this Technician" /></SelectTrigger>
+                          <SelectContent>{setupAccounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent>
+                        </Select>
+                        <p className="mt-2 text-sm text-muted-foreground">This business appears on the Pay Stub, regardless of which company owns the machines.</p>
+                      </div>
 
                       {setupDraft.machineIds.length > 0 && (
                         <section aria-labelledby="setup-pay-heading">
@@ -1653,7 +1659,7 @@ export default function AdminPayoutsPage() {
 
                 <DialogFooter className="shrink-0 gap-2 border-t border-border bg-background px-5 py-4 sm:px-6">
                   <Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => setSetupDraft(null)}>Cancel</Button>
-                  <Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error) || !setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>
+                  <Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error) || !selectedPayerId || !setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>
                     {setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
                     Activate Timekeeping
                   </Button>
