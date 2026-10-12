@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { drainPayStubQueue } from "../_shared/pay-stub-worker.ts";
 import {
   buildPayStubPdf,
   PAY_STUB_PDF_GENERATOR_VERSION,
@@ -90,15 +91,31 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const requestedId = String(body.requestId ?? "").trim();
     const suppliedCronSecret = req.headers.get("x-pay-stub-cron-secret") ?? "";
-    const isCron = Boolean(cronSecret && suppliedCronSecret === cronSecret);
+    let isCron = Boolean(cronSecret && suppliedCronSecret === cronSecret);
+    if (!isCron && suppliedCronSecret.length >= 32) {
+      const { data, error } = await service.rpc("service_authorize_pay_stub_scheduler", { p_secret: suppliedCronSecret });
+      if (error) throw new Error("Unable to verify Pay Stub scheduler authorization.");
+      isCron = data === true;
+    }
 
     let claimed: ClaimedRequest[] = [];
     if (isCron) {
       const { error: enqueueError } = await service.rpc("service_enqueue_automatic_pay_stubs", {});
       if (enqueueError) throw new Error(enqueueError.message);
-      const { data, error } = await service.rpc("service_claim_pay_stub_generation_requests", { p_limit: 10 });
-      if (error) throw new Error(error.message);
-      claimed = (data ?? []) as ClaimedRequest[];
+      const results = await drainPayStubQueue({
+        claim: async () => {
+          const { data, error } = await service!.rpc("service_claim_pay_stub_generation_requests", { p_limit: 1 });
+          if (error) throw new Error(error.message);
+          return (data ?? []) as ClaimedRequest[];
+        },
+        process: processRequest,
+        fail: async (requestId, errorMessage) => {
+          const { error } = await service!.rpc("service_fail_pay_stub", { p_request_id: requestId, p_error_message: errorMessage });
+          if (error) throw new Error(error.message);
+        },
+      });
+      return json({ processedCount: results.length, failedCount: results.filter((result) => result.status === "failed").length,
+        results, pdfGeneratorVersion: PAY_STUB_PDF_GENERATOR_VERSION });
     } else {
       const accessToken = resolveSupabaseAccessToken(req);
       if (!accessToken || !uuidPattern.test(requestedId)) return json({ error: "Unauthorized." }, 401);

@@ -6,6 +6,18 @@
 
 # QA Smoke Test Checklist
 
+## Automatic Pay Stubs
+
+- At the monthly Pacific cutoff, verify a payable synthetic Technician receives
+  one automatically issued private PDF without opening the manager portal.
+  Check winter/summer cutoff offsets, scheduler replay and duplicate prevention.
+- In `/admin/payouts`, verify generating, published and retry/blocked states;
+  a published or corrected statement offers **Regenerate Pay Stub**. Correct
+  an earlier month and verify immutable versions and later YTD refresh.
+- Interrupt a worker or simulate a PDF failure. Other contractors must continue;
+  the abandoned request must retry automatically. Missing required inputs must
+  remain a specific manager exception, with no incomplete statement issued.
+
 ## Explicit payroll payer
 
 - In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
