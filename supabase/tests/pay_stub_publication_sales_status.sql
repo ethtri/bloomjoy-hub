@@ -17,6 +17,28 @@ values ('d1843000-0000-4000-8000-000000000005','d1843000-0000-4000-8000-00000000
 insert into public.payout_period_machine_revenue_snapshots(id,account_id,payout_period_id,reporting_machine_id,reporting_location_id,period_start_date,period_end_date,status,manual_override_reason)
 values ('d1843000-0000-4000-8000-000000000006','d1843000-0000-4000-8000-000000000001','d1843000-0000-4000-8000-000000000005','d1843000-0000-4000-8000-000000000003','d1843000-0000-4000-8000-000000000002','2026-09-01','2026-09-30','manual_override','Synthetic verified complete zero report');
 set local session_replication_role = origin;
+
+-- Isolate the preservation predicate from provider-import configuration. This
+-- fixture represents independently complete zero source evidence; an unbound
+-- fresh-schema Machine by itself does not establish calculation completeness.
+-- Both real source functions and their definitions are restored by rollback.
+alter function private.operator_machine_tax_snapshot(uuid,date,date) rename to test_original_publication_tax_snapshot;
+create function private.operator_machine_tax_snapshot(p_machine_id uuid,p_start date,p_end date)
+returns jsonb language sql stable set search_path='' as $$
+  select case when p_machine_id='d1843000-0000-4000-8000-000000000003'::uuid then
+    jsonb_build_object('grossSalesCents',0,'refundAdjustmentCents',0,'taxCents',0,'commissionableSalesCents',0,
+      'taxRateCompleteForSales',true)
+  else private.test_original_publication_tax_snapshot(p_machine_id,p_start,p_end) end;
+$$;
+alter function public.operator_revenue_snapshot_source_values(uuid,uuid) rename to test_original_publication_source_values;
+create function public.operator_revenue_snapshot_source_values(p_period_id uuid,p_machine_id uuid)
+returns jsonb language sql stable set search_path='' as $$
+  select case when p_period_id='d1843000-0000-4000-8000-000000000005'::uuid
+    and p_machine_id='d1843000-0000-4000-8000-000000000003'::uuid then
+    jsonb_build_object('sourceSalesRowCount',0,'sourceAdjustmentRowCount',0,'sourceMetadata',
+      jsonb_build_object('calculationComplete',coalesce(current_setting('app.test_publication_zero_incomplete',true),'')<>'true'))
+  else public.test_original_publication_source_values(p_period_id,p_machine_id) end;
+$$;
 do $test$
 declare
   snapshot_id uuid := 'd1843000-0000-4000-8000-000000000006';
@@ -29,6 +51,10 @@ begin
   if not private.pay_stub_has_verified_zero_snapshot(period_id,machine_id) then
     raise exception 'Audited zero with empty current facts must be preserved';
   end if;
+  perform set_config('app.test_publication_zero_incomplete','true',true);
+  if private.pay_stub_has_verified_zero_snapshot(period_id,machine_id) then
+    raise exception 'Incomplete source must never establish verified zero'; end if;
+  perform set_config('app.test_publication_zero_incomplete','false',true);
   update public.payout_period_machine_revenue_snapshots set status='source_generated' where id=snapshot_id;
   if private.pay_stub_has_verified_zero_snapshot(period_id,machine_id) then raise exception 'Generated empty snapshot is not verified'; end if;
   begin
