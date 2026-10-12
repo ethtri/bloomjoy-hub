@@ -6,6 +6,14 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Email digest blocker
+
+Open gift-card Manager review can fail the canonical digest snapshot and block
+later candidates in the shared email dispatcher (#1728). The bounded repair adds
+gift-specific presentation and compatible strict consumers; deployment remains
+pending the reviewed consumer-first release sequence and migration-history
+prerequisites. The standalone new-request renderer (#1866) is already deployed.
+
 ## Contractor Timekeeping and Pay Stubs
 
 Current contractor payroll uses Bloomjoy Enterprises, with the two designated
