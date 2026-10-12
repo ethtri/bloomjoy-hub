@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-10-11 - Automatic post-cutoff Pay Stub publication
+
+Owner authorized production automatic publication immediately after timesheet
+cutoff. A dedicated one-minute scheduler starts first publication without a
+manager action. Requests are reserved individually, retries preserve audit
+history, and an interrupted worker cannot abandon a preclaimed batch. Missing
+required inputs remain explicit calculation exceptions; other contractors
+continue. Regeneration remains a manager action with immutable earlier PDFs
+and automatic refresh of affected later year-to-date statements.
+
 ## 2026-10-11 - Explicit contractor payroll payer
 
 Per owner direction, current contractors use Bloomjoy Enterprises as payroll payer

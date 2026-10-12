@@ -12,7 +12,7 @@ export type RefundManagerReadyNotice = {
   evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
     "cash_multiple_reviewed" | "cash_researched_unmatched" |
     "cash_coverage_unavailable_researched" | "cash_approved_payout" |
-    "decision_recommendation_reject";
+    "decision_recommendation_reject" | "gift_card_manager_review";
   preparationSummary: string;
   publicReference: string;
   amountCents: number | null;
@@ -66,7 +66,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
   }
   if (!["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed",
     "cash_researched_unmatched", "cash_coverage_unavailable_researched",
-    "cash_approved_payout", "decision_recommendation_reject"].includes(evidenceBasis as string)) {
+    "cash_approved_payout", "decision_recommendation_reject", "gift_card_manager_review"].includes(evidenceBasis as string)) {
     throw new Error("Ready notice evidence basis is unsupported.");
   }
   const recommendationKind = data.recommendationKind;
@@ -79,7 +79,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
       actionCode === "reject_request";
   if (!recommendationValid ||
     (recommendationKind === null && actionCode === "approve_or_deny_request"
-      ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
+      ? !["card_exact_selected", "card_reviewed_candidate_set", "gift_card_manager_review"].includes(evidenceBasis as string)
       : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
       ? evidenceBasis !== "cash_approved_payout"
       : recommendationKind === "refund"
@@ -92,8 +92,11 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
     : data.amountCents === null) {
     throw new Error("Ready notice amount does not match the decision type.");
   }
-  if ((evidenceBasis === "cash_approved_payout" || evidenceBasis === "decision_recommendation_reject") !== (data.proofId === null)) {
-    throw new Error("Saved cash approval must not imply a new preparation proof.");
+  if (evidenceBasis === "gift_card_manager_review" && data.currencyCode !== "USD") {
+    throw new Error("Gift-card value requires its recorded USD currency.");
+  }
+  if ((evidenceBasis === "gift_card_manager_review" || evidenceBasis === "cash_approved_payout" || evidenceBasis === "decision_recommendation_reject") !== (data.proofId === null)) {
+    throw new Error("Ready notice proof does not match its evidence basis.");
   }
   return {
     schemaVersion: "refund_manager_ready_notice_v2",
@@ -124,30 +127,38 @@ export const buildRefundManagerReadyEmail = ({ notice, caseUrl }: {
   notice: RefundManagerReadyNotice;
   caseUrl: string;
 }) => {
-  const amount = notice.amountCents === null
+  const isGift = notice.evidenceBasis === "gift_card_manager_review";
+  const formattedAmount = notice.amountCents === null
     ? "No matched purchase amount"
     : notice.currencyCode === "USD"
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
       .format(notice.amountCents / 100)
     : `${(notice.amountCents / 100).toFixed(2)}${notice.currencyCode ? ` ${notice.currencyCode}` : " (currency not recorded)"}`;
-  const action = notice.actionCode === "reject_request"
+  const amount = isGift ? `Gift-card value: ${formattedAmount}` : formattedAmount;
+  const action = isGift
+    ? "Review the gift-card request and approve or deny it in the portal."
+    : notice.actionCode === "reject_request"
     ? "Review the recommendation to decline this request. The final decision remains yours."
     : notice.recommendationKind === "refund"
     ? "Review the refund recommendation and approve or deny it in the portal."
     : notice.actionCode === "approve_or_deny_request"
     ? "Review the prepared refund and approve or deny it in the portal."
     : "Review the saved cash evidence and payout destination. Send Zelle, then confirm it was sent in the portal.";
-  const reason = notice.recommendationKind !== null
+  const reason = isGift
+    ? notice.preparationSummary
+    : notice.recommendationKind !== null
     ? `Recommendation: ${notice.preparationSummary}`
     : notice.evidenceBasis === "cash_approved_payout"
     ? `Saved approval: ${notice.preparationSummary}`
     : `Prepared case summary: ${notice.preparationSummary}`;
   const navigation = "Opening the case does not approve, deny, send, or repeat a refund.";
-  const subject = `${notice.recommendationKind === "reject" ? "Decline recommendation" : "Refund decision"} ready: ${notice.publicReference} · ${amount}`;
-  const heading = notice.recommendationKind === "reject"
+  const subject = `${isGift ? "Gift-card decision" : notice.recommendationKind === "reject" ? "Decline recommendation" : "Refund decision"} ready: ${notice.publicReference} · ${amount}`;
+  const heading = isGift
+    ? "Gift-card decision ready"
+    : notice.recommendationKind === "reject"
     ? "Decline recommendation ready"
     : "Refund decision ready";
-  const text = `${action}\n${reason}\n\n${notice.publicReference} · ${amount}\n${notice.machineLabel}, ${notice.locationName}\nOpen case: ${caseUrl}\n\n${navigation}`;
-  const html = `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;background:#f1f5f9;color:#172535;font-family:Arial,sans-serif"><main style="box-sizing:border-box;max-width:640px;margin:0 auto;padding:24px;background:#fff;line-height:1.5;overflow-wrap:anywhere"><h1 style="font-size:22px;line-height:1.25;margin:0 0 16px">${escapeHtml(heading)}</h1><p><strong>${escapeHtml(action)}</strong></p><p>${escapeHtml(reason)}</p><p><strong>${escapeHtml(notice.publicReference)}</strong> · ${escapeHtml(amount)}<br>${escapeHtml(notice.machineLabel)} · ${escapeHtml(notice.locationName)}</p><p><a href="${escapeHtml(caseUrl)}" style="color:#174a77">Open refund case ${escapeHtml(notice.publicReference)}</a></p><p style="font-size:13px;color:#435466">${escapeHtml(navigation)}</p></main></body></html>`;
+  const text = `${action}\n${reason}\n\n${notice.publicReference} · ${amount}\n${notice.machineLabel}\nOpen case: ${caseUrl}\n\n${navigation}`;
+  const html = `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;background:#f1f5f9;color:#172535;font-family:Arial,sans-serif"><main style="box-sizing:border-box;max-width:640px;margin:0 auto;padding:24px;background:#fff;line-height:1.5;overflow-wrap:anywhere"><h1 style="font-size:22px;line-height:1.25;margin:0 0 16px">${escapeHtml(heading)}</h1><p><strong>${escapeHtml(action)}</strong></p><p>${escapeHtml(reason)}</p><p><strong>${escapeHtml(notice.publicReference)}</strong> · ${escapeHtml(amount)}<br>${escapeHtml(notice.machineLabel)}</p><p><a href="${escapeHtml(caseUrl)}" style="color:#174a77">Open refund case ${escapeHtml(notice.publicReference)}</a></p><p style="font-size:13px;color:#435466">${escapeHtml(navigation)}</p></main></body></html>`;
   return { subject, text, html };
 };

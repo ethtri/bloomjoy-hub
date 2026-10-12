@@ -9,8 +9,8 @@ import {
 export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v3";
 
 export type PayStubMachineSegment = {
-  segmentStartDate: string;
-  segmentEndDate: string;
+  segmentStartDate: string | null;
+  segmentEndDate: string | null;
   taxRatePercent: number | null;
   commissionBasisPoints: number | null;
   grossSalesCents: number;
@@ -108,7 +108,8 @@ type Fonts = { regular: PDFFont; bold: PDFFont };
 const money = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
-const date = (value: string) => {
+const date = (value: string | null) => {
+  if (value === null) return "—";
   const parsed = new Date(`${value}T00:00:00Z`);
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -118,7 +119,7 @@ const date = (value: string) => {
   }).format(parsed);
 };
 
-const period = (start: string, end: string) => `${date(start)} - ${date(end)}`;
+const period = (start: string | null, end: string | null) => `${date(start)} - ${date(end)}`;
 
 const workedDuration = (minutes: number) => {
   const hours = Math.floor(minutes / 60);

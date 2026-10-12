@@ -106,3 +106,24 @@ Deno.test("ambiguous provider outcome remains held, never blindly retried", asyn
   }
   assert(outcomes.join() === "delivery_unknown", "unknown send is held");
 });
+
+Deno.test("optional gift ready delivery revalidates before its only mocked send", async () => {
+  const giftClaim = { ...claim, projection: { ...projection, proofId: null,
+    evidenceBasis: "gift_card_manager_review", amountCents: 1500,
+    preparationSummary: "Partial order." } };
+  for (const current of [false, true]) {
+    const calls: string[] = [];
+    const result = await deliverRefundManagerReadyClaim({ claim: giftClaim, caseUrl,
+      client: { rpc: async (name) => { calls.push(name); return { data: current, error: null }; } },
+      sendEmail: async (message) => {
+        assert(calls.length === 1 && calls[0].includes("provider_started"), "currentness checked before sending");
+        assert(message.text.includes("Gift-card value: $15.00"), "gift value survives delivery");
+        assert(!/Zelle|purchase evidence/.test(message.text), "no false payment instruction");
+        calls.push("mock_send");
+        return { providerMessageId: "synthetic-gift-ready-id" };
+      },
+    });
+    assert(result === (current ? "sent" : "stale"), "stale gift preparation cannot reach provider");
+    assert(calls.filter((name) => name === "mock_send").length === (current ? 1 : 0), "exactly one send only while current");
+  }
+});
