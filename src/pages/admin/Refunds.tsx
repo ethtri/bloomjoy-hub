@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/auth-context';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
 import { companyOptions } from '@/lib/companyReporting';
 import { fetchRefundAnalyticsAccess } from '@/lib/refundAnalytics';
@@ -2794,6 +2794,14 @@ const getPrimaryActionIssues = (
 
 export default function AdminRefundsPage() {
   const [companyParams, setCompanyParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queueReturnRef = useRef<{ scrollY: number; caseId: string } | null>(null);
+  useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
   const companyId = companyParams.get('company') || 'all';
   const [companyNotice, setCompanyNotice] = useState('');
   const { user } = useAuth();
@@ -3306,7 +3314,7 @@ export default function AdminRefundsPage() {
   }, [hasUnsavedCaseText]);
 
   useLayoutEffect(() => {
-    if (!selectedId || typeof window === 'undefined') {
+    if (!selectedId || isMobileQueueExpanded || typeof window === 'undefined') {
       return;
     }
 
@@ -3326,7 +3334,7 @@ export default function AdminRefundsPage() {
       const absolutePanelTop = detailPanel.getBoundingClientRect().top + window.scrollY;
       window.scrollTo({
         top: Math.max(0, absolutePanelTop - stickyHeaderBottom - 16),
-        behavior: 'auto',
+        behavior: 'instant',
       });
     };
     const frame = window.requestAnimationFrame(() => {
@@ -3349,7 +3357,7 @@ export default function AdminRefundsPage() {
       window.clearTimeout(observerTimer);
       resizeObserver?.disconnect();
     };
-  }, [selectedId, selectionRevision]);
+  }, [selectedId, selectionRevision, isMobileQueueExpanded]);
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
@@ -4225,14 +4233,18 @@ export default function AdminRefundsPage() {
     };
   };
 
-  function selectCase(refundCase: RefundCaseRecord) {
-    handledCaseQueryRef.current = refundCase.id;
-    const next = new URLSearchParams(companyParams); next.set('case', refundCase.id); if (companyId !== 'all' && refundCase.accountId !== companyId) { if (refundCase.accountId) next.set('company', refundCase.accountId); else next.delete('company'); } setCompanyParams(next, { replace: true });
+  function selectCase(refundCase: RefundCaseRecord, hydrating = false) {
+    if (!hydrating) {
+      handledCaseQueryRef.current = refundCase.id;
+      openCaseQuery(refundCase.id, refundCase.accountId);
+    }
     pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);
-    setSelectionRevision((current) => current + 1);
-    setIsMobileQueueExpanded(false);
+    if (!hydrating) {
+      setSelectionRevision((current) => current + 1);
+      setIsMobileQueueExpanded(false);
+    }
     setEditor(toEditorState(refundCase));
     const nextOfficialActionVersion = Number(refundCase.officialActionVersion ?? 0);
     setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
@@ -4263,12 +4275,19 @@ export default function AdminRefundsPage() {
   }
 
   function handleSelectCase(refundCase: RefundCaseRecord) {
-    if (refundCase.id === selectedId) return;
+    if (refundCase.id === selectedId) {
+      openCaseQuery(refundCase.id, refundCase.accountId);
+      setIsMobileQueueExpanded(false);
+      setSelectionRevision((current) => current + 1);
+      return;
+    }
     if (caseSelectionSafetyRef.current.actionInFlight) {
+      restoreSelectedCaseQuery();
       toast.info('Wait for the current case action to finish before switching cases.');
       return;
     }
     if (caseSelectionSafetyRef.current.hasUnsavedCaseText) {
+      restoreSelectedCaseQuery();
       pendingCaseSelectionTriggerRef.current = document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
@@ -4285,38 +4304,81 @@ export default function AdminRefundsPage() {
       handleSelectCase(fullCase);
       return;
     }
-    if (caseId === selectedId) return;
+    if (caseId === selectedId) {
+      openCaseQuery(caseId);
+      setIsMobileQueueExpanded(false);
+      setSelectionRevision((current) => current + 1);
+      return;
+    }
+    if (caseSelectionSafetyRef.current.actionInFlight) {
+      restoreSelectedCaseQuery();
+      toast.info('Wait for the current case action to finish before switching cases.');
+      return;
+    }
+    if (caseSelectionSafetyRef.current.hasUnsavedCaseText) {
+      restoreSelectedCaseQuery();
+      setPendingCaseSelectionId(caseId);
+      return;
+    }
     handledCaseQueryRef.current = caseId;
-    const next = new URLSearchParams(companyParams); next.set('case', caseId); const item = liveQueueProjection?.items.find(row => row.caseId === caseId); if (companyId !== 'all' && item?.accountId !== companyId) { if (item?.accountId) next.set('company', item.accountId); else next.delete('company'); } setCompanyParams(next, { replace: true });
+    openCaseQuery(caseId, liveQueueProjection?.items.find(row => row.caseId === caseId)?.accountId);
     setSelectedId(caseId);
     setEditor(null);
     setIsMobileQueueExpanded(false);
   }
 
-  function handleShowMobileQueue() {
-    setIsMobileQueueExpanded(true);
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const queuePanel = document.getElementById('refund-queue-panel');
-        queuePanel?.scrollIntoView({ behavior: 'auto', block: 'start' });
-        if (queuePanel) {
-          const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-          const queueTop = queuePanel.getBoundingClientRect().top;
-          if (queueTop < headerBottom) {
-            window.scrollBy({ top: queueTop - headerBottom - 8, behavior: 'auto' });
-          }
-        }
-        queuePanel?.focus({ preventScroll: true });
-      });
-    });
+  function openCaseQuery(caseId: string, accountId?: string | null) {
+    if (isMobileQueueExpanded) queueReturnRef.current = { scrollY: window.scrollY, caseId };
+    if (companyParams.get('case') === caseId) return;
+    const next = new URLSearchParams(companyParams);
+    next.set('case', caseId);
+    if (companyId !== 'all' && accountId !== undefined && accountId !== companyId) {
+      if (accountId) next.set('company', accountId); else next.delete('company');
+    }
+    setCompanyParams(next, { state: { refundQueueEntry: isMobileQueueExpanded } });
   }
+
+  function restoreSelectedCaseQuery() {
+    // Queue return keeps this editor in memory, so only undo a different linked case.
+    if (!selectedId || !companyParams.has('case') || companyParams.get('case') === selectedId) return;
+    handledCaseQueryRef.current = selectedId;
+    const next = new URLSearchParams(companyParams);
+    next.set('case', selectedId);
+    setCompanyParams(next, { replace: true, state: location.state });
+  }
+
+  function handleShowMobileQueue() {
+    if (location.state?.refundQueueEntry) {
+      navigate(-1);
+    } else {
+      const next = new URLSearchParams(companyParams);
+      next.delete('case');
+      setCompanyParams(next, { replace: true });
+    }
+  }
+
+  useEffect(() => {
+    if (companyParams.has('case')) return;
+    handledCaseQueryRef.current = null;
+    setIsMobileQueueExpanded(true);
+    if (!selectedId || !window.matchMedia('(max-width: 1023px)').matches) return;
+    const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const origin = queueReturnRef.current;
+      const row = [...document.querySelectorAll<HTMLButtonElement>('[data-refund-case-id]')]
+        .find((element) => element.dataset.refundCaseId === origin?.caseId && element.getClientRects().length);
+      if (origin) window.scrollTo({ top: origin.scrollY, behavior: 'instant' });
+      else document.getElementById('refund-queue-panel')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      (row ?? document.getElementById('refund-queue-panel'))?.focus({ preventScroll: true });
+    }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [companyParams, selectedId]);
   caseSelectionRequestRef.current = handleSelectCase;
 
   useEffect(() => {
     if (!fullOverviewReady || !selectedId || editor) return;
     const fullCase = [...overview.cases, ...internalTestCases]
       .find((refundCase) => refundCase.id === selectedId);
-    if (fullCase) selectCase(fullCase);
+    if (fullCase) selectCase(fullCase, true);
     // selectCase reads current URL context; hydration is triggered only by these data changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, fullOverviewReady, internalTestCases, overview.cases, selectedId]);
@@ -6978,57 +7040,26 @@ export default function AdminRefundsPage() {
 
     return (
       <div data-testid="refund-card-workbench" className="space-y-4">
-        <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
+        <section className="overflow-hidden bg-card text-foreground lg:rounded-xl lg:border lg:border-border">
           {!selectedCaseIsResolvedDuplicate && (
           <>
           <RefundCardHistoricalNotices presentation={cardHistoricalNotices} />
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
-          <div className="grid gap-px bg-border">
-            <article data-testid="refund-request-summary" className="bg-card px-4 py-4">
+          <div className="divide-y divide-border">
+            <article data-testid="refund-request-summary" className="bg-card py-3 lg:px-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
-                <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
+                <h4 className="text-base font-semibold text-foreground">Customer request</h4>
               </div>
               <div
                 data-testid="refund-customer-comments"
-                className="mt-3 max-w-3xl rounded-lg bg-muted/35 px-3 py-2.5"
+                className="mt-2 max-w-3xl"
               >
                 <p data-testid="refund-customer-problem-summary" className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
                   {selectedCase.issueSummary?.trim() || issueCategoryLabel(selectedCase)}
                 </p>
               </div>
-              <details className="mt-4 border-t border-border/70 pt-2">
-                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">Customer details and updates</summary>
-                <dl data-testid="refund-customer-payment-details" className="grid gap-3 text-sm sm:grid-cols-2">
-                  <div><dt className="text-muted-foreground">How customer paid</dt><dd className="mt-1 font-medium">{paymentInteractionLabel(selectedCase)}</dd></div>
-                  {!comparisonCandidate && !selectedTransactionEvidence && <>
-                    <div><dt className="text-muted-foreground">Customer amount</dt><dd className="mt-1 font-medium">{formatCurrency(selectedCase.paymentAmountCents)}</dd></div>
-                    <div><dt className="text-muted-foreground">Customer time</dt><dd className="mt-1 font-medium">{refundCustomerTimeDisplay(selectedCase, incidentTimezone)}</dd><dd className="mt-1 text-muted-foreground">{incidentTimeConfidenceLabel(selectedCase)}</dd></div>
-                    <div><dt className="text-muted-foreground">Card digits</dt><dd className="mt-1 font-medium">{selectedCase.cardLast4 || 'Not provided'}</dd><dd className="mt-1 text-muted-foreground">{cardLast4SourceLabel(selectedCase)}</dd></div>
-                    <div><dt className="text-muted-foreground">Card type</dt><dd className="mt-1 font-medium">{cardNetworkLabel(selectedCase.cardNetwork)}</dd></div>
-                  </>}
-                  {selectedCase.qrClaimOpenedAt && <div><dt className="text-muted-foreground">Refund request received</dt><dd className="mt-1 font-medium">{formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}</dd></div>}
-                  {selectedCase.productDescription && <div><dt className="text-muted-foreground">Product</dt><dd className="mt-1 font-medium">{selectedCase.productDescription}</dd></div>}
-                  {selectedCase.walletDeviceKind && <div><dt className="text-muted-foreground">Wallet device</dt><dd className="mt-1 font-medium">{statusLabel(selectedCase.walletDeviceKind)}</dd></div>}
-                  {selectedCase.incidentTimeSource && <div><dt className="text-muted-foreground">How customer found the time</dt><dd className="mt-1 font-medium">{incidentTimeSourceLabel(selectedCase)}</dd></div>}
-                  {selectedCase.nearbyAttemptCount && <div><dt className="text-muted-foreground">Customer-reported attempts</dt><dd className="mt-1 font-medium">{nearbyAttemptCountLabel(selectedCase)}</dd></div>}
-                </dl>
-                {customerTimeMeaning && <p className="mt-3 text-sm leading-6 text-muted-foreground">{customerTimeMeaning}</p>}
-                {selectedCase.customerFactEvidence && (
-                  <div className="mt-4 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground">Customer detail source</p>
-                    <p data-testid="refund-customer-fact-evidence" className="mt-2 leading-5">
-                      Updated from {customerFactSourceLabel(selectedCase)} on{' '}
-                      {formatRefundDateTime(selectedCase.customerFactEvidence.appliedAt, incidentTimezone)}.
-                      {selectedCase.customerFactEvidence.changedFields.length > 0 && <span className="mt-1 block">
-                        Details updated: {selectedCase.customerFactEvidence.changedFields.map((field) => correctionLabels[field] ?? statusLabel(field)).join(', ')}.
-                      </span>}
-                    </p>
-                    {selectedCase.customerFactEvidence.source === 'secure_wallet_correction' && selectedCase.customerCorrection?.answers && <a className="mt-2 inline-block underline underline-offset-4" href={`#refund-correction-${selectedCase.id}`}>View saved customer update</a>}
-                  </div>
-                )}
-              </details>
+
             </article>
 
             <RefundPurchaseReview
@@ -7088,7 +7119,40 @@ export default function AdminRefundsPage() {
               void handlePrimaryAction();
             }}
           />
-          {!selectedCaseIsResolvedDuplicate && <div className="border-t border-border px-4 py-4">{renderCardSaleCandidates()}</div>}
+          {!selectedCaseIsResolvedDuplicate && <div className="lg:px-4">
+              <details className="mt-2">
+                <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">Customer details and updates</summary>
+                <dl data-testid="refund-customer-payment-details" className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div><dt className="text-muted-foreground">How customer paid</dt><dd className="mt-1 font-medium">{paymentInteractionLabel(selectedCase)}</dd></div>
+                  {!comparisonCandidate && !selectedTransactionEvidence && <>
+                    <div><dt className="text-muted-foreground">Customer amount</dt><dd className="mt-1 font-medium">{formatCurrency(selectedCase.paymentAmountCents)}</dd></div>
+                    <div><dt className="text-muted-foreground">Customer time</dt><dd className="mt-1 font-medium">{refundCustomerTimeDisplay(selectedCase, incidentTimezone)}</dd><dd className="mt-1 text-muted-foreground">{incidentTimeConfidenceLabel(selectedCase)}</dd></div>
+                    <div><dt className="text-muted-foreground">Card digits</dt><dd className="mt-1 font-medium">{selectedCase.cardLast4 || 'Not provided'}</dd><dd className="mt-1 text-muted-foreground">{cardLast4SourceLabel(selectedCase)}</dd></div>
+                    <div><dt className="text-muted-foreground">Card type</dt><dd className="mt-1 font-medium">{cardNetworkLabel(selectedCase.cardNetwork)}</dd></div>
+                  </>}
+                  {selectedCase.qrClaimOpenedAt && <div><dt className="text-muted-foreground">Refund request received</dt><dd className="mt-1 font-medium">{formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}</dd></div>}
+                  {selectedCase.productDescription && <div><dt className="text-muted-foreground">Product</dt><dd className="mt-1 font-medium">{selectedCase.productDescription}</dd></div>}
+                  {selectedCase.walletDeviceKind && <div><dt className="text-muted-foreground">Wallet device</dt><dd className="mt-1 font-medium">{statusLabel(selectedCase.walletDeviceKind)}</dd></div>}
+                  {selectedCase.incidentTimeSource && <div><dt className="text-muted-foreground">How customer found the time</dt><dd className="mt-1 font-medium">{incidentTimeSourceLabel(selectedCase)}</dd></div>}
+                  {selectedCase.nearbyAttemptCount && <div><dt className="text-muted-foreground">Customer-reported attempts</dt><dd className="mt-1 font-medium">{nearbyAttemptCountLabel(selectedCase)}</dd></div>}
+                </dl>
+                {customerTimeMeaning && <p className="mt-3 text-sm leading-6 text-muted-foreground">{customerTimeMeaning}</p>}
+                {selectedCase.customerFactEvidence && (
+                  <div className="mt-4 text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground">Customer detail source</p>
+                    <p data-testid="refund-customer-fact-evidence" className="mt-2 leading-5">
+                      Updated from {customerFactSourceLabel(selectedCase)} on{' '}
+                      {formatRefundDateTime(selectedCase.customerFactEvidence.appliedAt, incidentTimezone)}.
+                      {selectedCase.customerFactEvidence.changedFields.length > 0 && <span className="mt-1 block">
+                        Details updated: {selectedCase.customerFactEvidence.changedFields.map((field) => correctionLabels[field] ?? statusLabel(field)).join(', ')}.
+                      </span>}
+                    </p>
+                    {selectedCase.customerFactEvidence.source === 'secure_wallet_correction' && selectedCase.customerCorrection?.answers && <a className="mt-2 inline-block underline underline-offset-4" href={`#refund-correction-${selectedCase.id}`}>View saved customer update</a>}
+                  </div>
+                )}
+              </details>
+          </div>}
+          {!selectedCaseIsResolvedDuplicate && <div className="border-t border-border py-4 lg:px-4">{renderCardSaleCandidates()}</div>}
         </section>
 
         {selectedCase.lifecycle && (
@@ -7376,7 +7440,7 @@ export default function AdminRefundsPage() {
     <AppLayout>
       <section className="py-3 sm:py-4">
         <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className={cn('flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between', !isMobileQueueExpanded && selectedId && 'hidden lg:flex')}>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               <Button variant="outline" asChild className="min-h-11"><Link to="/refunds?view=requests">Requests</Link></Button>
@@ -7486,7 +7550,7 @@ export default function AdminRefundsPage() {
             <RefundActionReceiptPanel presentation={refundActionReceipt} />
           )}
 
-          <div className="mt-3 border-b border-border pb-3">
+          <div className={cn('mt-3 border-b border-border pb-3', !isMobileQueueExpanded && selectedId && 'hidden lg:block')}>
             <div className="mb-3"><CompanyFilter id="refund-queue-company" value={companyId} options={companies} onChange={changeQueueCompany}/></div>
             {companyNotice && <p role="status" className="mb-3 text-sm text-muted-foreground">{companyNotice}</p>}
             {companyUnavailable && <div role="alert" className="mb-3"><p>This company is unavailable in your current refund queue.</p><Button variant="link" className="min-h-11 px-0" onClick={() => changeQueueCompany('all')}>Choose all companies</Button></div>}
@@ -7504,7 +7568,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 variant="outline"
                 className={cn(
-                  'min-h-11 min-w-0 justify-between whitespace-normal px-3 text-sm shadow-none sm:justify-center',
+                  'h-auto min-h-11 min-w-0 justify-between whitespace-normal px-3 py-2 text-left text-sm leading-5 shadow-none sm:justify-center',
                   statusFilter === value
                     ? 'border-primary/20 bg-primary/5 text-foreground hover:bg-primary/10'
                     : 'bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -7513,7 +7577,7 @@ export default function AdminRefundsPage() {
                 onClick={() => setStatusFilter(value)}
               >
                 {label}
-                <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums text-foreground">
+                <span className="ml-2 shrink-0 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums text-foreground">
                   {refundQueueTruthUnavailable ? '—' : primaryQueueCounts[value]}
                 </span>
               </Button>
@@ -7556,7 +7620,7 @@ export default function AdminRefundsPage() {
               isSearching={isSearching}
               emptyTitle={emptyQueueTitle}
               emptyDescription={emptyQueueDescription}
-              onToggleMobile={() => setIsMobileQueueExpanded((current) => !current)}
+              onToggleMobile={() => selectedId && handleSelectCaseById(selectedId)}
               onSelectCase={handleSelectCaseById}
               formatCaseAge={formatAge}
               formatCaseAmount={formatCurrency}
@@ -7566,9 +7630,18 @@ export default function AdminRefundsPage() {
               ref={detailPanelRef}
               tabIndex={-1}
               aria-label="Selected refund case"
-              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:h-[calc(100dvh-15rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:scroll-mt-4"
+              className={cn('scroll-mt-28 min-w-0 space-y-5 outline-none lg:h-[calc(100dvh-15rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:scroll-mt-4', isMobileQueueExpanded && 'hidden lg:block')}
             >
-              <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
+              <div className="min-w-0 bg-card py-1 lg:rounded-xl lg:border lg:border-border lg:p-5">
+                {selectedId && <button
+                  type="button"
+                  data-testid="refund-detail-back-to-queue"
+                  onClick={handleShowMobileQueue}
+                  className="mb-3 flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  Back to queue
+                </button>}
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
                     {selectedId
@@ -7579,19 +7652,10 @@ export default function AdminRefundsPage() {
                   </div>
                 ) : (
                   <div className="space-y-5">
-                    <button
-                      type="button"
-                      data-testid="refund-detail-back-to-queue"
-                      onClick={handleShowMobileQueue}
-                      className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
-                    >
-                      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                      Back to queue
-                    </button>
                     <div className="border-b border-border pb-4">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-xl font-semibold text-foreground">{selectedCase.publicReference}</h2>
+                          <h2 className="text-2xl font-semibold text-foreground">{selectedCase.publicReference}</h2>
 
                         </div>
                         <p className="mt-1 break-words text-sm text-muted-foreground">

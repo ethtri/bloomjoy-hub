@@ -61,6 +61,7 @@ function RefundCaseQueueItem({
   return (
     <button
       data-testid="refund-case-queue-item"
+      data-refund-case-id={refundCase.id}
       type="button"
       aria-current={isSelected ? 'true' : undefined}
       onClick={onSelect}
@@ -193,12 +194,12 @@ export function RefundCaseQueuePanel({
           <button
             type="button"
             aria-expanded={isMobileExpanded}
-            aria-label={isMobileExpanded ? 'Hide queue' : 'Show queue'}
+            aria-label="Return to selected case"
             onClick={onToggleMobile}
             className="flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
           >
             {!isMobileExpanded && <ArrowLeft className="h-4 w-4" aria-hidden="true" />}
-            {isMobileExpanded ? 'Hide queue' : 'Back to queue'}
+            Return to selected case
           </button>
         )}
       </div>

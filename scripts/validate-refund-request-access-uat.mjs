@@ -14,12 +14,13 @@ const machine = { machineId, machineLabel: 'North Atrium', locationId: 'north', 
 const request = { ...machine, caseId, publicReference: 'BJ-1042', receivedAt: '2026-07-22T14:30:00Z', incidentAt: '2026-07-22T14:00:00Z', updatedAt: '2026-07-22T14:30:00Z', issueCategory: 'charged_no_product', comment: 'The arm moved, but the sugar never spun. The screen returned to the menu. <b>Still no candy.</b>', commentTruncated: false, requestedAmountCents: 725, currencyCode: 'USD', statusLabel: 'Under review', outcomeLabel: 'No final outcome yet' };
 const checks = []; const errors = []; const browser = await chromium.launch({ headless: true });
 const run = async (name, task) => { await task(); checks.push(name); console.log(`PASS ${name}`); };
-const session = async ({ width = 1440, manager = false, noAccess = false, empty = false } = {}) => {
+const session = async ({ width = 1440, manager = false, noAccess = false, empty = false, many = false } = {}) => {
  let access = !noAccess; let hasMore = false;
+ const manyRequests = Array.from({ length: 30 }, (_, index) => ({ ...request, caseId: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`, publicReference: `BJ-MOBILE-${index + 1}` }));
  const result = await createPageForPersona(browser, { ...personas.baseline, capabilities: manager ? ['refunds.manage'] : [] }, { width, height: 950 }, { rpcHandler(name, actor, body, freshness) {
   if (name === 'get_refund_request_access') return { hasAccess: access, machines: access ? [machine, ...(manager ? [{ ...machine, machineId: '44444444-4444-4444-8444-444444444444', machineLabel: 'Manager machine', canOpenManagerWorkspace: true }] : [])] : [] };
-  if (name === 'get_refund_requests') return { requests: empty ? [] : [{ ...request, requestedAmountCents: body.p_machine_id ? null : 725 }], hasMore };
-  if (name === 'get_refund_request') return !access ? null : body.p_case_id === oldId ? { ...request, caseId: oldId, publicReference: 'BJ-OLD', receivedAt: '2025-01-01T12:00:00Z', statusLabel: 'Refund completed', outcomeLabel: 'Refund completed for this request' } : body.p_case_id === caseId ? request : null;
+  if (name === 'get_refund_requests') return { requests: empty ? [] : many ? manyRequests : [{ ...request, requestedAmountCents: body.p_machine_id ? null : 725 }], hasMore };
+  if (name === 'get_refund_request') return !access ? null : body.p_case_id === oldId ? { ...request, caseId: oldId, publicReference: 'BJ-OLD', receivedAt: '2025-01-01T12:00:00Z', statusLabel: 'Refund completed', outcomeLabel: 'Refund completed for this request' } : body.p_case_id === caseId ? request : manyRequests.find(row => row.caseId === body.p_case_id) ?? null;
   return rpcResponse(name, actor, body, freshness);
  }});
  result.page.on('pageerror', error => errors.push(error.message));
@@ -40,7 +41,7 @@ try {
    await page.screenshot({ path: path.join(output, `company-recovery-${manager ? 'mixed' : 'direct'}-${width}.png`), fullPage: true });
    const recovery = page.getByRole('button', { name: 'Continue without company filter' });
    await recovery.focus(); await page.keyboard.press('Enter');
-   await page.getByRole('button', { name: 'View request BJ-1042 for North Atrium' }).waitFor();
+   await page.locator(`[data-request-case-id="${caseId}"]`).waitFor({ state: 'attached' });
    const recovered = new URL(page.url()).searchParams;
    assert.equal(recovered.get('company'), null); assert.equal(recovered.get('offset'), null);
    assert.equal(recovered.get('view'), 'requests'); assert.equal(recovered.get('machine'), machineId);
@@ -76,6 +77,30 @@ try {
    await fit(page); noManager(state);
    await page.screenshot({ path: path.join(output, `technician-${width}.png`), fullPage: true });
    if (width < 640) { await page.getByRole('button', { name: /open.*navigation/i }).click(); assert(await page.getByRole('link', { name: 'Refunds', exact: true }).isVisible()); }
+  } finally { await context.close(); }
+ });
+ for (const width of [320, 390, 768, 1440]) await run(`${width}px late request return, reopen and native history`, async () => {
+  const { page, context, state } = await session({ width, many: true });
+  try {
+   await page.goto(`${origin}/refunds?view=requests&from=2026-07-01&to=2026-07-22`);
+   const row = page.getByRole('button', { name: 'View request BJ-MOBILE-30 for North Atrium' });
+   await row.waitFor(); await row.scrollIntoViewIfNeeded();
+   const returnY = await page.evaluate(() => window.scrollY);
+   await row.click(); await page.getByRole('heading', { name: 'Request BJ-MOBILE-30', exact: true }).waitFor();
+   await page.waitForFunction(() => document.activeElement?.textContent === 'Selected request');
+   assert.equal(await row.isVisible(), width >= 1024);
+   await fit(page);
+   await page.screenshot({ path: path.join(output, `technician-detail-viewport-${width}.png`), fullPage: false });
+   await page.getByRole('button', { name: width >= 1024 ? 'Close details' : 'Back to requests', exact: true }).click();
+   await row.waitFor();
+   await page.waitForFunction(() => document.activeElement?.hasAttribute('data-request-case-id'));
+   assert(Math.abs(await page.evaluate(() => window.scrollY) - returnY) < 3);
+   const restored = new URL(page.url()).searchParams;
+   assert.equal(restored.get('from'), '2026-07-01'); assert.equal(restored.get('to'), '2026-07-22');
+   await row.click(); await page.getByTestId('refund-request-detail').waitFor();
+   await page.goBack(); await row.waitFor(); await page.goForward();
+   await page.getByTestId('refund-request-detail').waitFor(); assert.equal(await row.isVisible(), width >= 1024);
+   noManager(state);
   } finally { await context.close(); }
  });
  await run('Old email request opens independently of received-period filter', async () => {

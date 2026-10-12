@@ -6,6 +6,15 @@
 
 # QA Smoke Test Checklist
 
+## Mobile refund review (#1869)
+
+- On the PR branch, use synthetic `/refunds` data at 320, 390, 768 and 1440px. Open a late queue row, return, reopen the same case, and use browser Back/Forward. Verify queue search/company/view, originating row focus and scroll position survive; desktop panes remain usable.
+- Open a direct case link and return to its queue. During slow or unavailable case detail, Back remains available. Returning before detail hydration completes must leave the queue open.
+- Edit unsent customer text or a decision draft, return and reopen the same case. Text must survive. Switching to another case retains the existing Stay/Discard choice. While an action is pending, navigation must not switch the active transaction or repeat payment/message calls.
+- Verify all four queue labels and counters fit at 320px, including long labels. In a card case, the customer issue, exact selected purchase and actual uncertainty appear before the existing decision. Open comparisons/source details and confirm all evidence remains available. Check short landscape and keyboard focus.
+- In `/refunds?view=requests`, open a late technician request and return with both the in-screen control and native Back. Reopen and use Forward; machine/date/page context, scroll and row focus survive. Direct-link loading, access loss and errors keep a return path; read-only requests never fetch or expose the privileged manager workspace.
+- Synthetic automated coverage: `node scripts/refunds/validate-refund-portal-uat.mjs --mobile-review-only --app-url http://127.0.0.1:8095` (set the existing random local evidence token); `node scripts/validate-refund-request-access-uat.mjs --app-url http://127.0.0.1:8095`. Actual iOS/Android keyboard and rotation require device verification.
+
 ## Shared mobile app controls (#1870)
 
 - At 320x568 and short landscape (568x320), open a long confirmation with an expanded customer email using synthetic data. The dialog stays inside the viewport with an inset, and scrolling reaches the title, every paragraph, editable controls, Cancel and the confirmation action without page overflow. Repeat at 200% text size.

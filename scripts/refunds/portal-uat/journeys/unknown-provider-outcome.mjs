@@ -535,6 +535,7 @@ export const createUnknownProviderOutcomeChecks = ({
       new URL(page.url()).searchParams.get('case') === 'case-card-1' &&
         await page.getByRole('heading', { name: 'RF-UAT-CARD', exact: true }).isVisible()
     );
+    await page.getByTestId('refund-detail-back-to-queue').click();
     await page.getByRole('button', { name: 'All active 1', exact: true })
       .waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: 'All active 1', exact: true }).click();

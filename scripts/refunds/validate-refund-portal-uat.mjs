@@ -24,6 +24,7 @@ import { createAmbiguousSelectionChecks } from './portal-uat/journeys/ambiguous-
 import { createAuthorizationChecks } from './portal-uat/journeys/authorization.mjs';
 import { createDuplicateIdempotencyChecks } from './portal-uat/journeys/duplicate-idempotency.mjs';
 import { createOrdinarySuccessChecks } from './portal-uat/journeys/ordinary-success.mjs';
+import { createMobileReviewChecks } from './portal-uat/journeys/mobile-review.mjs';
 import { createUnknownProviderOutcomeChecks } from './portal-uat/journeys/unknown-provider-outcome.mjs';
 import { runPublicRefundSubmissionJourney } from './portal-uat/journeys/public-submission.mjs';
 import { shouldCaptureRefundPortalScreenshot } from './portal-uat/screenshot-policy.mjs';
@@ -4465,14 +4466,16 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
   await queueCase(page, 'RF-UAT-NEXT-WORK').click();
   const managerState = page.getByTestId('refund-manager-state');
   const primaryActionText = await page.getByTestId('refund-primary-action').innerText();
+  const internalResearchDetail = await managerState.getByText('Finding the purchase', { exact: true }).isVisible() &&
+    primaryActionText.includes('Compare the purchase evidence') &&
+    (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+    (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
+    (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0;
+  await page.getByTestId('refund-detail-back-to-queue').click();
+  await page.locator('#refund-queue-panel').waitFor({ state: 'visible' });
   recorder.assert(
     'Unclaimed canonical research stays in All active on mobile',
-    await managerState.getByText('Finding the purchase', { exact: true }).isVisible() &&
-      primaryActionText.includes('Compare the purchase evidence') &&
-      (await page.getByRole('button', { name: /All active/i }).count()) === 1 &&
-      (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-      (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
-      (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
+    internalResearchDetail && (await page.getByRole('button', { name: /All active/i }).count()) === 1,
     primaryActionText
   );
   await closeRefundPortalContext(context);
@@ -4533,9 +4536,12 @@ const runQueueHydrationChecks = async ({ browser, appUrl, recorder }) => {
             (await page.getByTestId('refund-overview-read-status').innerText()).trim() === '');
       } else {
         await page.getByText('Current case details are temporarily unavailable. Refresh to try again.', { exact: true }).waitFor({ timeout: 10000 });
+        const noDetailAction = (await page.getByTestId('refund-run-nayax-refund').count()) === 0;
+        await page.getByTestId('refund-detail-back-to-queue').click();
+        await page.locator('#refund-queue-panel').waitFor({ state: 'visible' });
         recorder.assert('Failed full evidence keeps truthful queue counts and no action',
           await page.getByRole('button', { name: /^Decision needed 1$/ }).isVisible() &&
-            (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+            noDetailAction && (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
       }
       recorder.assert(`Queue hydration performs only read navigation at ${scenario.width}px/${scenario.status}`,
         rpcCalls.every((rpc) => NAVIGATION_READ_ONLY_RPCS.has(rpc)) && functionCalls.length === 0);
@@ -4639,13 +4645,15 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     await signInRefundUser(realPage, appUrl);
     await realPage.getByRole('button', { name: /^All active 1$/ }).click();
     await waitForQueueCount(realPage, 1);
+    const noCashDecisionsInQueue = (await realPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
+      await realPage.getByRole('button', { name: /^Decision needed 0$/ }).isVisible();
     await queueCase(realPage, realProjectionSeed.publicReference).click();
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
     const renderedSummary = await realPage.getByTestId('refund-cash-primary-action-panel').innerText();
     recorder.assert('Unmatched cash remains internal research after the completed worker and Manager RPC',
       renderedState.includes('Finding the purchase') &&
         renderedSummary.includes('No Manager action is due') &&
-        (await realPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
+        noCashDecisionsInQueue &&
         (await realPage.getByTestId('refund-cash-primary-action').count()) === 0 &&
         (await realPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
         (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
@@ -4741,6 +4749,8 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   } catch (error) {
     throw new Error(`Skewed lifecycle queue: ${(await skewPage.locator('body').innerText()).slice(0, 1200)} ${error}`);
   }
+  const noFreshDecisionsInQueue = (await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
+    await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).isVisible();
   await queueCase(skewPage, 'RF-UAT-CARD').click();
   recorder.assert('Unsupported lifecycle version retains case but removes fresh money action',
     await skewPage.getByTestId('refund-manager-state').getByText(
@@ -4748,7 +4758,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     ).isVisible() &&
       (await skewPage.getByTestId('refund-action-status').count()) === 0 &&
       (await skewPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      (await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1);
+      noFreshDecisionsInQueue);
   recorder.assert('Unsupported lifecycle response keeps a nonempty unavailable queue instead of reporting no cases',
     (await skewPage.getByTestId('refund-queue-count').innerText()).trim() === '2 cases' &&
       (await skewPage.getByText('No refund cases are assigned here yet.', { exact: true }).count()) === 0 &&
@@ -5101,6 +5111,11 @@ const {
   },
 });
 
+const runMobileReviewChecks = createMobileReviewChecks({
+  fixtures: { buildManagerDraftNavigationOverview, buildEmptyRefundOverview, buildMockGmailDraftCases, buildMockGmailContext },
+  harness: { installMockSupabaseRoutes, signInRefundUser, queueCase },
+});
+
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const realProjectionSeed = args.realProjectionSeedFile
@@ -5175,7 +5190,19 @@ const run = async () => {
     }
   );
   try {
-    if (args.inboundLinkOnly) {
+    if (process.argv.includes('--mobile-review-only')) {
+      await runMobileReviewChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+    } else if (process.argv.includes('--ci-mobile-navigation-only')) {
+      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder, realProjectionSeed });
+      await runCanonicalNextWorkQueueChecks({ browser, appUrl: args.appUrl, recorder });
+      await runNayaxManagerApprovalHandoffChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+    } else if (process.argv.includes('--review-hierarchy-only')) {
+      await runRefundOnlyChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runDemoFallbackChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runApiUnavailableCaseEvidenceChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runNayaxLookupStatusMatrixChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder,
+        scenarioNames: ['no match', 'evidence-aware physical tap mismatch', 'server-persisted manager preparation'] });
+    } else if (args.inboundLinkOnly) {
       await runInboundCaseLinkReviewChecks({
         browser,
         appUrl: args.appUrl,
@@ -5448,6 +5475,15 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (process.argv.includes('--mobile-review-only') || process.argv.includes('--review-hierarchy-only') || process.argv.includes('--ci-mobile-navigation-only')) {
+    if (recorder.failed().length) process.exitCode = 1;
+    const reviewName = process.argv.includes('--mobile-review-only') ? 'Refund mobile review UAT'
+      : process.argv.includes('--ci-mobile-navigation-only') ? 'Refund CI mobile navigation UAT'
+      : 'Refund hierarchy review UAT';
+    console.log(`${reviewName}: ${recorder.count()} checks, ${recorder.failed().length} failures.`);
+    return;
+  }
 
   if (args.customerOutreachOnly) {
     const focusedFailures = recorder.failed();
