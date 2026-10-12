@@ -50,7 +50,7 @@ export function RefundCardManagerDecisionPanel({
     <div
       data-testid="refund-primary-action"
       aria-live="polite"
-      className="space-y-4 border-b border-border px-4 py-5"
+      className="space-y-3 border-y border-border py-4 lg:px-4"
     >
       <div>
         <h3 data-testid="refund-manager-state" className="text-base font-semibold">
@@ -109,7 +109,7 @@ export function RefundCardManagerDecisionPanel({
             </Button>
           ) : null}
           {onDeny && <Button data-testid="refund-deny-instead" type="button" variant="outline"
-            className="min-h-11 px-5" disabled={denialDisabled} onClick={(event) => onDeny(event.currentTarget)}>Deny</Button>}
+            className="min-h-11 w-full px-5 sm:w-auto" disabled={denialDisabled} onClick={(event) => onDeny(event.currentTarget)}>Deny</Button>}
         </div>
         </>
       )}

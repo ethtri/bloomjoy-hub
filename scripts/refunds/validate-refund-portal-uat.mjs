@@ -24,6 +24,7 @@ import { createAmbiguousSelectionChecks } from './portal-uat/journeys/ambiguous-
 import { createAuthorizationChecks } from './portal-uat/journeys/authorization.mjs';
 import { createDuplicateIdempotencyChecks } from './portal-uat/journeys/duplicate-idempotency.mjs';
 import { createOrdinarySuccessChecks } from './portal-uat/journeys/ordinary-success.mjs';
+import { createMobileReviewChecks } from './portal-uat/journeys/mobile-review.mjs';
 import { createUnknownProviderOutcomeChecks } from './portal-uat/journeys/unknown-provider-outcome.mjs';
 import { runPublicRefundSubmissionJourney } from './portal-uat/journeys/public-submission.mjs';
 import { shouldCaptureRefundPortalScreenshot } from './portal-uat/screenshot-policy.mjs';
@@ -5101,6 +5102,11 @@ const {
   },
 });
 
+const runMobileReviewChecks = createMobileReviewChecks({
+  fixtures: { buildManagerDraftNavigationOverview, buildEmptyRefundOverview, buildMockGmailDraftCases, buildMockGmailContext },
+  harness: { installMockSupabaseRoutes, signInRefundUser, queueCase },
+});
+
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const realProjectionSeed = args.realProjectionSeedFile
@@ -5175,7 +5181,9 @@ const run = async () => {
     }
   );
   try {
-    if (args.inboundLinkOnly) {
+    if (process.argv.includes('--mobile-review-only')) {
+      await runMobileReviewChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+    } else if (args.inboundLinkOnly) {
       await runInboundCaseLinkReviewChecks({
         browser,
         appUrl: args.appUrl,
@@ -5448,6 +5456,12 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (process.argv.includes('--mobile-review-only')) {
+    if (recorder.failed().length) process.exitCode = 1;
+    console.log(`Refund mobile review UAT: ${recorder.count()} checks, ${recorder.failed().length} failures.`);
+    return;
+  }
 
   if (args.customerOutreachOnly) {
     const focusedFailures = recorder.failed();

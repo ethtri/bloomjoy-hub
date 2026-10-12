@@ -6,6 +6,15 @@
 
 # QA Smoke Test Checklist
 
+## Mobile refund review (#1869)
+
+- On the PR branch, use synthetic `/refunds` data at 320, 390, 768 and 1440px. Open a late queue row, return, reopen the same case, and use browser Back/Forward. Verify queue search/company/view, originating row focus and scroll position survive; desktop panes remain usable.
+- Open a direct case link and return to its queue. During slow or unavailable case detail, Back remains available. Returning before detail hydration completes must leave the queue open.
+- Edit unsent customer text or a decision draft, return and reopen the same case. Text must survive. Switching to another case retains the existing Stay/Discard choice. While an action is pending, navigation must not switch the active transaction or repeat payment/message calls.
+- Verify all four queue labels and counters fit at 320px, including long labels. In a card case, the customer issue, exact selected purchase and actual uncertainty appear before the existing decision. Open comparisons/source details and confirm all evidence remains available. Check short landscape and keyboard focus.
+- In `/refunds?view=requests`, open a late technician request and return with both the in-screen control and native Back. Reopen and use Forward; machine/date/page context, scroll and row focus survive. Direct-link loading, access loss and errors keep a return path; read-only requests never fetch or expose the privileged manager workspace.
+- Synthetic automated coverage: `node scripts/refunds/validate-refund-portal-uat.mjs --mobile-review-only --app-url http://127.0.0.1:8095` (set the existing random local evidence token); `node scripts/validate-refund-request-access-uat.mjs --app-url http://127.0.0.1:8095`. Actual iOS/Android keyboard and rotation require device verification.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.
