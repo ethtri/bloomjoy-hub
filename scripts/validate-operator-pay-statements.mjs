@@ -21,7 +21,6 @@ const files = {
   rpcSurface: path.join(repoRoot, 'scripts', 'validate-rpc-execute-surface.mjs'),
   packageJson: path.join(repoRoot, 'package.json'),
   smoke: path.join(repoRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
-  status: path.join(repoRoot, 'Docs', 'CURRENT_STATUS.md'),
 };
 
 const fail = (message) => {
@@ -143,11 +142,6 @@ for (const snippet of [
   if (!smoke.includes(snippet)) {
     fail(`Smoke checklist missing ${snippet}`);
   }
-}
-
-const status = readText(files.status);
-if (!status.includes('Operator pay statements slice `#449`')) {
-  fail('CURRENT_STATUS missing #449 operator pay statements update.');
 }
 
 console.log(

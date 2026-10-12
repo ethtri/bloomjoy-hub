@@ -97,3 +97,22 @@ Deno.test("long commission appendix paginates without dropping segments", async 
   const pdf = await PDFDocument.load(bytes);
   assertGreater(pdf.getPageCount(), 2);
 });
+
+Deno.test("verified zero machine with null segment dates renders beside paid commission", async () => {
+  const payload = structuredClone(samplePayStubPayload);
+  payload.machines.push({
+    machineId: "zero-machine", machineLabel: "Zero-sales machine", locationName: "Zero-sales venue",
+    grossSalesCents: 0, refundAdjustmentCents: 0, taxCents: 0,
+    commissionableSalesCents: 0, commissionEarningsCents: 0,
+    commissionSegments: [{
+      segmentStartDate: null, segmentEndDate: null, taxRatePercent: null,
+      commissionBasisPoints: null, grossSalesCents: 0, refundAdjustmentCents: 0,
+      taxCents: 0, commissionableSalesCents: 0, commissionEarningsCents: 0,
+    }],
+  });
+  const before = structuredClone(payload);
+  const bytes = await buildPayStubPdf(payload);
+  const pdf = await PDFDocument.load(bytes);
+  assertEquals(pdf.getPageCount(), 2);
+  assertEquals(payload, before);
+});

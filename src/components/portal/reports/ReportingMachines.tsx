@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,8 +20,17 @@ function Breakdown({ rows }: { rows: SalesReportRow[] }) {
   </dl><p className="pb-3 leading-relaxed text-muted-foreground">Refund impact uses the report's sales calculation. Customer payments above are shown before refunds.</p></details>;
 }
 export function ReportingMachines({ rows, dimensions, state, onNavigate }: Props) {
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<MachineSalesSort>('sales');
+  const [params, setParams] = useSearchParams();
+  const search = params.get('machineSearch') ?? '';
+  const requestedSort = params.get('machineSort');
+  const sort: MachineSalesSort = ['receipts', 'name', 'net', 'transactions'].includes(requestedSort ?? '') ? requestedSort as MachineSalesSort : 'sales';
+  const setFilter = (key: string, value: string, defaultValue = '') => setParams(current => {
+    const next = new URLSearchParams(current);
+    if (value === defaultValue) next.delete(key); else next.set(key, value);
+    return next;
+  }, { replace: true });
+  const setSearch = (value: string) => setFilter('machineSearch', value);
+  const setSort = (value: MachineSalesSort) => setFilter('machineSort', value, 'sales');
   const all = useMemo(() => machineSalesRows(rows, dimensions, state), [rows, dimensions, state]);
   const machines = useMemo(() => machineSalesRows(rows, dimensions, state, search, sort), [rows, dimensions, state, search, sort]);
   const open = (machine: typeof machines[number]) => onNavigate({ view: 'sales', machineId: machine.machineId });

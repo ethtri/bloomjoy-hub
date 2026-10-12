@@ -186,3 +186,30 @@ Deno.test("reviewed cash digest preserves advisory decision and rejects payout r
     assert(rejected, "reviewed cash remains a current purchase recommendation with its amount");
   }
 });
+
+Deno.test("gift decisions coexist with card and approved cash without crossing amount semantics", () => {
+  const gift = { ...item(1, "manager"), evidenceBasis: "gift_card_manager_review" as const,
+    amountCents: 1500, currencyCode: "USD",
+    preparationSummary: "Partial order." };
+  const cash = { ...item(3, "manager"), actionCode: "send_cash_refund_and_confirm",
+    evidenceBasis: "cash_approved_payout" as const };
+  const email = render(projection([gift, item(2, "manager"), cash]));
+  assert(email.itemCount === 3, "all current case types remain represented");
+  for (const body of [email.text, email.html]) {
+    assert(body.includes("Gift-card value: USD 15.00"), "gift face value has its own label");
+    assert(body.includes("Review the gift-card request and approve or deny"), "gift action is explicit");
+    assert(body.includes("Partial order"), "actual review reason retained");
+  }
+  const giftOnly = render(projection([gift]));
+  assert(!/Zelle|purchase evidence|No payment has been sent/.test(giftOnly.text), "gift never borrows payment preparation");
+  for (const invalid of [
+    { ...gift, currencyCode: null }, { ...gift, currencyCode: "EUR" }, { ...gift, amountCents: 0 },
+    { ...gift, actionCode: "send_cash_refund_and_confirm" },
+    { ...gift, recommendationKind: "refund" as const, recommendationReasonCode: "clear_purchase_match" as const },
+    { ...gift, actor: "system" as const, preparationSummary: null },
+  ]) {
+    let rejected = false;
+    try { render(projection([invalid])); } catch { rejected = true; }
+    assert(rejected, "invalid gift combinations fail closed");
+  }
+});

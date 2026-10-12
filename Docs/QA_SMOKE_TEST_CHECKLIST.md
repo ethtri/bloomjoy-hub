@@ -15,6 +15,26 @@
 - In `/refunds?view=requests`, open a late technician request and return with both the in-screen control and native Back. Reopen and use Forward; machine/date/page context, scroll and row focus survive. Direct-link loading, access loss and errors keep a return path; read-only requests never fetch or expose the privileged manager workspace.
 - Synthetic automated coverage: `node scripts/refunds/validate-refund-portal-uat.mjs --mobile-review-only --app-url http://127.0.0.1:8095` (set the existing random local evidence token); `node scripts/validate-refund-request-access-uat.mjs --app-url http://127.0.0.1:8095`. Actual iOS/Android keyboard and rotation require device verification.
 
+## Shared mobile app controls (#1870)
+
+- At 320x568 and short landscape (568x320), open a long confirmation with an expanded customer email using synthetic data. The dialog stays inside the viewport with an inset, and scrolling reaches the title, every paragraph, editable controls, Cancel and the confirmation action without page overflow. Repeat at 200% text size.
+- Run `node scripts/validate-mobile-controls.mjs` for isolated synthetic confirmation focus/reachability checks (starts its own localhost server). Long confirmations start with visible dialog focus; short confirmations keep Cancel focus and explicit caller autofocus is preserved. Use Tab and Shift+Tab: focus stays inside, focused controls scroll into view, and Escape or Cancel restores the opener. Verify the existing machine dialog and navigation drawer also restore focus after Escape.
+- On authenticated phone layouts, shared buttons (including icon and linked buttons), inputs and select triggers have practical targets of at least 44px. Long button labels wrap within a content-sized button. Editable inputs, textareas and native selects use 16px text; include purchase-date and screenshot/file fields.
+- With reduced motion enabled, dialogs and sheets open and close without animated movement or fades, button transitions stop, and app scrolling is immediate. With motion enabled, state changes remain brief.
+- Check representative refunds, support and machine controls at desktop width and public pages at phone width. Desktop control density and public form/button defaults remain intact. Use synthetic records only; do not submit a real payment, refund or customer message for this check.
+
+## Automatic Pay Stubs
+
+- At the monthly Pacific cutoff, verify a payable synthetic Technician receives
+  one automatically issued private PDF without opening the manager portal.
+  Check winter/summer cutoff offsets, scheduler replay and duplicate prevention.
+- In `/admin/payouts`, verify generating, published and retry/blocked states;
+  a published or corrected statement offers **Regenerate Pay Stub**. Correct
+  an earlier month and verify immutable versions and later YTD refresh.
+- Interrupt a worker or simulate a PDF failure. Other contractors must continue;
+  the abandoned request must retry automatically. Missing required inputs must
+  remain a specific manager exception, with no incomplete statement issued.
+
 ## Explicit payroll payer
 
 - In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
@@ -34,6 +54,19 @@
   do not acquire the exhaustion exception. A gift-card resolution does not
   inherit the historical payout question. Message receipts, decisions and the
   consumed contact budget remain unchanged.
+
+## Reviewed legacy cash follow-up currentness (#1758)
+
+- In a disposable database, deliver the existing payout-destination request for
+  an undecided original-payment cash case with exact current reviewed purchase
+  proof and a historical empty research cycle. Customer wait remains outside
+  Manager decision preparation, while the ordinary due consumer can claim the
+  single follow-up. Exact-token replay must reuse that reminder.
+- At `/refunds`, preserve the same-case update fields and saved answers. Stale
+  source/fact/link evidence, unresolved payment outcomes, satisfied requests and
+  consumed contact budgets retain their existing protections. Sent receipt and
+  claim identities cannot be rewritten; legitimate exact provider events and
+  customer satisfaction still settle without a second question or payment.
 
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
@@ -1366,3 +1399,19 @@ npm run refunds:validate-portal-uat-lifecycle
 - Check missing/historical context, long comments, dark preference, blocked images and plain text. Never substitute the matched/approved amount for the original requested amount or add a duplicate Location name.
 - Run the manager notification transport tests: current managers receive the bounded case summary; operations fallback receives no complaint/request enrichment; reassignment or revocation before send prevents provider access in both ordinary and aging notices. A proven pre-send routing failure must not become an unknown email delivery.
 - Use synthetic fixtures only; do not create a live refund or send a customer/manager test email for visual verification.
+
+## Machine and reporting continuity (#1872)
+
+- Run `node scripts/validate-portal-continuity-uat.mjs` for isolated synthetic checks at 320px, 390px and desktop. It starts its own loopback app on port 8092 without environment files or real backend writes.
+- In an authorized machine's Reporting tab, edit the rate, evidence, purchase dates, reason and reference, then preview and move to another machine tab and back. Retain the draft and matching preview; changing a field, an expired preview or a reloaded policy revision must still require a fresh preview.
+- Verify rate-only edits trigger the existing leave/discard warning. Dismissing keeps the work; accepting or cancelling discards it. A pending save survives tab changes; a failed background rate read preserves the draft with Retry.
+- In `/portal/reports?view=machines`, search and sort, open dated payment records, then use browser Back. Keep search, sort and global URL filters. Reload and export machine CSV to confirm the same visible machine set and existing partial/estimated amount labels.
+
+## Mobile support and training (#1871)
+
+- Safe local regression: `node scripts/validate-support-training-mobile.mjs` starts its own isolated loopback server, uses synthetic accounts/tickets, intercepts the fake backend, and blocks external requests. It exercises failure/success without sending real support requests or saving real progress. Screenshots land in `output/playwright/issue-1871/`.
+- At 320px and 390px, open `/portal/support` with an eligible Plus/partner/admin account. Choose Concierge, Parts, WeChat onboarding, and manufacturer setup guide. Each selection must bring its heading into view with keyboard focus on the heading, without opening the phone keyboard. Change support option returns focus to that option.
+- Type distinct Concierge and Parts drafts; switch options and return. Each draft must retain its own values. Check WeChat draft retention, associated visible labels, 16px mobile field text, and phone keyboard/autocomplete. With the synthetic runner, failed submission keeps entered values and shows an inline announced error; success returns to intent selection and clears only the submitted draft.
+- At `/admin/support`, open the first and last mobile tickets, edit a note, return to the queue, and reopen the same ticket. Filters/search, scroll position, original row focus, and unsaved ticket edits must survive. Refresh must preserve dirty edits. If a ticket disappears on refresh, Back to queue remains reachable. At desktop width, the list and editor stay side by side with keyboard-accessible ticket selection.
+- Open `/portal/training/software-setup-quickstart` with training access. Progress appears near the title; Finish this training follows written essentials and action items, before companion/next-task resources. The synthetic runner checks save failure leaves completion available and success shows Completed. Reference-only items retain reference status and no completion action. Confirm original access restrictions remain in force.
+- Real iOS/Android keyboard behavior and production permissions must be checked separately with an authorized test account. Do not submit a real request or save real progress solely to collect mobile UI evidence.
