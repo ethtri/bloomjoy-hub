@@ -138,6 +138,10 @@ insert into public.refund_cases(
 );
 
 
+update public.refund_cases set correlation_status='no_match',correlation_source='sunze',
+ correlation_summary='Historical internal cash research had no safe match.',
+ cash_match_evaluated_fact_version=deterministic_fact_version
+ where id='16617000-0000-4000-8000-000000000001';
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,
  requested_fields,template_version,case_fact_version,reminder_delay_hours,status)
  select '16618000-0000-4000-8000-000000000001',c.id,1,repeat('b',64),'no_safe_match','{}'::text[],
