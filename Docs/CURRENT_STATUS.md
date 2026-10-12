@@ -6,6 +6,15 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Contractor Timekeeping and Pay Stubs
+
+Current contractor payroll uses Bloomjoy Enterprises, with the two designated
+TGPaci exceptions retained. The dedicated one-minute scheduler automatically
+publishes complete monthly Pay Stubs after the Pacific timesheet cutoff.
+Missing inputs remain specific retryable exceptions; regeneration retains
+prior PDFs and refreshes affected later YTD. All 15 September statements are
+published under their correct payers with private contractor access verified.
+
 ## Reporting blocker
 
 Annual query/loading, machine sales and receipt UI/CSV, and PDF repairs are
