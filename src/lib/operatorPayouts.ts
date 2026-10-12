@@ -768,6 +768,11 @@ export type TechnicianPayReportTechnician = {
   currentTotalCents: number;
   publishable: boolean;
   payStubRegenerationRequired?: boolean;
+  payStubPublication?: {
+    status: 'queued' | 'processing' | 'blocked' | 'failed' | 'issued' | 'not_generated';
+    retryAfter?: string | null;
+    errorMessage?: string | null;
+  };
   entries: TechnicianPayReportEntry[];
   shiftRateLines: TechnicianPayReportShiftRateLine[];
   machines: TechnicianPayReportMachine[];
