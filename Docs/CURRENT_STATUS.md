@@ -787,6 +787,12 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 ## Durable references
 
+- Refund repairs #1757/#1758 remain in verification: exhausted legacy payout
+  contact must project internal review, and current reviewed cash proof must
+  permit the existing single follow-up during customer wait. Production rollout
+  remains pending coordinated migration-history reconciliation and final release
+  verification; no customer contact or payment is part of this repair.
+
 - Product and design: `PRODUCT.md`, `DESIGN.md`
 - Durable decisions: `Docs/DECISIONS.md`
 - Refund product workflow: `Docs/REFUND_WORKFLOW.md`
