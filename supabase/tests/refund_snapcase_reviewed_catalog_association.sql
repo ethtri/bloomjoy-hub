@@ -87,11 +87,12 @@ insert into private.snapcase_source_machines(
 );
 insert into private.snapcase_machine_mappings(
   id, provider_account_id, source_machine_id, reporting_machine_id,
-  effective_start_date, mapping_reason
+  effective_start_date, mapping_reason, mapped_at, updated_at
 ) values (
   '16616600-0000-4000-8000-000000000001',
   '16613000-0000-4000-8000-000000000001', 'refund-cash-machine',
-  '16612000-0000-4000-8000-000000000002', '2025-01-01', 'Refund cash fixture'
+  '16612000-0000-4000-8000-000000000002', '2025-01-01', 'Refund cash fixture',
+  statement_timestamp()-interval '3 hours',statement_timestamp()-interval '3 hours'
 );
 
 insert into private.snapcase_sales_observations(
@@ -152,8 +153,6 @@ update public.refund_follow_up_cycles set status='manual_review',failed_at=state
  where id='16618000-0000-4000-8000-000000000001';
 
 -- Fixtures reproduce separate production transactions inside a rollback-only test.
-update private.snapcase_machine_mappings set mapped_at=statement_timestamp()-interval '3 hours',
- updated_at=statement_timestamp()-interval '3 hours';
 select public.service_project_snapcase_financial_window(
  '16613000-0000-4000-8000-000000000001','refund-cash-machine','2026-09-20T07:00:00Z','2026-09-21T07:00:00Z');
 create temporary table original_proof as select public.service_correlate_sunze_cash_case(
@@ -168,6 +167,10 @@ update public.refund_sunze_cash_sale_links set linked_at=statement_timestamp()-i
  where refund_case_id='16617000-0000-4000-8000-000000000001';
 update public.refund_case_events set created_at=statement_timestamp()-interval '2 hours'
  where refund_case_id='16617000-0000-4000-8000-000000000001' and event_type='sunze_cash_candidate_selected';
+select ok((select mapping.updated_at<attempt.evaluated_at
+ from private.snapcase_machine_mappings mapping cross join public.refund_sunze_cash_correlation_attempts attempt
+ where mapping.id='16616600-0000-4000-8000-000000000001' and attempt.id=(select (result->>'attemptId')::uuid from original_proof)),
+ 'Fixture preserves authoritative mapping chronology before the retained review');
 set local role service_role;
 create temporary table payout_receipt_intent as select
  public.service_enqueue_refund_manual_message_intent(
