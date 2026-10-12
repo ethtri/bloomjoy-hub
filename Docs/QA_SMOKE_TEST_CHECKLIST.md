@@ -1391,6 +1391,12 @@ npm run refunds:validate-portal-uat-lifecycle
 - Run the manager notification transport tests: current managers receive the bounded case summary; operations fallback receives no complaint/request enrichment; reassignment or revocation before send prevents provider access in both ordinary and aging notices. A proven pre-send routing failure must not become an unknown email delivery.
 - Use synthetic fixtures only; do not create a live refund or send a customer/manager test email for visual verification.
 
+## Machine and reporting continuity (#1872)
+
+- Run `node scripts/validate-portal-continuity-uat.mjs` for isolated synthetic checks at 320px, 390px and desktop. It starts its own loopback app on port 8092 without environment files or real backend writes.
+- In an authorized machine's Reporting tab, edit the rate, evidence, purchase dates, reason and reference, then preview and move to another machine tab and back. Retain the draft and matching preview; changing a field, an expired preview or a reloaded policy revision must still require a fresh preview.
+- Verify rate-only edits trigger the existing leave/discard warning. Dismissing keeps the work; accepting or cancelling discards it. A pending save survives tab changes; a failed background rate read preserves the draft with Retry.
+- In `/portal/reports?view=machines`, search and sort, open dated payment records, then use browser Back. Keep search, sort and global URL filters. Reload and export machine CSV to confirm the same visible machine set and existing partial/estimated amount labels.
 
 ## Mobile support and training (#1871)
 
