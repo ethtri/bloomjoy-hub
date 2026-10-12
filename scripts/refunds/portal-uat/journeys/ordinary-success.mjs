@@ -361,11 +361,13 @@ export const createOrdinarySuccessChecks = ({
     recorder.assert(
       'Manager case keeps the raw request and concise purchase proof in the main decision',
       await page.getByTestId('refund-request-summary').isVisible() &&
-        await page.getByTestId('refund-purchase-comparison').isVisible() &&
-        (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Ending 4242') &&
-        (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Nayax authorization time') &&
+        await page.getByTestId('refund-purchase-summary').isVisible() &&
+        !(await page.getByTestId('refund-purchase-comparison').isVisible()) &&
+        (await page.getByTestId('refund-purchase-summary').innerText()).includes('Ending 4242') &&
+        (await page.getByTestId('refund-purchase-summary').innerText()).includes('Nayax authorization time') &&
         (await page.getByRole('button', { name: /^Internal\/test archive/ }).count()) === 0
     );
+    await page.getByText('Compare request and purchase', { exact: true }).click();
     await settleRefundPortalPage(page);
     const requestBox = await page.getByTestId('refund-request-summary').boundingBox();
     const actionBox = await page.getByTestId('refund-primary-action').boundingBox();
@@ -777,6 +779,7 @@ export const createOrdinarySuccessChecks = ({
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
     await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
+    const mobileQueueOriginY = await page.evaluate(() => window.scrollY);
     await page.getByRole('button', { name: /RF-UAT-CARD/ }).click();
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
     await page.waitForTimeout(100);
@@ -837,16 +840,17 @@ export const createOrdinarySuccessChecks = ({
       const queuePanel = document.getElementById('refund-queue-panel');
       return queuePanel instanceof HTMLElement
         ? {
-            focused: document.activeElement === queuePanel,
+            focused: document.activeElement?.getAttribute('data-refund-case-id') === 'case-card-1',
+            scrollY: window.scrollY,
             top: queuePanel.getBoundingClientRect().top,
             headerBottom,
           }
         : null;
     });
     recorder.assert(
-      'Mobile detail Back to queue expands, scrolls to, and focuses the queue',
+      'Mobile detail Back to queue restores the originating row focus and scroll',
       mobileQueueReturn?.focused === true &&
-        mobileQueueReturn.top >= mobileQueueReturn.headerBottom &&
+        Math.abs(mobileQueueReturn.scrollY - mobileQueueOriginY) < 3 &&
         await page.locator('button:visible', { hasText: 'RF-UAT-CARD' }).first().isVisible(),
       JSON.stringify(mobileQueueReturn)
     );
@@ -1792,8 +1796,8 @@ export const createOrdinarySuccessChecks = ({
           await demoRefundAction.isDisabled() &&
           (await demoRefundAction.innerText()).includes('Approve $7.00 USD refund') &&
           (await page.getByTestId('refund-manager-state').innerText()) === 'Refund decision' &&
-          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Time') &&
-          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Ending 4242') &&
+          (await page.getByTestId('refund-purchase-summary').innerText()).includes('Time') &&
+          (await page.getByTestId('refund-purchase-summary').innerText()).includes('Ending 4242') &&
           await page.getByTestId('refund-deny-instead').isVisible(),
         JSON.stringify({
           buttonCount: await demoRefundAction.count(),
@@ -1809,11 +1813,20 @@ export const createOrdinarySuccessChecks = ({
           await page.getByTestId('refund-customer-comments').isVisible() &&
           (await page.getByTestId('nayax-result-card').count()) === 1 &&
           await page.getByTestId('nayax-result-card').isVisible() &&
-          await page.getByTestId('refund-purchase-comparison').isVisible() &&
+          !(await page.getByTestId('refund-purchase-comparison').isVisible()) &&
           !(await page.getByTestId('selected-nayax-transaction-id').isVisible()) &&
-          await purchaseDetails.isVisible() &&
+          !(await purchaseDetails.isVisible()) &&
           (await page.getByText('Website form', { exact: true }).count()) === 0 &&
           (await page.getByText('Current state', { exact: true }).count()) === 0
+      );
+      await page.getByText('Compare request and purchase', { exact: true }).click();
+      recorder.assert(
+        'Demo comparison opens the full request and purchase evidence before source detail',
+        await page.getByTestId('refund-purchase-comparison').isVisible() &&
+          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Time') &&
+          (await page.getByTestId('refund-purchase-comparison').innerText()).includes('Ending 4242') &&
+          await purchaseDetails.isVisible() &&
+          !(await page.getByTestId('selected-nayax-transaction-id').isVisible())
       );
       await page.screenshot({
         path: path.join(artifactDir, 'refund-portal-uat-desktop.png'),

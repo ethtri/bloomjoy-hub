@@ -67,10 +67,21 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
   ];
 
   return <section id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card"
-    data-refund-section="match-summary" className="bg-card px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    data-refund-section="match-summary" className="bg-card px-0 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:px-4">
     <h4 data-testid="nayax-decision-heading" className="text-base font-semibold">{selected || locallySelected ? selection.title : 'Compare this purchase'}</h4>
-    {(selected || locallySelected) && <p className="mt-1 text-sm leading-6 text-muted-foreground">{selection.sourceLabel}</p>}
-    <div data-testid="refund-purchase-comparison" className="mt-4 text-sm">
+    <dl data-testid="refund-purchase-summary" className="mt-3 space-y-2 text-sm">
+      {[rows[0], rows[4], rows[1]].map((row) => <div key={row.label} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3">
+        <dt className="text-muted-foreground">{row.label}</dt><dd className="min-w-0 break-words font-medium">{row.provider}{row.providerNote && <span className="block font-normal text-muted-foreground">{row.providerNote}</span>}</dd>
+      </div>)}
+      <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">Card</dt><dd className="min-w-0 break-words font-medium">{rows[3].provider} · {rows[2].provider}</dd></div>
+    </dl>
+    {differences.length > 0 && <div data-testid="refund-purchase-uncertainty" className="mt-3 text-sm leading-5">
+      <h5 className="font-medium">Uncertain or different</h5>
+      <ul className="mt-1 space-y-1 text-muted-foreground">{differences.map((fact) => <li key={fact.key}>{fact.label}</li>)}</ul>
+    </div>}
+    <details className="mt-3 border-t border-border">
+    <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Compare request and purchase</summary>
+    <div data-testid="refund-purchase-comparison" className="text-sm">
       <div className="hidden grid-cols-[90px_minmax(0,1fr)_minmax(0,1fr)] gap-3 pb-2 text-sm font-medium text-muted-foreground sm:grid">
         <span>Detail</span><span>Customer request</span><span>{purchaseLabel}</span>
       </div>
@@ -88,17 +99,11 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
         </div>
       </div>)}
     </div>
-    <div className="mt-4 grid gap-5 sm:grid-cols-2" data-testid="refund-purchase-evidence">
+    <div className="mt-4" data-testid="refund-purchase-evidence">
       {evidence.supporting.length > 0 && <div>
         <h5 className="text-sm font-semibold">Supports this purchase</h5>
         <ul className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">
           {evidence.supporting.map((fact) => <li key={fact.key}>{fact.label}</li>)}
-        </ul>
-      </div>}
-      {differences.length > 0 && <div>
-        <h5 className="text-sm font-semibold">Uncertain or different</h5>
-        <ul className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">
-          {differences.map((fact) => <li key={fact.key}>{fact.label}</li>)}
         </ul>
       </div>}
     </div>
@@ -126,7 +131,7 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
           {providerTimezone !== timezone && <p>The provider and venue clocks use different timezones. A different clock display alone does not establish a time error.</p>}
         </div>}
         {candidate?.productLabel && <div><p className="font-medium text-foreground">Machine product</p><p>{candidate.productLabel}</p></div>}
-        {(selected || locallySelected) && <div><p className="font-medium text-foreground">Selection details</p><p>{selection.rationale || selection.rationaleHint}</p></div>}
+        {(selected || locallySelected) && <div><p className="font-medium text-foreground">Selection details</p><p>{selection.sourceLabel}</p><p>{selection.rationale || selection.rationaleHint}</p></div>}
         {selection.history && <div><p className="font-medium text-foreground">Selection history</p>
           <p>{selection.history.label} {formatRefundDateTime(selection.history.recordedAt, timezone)}.</p>
         </div>}
@@ -137,6 +142,7 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
           {machineContext.statusNote && <p>{machineContext.statusNote}</p>}{machineContext.alertsNote && <p>{machineContext.alertsNote}</p>}
         </div>}
       </div>
+    </details>
     </details>
   </section>;
 }

@@ -1658,7 +1658,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     recorder.assert(
       `Nayax ${scenario.name} keeps reported and QR times separate`,
       ((await page.getByTestId('refund-purchase-comparison').getByText('Time', { exact: true }).count()) >= 1 ||
-        (await page.getByTestId('refund-request-summary').getByText('Customer time', { exact: true }).count()) >= 1) &&
+        (await page.getByTestId('refund-customer-payment-details').getByText('Customer time', { exact: true }).count()) >= 1) &&
         (await page.getByText('Refund request received', { exact: true }).count()) >= 1
     );
     const statusText = page.getByTestId('nayax-decision-heading')
@@ -1856,7 +1856,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         const requestSummary = page.getByTestId('refund-request-summary');
-        await requestSummary.getByText('Customer details and updates', { exact: true }).click();
+        await page.getByText('Customer details and updates', { exact: true }).click();
+        await page.getByText('Compare request and purchase', { exact: true }).click();
         const physicalCardSource = page.getByTestId('refund-purchase-comparison').getByText(/physical card/i).first();
         const mismatchExplanation = candidateOption.getByText(
           'Card digits differ; their sources may not be comparable.', { exact: true }
@@ -1993,6 +1994,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           .waitFor({ state: 'attached', timeout: 10000 });
         await page.getByTestId('refund-primary-action')
           .waitFor({ state: 'visible', timeout: 10000 });
+        await page.getByText('Compare request and purchase', { exact: true }).click();
         const persistedEvidenceText = await page.getByTestId('nayax-result-card').innerText();
         await page.getByTestId('selected-nayax-transaction-evidence-details').locator('summary').click();
         const persistedEvidenceDetails = await page.getByTestId(
@@ -2570,13 +2572,13 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByTestId('refund-manager-state')
     .getByText('Fixing purchase search', { exact: true }).waitFor({ timeout: 10000 });
-  const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
+  const blockedPaymentDetails = blockedPage.getByTestId('refund-customer-payment-details');
   recorder.assert(
     'API unavailability does not create a second manager approval path',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
       (await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
       (await blockedPage.getByTestId('refund-primary-action').locator('button').count()) === 0 &&
-      (await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).count()) === 1 &&
+      (await blockedPaymentDetails.getByText('Apple Pay on a phone or watch', { exact: true }).count()) === 1 &&
       (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Fixing purchase search'),
     JSON.stringify({
       managerState: await blockedPage.getByTestId('refund-manager-state').innerText(),
