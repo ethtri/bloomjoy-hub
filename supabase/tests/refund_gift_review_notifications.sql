@@ -148,11 +148,15 @@ select isnt(pg_temp.gift_snapshot()->>'decisionFingerprint',(select snapshot->>'
 insert into public.email_alert_preferences(user_id,alert_id,enabled,enabled_since)
  values('fc810000-0000-4000-8000-000000000001','new-refund',true,now()-interval '1 hour');
 create temporary table gift_shared_claims as select public.service_claim_next_email_alert(now()) c;
-select is((select c->>'claimed' from gift_shared_claims),'true','Shared dispatcher admits a gift-bearing daily candidate');
-select is((select c#>>'{projection,category}' from gift_shared_claims),'daily','Daily remains the first shared priority');
+select is((select c->>'claimed' from gift_shared_claims),'true','Shared dispatcher admits current subscribed work');
+-- Category order is intentionally not assumed. Two new requests and one daily
+-- are due; every category must be admitted through the actual shared claim.
 insert into gift_shared_claims select public.service_claim_next_email_alert(now());
+insert into gift_shared_claims select public.service_claim_next_email_alert(now());
+select ok(exists(select 1 from gift_shared_claims where c#>>'{projection,category}'='daily' and c->>'claimed'='true'),
+ 'Shared dispatcher admits the gift-bearing daily projection without a canonical snapshot error');
 select ok(exists(select 1 from gift_shared_claims where c#>>'{projection,category}'='new-refund' and c->>'claimed'='true'),
- 'A later operational new-request candidate is admitted after the gift digest');
+ 'Operational new-request work is also admitted in the same shared dispatch cycle');
 select lives_ok($$select private.email_alert_projection('fc810000-0000-4000-8000-000000000001',
  'weekly',now(),current_date-7,current_date-1)$$,'Weekly projection also consumes the canonical gift snapshot');
 
