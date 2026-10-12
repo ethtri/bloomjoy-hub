@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -96,6 +96,33 @@ export default function AdminSupportPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const detailPanelRef = useRef<HTMLDivElement>(null);
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const queueScrollRef = useRef(0);
+  const ticketRowsRef = useRef(new Map<string, HTMLButtonElement>());
+  const draftsRef = useRef(new Map<string, EditorState>());
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mobileDetailOpen && window.matchMedia('(max-width: 1023px)').matches) {
+      detailHeadingRef.current?.focus({ preventScroll: true });
+      detailPanelRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+  }, [mobileDetailOpen, selectedId]);
+
+  const handleBackToQueue = () => {
+    if (selectedId && editor) {
+      const current = requests.find(request => request.id === selectedId);
+      if (!current || JSON.stringify(editor) !== JSON.stringify(toEditorState(current))) draftsRef.current.set(selectedId, editor);
+      else draftsRef.current.delete(selectedId);
+    }
+    setMobileDetailOpen(false);
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: queueScrollRef.current, behavior: 'instant' });
+      if (selectedId) ticketRowsRef.current.get(selectedId)?.focus({ preventScroll: true });
+    });
+  };
 
   const {
     data: requests = [],
@@ -153,8 +180,16 @@ export default function AdminSupportPage() {
   const selectedRequest = filteredRequests.find((item) => item.id === selectedId) ?? null;
 
   const handleSelectRequest = (request: SupportRequestRecord) => {
+    if (selectedId && editor) {
+      const current = requests.find(request => request.id === selectedId);
+      if (!current || JSON.stringify(editor) !== JSON.stringify(toEditorState(current))) draftsRef.current.set(selectedId, editor);
+      else draftsRef.current.delete(selectedId);
+    }
+    queueScrollRef.current = window.scrollY;
     setSelectedId(request.id);
-    setEditor(toEditorState(request));
+    setEditor(draftsRef.current.get(request.id) ?? toEditorState(request));
+    setSaveError(null);
+    setMobileDetailOpen(true);
   };
 
   const handleRefresh = async () => {
@@ -166,9 +201,10 @@ export default function AdminSupportPage() {
       return;
     }
 
+    setSaveError(null);
     setIsSaving(true);
     try {
-      await updateSupportRequestAdmin({
+      const savedRequest = await updateSupportRequestAdmin({
         requestId: selectedRequest.id,
         status: editor.status,
         priority: editor.priority,
@@ -181,11 +217,14 @@ export default function AdminSupportPage() {
         status: editor.status,
         priority: editor.priority,
       });
+      draftsRef.current.delete(savedRequest.id);
+      setEditor(toEditorState(savedRequest));
       toast.success('Support request updated.');
       await handleRefresh();
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : 'Unable to update support request.';
+      setSaveError(message);
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -194,14 +233,15 @@ export default function AdminSupportPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding admin-touch-targets">
+      <section className="py-5 sm:py-8 lg:py-10 admin-touch-targets">
         <div className="container-page">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          {mobileDetailOpen && <h1 className="sr-only lg:hidden">Support Queue</h1>}
+          <div className={`${mobileDetailOpen ? 'hidden lg:flex' : 'flex'} flex-col gap-3 sm:flex-row sm:items-end sm:justify-between`}>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 Admin
               </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
+              <h1 className="mt-2 text-2xl font-semibold text-foreground">
                 Support Queue
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -212,7 +252,7 @@ export default function AdminSupportPage() {
               variant="outline"
               className="min-h-11"
               onClick={handleRefresh}
-              disabled={isFetching}
+              disabled={isFetching || isSaving}
             >
               {isFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -223,70 +263,75 @@ export default function AdminSupportPage() {
             </Button>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Open</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.totalOpen}</p>
+          <div className={mobileDetailOpen ? 'hidden lg:block' : ''}>
+            <div className="mt-6 grid grid-cols-3 gap-3">
+              <div className="rounded-lg border border-border bg-card p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Open</p>
+                <p className="mt-1 text-xl font-semibold text-foreground">{queueMetrics.totalOpen}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">New</p>
+                <p className="mt-1 text-xl font-semibold text-foreground">{queueMetrics.newCount}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Open WeChat Onboarding
+                </p>
+                <p className="mt-1 text-xl font-semibold text-foreground">
+                  {queueMetrics.wechatOnboardingOpen}
+                </p>
+              </div>
             </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">New</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.newCount}</p>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+              <Input
+                aria-label="Search support requests"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by email, subject, message, or ID"
+                className="h-11 text-base md:text-sm"
+              />
+              <select
+                aria-label="Filter support status"
+                value={statusFilter}
+                onChange={(event) =>
+                  setStatusFilter(event.target.value as 'all' | SupportRequestStatus)
+                }
+                className="h-11 rounded-md border border-input bg-background px-3 text-base md:text-sm"
+              >
+                <option value="all">All statuses</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter support request type"
+                value={requestTypeFilter}
+                onChange={(event) =>
+                  setRequestTypeFilter(event.target.value as 'all' | SupportRequestType)
+                }
+                className="h-11 rounded-md border border-input bg-background px-3 text-base md:text-sm"
+              >
+                <option value="all">All request types</option>
+                {requestTypeOptions.map((requestType) => (
+                  <option key={requestType} value={requestType}>
+                    {formatRequestType(requestType)}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Open WeChat Onboarding
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">
-                {queueMetrics.wechatOnboardingOpen}
-              </p>
-            </div>
+
+            {error && (
+              <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                Failed to load support requests.
+              </div>
+            )}
+
           </div>
-
-          <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by email, subject, message, or ID"
-              className="h-11"
-            />
-            <select
-              value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as 'all' | SupportRequestStatus)
-              }
-              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="all">All statuses</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <select
-              value={requestTypeFilter}
-              onChange={(event) =>
-                setRequestTypeFilter(event.target.value as 'all' | SupportRequestType)
-              }
-              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="all">All request types</option>
-              {requestTypeOptions.map((requestType) => (
-                <option key={requestType} value={requestType}>
-                  {formatRequestType(requestType)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {error && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Failed to load support requests.
-            </div>
-          )}
-
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className={`${mobileDetailOpen ? 'hidden lg:block' : ''} overflow-hidden rounded-xl border border-border bg-card`}>
               <div className="lg:hidden">
                 {isLoading && (
                   <div className="p-4 text-sm text-muted-foreground">Loading support queue...</div>
@@ -301,6 +346,9 @@ export default function AdminSupportPage() {
                     <button
                       key={request.id}
                       type="button"
+                      ref={(node) => { if (node) ticketRowsRef.current.set(request.id, node); else ticketRowsRef.current.delete(request.id); }}
+                      aria-current={request.id === selectedId ? 'true' : undefined}
+                      disabled={isSaving}
                       onClick={() => handleSelectRequest(request)}
                       className={`block min-h-11 w-full border-b border-border/70 p-4 text-left transition-colors last:border-b-0 hover:bg-muted/40 ${
                         request.id === selectedId ? 'bg-muted/50' : ''
@@ -375,15 +423,14 @@ export default function AdminSupportPage() {
                     filteredRequests.map((request) => (
                       <tr
                         key={request.id}
-                        className={`cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40 ${
+                        className={`border-b border-border/70 transition-colors hover:bg-muted/40 ${
                           request.id === selectedId ? 'bg-muted/50' : ''
                         }`}
-                        onClick={() => handleSelectRequest(request)}
                       >
                         <td className="px-4 py-3 align-top">
-                          <div className="text-sm font-medium text-foreground">
+                          <button type="button" disabled={isSaving} onClick={() => handleSelectRequest(request)} className="text-left text-sm font-semibold text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             {request.subject}
-                          </div>
+                          </button>
                           <div className="mt-1 text-xs text-muted-foreground">
                             {request.customer_email} | {formatRequestType(request.request_type)}
                           </div>
@@ -399,22 +446,25 @@ export default function AdminSupportPage() {
               </table>
             </div>
 
-            <div className="card-elevated p-5">
+            <div ref={detailPanelRef} className={`${mobileDetailOpen ? '' : 'hidden lg:block'} scroll-mt-24 min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5`}>
+              <Button variant="ghost" className="mb-3 min-h-11 px-0 lg:hidden" onClick={handleBackToQueue} disabled={isSaving}>
+                <ChevronLeft aria-hidden="true" className="mr-1 h-4 w-4" /> Back to queue
+              </Button>
               {!selectedRequest || !editor ? (
                 <div className="text-sm text-muted-foreground">
-                  Select a ticket to triage status, assignment, and notes.
+                  {mobileDetailOpen ? 'This ticket is no longer in the current queue. Return to the queue to choose another request.' : 'Select a ticket to triage status, assignment, and notes.'}
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <h2 className="font-semibold text-foreground">{selectedRequest.subject}</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <h2 ref={detailHeadingRef} tabIndex={-1} className="scroll-mt-24 break-words text-xl font-semibold text-foreground focus:outline-none">{selectedRequest.subject}</h2>
+                    <p className="mt-1 break-all text-xs text-muted-foreground">
                       {selectedRequest.customer_email} |{' '}
                       {formatRequestType(selectedRequest.request_type)}
                     </p>
                   </div>
 
-                  <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  <div className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                     {selectedRequest.message}
                   </div>
 
@@ -447,11 +497,14 @@ export default function AdminSupportPage() {
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <label htmlFor="support-admin-status" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Status
                       </label>
                       <select
-                        value={editor.status}
+                        id="support-admin-status"
+                        disabled={isSaving}
+                      aria-describedby={saveError ? 'support-save-error' : undefined}
+                      value={editor.status}
                         onChange={(event) =>
                           setEditor((prev) =>
                             prev
@@ -462,7 +515,7 @@ export default function AdminSupportPage() {
                               : prev
                           )
                         }
-                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm"
                       >
                         {statusOptions.map((status) => (
                           <option key={status} value={status}>
@@ -473,11 +526,14 @@ export default function AdminSupportPage() {
                     </div>
 
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <label htmlFor="support-admin-priority" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Priority
                       </label>
                       <select
-                        value={editor.priority}
+                        id="support-admin-priority"
+                        disabled={isSaving}
+                      aria-describedby={saveError ? 'support-save-error' : undefined}
+                      value={editor.priority}
                         onChange={(event) =>
                           setEditor((prev) =>
                             prev
@@ -488,7 +544,7 @@ export default function AdminSupportPage() {
                               : prev
                           )
                         }
-                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm"
                       >
                         {priorityOptions.map((priority) => (
                           <option key={priority} value={priority}>
@@ -500,10 +556,13 @@ export default function AdminSupportPage() {
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <label htmlFor="support-admin-assignedTo" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Assigned To (user ID)
                     </label>
                     <Input
+                      id="support-admin-assignedTo"
+                      disabled={isSaving}
+                      aria-describedby={saveError ? 'support-save-error' : undefined}
                       value={editor.assignedTo}
                       onChange={(event) =>
                         setEditor((prev) =>
@@ -511,16 +570,20 @@ export default function AdminSupportPage() {
                         )
                       }
                       placeholder="Optional admin user UUID"
-                      className="h-11"
+                      className="h-11 text-base md:text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <label htmlFor="support-admin-internalNotes" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Internal Notes
                     </label>
                     <Textarea
+                      id="support-admin-internalNotes"
+                      disabled={isSaving}
+                      aria-describedby={saveError ? 'support-save-error' : undefined}
                       rows={6}
+                      className="text-base md:text-sm"
                       value={editor.internalNotes}
                       onChange={(event) =>
                         setEditor((prev) =>
@@ -531,7 +594,8 @@ export default function AdminSupportPage() {
                     />
                   </div>
 
-                  <Button className="min-h-11" onClick={handleSave} disabled={isSaving}>
+                  {saveError && <p id="support-save-error" role="alert" className="text-sm text-destructive">{saveError}</p>}
+                  <Button className="min-h-11 w-full sm:w-auto" onClick={handleSave} disabled={isSaving}>
                     {isSaving ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
