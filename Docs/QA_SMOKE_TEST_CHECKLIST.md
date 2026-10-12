@@ -15,6 +15,26 @@
 - In `/refunds?view=requests`, open a late technician request and return with both the in-screen control and native Back. Reopen and use Forward; machine/date/page context, scroll and row focus survive. Direct-link loading, access loss and errors keep a return path; read-only requests never fetch or expose the privileged manager workspace.
 - Synthetic automated coverage: `node scripts/refunds/validate-refund-portal-uat.mjs --mobile-review-only --app-url http://127.0.0.1:8095` (set the existing random local evidence token); `node scripts/validate-refund-request-access-uat.mjs --app-url http://127.0.0.1:8095`. Actual iOS/Android keyboard and rotation require device verification.
 
+## Explicit payroll payer
+
+- In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
+  Machines belonging to another company within your existing pay authority.
+  Activation must create one payer-scoped arrangement with the selected rates.
+- Verify the resulting Pay Report and Pay Stub show the selected payer, while
+  Machines and sales reporting retain their original company. Another Technician
+  cannot access this time or statement. Check the form on desktop and mobile.
+
+## Exhausted legacy payout contact (#1757)
+
+- Use disposable synthetic data with a delivered original payout question, its
+  single delivered reminder and a current exhausted payout follow-up. At
+  `/refunds`, confirm the next step is Agent purchase research/internal review.
+- Confirm useful replies and current submitted same-case answers retain their
+  continuation; stale facts, unknown delivery and an unexpired response window
+  do not acquire the exhaustion exception. A gift-card resolution does not
+  inherit the historical payout question. Message receipts, decisions and the
+  consumed contact budget remain unchanged.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.
