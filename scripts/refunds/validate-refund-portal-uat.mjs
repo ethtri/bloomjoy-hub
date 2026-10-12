@@ -5183,6 +5183,12 @@ const run = async () => {
   try {
     if (process.argv.includes('--mobile-review-only')) {
       await runMobileReviewChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+    } else if (process.argv.includes('--review-hierarchy-only')) {
+      await runRefundOnlyChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runDemoFallbackChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runApiUnavailableCaseEvidenceChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
+      await runNayaxLookupStatusMatrixChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder,
+        scenarioNames: ['no match', 'evidence-aware physical tap mismatch', 'server-persisted manager preparation'] });
     } else if (args.inboundLinkOnly) {
       await runInboundCaseLinkReviewChecks({
         browser,
@@ -5457,9 +5463,10 @@ const run = async () => {
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
 
-  if (process.argv.includes('--mobile-review-only')) {
+  if (process.argv.includes('--mobile-review-only') || process.argv.includes('--review-hierarchy-only')) {
     if (recorder.failed().length) process.exitCode = 1;
-    console.log(`Refund mobile review UAT: ${recorder.count()} checks, ${recorder.failed().length} failures.`);
+    const reviewName = process.argv.includes('--mobile-review-only') ? 'Refund mobile review UAT' : 'Refund hierarchy review UAT';
+    console.log(`${reviewName}: ${recorder.count()} checks, ${recorder.failed().length} failures.`);
     return;
   }
 
