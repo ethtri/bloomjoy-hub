@@ -130,6 +130,7 @@ select is((select read_count from detail_timings),20,'twenty independently execu
 select ok((select slowest_ms<3000 from detail_timings),'selected reads meet the three-second target in the 95-case synthetic database');
 select ok((select read_count=3 and slowest_ms<3000 from queue_timings),'three fresh queue reads meet the three-second target in the synthetic database');
 select diag('95 synthetic cases: selected maximum '||(select round(slowest_ms,2) from detail_timings)||' ms; queue maximum '||(select round(slowest_ms,2) from queue_timings)||' ms. Production mobile/network timing still requires deployment verification.');
+select diag('Synthetic JSON bytes: compatible full overview '||(select octet_length(value::text) from full_evidence)||'; selected case '||(select octet_length(value::text) from case_evidence)||'; queue '||octet_length(public.get_refund_portal_queue_projection()::text)||'.');
 select ok((select octet_length(value::text) from case_evidence)<(select octet_length(value::text) from full_evidence),'scoped payload is smaller without dropping target evidence');
 select throws_ok($$select public.get_refund_portal_case_detail('aa455000-0000-4000-8000-000000000099')$$,'42501','Current refund case access required','unknown or unauthorized case does not disclose evidence');
 select ok(has_function_privilege('authenticated','public.search_refund_portal_queue(text)','execute'),'authorized portal roles can search');

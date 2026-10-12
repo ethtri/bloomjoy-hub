@@ -4944,6 +4944,49 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
   await closeRefundPortalContext(missingEvidenceContext);
 };
 
+const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
+  const freshLoads = []; const detailReads = []; const payloadBytes = [];
+  for (let fresh = 0; fresh < 3; fresh += 1) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const readLog = [];
+    await installMockSupabaseRoutes(context, { refundOverviewReadLog: readLog, refundOverview: () => {
+      const model = buildManagerApprovalRefundOverview();
+      model.cases = Array.from({ length: 95 }, (_, index) => ({ ...model.cases[0],
+        id: `aa455000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        publicReference: `RF-BUDGET-${index + 1}` }));
+      return model;
+    } });
+    const page = await context.newPage();
+    page.on('response', async response => {
+      if (response.url().includes('/get_refund_portal_case_detail') && response.ok()) {
+        const body = await response.text().catch(() => '');
+        if (body) payloadBytes.push(Buffer.byteLength(body));
+      }
+    });
+    await signInRefundUser(page, appUrl);
+    const freshStarted = Date.now();
+    await waitForQueueCount(page, 95);
+    await queueCase(page, 'RF-BUDGET-1').click();
+    await page.getByRole('heading', { name: 'RF-BUDGET-1', exact: true }).waitFor();
+    freshLoads.push(Date.now() - freshStarted);
+    if (fresh === 0) for (let index = 1; index <= 20; index += 1) {
+      const started = Date.now();
+      await queueCase(page, `RF-BUDGET-${index + 1}`).click();
+      await page.getByRole('heading', { name: `RF-BUDGET-${index + 1}`, exact: true }).waitFor();
+      detailReads.push(Date.now() - started);
+    }
+    recorder.assert(`Fresh synthetic queue/detail render ${fresh + 1} stays within three seconds with all 95 cases`,
+      freshLoads[fresh] < 3000 && (await page.getByRole('button', { name: /^Decision needed 95$/ }).count()) === 1,
+      JSON.stringify({ renderMs: freshLoads[fresh], injectedTransport: true }));
+    await closeRefundPortalContext(context);
+  }
+  recorder.assert('Twenty repeated synthetic case switches meet the render budget without full evidence reads',
+    detailReads.length === 20 && detailReads.every(ms => ms < 3000) && payloadBytes.length >= 23,
+    JSON.stringify({ detailRenderMs: detailReads, freshRenderMs: freshLoads,
+      maximumSelectedJsonBytes: Math.max(...payloadBytes), injectedTransport: true,
+      databaseAndProductionNetworkTimingExcluded: true }));
+};
+
 const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const functionCalls = [];
@@ -4963,10 +5006,16 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   await installMockSupabaseRoutes(context, {
     refundOverview: () => {
       const model = buildManagerApprovalRefundOverview();
+      model.cases[0].hasGmailThread = true;
       model.cases.push({ ...model.cases[0], id: 'case-next-review', publicReference: 'RF-UAT-NEXT',
-        customerEmail: 'next-customer@example.test', issueSummary: 'Second independent case.' });
+        customerEmail: 'next-customer@example.test', issueSummary: '', hasGmailThread: false });
       return model;
     },
+    gmailContext: { ...buildMockGmailContext(), messages: [
+      { ...buildMockGmailContext().messages[0], body: 'The screen showed <E42>.\nNo product came out.', receivedAt: isoHoursAgo(1) },
+      { ...buildMockGmailContext().messages[0], id: 'staff-note', participantRole: 'assigned_manager', body: 'Staff-only investigation.', receivedAt: isoHoursAgo(0.1) },
+      { ...buildMockGmailContext().messages[0], id: 'unverified-note', participantTrust: 'unverified', body: 'Unverified assertion.', receivedAt: isoHoursAgo(0.05) },
+    ] },
     functionCalls,
     functionBodies,
     nayaxCardRefundStatus: 202,
@@ -4985,6 +5034,14 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
   await waitForQueueCount(page, 2);
   await queueCase(page, 'RF-UAT-CARD').click();
+  const customerNotes = page.getByTestId('refund-customer-notes');
+  await customerNotes.getByText('The screen showed <E42>.\nNo product came out.', { exact: true }).waitFor();
+  recorder.assert('Case review retains the original comment and latest verified customer reply as escaped text',
+    (await customerNotes.innerText()).includes('Original customer comment') &&
+      (await customerNotes.innerText()).includes('Latest customer reply') &&
+      !(await customerNotes.innerText()).includes('Staff-only investigation.') &&
+      !(await customerNotes.innerText()).includes('Unverified assertion.') &&
+      (await customerNotes.locator('E42').count()) === 0);
   await page.getByTestId('refund-run-nayax-refund').click();
   await page.getByTestId('refund-confirm-nayax-refund').click();
   await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
@@ -5019,11 +5076,14 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   );
   const navigationStarted = Date.now();
   await queueCase(page, 'RF-UAT-NEXT').click({ timeout: 2000 });
-  await page.getByText('Second independent case.', { exact: true }).waitFor({ timeout: 2000 });
+  await page.getByRole('heading', { name: 'RF-UAT-NEXT', exact: true }).waitFor({ timeout: 2000 });
   recorder.assert('Confirmed approval releases navigation while the queue refresh is still pending',
     delayedQueueReads > 0 && Date.now() - navigationStarted < 2000 &&
       (await page.getByTestId('refund-action-receipt').count()) === 0 &&
       functionBodies.filter(entry => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability').length === 1);
+  recorder.assert('Missing optional comments do not disable a prepared case decision',
+    await page.getByTestId('refund-customer-notes').getByText('No additional customer comment.', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-run-nayax-refund').isEnabled());
   await page.getByRole('button', { name: /^All active \d+$/ }).click();
   await queueCase(page, 'RF-UAT-CARD').click();
   await page.getByTestId('refund-manager-state').getByText('Refund being completed', { exact: true }).waitFor();
@@ -5350,6 +5410,8 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (process.argv.includes('--read-budget-only')) {
+      await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
     } else if (process.argv.includes('--manager-clarity-only')) {
       await runManagerClarityChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
     } else if (args.cashOnly) {
@@ -5464,6 +5526,8 @@ const run = async () => {
         ],
       });
     } else {
+      await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
+      await runManagerApprovalChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
       await runMixedVersionWorkflowChecks({
         browser, appUrl: args.appUrl, recorder, realProjectionSeed,
       });
@@ -5622,14 +5686,14 @@ const run = async () => {
     return;
   }
 
-  if (process.argv.includes('--manager-clarity-only')) {
+  if (process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only')) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
-      console.error(`Refund manager clarity UAT failed: ${focusedFailures.length} check(s).`);
+      console.error(`Focused refund read/clarity UAT failed: ${focusedFailures.length} check(s).`);
       process.exitCode = 1;
       return;
     }
-    console.log('Refund manager clarity UAT passed.');
+    console.log('Focused refund read/clarity UAT passed.');
     return;
   }
 
