@@ -165,7 +165,7 @@ insert into earlier_outreach select jsonb_build_object(
   'deliveryState','delivered','requestSentAt',statement_timestamp()-interval '4 days',
   'replyReceivedAt',null,'payloadRedacted',true)
 from public.refund_cases where id='e5800000-0000-4000-8001-000000000001';
-create or replace function public.refund_outreach_pre_form_continuation_v1(uuid)
+create or replace function public.refund_outreach_pre_form_continuation_v1(p_refund_case_id uuid)
 returns jsonb language sql stable security definer set search_path='' as $$
   select result from pg_temp.earlier_outreach;
 $$;
