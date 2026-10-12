@@ -4234,8 +4234,10 @@ export default function AdminRefundsPage() {
   };
 
   function selectCase(refundCase: RefundCaseRecord, hydrating = false) {
-    handledCaseQueryRef.current = refundCase.id;
-    if (!hydrating) openCaseQuery(refundCase.id, refundCase.accountId);
+    if (!hydrating) {
+      handledCaseQueryRef.current = refundCase.id;
+      openCaseQuery(refundCase.id, refundCase.accountId);
+    }
     pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);

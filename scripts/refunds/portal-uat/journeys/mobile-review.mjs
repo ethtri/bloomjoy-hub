@@ -11,7 +11,10 @@ export const createMobileReviewChecks = ({ fixtures, harness }) => {
       const directory = path.join(artifactDir, state);
       await mkdir(directory, { recursive: true });
       await page.getByText('Signed in. Redirecting...', { exact: true }).waitFor({ state: 'hidden', timeout: 10000 });
-      if ((await page.viewportSize()).width >= 1024) await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      await page.evaluate(async () => {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
       await page.screenshot({ path: path.join(directory, 'refund-portal-uat-mobile.png'), fullPage: false });
     };
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -54,6 +57,17 @@ export const createMobileReviewChecks = ({ fixtures, harness }) => {
       await page.setViewportSize({ width, height });
       recorder.assert(`Case remains contained at ${width} by ${height}`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await capture(page, `case-${width}-${height}`);
+      if (height === 390) {
+        const back = await page.getByTestId('refund-detail-back-to-queue').boundingBox();
+        const headerBottom = await page.locator('header').first().evaluate(element => element.getBoundingClientRect().bottom);
+        recorder.assert('Landscape opens with its return control below the shell', back && back.y >= headerBottom && back.y + back.height <= height, JSON.stringify({ back, headerBottom }));
+        await page.getByTestId('refund-run-nayax-refund').scrollIntoViewIfNeeded();
+        const action = await page.getByTestId('refund-run-nayax-refund').boundingBox();
+        recorder.assert('Landscape scroll reaches the existing decision action', action && action.y >= headerBottom && action.y + action.height <= height && action.height >= 44, JSON.stringify(action));
+        const directory = path.join(artifactDir, 'case-landscape-action');
+        await mkdir(directory, { recursive: true });
+        await page.screenshot({ path: path.join(directory, 'refund-portal-uat-mobile.png'), fullPage: false });
+      }
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByTestId('refund-detail-back-to-queue').click();
@@ -144,6 +158,11 @@ export const createMobileReviewChecks = ({ fixtures, harness }) => {
     await pendingPage.waitForResponse(response => response.url().endsWith('/rpc/admin_get_refund_operations_overview'));
     await pendingPage.waitForTimeout(100);
     recorder.assert('Late detail hydration preserves the returned queue', await pendingPage.locator('#refund-queue-panel').isVisible() && !new URL(pendingPage.url()).searchParams.has('case'));
+    await pendingPage.goForward();
+    await pendingPage.getByTestId('refund-detail-back-to-queue').waitFor({ state: 'visible' });
+    recorder.assert('Native Forward reopens the same case after late hydration',
+      !await pendingPage.locator('#refund-queue-panel').isVisible() &&
+      new URL(pendingPage.url()).searchParams.get('case') === pendingCase.id);
     await closeRefundPortalContext(pendingContext);
   };
 };
