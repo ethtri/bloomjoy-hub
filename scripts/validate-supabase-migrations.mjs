@@ -391,6 +391,12 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
     fs.cpSync(testsDir, path.join(tempSupabaseDir, 'tests'), {
       recursive: true,
     });
+    // Supabase mounts tests independently from migrations. Stage the exact
+    // reviewed bytes inside the test mount for the forward/rollback rehearsal.
+    fs.copyFileSync(
+      path.join(migrationsDir, '20261012080709_refund_snapcase_reviewed_catalog_association.sql'),
+      path.join(tempSupabaseDir, 'tests/fixtures/refund_snapcase_catalog_forward.inc')
+    );
   }
   normalizeSqlLineEndings(tempSupabaseDir);
   // Capture the exact pre-policy catalogue only in the disposable replay. The
@@ -669,6 +675,9 @@ async function main() {
       restorePolicyForward();
       run('supabase', ['migration', 'up', '--local', '--include-all', '--workdir', tempRoot], { stdio: 'inherit' });
     }
+    run('supabase', ['test', 'db', 'supabase/tests/refund_snapcase_catalog_upgrade_rollback.sql',
+      '--workdir', tempRoot], { relayOutput: true, cwd: tempRoot });
+    log('Exact cash catalog forward/restore/reapply rehearsal passed against captured production definitions.');
     const inactiveTest = writeInactiveGiftCompatibilityTest(repoRoot, tempRoot);
     for (const relativePath of [inactiveTest.relativePath,
       'supabase/tests/refund_customer_same_case_update_access.sql',

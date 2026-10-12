@@ -114,7 +114,7 @@ select is((select count(*) from expected_catalog e join before_catalog b using(i
  where encode(extensions.digest(convert_to(b.definition,'UTF8'),'sha256'),'hex')=e.before_hash
  and b.acl=e.acl and b.security_definer and b.config=array['search_path=""'] and b.owner='postgres'),3::bigint,
  'Pre-upgrade catalogue exactly matches three captured production definitions and permissions');
-\ir ../migrations/20261012080709_refund_snapcase_reviewed_catalog_association.sql
+\ir fixtures/refund_snapcase_catalog_forward.inc
 create temp table after_catalog as select n.nspname||'.'||p.oid::regprocedure::text identity, pg_get_functiondef(p.oid) definition, p.proacl::text acl, p.prosecdef security_definer, p.proconfig config,pg_get_userbyid(p.proowner) owner from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in('public','private') and p.prokind='f';
 select is((select count(*) from expected_catalog e join after_catalog a using(identity)
  where encode(extensions.digest(convert_to(a.definition,'UTF8'),'sha256'),'hex')=e.after_hash
@@ -149,7 +149,7 @@ select ok(to_regprocedure('private.refund_snapcase_reviewed_catalog_association(
  'Rollback removes private helper after restoring dependent definitions');
 select ok(to_regclass('public.admin_audit_log_catalog_association_idx') is null,
  'Rollback removes only the added audit index');
-\ir ../migrations/20261012080709_refund_snapcase_reviewed_catalog_association.sql
+\ir fixtures/refund_snapcase_catalog_forward.inc
 create temp table reapplied_catalog as select n.nspname||'.'||p.oid::regprocedure::text identity, pg_get_functiondef(p.oid) definition, p.proacl::text acl, p.prosecdef security_definer, p.proconfig config,pg_get_userbyid(p.proowner) owner from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in('public','private') and p.prokind='f';
 select is((select count(*) from ((select * from after_catalog except select * from reapplied_catalog)
  union all (select * from reapplied_catalog except select * from after_catalog)) drift),0::bigint,
