@@ -8,16 +8,16 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Reviewed cash evidence after company correction
 
-#1758 remains open under #1375/#1350: an ordinary same-machine company save
-created a new internal Location and cash publication replay stranded the retained
-reviewed purchase. The SQL correction requires the exact prior reviewed source
-digest, unchanged provider lineage and one audited administrative association;
-it preserves original intake and financial facts under the October 3
-current-company policy. The correction is deployed and verified against the
-reviewed SQL, permissions and unchanged worker sources. Passive case readback
-proves the retained association and new source discriminator; supported
-re-correlation and authorized current reviewed selection remain pending. Release
-verification performed no real case action.
+#1758 is verified and closed after the deployed reviewed-cash association repair
+and supported same-case recovery. The correction preserves original intake and
+financial facts under the October 3 current-company policy, requiring the exact
+prior reviewed source, unchanged provider lineage and an audited administrative
+association. The ordinary October 12 scheduled sweep sent the existing single
+payout-destination reminder at 08:07 Pacific; matched provider events confirm
+acceptance and delivery. One original question and one reminder are retained.
+The case remains waiting on the customer; broader purchase research and refund
+completion remain separate work under #1375/#1350/#1429/#628. See the
+[#1758 closeout evidence](https://github.com/ethtri/bloomjoy-hub/issues/1758#issuecomment-6131703765).
 
 ## Machine email alerts
 
@@ -824,11 +824,9 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 ## Durable references
 
-- Refund repair #1757 is verified and closed. #1758 remains open for supported
-  case recovery after the deployed reviewed-cash association correction. Passive
-  readback confirms the retained association; the existing single follow-up is
-  still waiting.
-  Release verification sent no customer contact or payment.
+- Refund repairs #1757 and #1758 are verified and closed. Supported reviewed-cash
+  recovery and the ordinary single-follow-up delivery are established; customer
+  response and final refund completion remain separate lifecycle work.
 
 - Product and design: `PRODUCT.md`, `DESIGN.md`
 - Durable decisions: `Docs/DECISIONS.md`
