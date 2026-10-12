@@ -1,3 +1,4 @@
+import { RefundCustomerNotes } from './RefundCustomerNotes';
 import type { ReactNode } from 'react';
 import { CheckCircle2, Loader2, MessageSquare } from 'lucide-react';
 
@@ -201,9 +202,7 @@ export function RefundCashDecisionWorkbench({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
             <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
             <div data-testid="refund-customer-comments" className="mt-3 rounded-lg bg-muted/35 px-3 py-2.5">
-              <p className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
-                {refundCase.issueSummary || 'No customer comments were provided.'}
-              </p>
+              <RefundCustomerNotes refundCase={refundCase} />
             </div>
             <details className="mt-4 border-t border-border/70 pt-4">
               <summary className="cursor-pointer text-sm font-medium text-foreground">Customer purchase details</summary>

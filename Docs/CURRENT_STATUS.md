@@ -2,6 +2,19 @@
 
 Last compacted: 2026-09-29.
 
+## Refund responsiveness candidate (#1892-#1896)
+
+The October 12 repair is under review: scoped case evidence replaces whole-queue
+loading in the Manager portal, case access retains the workspace, and confirmed
+approval releases navigation before background reads. Compact purchase facts keep
+alternate transactions and material conflicts accessible. Optional original
+comments and verified replies remain supplementary to structured facts.
+
+Local build/unit/approval UAT checks pass. Fresh database migration validation
+requires hosted disposable-database CI because Docker is unavailable locally;
+production latency and deployment are not yet verified. The five issues and
+#1432 retain acceptance evidence and remaining release verification.
+
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.

@@ -1,3 +1,4 @@
+import { RefundCustomerNotes } from '@/components/refunds/RefundCustomerNotes';
 import { useAuth } from '@/contexts/auth-context';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { CompanyFilter } from '@/components/portal/reports/CompanyFilter';
@@ -159,10 +160,10 @@ import {
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
-  fetchRefundManagerWorkProjection,
   fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
-  fetchRefundOperationsOverview,
+  fetchRefundCaseDetail,
+  RefundCaseAccessError,
   fetchRefundPortalQueueProjection,
   fetchRefundOperationsSupplements,
   isLocalUatDemoForced,
@@ -2830,7 +2831,7 @@ export default function AdminRefundsPage() {
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('decisions');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(companyParams.get('case'));
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -2926,14 +2927,11 @@ export default function AdminRefundsPage() {
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const retainConfirmedCardApprovals = (
-    incoming: RefundOperationsOverview,
+    _incoming: RefundOperationsOverview,
     merged: RefundOperationsOverview,
   ) => {
-    for (const refundCase of incoming.cases) {
-      if (refundCase.decision === 'approved') {
-        confirmedCardApprovalOutcomesRef.current.delete(refundCase.id);
-      }
-    }
+    // Keep confirmed approval evidence for this session; late queue reads
+    // cannot reintroduce an already accepted decision.
     return preserveConfirmedCardApproval(merged, confirmedCardApprovalOutcomesRef.current) ?? merged;
   };
   const holdConfirmedCardApproval = (
@@ -2945,32 +2943,36 @@ export default function AdminRefundsPage() {
       overviewTruthRef.current,
       confirmedCardApprovalOutcomesRef.current,
     );
-    queryClient.setQueryData<RefundOperationsOverview>(
-      ['admin-refund-operations-overview'],
+    queryClient.setQueriesData<RefundOperationsOverview>(
+      { queryKey: ['admin-refund-operations-overview', user?.id] },
       (current) => preserveConfirmedCardApproval(current, confirmedCardApprovalOutcomesRef.current),
     );
   };
-  const readFreshRefundOverview = async () => {
-    const incoming = await fetchRefundOperationsOverview();
-    const merged = retainConfirmedCardApprovals(
-      incoming,
-      mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
-    );
-    overviewTruthRef.current = merged;
-    queryClient.setQueryData(['admin-refund-operations-overview'], merged);
+  const caseReadKey = (caseId: string | null) => ['admin-refund-operations-overview', user?.id, caseId];
+  const readFreshRefundOverview = async (caseId = selectedIdRef.current) => {
+    if (!caseId) throw new Error('Select a refund case first.');
+    const incoming = await fetchRefundCaseDetail(caseId);
+    const merged = retainConfirmedCardApprovals(incoming,
+      mergeRefundOverviewContactTruth(queryClient.getQueryData(caseReadKey(caseId)), incoming));
+    if (selectedIdRef.current === caseId) overviewTruthRef.current = merged;
+    queryClient.setQueryData(caseReadKey(caseId), merged);
     return merged;
   };
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
     data: liveQueueProjection,
     isLoading: queueProjectionIsLoading,
+    isFetching: queueIsFetching,
+    error: queueReadError,
   } = useQuery({
-    queryKey: ['refund-portal-queue-projection'],
-    queryFn: fetchRefundPortalQueueProjection,
+    queryKey: ['refund-portal-queue-projection', user?.id],
+    queryFn: ({ signal }) => fetchRefundPortalQueueProjection(signal),
     retry: false,
     enabled: !forceDemoData,
     staleTime: 1000 * 30,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
   const {
     data: liveOverviewSnapshot,
@@ -2980,37 +2982,30 @@ export default function AdminRefundsPage() {
     errorUpdatedAt: overviewErrorUpdatedAt,
     status: overviewReadStatus,
   } = useQuery({
-    queryKey: ['admin-refund-operations-overview'],
-    queryFn: () => overviewPolling.read(async () => {
-      const incoming = await fetchRefundOperationsOverview();
+    queryKey: caseReadKey(selectedId),
+    queryFn: ({ signal }) => overviewPolling.read(async () => {
+      const incoming = await fetchRefundCaseDetail(selectedId!, signal);
       const merged = retainConfirmedCardApprovals(
         incoming,
-        mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
+        mergeRefundOverviewContactTruth(queryClient.getQueryData(caseReadKey(selectedId)), incoming),
       );
       overviewTruthRef.current = merged;
       return merged;
     }),
     retry: false,
-    enabled: !forceDemoData,
-    staleTime: 1000 * 30,
+    enabled: !forceDemoData && Boolean(selectedId),
+    staleTime: 0,
+    gcTime: 0,
     refetchInterval: (query) => overviewPolling.interval(refundOverviewPollingInterval(
       (query.state.data as RefundOperationsOverview | undefined)?.cases,
     )),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
-  const { data: liveManagerWork } = useQuery({
-    queryKey: ['refund-manager-work-projection'],
-    queryFn: fetchRefundManagerWorkProjection,
-    enabled: !forceDemoData && overviewReadStatus === 'success',
-    staleTime: 1000 * 30,
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
   const { data: liveSupplements } = useQuery({
-    queryKey: ['refund-operations-supplements'],
+    queryKey: ['refund-operations-supplements', user?.id],
     queryFn: fetchRefundOperationsSupplements,
-    enabled: !forceDemoData && overviewReadStatus === 'success',
+    enabled: !forceDemoData,
     staleTime: 1000 * 30,
     retry: false,
     refetchInterval: 30_000,
@@ -3019,11 +3014,11 @@ export default function AdminRefundsPage() {
   });
   const liveOverview = useMemo<RefundOperationsOverview>(() => ({
     ...mergeRefundOperationsSupplements(
-      liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] },
+      (error instanceof RefundCaseAccessError || queueReadError instanceof RefundCaseAccessError ? undefined : liveOverviewSnapshot) ?? { cases: [], machines: [], managerAssignments: [] },
       liveSupplements,
     ),
-    managerWork: liveManagerWork ?? null,
-  }), [liveManagerWork, liveOverviewSnapshot, liveSupplements]);
+    managerWork: null,
+  }), [liveOverviewSnapshot, liveSupplements, error, queueReadError]);
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
@@ -3101,7 +3096,7 @@ export default function AdminRefundsPage() {
     ? false
     : liveOverviewSnapshot === undefined && liveQueueProjection === undefined &&
       (liveIsLoading || queueProjectionIsLoading);
-  const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
+  const pageIsFetching = isUsingDemoData ? false : liveIsFetching || queueIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
   const overview = isUsingDemoData ? demoOverview : liveOverview;
   useEffect(() => {
@@ -3119,7 +3114,7 @@ export default function AdminRefundsPage() {
     });
   }, [overview.cases,pageIsLoading,error,isUsingDemoData]);
   const fullOverviewReady = isUsingDemoData || liveOverviewSnapshot !== undefined;
-  const queueProjectionActive = !fullOverviewReady && liveQueueProjection !== undefined;
+  const queueProjectionActive = !isUsingDemoData && liveQueueProjection !== undefined;
   const refundOperationsAccess = fullOverviewReady
     ? overview.refundOperationsAccess === true
     : liveQueueProjection?.refundOperationsAccess === true;
@@ -3131,8 +3126,31 @@ export default function AdminRefundsPage() {
   const companyMatches = useCallback((row: { accountId?: string | null }) => companyId === 'all' || row.accountId === companyId, [companyId]);
   const companyCases = useMemo(() => overview.cases.filter(companyMatches), [overview.cases, companyMatches]);
   const companyInternalCases = useMemo(() => internalTestCases.filter(companyMatches), [internalTestCases, companyMatches]);
-  const companyQueueItems = useMemo(() => (liveQueueProjection?.items ?? []).filter(companyMatches), [liveQueueProjection, companyMatches]);
-  const companies = companyOptions([...(queueProjectionActive ? liveQueueProjection?.items ?? [] : [...overview.cases, ...internalTestCases]), ...(reportAccess.isSuccess && reportAccess.data.hasAccess ? reportAccess.data.dimensions : [])]);
+  const visibleQueueItems: RefundPortalQueueItem[] = (() => {
+    if (queueReadError instanceof RefundCaseAccessError) return [];
+    const items = [...(liveQueueProjection?.items ?? [])];
+    for (const draft of liveSupplements?.gmailDrafts ?? []) {
+      if (items.some(item => item.caseId === draft.id)) continue;
+      const view = refundManagerView(draft);
+      const queueView = view === 'completed' ? 'completed' : view === 'decisions' ? 'decisions'
+        : view === 'waiting_on_customer' ? 'waiting_on_customer' : 'all_open';
+      items.push({ caseId: draft.id, publicReference: draft.publicReference,
+        accountId: draft.accountId, accountName: draft.accountName,
+        machineLabel: draft.machineLabel, locationName: draft.locationName,
+        amountCents: draft.refundAmountCents ?? draft.paymentAmountCents, currencyCode: 'USD',
+        createdAt: draft.createdAt, view: queueView, isOpen: queueView !== 'completed',
+        decisionReady: queueView === 'decisions', nextWorkActor: draft.lifecycle?.nextWork?.actor ?? 'agent',
+        nextWorkActionCode: draft.lifecycle?.nextWork?.actionCode ?? 'research_purchase',
+        nextWorkActionLabel: taskLabel(draft), payloadRedacted: true,
+        searchText: [draft.customerEmail, draft.customerName, draft.issueSummary].filter(Boolean).join(' '),
+      });
+    }
+    return items.map((item): RefundPortalQueueItem => confirmedCardApprovalOutcomesRef.current.has(item.caseId) && item.decisionReady
+      ? { ...item, view: 'all_open', decisionReady: false, isOpen: true, nextWorkActor: 'system',
+        nextWorkActionCode: 'continue_approved_refund', nextWorkActionLabel: 'Refund processing' } : item);
+  })();
+  const companyQueueItems = useMemo(() => visibleQueueItems.filter(companyMatches), [visibleQueueItems, companyMatches]);
+  const companies = companyOptions([...(queueProjectionActive ? visibleQueueItems : [...overview.cases, ...internalTestCases]), ...(reportAccess.isSuccess && reportAccess.data.hasAccess ? reportAccess.data.dimensions : [])]);
   const companyUnavailable = companyId !== 'all' && !companies.some(row => row.id === companyId);
   const changeQueueCompany = (id: string) => {
     if (caseSelectionSafetyRef.current.actionInFlight || caseSelectionSafetyRef.current.hasUnsavedCaseText) { toast.info('Finish the current action or save/discard case text before changing company.'); return; }
@@ -3222,10 +3240,10 @@ export default function AdminRefundsPage() {
   ]);
 
   const hasAnyCases = queueProjectionActive
-    ? (liveQueueProjection?.items.length ?? 0) > 0
+    ? visibleQueueItems.length > 0
     : overview.cases.length + internalTestCases.length > 0;
   const refundQueueTruthUnavailable = !isUsingDemoData &&
-    overviewReadStatus === 'error' && !liveOverviewSnapshot && !liveQueueProjection;
+    Boolean(queueReadError) && !liveQueueProjection;
   const isSearching = search.trim().length > 0;
   const searchScope = `${statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views'}${companyId === 'all' ? '' : ' in the selected company'}`;
   const emptyQueueTitle = companyUnavailable ? 'Selected company is unavailable.' : refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
@@ -3239,7 +3257,7 @@ export default function AdminRefundsPage() {
     : 'New assigned refund requests will appear here.';
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || liveIsLoading || error) return;
 
     const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
@@ -3260,6 +3278,7 @@ export default function AdminRefundsPage() {
     setPendingCaseSelectionId(null);
   }, [
     overview.cases,
+    liveIsLoading, error,
     internalTestCases,
     liveQueueProjection,
     queueProjectionActive,
@@ -3267,7 +3286,7 @@ export default function AdminRefundsPage() {
   ]);
 
   useEffect(() => {
-    if (!selectedId || isSearching) return;
+    if (!selectedId || isSearching || liveIsLoading || error) return;
     if (queueProjectionActive) return;
     if (filteredCases.some((refundCase) => refundCase.id === selectedId)) return;
     if (caseSelectionSafetyRef.current.actionInFlight) return;
@@ -3294,6 +3313,7 @@ export default function AdminRefundsPage() {
     setPendingCaseSelectionId(null);
   }, [
     filteredCases,
+    liveIsLoading, error,
     internalTestCases,
     isSearching,
     overview.cases,
@@ -3754,7 +3774,7 @@ export default function AdminRefundsPage() {
     error: gmailContextError,
   } = useQuery({
     queryKey: ['refund-gmail-case-context', selectedCase?.id],
-    queryFn: () => fetchRefundGmailCaseContext(selectedCase?.id ?? ''),
+    queryFn: ({ signal }) => fetchRefundGmailCaseContext(selectedCase?.id ?? '', signal),
     enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
     staleTime: 1000 * 30,
   });
@@ -4121,7 +4141,7 @@ export default function AdminRefundsPage() {
     caseId: string,
     candidate?: NayaxLookupCandidate | null,
   ) => {
-    const freshOverview = await readFreshRefundOverview();
+    const freshOverview = await readFreshRefundOverview(caseId);
     const freshCase = freshOverview.cases.find((refundCase) => refundCase.id === caseId) ?? null;
     const freshReadiness = await fetchNayaxCardRefundAvailability(caseId);
     queryClient.setQueryData(['nayax-card-refund-availability', caseId], freshReadiness);
@@ -4167,8 +4187,8 @@ export default function AdminRefundsPage() {
         refundAmountCents: readiness.refundAmountCents ?? targetCase.refundAmountCents,
         refundReadiness: readiness,
       };
-      queryClient.setQueryData<RefundOperationsOverview>(
-        ['admin-refund-operations-overview'],
+      queryClient.setQueriesData<RefundOperationsOverview>(
+        { queryKey: ['admin-refund-operations-overview', user?.id] },
         (current) => current
           ? {
               ...current,
@@ -4223,7 +4243,8 @@ export default function AdminRefundsPage() {
       toast.success('Refund case updated.');
     }
     if (targetStillSelected && result.updateApplied !== false) setIsInternalNoteDirty(false);
-    await refresh();
+    if (result.updateApplied !== false && targetCase.status === 'completed') void refresh();
+    else await refresh();
     return {
       customerMessage: result.customerMessage ?? null,
       updateApplied: result.updateApplied !== false,
@@ -4647,8 +4668,10 @@ export default function AdminRefundsPage() {
   };
 
   const applyNayaxExecutionResult = async (
-    result: NayaxCardRefundExecutionResponse
+    result: NayaxCardRefundExecutionResponse,
+    targetCaseId: string,
   ) => {
+    if (selectedIdRef.current !== targetCaseId) return;
     const availabilityRefresh = isUsingDemoData
       ? Promise.resolve()
       : queryClient.invalidateQueries({ queryKey: ['nayax-card-refund-availability'] });
@@ -4674,7 +4697,7 @@ export default function AdminRefundsPage() {
       result.status === 'system_finishing' &&
       result.providerAttempted === false
     ) {
-      if (selectedCase) holdConfirmedCardApproval(selectedCase.id);
+      holdConfirmedCardApproval(targetCaseId);
       setNayaxExecutionNotice(null);
       setRefundActionReceipt({
         tone: 'success',
@@ -4683,8 +4706,8 @@ export default function AdminRefundsPage() {
           'Your approval was saved. Bloomjoy is finishing the refund automatically and will email the customer after Nayax confirms it. Do not try the refund again.',
       });
       toast.success('Refund approved. Bloomjoy is finishing it automatically.');
-      await refresh();
-      await availabilityRefresh;
+      void refresh();
+      void availabilityRefresh;
       return;
     }
 
@@ -4700,8 +4723,8 @@ export default function AdminRefundsPage() {
         reference,
       });
       toast.success('The refund is confirmed. Accounting review is queued; do not retry it.');
-      await refresh();
-      await availabilityRefresh;
+      void refresh();
+      void availabilityRefresh;
       return;
     }
 
@@ -4735,8 +4758,8 @@ export default function AdminRefundsPage() {
       } else {
         toast.error('The refund is complete, but the customer email still needs attention.');
       }
-      await refresh();
-      await availabilityRefresh;
+      void refresh();
+      void availabilityRefresh;
       return;
     }
 
@@ -4764,8 +4787,8 @@ export default function AdminRefundsPage() {
         : 'Refund not sent';
 
     if ((result.providerAttempted === true || result.replayed === true) && selectedCase) {
-      queryClient.setQueryData<RefundOperationsOverview>(
-        ['admin-refund-operations-overview'],
+      queryClient.setQueriesData<RefundOperationsOverview>(
+        { queryKey: ['admin-refund-operations-overview', user?.id] },
         (currentOverview) => currentOverview
           ? {
               ...currentOverview,
@@ -4853,7 +4876,8 @@ export default function AdminRefundsPage() {
         refundAmountCents: approvalAmount,
       });
       if (result.approved === true) holdConfirmedCardApproval(targetCaseId, result.status);
-      await refresh();
+      void refresh();
+      if (selectedIdRef.current !== targetCaseId) return;
       setRefundActionReceipt({
         tone: result.status === 'provider_hold' ? 'warning' : 'success',
         title: result.status === 'completed'
@@ -4915,7 +4939,8 @@ export default function AdminRefundsPage() {
         refundAmountCents: approvalAmount,
       });
       holdConfirmedCardApproval(targetCaseId);
-      await refresh();
+      void refresh();
+      if (selectedIdRef.current !== targetCaseId) return;
       setRefundActionReceipt({
         tone: 'success',
         title: 'Final decision saved',
@@ -5016,13 +5041,13 @@ export default function AdminRefundsPage() {
         expectedOfficialActionVersion: executionVersion,
       };
       const result = await executeNayaxCardRefund(executionInput);
-      await applyNayaxExecutionResult(result);
+      await applyNayaxExecutionResult(result, executionInput.caseId);
     } catch (executionError) {
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
       if (response) {
-        await applyNayaxExecutionResult(response);
+        await applyNayaxExecutionResult(response, selectedCase.id);
       } else {
         const message = executionError instanceof Error
           ? executionError.message
@@ -5519,7 +5544,7 @@ export default function AdminRefundsPage() {
   useEffect(() => {
     const linked = companyParams.get('case');
     if (!queueProjectionActive || !linked || handledCaseQueryRef.current === linked) return;
-    const item = liveQueueProjection?.items.find(row => row.caseId === linked); if (!item) return;
+    const item = visibleQueueItems.find(row => row.caseId === linked); if (!item) return;
     handledCaseQueryRef.current = linked;
     if (companyId !== 'all' && item.accountId !== companyId) {
       const next = new URLSearchParams(companyParams); if (item.accountId) next.set('company', item.accountId); else next.delete('company'); setCompanyParams(next, { replace: true });
@@ -5528,7 +5553,7 @@ export default function AdminRefundsPage() {
     handleSelectCaseById(linked);
     // Selection uses the existing safety and detail hydration paths.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyParams, liveQueueProjection, queueProjectionActive]);
+  }, [companyParams, liveQueueProjection, visibleQueueItems, queueProjectionActive]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -7056,8 +7081,9 @@ export default function AdminRefundsPage() {
                 className="mt-2 max-w-3xl"
               >
                 <p data-testid="refund-customer-problem-summary" className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
-                  {selectedCase.issueSummary?.trim() || issueCategoryLabel(selectedCase)}
+                  {issueCategoryLabel(selectedCase)}
                 </p>
+                <RefundCustomerNotes refundCase={selectedCase} />
               </div>
 
             </article>
@@ -7593,7 +7619,7 @@ export default function AdminRefundsPage() {
                     aria-label="Search refund cases"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder={queueProjectionActive ? 'Reference, machine, or location' : 'Reference, customer, machine, or location'}
+                    placeholder="Reference, customer, machine, or location"
                     aria-describedby="refund-search-scope"
                     className="pl-9"
                   />
@@ -7646,9 +7672,10 @@ export default function AdminRefundsPage() {
                   <div className="text-sm text-muted-foreground">
                     {selectedId
                       ? overviewReadStatus === 'error'
-                        ? 'Current case details are temporarily unavailable. Refresh to try again.'
+                        ? error instanceof RefundCaseAccessError ? error.message : 'This case could not be loaded. Try again.'
                         : 'Loading the current case details and available actions…'
                       : 'Select a refund case to review the details and choose the next step.'}
+                    {selectedId && overviewReadStatus === 'error' && !(error instanceof RefundCaseAccessError) && <Button variant="outline" className="mt-3 min-h-11" onClick={() => void refresh()}>Retry case</Button>}
                   </div>
                 ) : (
                   <div className="space-y-5">

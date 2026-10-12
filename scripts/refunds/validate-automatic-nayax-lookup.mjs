@@ -102,7 +102,7 @@ assert(
 );
 assert(
   purchaseReview.includes('Supports this purchase') &&
-    purchaseReview.includes('Uncertain or different') &&
+    purchaseReview.includes('Evidence limits') && purchaseReview.includes('Differences to review') &&
     purchaseReview.includes('evidence.supporting.map') &&
     purchaseReview.includes('evidence.conflicts') &&
     purchaseReview.includes('evidence.uncertainties') &&

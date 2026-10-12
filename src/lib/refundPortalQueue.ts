@@ -2,6 +2,7 @@ export type RefundPortalQueueItem = {
   accountId?: string | null; accountName?: string | null;
   caseId: string;
   publicReference: string;
+  searchText?: string;
   amountCents: number | null;
   currencyCode: string | null;
   machineLabel: string;
@@ -84,6 +85,7 @@ export const parseRefundPortalQueueProjection = (
     ) {
       throw new Error('Unsupported refund queue summary.');
     }
+    if (item.searchText !== undefined && typeof item.searchText !== 'string') throw new Error('Unsupported refund queue search.');
     if ((item.accountId != null && typeof item.accountId !== 'string') || (item.accountName != null && typeof item.accountName !== 'string')) throw new Error('Unsupported refund queue company.');
     return { ...item, accountId: item.accountId ?? null, accountName: item.accountName ?? null } as RefundPortalQueueItem;
   });
@@ -131,7 +133,7 @@ export const filterRefundPortalQueue = (
   const query = search.trim().toLocaleLowerCase();
   return items.filter((item) => {
     if ((item.view === 'internal_test') !== (view === 'internal_test')) return false;
-    if (query) return [item.publicReference, item.machineLabel, item.locationName]
+    if (query) return [item.publicReference, item.machineLabel, item.locationName, item.searchText ?? '']
       .some((value) => value.toLocaleLowerCase().includes(query));
     return view === 'all_open' ? item.isOpen : item.view === view;
   }).sort((left, right) => {

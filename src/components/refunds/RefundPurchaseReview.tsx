@@ -53,7 +53,10 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
   const providerDigits = candidate?.cardLast4 ?? selected?.cardLast4;
   const providerNetwork = candidate?.cardNetwork ?? selected?.cardNetwork;
   const machineContext = candidate ? getRefundMachineContextPresentation(candidate) : null;
-  const differences = [...evidence.conflicts, ...evidence.uncertainties];
+  const differences = evidence.conflicts;
+  const chargedAmount = candidate?.amountCents ?? selected?.saleAmountCents;
+  const amountDiffers = typeof chargedAmount === 'number' && typeof refundCase.paymentAmountCents === 'number'
+    && chargedAmount !== refundCase.paymentAmountCents;
   const purchaseLabel = selected || locallySelected ? 'Selected purchase' : 'Purchase candidate';
   const rows = [
     { label: 'Amount', customer: money(refundCase.paymentAmountCents), provider: money(candidate?.amountCents ?? selected?.saleAmountCents, candidate?.currencyCode ?? selected?.currencyCode) },
@@ -75,8 +78,9 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
       </div>)}
       <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">Card</dt><dd className="min-w-0 break-words font-medium">{rows[3].provider} · {rows[2].provider}</dd></div>
     </dl>
+    {amountDiffers && <p data-testid="refund-amount-comparison" className="mt-3 text-sm leading-5">Customer reported {money(refundCase.paymentAmountCents)}; selected purchase charged {money(chargedAmount, candidate?.currencyCode ?? selected?.currencyCode)}.</p>}
     {differences.length > 0 && <div data-testid="refund-purchase-uncertainty" className="mt-3 text-sm leading-5">
-      <h5 className="font-medium">Uncertain or different</h5>
+      <h5 className="font-medium">Differences to review</h5>
       <ul className="mt-1 space-y-1 text-muted-foreground">{differences.map((fact) => <li key={fact.key}>{fact.label}</li>)}</ul>
     </div>}
     <details className="mt-3 border-t border-border">
@@ -100,6 +104,10 @@ export function RefundPurchaseReview({ refundCase, candidate, selected, timezone
       </div>)}
     </div>
     <div className="mt-4" data-testid="refund-purchase-evidence">
+      {evidence.uncertainties.length > 0 && <div>
+        <h5 className="text-sm font-semibold">Evidence limits</h5>
+        <ul className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">{evidence.uncertainties.map(fact => <li key={fact.key}>{fact.label}</li>)}</ul>
+      </div>}
       {evidence.supporting.length > 0 && <div>
         <h5 className="text-sm font-semibold">Supports this purchase</h5>
         <ul className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">

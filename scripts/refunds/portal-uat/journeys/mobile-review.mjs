@@ -146,7 +146,7 @@ export const createMobileReviewChecks = ({ fixtures, harness }) => {
     await installMockSupabaseRoutes(pendingContext, { refundOverview: () => ({ ...base, cases: [pendingCase] }), refundPortalQueueProjection: projection });
     let resumeOverview;
     const overviewGate = new Promise(resolve => { resumeOverview = resolve; });
-    await pendingContext.route('**/rpc/admin_get_refund_operations_overview', async route => { await overviewGate; await route.fallback(); });
+    await pendingContext.route('**/rpc/get_refund_portal_case_detail', async route => { await overviewGate; await route.fallback(); });
     const pendingPage = await pendingContext.newPage();
     await signInRefundUser(pendingPage, appUrl);
     await queueCase(pendingPage, pendingCase.publicReference).click();
@@ -155,7 +155,7 @@ export const createMobileReviewChecks = ({ fixtures, harness }) => {
     await pendingPage.getByTestId('refund-detail-back-to-queue').click();
     await pendingPage.locator('#refund-queue-panel').waitFor({ state: 'visible' });
     resumeOverview();
-    await pendingPage.waitForResponse(response => response.url().endsWith('/rpc/admin_get_refund_operations_overview'));
+    await pendingPage.waitForResponse(response => response.url().endsWith('/rpc/get_refund_portal_case_detail'));
     await pendingPage.waitForTimeout(100);
     recorder.assert('Late detail hydration preserves the returned queue', await pendingPage.locator('#refund-queue-panel').isVisible() && !new URL(pendingPage.url()).searchParams.has('case'));
     await pendingPage.goForward();

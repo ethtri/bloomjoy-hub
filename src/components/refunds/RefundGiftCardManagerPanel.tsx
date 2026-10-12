@@ -1,3 +1,4 @@
+import { RefundCustomerNotes } from './RefundCustomerNotes';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -43,8 +44,8 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
     try {
       await decideRefundGiftCard(refundCase.id, approve, notes.trim(), approve ? affectedAmountCents! : undefined);
       setDecided(true);
-      await queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }), queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }), queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })]);
+      void queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
+      void Promise.all([queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }), queryClient.invalidateQueries({ queryKey: ['refund-portal-queue-projection'] }), queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] })]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save this decision.'); }
     finally { setPending(false); }
   };
@@ -53,7 +54,7 @@ export function RefundGiftCardManagerPanel({ refundCase }: { refundCase: RefundC
     <h3 className="text-xl font-semibold">{card?.state === 'manager_review' ? 'Review gift card request' : 'Gift card request'}</h3>
     <div>
       <p className="text-sm font-medium">{refundCase.publicReference} · {refundCase.customerName || refundCase.customerEmail}</p>
-      <p className="mt-2 whitespace-pre-line break-words text-sm leading-6">{refundCase.issueSummary || 'No additional comments.'}</p>
+      <RefundCustomerNotes refundCase={refundCase} />
       <p className="mt-2 text-sm text-muted-foreground">Purchase: {giftCardAmount(refundCase.paymentAmountCents, 'USD')} · {refundCase.machineLabel} · {refundCase.paymentMethod}</p>
     </div>
     {query.isPending && <p role="status">Loading the gift card and previous issuance…</p>}
