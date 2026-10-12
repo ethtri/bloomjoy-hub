@@ -45,7 +45,9 @@ begin
   definition:=replace(pg_get_functiondef('public.admin_upsert_operator_machine_assignment(uuid,uuid,uuid,date,date)'::regprocedure),chr(13),'');
   anchor:='(machine.account_id = profile_row.account_id or (private.reporting_company_payroll_machine_matches(profile_row.account_id,machine.id,profile_row.id) and exists(select 1 from private.reporting_company_payroll_compatibility retained join public.operator_machine_assignments original on original.id=retained.operator_assignment_id where retained.operator_assignment_id=p_assignment_id and retained.operator_profile_id=profile_row.id and retained.reporting_machine_id=machine.id)))';
   if position(anchor in definition)=0 then raise exception 'Assignment payer seam changed'; end if;
-  execute replace(definition,anchor,'private.reporting_company_payroll_machine_matches(profile_row.account_id,machine.id,profile_row.id)');
+  execute replace(definition,anchor,'('||anchor||' or exists(select 1 from private.payroll_machine_payer_scopes scope
+    where scope.operator_profile_id=profile_row.id and scope.reporting_machine_id=machine.id
+      and scope.payroll_account_id=profile_row.account_id))');
 end;
 $patch$;
 
