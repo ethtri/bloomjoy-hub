@@ -73,6 +73,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_refund_manager_work_projection',
   'get_refund_portal_queue_projection',
   'get_refund_portal_case_detail',
+  'search_refund_portal_queue',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
@@ -3919,6 +3920,12 @@ const installMockSupabaseRoutes = async (
       } : current));
     }
 
+    if (rpcName === 'search_refund_portal_queue') {
+      const query = String(request.postDataJSON()?.p_query ?? '').trim().toLowerCase();
+      return route.fulfill(jsonResponse([...currentRefundOverview().cases, ...(currentRefundOverview().internalTestCases ?? [])]
+        .filter(row => [row.publicReference,row.customerEmail,row.customerName,row.issueSummary].filter(Boolean).join(' ').toLowerCase().includes(query)).map(row => row.id)));
+    }
+
     if (url.includes('/get_refund_portal_queue_projection')) {
       if (refundPortalQueueProjection !== undefined) return route.fulfill(jsonResponse(refundPortalQueueProjection));
       const model = currentRefundOverview();
@@ -3937,7 +3944,7 @@ const installMockSupabaseRoutes = async (
           currencyCode: 'USD', machineLabel: row.machineLabel, locationName: row.locationName, createdAt: row.createdAt,
           accountId: row.accountId, accountName: row.accountName, view, isOpen: ['all_open','decisions','waiting_on_customer'].includes(view),
           decisionReady: view === 'decisions', nextWorkActor: work?.actor ?? 'agent', nextWorkActionCode: work?.actionCode ?? 'research_purchase',
-          nextWorkActionLabel: work?.actionLabel || 'Review case', searchText: [row.customerEmail,row.customerName,row.issueSummary].filter(Boolean).join(' '), payloadRedacted: true };
+          nextWorkActionLabel: work?.actionLabel || 'Review case', payloadRedacted: true };
       });
       return route.fulfill(jsonResponse({ schemaVersion: 'refund_portal_queue_v1', observedAt: now.toISOString(), items,
         counts: { allOpen: items.filter(x=>x.isOpen).length, decisions: items.filter(x=>x.decisionReady).length,
@@ -4841,16 +4848,14 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   });
   const unavailablePage = await unavailableContext.newPage();
   await signInRefundUser(unavailablePage, appUrl);
-  await unavailablePage.getByTestId('refund-overview-read-status').getByText(
-    'The latest refund information could not be loaded. Bloomjoy will keep trying.',
-    { exact: true },
-  ).waitFor({ timeout: 10000 });
+  await queueCase(unavailablePage, 'RF-UAT-CARD').click();
+  await unavailablePage.getByText('This case could not be loaded. Try again.', { exact: true }).waitFor({ timeout: 10000 });
   const unavailableBody = await unavailablePage.locator('body').innerText();
-  recorder.assert('Unavailable overview does not become a healthy empty Manager queue',
-    unavailableBody.includes('Refund case list temporarily unavailable.') &&
-      unavailableBody.includes('Case list unavailable') &&
+  recorder.assert('Failed selected-case detail keeps the healthy queue and offers retry without a money action',
+    await unavailablePage.getByRole('button', { name: 'Retry case', exact: true }).isVisible() &&
+      (await unavailablePage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       !unavailableBody.includes('No refund cases are assigned here yet.') &&
-      (await unavailablePage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 0,
+      (await unavailablePage.getByRole('button', { name: /^Decision needed 1$/ }).count()) === 1,
     unavailableBody.slice(0, 400));
   await closeRefundPortalContext(unavailableContext);
 };

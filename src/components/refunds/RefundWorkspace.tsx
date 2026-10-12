@@ -24,5 +24,7 @@ export default function RefundWorkspace() {
   if (detail.isSuccess && detail.data && !detail.data.canOpenManagerWorkspace) return <RefundRequests />;
   // Keep the Manager shell mounted. Its protected case RPC enforces current
   // case access independently, including while this routing check is pending.
-  return <ManagerRefunds key={user?.id} />;
+  return <ManagerRefunds key={user?.id}
+    caseAccess={detail.isError ? 'error' : detail.isPending ? 'pending' : 'allowed'}
+    retryCaseAccess={() => { void detail.refetch(); }} />;
 }

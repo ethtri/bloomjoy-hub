@@ -3037,6 +3037,16 @@ export const fetchRefundPortalQueueProjection = async (parentSignal?: AbortSigna
   return parseRefundPortalQueueProjection(result.data);
 };
 
+export async function searchRefundPortalQueue(query: string, parentSignal?: AbortSignal): Promise<string[]> {
+  const result = await withRequestTimeout(async signal => await supabaseClient.rpc(
+    'search_refund_portal_queue', { p_query: query },
+  ).abortSignal(signal), 10_000, parentSignal);
+  if (result.error?.code === '42501') throw new RefundCaseAccessError();
+  if (result.error) throw new Error('Refund search is temporarily unavailable.');
+  if (!Array.isArray(result.data) || result.data.some(id => typeof id !== 'string')) throw new Error('Unsupported refund search response.');
+  return result.data;
+}
+
 export type RefundOperationsSupplements = {
   gmailDrafts: RefundCaseRecord[];
   queueStates: RefundEmailQueueState[];

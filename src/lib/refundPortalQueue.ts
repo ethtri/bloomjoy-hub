@@ -128,12 +128,12 @@ export const parseRefundPortalQueueProjection = (
 
 /** Search spans customer views; internal archives remain a separate scope. */
 export const filterRefundPortalQueue = (
-  items: RefundPortalQueueItem[], view: string, search: string,
+  items: RefundPortalQueueItem[], view: string, search: string, serverMatches: ReadonlySet<string> = new Set(),
 ): RefundPortalQueueItem[] => {
   const query = search.trim().toLocaleLowerCase();
   return items.filter((item) => {
     if ((item.view === 'internal_test') !== (view === 'internal_test')) return false;
-    if (query) return [item.publicReference, item.machineLabel, item.locationName, item.searchText ?? '']
+    if (query) return serverMatches.has(item.caseId) || [item.publicReference, item.machineLabel, item.locationName, item.searchText ?? '']
       .some((value) => value.toLocaleLowerCase().includes(query));
     return view === 'all_open' ? item.isOpen : item.view === view;
   }).sort((left, right) => {

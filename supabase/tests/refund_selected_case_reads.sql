@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(22);
+select plan(31);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -89,7 +89,7 @@ select ('aa455000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-SCOPED-'||n,
  'aa453000-0000-4000-8000-000000000001','aa452000-0000-4000-8000-000000000001',
  'scope-'||n||'@example.invalid','Synthetic separate purchase',now()-interval '1 day',
  'card',500,'needs_review','needs_nayax','nayax','under_review',1,now()-interval '1 day'
-from generate_series(2,21) n;
+from generate_series(2,95) n;
 select ok(has_function_privilege('authenticated','public.get_refund_portal_case_detail(uuid)','execute'),'authenticated selected-case read is available');
 select ok(not has_function_privilege('anon','public.get_refund_portal_case_detail(uuid)','execute'),'anonymous role cannot execute case detail');
 select ok(not has_function_privilege('service_role','public.get_refund_portal_case_detail(uuid)','execute'),'service role cannot replace the current case actor');
@@ -104,10 +104,38 @@ select is((select jsonb_array_length(value->'cases') from case_evidence),1,'case
 select is((select value->'cases'->0 from case_evidence),(select item from full_evidence,jsonb_array_elements(value->'cases') item where item->>'id'='aa455000-0000-4000-8000-000000000001'),'all target evidence matches compatible full overview');
 select is((select value#>'{cases,0,nayaxLookupCandidates}' from case_evidence),(select item->'nayaxLookupCandidates' from full_evidence,jsonb_array_elements(value->'cases') item where item->>'id'='aa455000-0000-4000-8000-000000000001'),'alternate candidate coverage is unchanged');
 select is(coalesce(current_setting('bloomjoy.refund_read_case_id',true),''),'','selected read restores its transaction scope');
-select is(jsonb_array_length(public.admin_get_refund_operations_overview()->'cases'),21,'later legacy read still returns the full authorized queue');
-select is((select count(*)::integer from generate_series(1,20) where jsonb_array_length(public.get_refund_portal_case_detail('aa455000-0000-4000-8000-000000000001')->'cases')=1),20,'twenty repeated reads retain exactly one case');
+select is(jsonb_array_length(public.admin_get_refund_operations_overview()->'cases'),95,'later legacy read still returns the full authorized queue');
+create function pg_temp.benchmark_refund_reads(p_count integer,p_queue boolean)
+returns table(read_count integer,slowest_ms numeric) language plpgsql as $$
+declare started timestamptz; value jsonb; elapsed numeric;
+begin
+ read_count:=0; slowest_ms:=0;
+ for n in 1..p_count loop
+  started:=clock_timestamp();
+  value:=case when p_queue then public.get_refund_portal_queue_projection()
+    else public.get_refund_portal_case_detail('aa455000-0000-4000-8000-000000000001') end;
+  elapsed:=extract(epoch from clock_timestamp()-started)*1000;
+  slowest_ms:=greatest(slowest_ms,elapsed);
+  if jsonb_array_length(value->case when p_queue then 'items' else 'cases' end)=case when p_queue then 95 else 1 end then
+   read_count:=read_count+1;
+  end if;
+ end loop;
+ return next;
+end $$;
+create temporary table detail_timings on commit drop as select * from pg_temp.benchmark_refund_reads(20,false);
+create temporary table queue_timings on commit drop as select * from pg_temp.benchmark_refund_reads(3,true);
+select is((select read_count from detail_timings),20,'twenty independently executed reads retain exactly one case');
+select ok((select slowest_ms<3000 from detail_timings),'selected reads meet the three-second target in the 95-case synthetic database');
+select ok((select read_count=3 and slowest_ms<3000 from queue_timings),'three fresh queue reads meet the three-second target in the synthetic database');
+select diag('95 synthetic cases: selected maximum '||(select round(slowest_ms,2) from detail_timings)||' ms; queue maximum '||(select round(slowest_ms,2) from queue_timings)||' ms. Production mobile/network timing still requires deployment verification.');
 select ok((select octet_length(value::text) from case_evidence)<(select octet_length(value::text) from full_evidence),'scoped payload is smaller without dropping target evidence');
 select throws_ok($$select public.get_refund_portal_case_detail('aa455000-0000-4000-8000-000000000099')$$,'42501','Current refund case access required','unknown or unauthorized case does not disclose evidence');
+select ok(has_function_privilege('authenticated','public.search_refund_portal_queue(text)','execute'),'authorized portal roles can search');
+select ok(not has_function_privilege('anon','public.search_refund_portal_queue(text)','execute'),'anonymous role cannot search');
+select ok(not has_function_privilege('service_role','public.search_refund_portal_queue(text)','execute'),'service role cannot search as a manager');
+select is(public.search_refund_portal_queue('portal-queue-customer@example.invalid'),'["aa455000-0000-4000-8000-000000000001"]'::jsonb,'customer email search returns only the matching authorized ID');
+select is(public.search_refund_portal_queue('PORTAL QUEUE TEST'),'["aa455000-0000-4000-8000-000000000001"]'::jsonb,'comment search remains case insensitive and returns IDs only');
+select is(public.search_refund_portal_queue('  '),'[]'::jsonb,'empty search cannot dump the case inventory');
 
 reset role;
 delete from public.reporting_machine_refund_managers
@@ -117,6 +145,7 @@ select throws_ok(
   $$select public.get_refund_portal_queue_projection()$$,
   '42501','Refund operations access required',
   'a former machine manager cannot reuse access after the mapping is removed');
+select throws_ok($$select public.search_refund_portal_queue('portal')$$,'42501','Refund operations access required','search access is revoked with the manager assignment');
 select set_config('request.jwt.claims',jsonb_build_object(
   'sub','aa450000-0000-4000-8000-000000000001',
   'role','authenticated','is_anonymous',true)::text,true);

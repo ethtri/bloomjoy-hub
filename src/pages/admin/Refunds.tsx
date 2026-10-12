@@ -163,6 +163,7 @@ import {
   fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundCaseDetail,
+  searchRefundPortalQueue,
   RefundCaseAccessError,
   fetchRefundPortalQueueProjection,
   fetchRefundOperationsSupplements,
@@ -2793,7 +2794,9 @@ const getPrimaryActionIssues = (
   return issues;
 };
 
-export default function AdminRefundsPage() {
+export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAccess }: {
+  caseAccess?: 'pending' | 'allowed' | 'error'; retryCaseAccess?: () => void;
+} = {}) {
   const [companyParams, setCompanyParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -2830,6 +2833,11 @@ export default function AdminRefundsPage() {
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('decisions');
   const [selectedId, setSelectedId] = useState<string | null>(companyParams.get('case'));
   const [selectionRevision, setSelectionRevision] = useState(0);
@@ -2845,6 +2853,7 @@ export default function AdminRefundsPage() {
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
+  const [isGiftActionPending, setIsGiftActionPending] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceiptPresentation | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
@@ -2906,6 +2915,7 @@ export default function AdminRefundsPage() {
       isSendingCustomerMessage ||
       isRunningNayaxRefund ||
       isCashCompletionSubmitting ||
+      isGiftActionPending ||
       isDisposingAcknowledgementException ||
       isCorrectingCustomerLocale ||
       isClassifyingInternalTest ||
@@ -2924,6 +2934,7 @@ export default function AdminRefundsPage() {
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const overviewTruthRef = useRef<RefundOperationsOverview>();
   const confirmedCardApprovalOutcomesRef = useRef<Map<string, ConfirmedCardApprovalOutcome>>(new Map());
+  const confirmedCashCompletionsRef = useRef(new Set<string>());
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const retainConfirmedCardApprovals = (
@@ -2968,12 +2979,18 @@ export default function AdminRefundsPage() {
     queryKey: ['refund-portal-queue-projection', user?.id],
     queryFn: ({ signal }) => fetchRefundPortalQueueProjection(signal),
     retry: false,
-    enabled: !forceDemoData,
+    enabled: !forceDemoData && caseAccess === 'allowed',
     staleTime: 1000 * 30,
     refetchOnWindowFocus: true,
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
   });
+  const queueSearch = useQuery({ queryKey: ['refund-queue-search', user?.id, debouncedSearch],
+    queryFn: ({ signal }) => searchRefundPortalQueue(debouncedSearch, signal),
+    enabled: !forceDemoData && caseAccess === 'allowed' && Boolean(debouncedSearch),
+    retry: false, staleTime: 0, gcTime: 0, refetchOnWindowFocus: true });
+  const serverSearchMatches = useMemo(() => new Set(debouncedSearch === search.trim() ? queueSearch.data ?? [] : []),
+    [debouncedSearch, search, queueSearch.data]);
   const {
     data: liveOverviewSnapshot,
     isLoading: liveIsLoading,
@@ -2993,7 +3010,7 @@ export default function AdminRefundsPage() {
       return merged;
     }),
     retry: false,
-    enabled: !forceDemoData && Boolean(selectedId),
+    enabled: !forceDemoData && caseAccess === 'allowed' && Boolean(selectedId),
     staleTime: 0,
     gcTime: 0,
     refetchInterval: (query) => overviewPolling.interval(refundOverviewPollingInterval(
@@ -3005,7 +3022,7 @@ export default function AdminRefundsPage() {
   const { data: liveSupplements } = useQuery({
     queryKey: ['refund-operations-supplements', user?.id],
     queryFn: fetchRefundOperationsSupplements,
-    enabled: !forceDemoData,
+    enabled: !forceDemoData && caseAccess === 'allowed',
     staleTime: 1000 * 30,
     retry: false,
     refetchInterval: 30_000,
@@ -3014,11 +3031,11 @@ export default function AdminRefundsPage() {
   });
   const liveOverview = useMemo<RefundOperationsOverview>(() => ({
     ...mergeRefundOperationsSupplements(
-      (error instanceof RefundCaseAccessError || queueReadError instanceof RefundCaseAccessError ? undefined : liveOverviewSnapshot) ?? { cases: [], machines: [], managerAssignments: [] },
-      liveSupplements,
+      (caseAccess !== 'allowed' || error instanceof RefundCaseAccessError || queueReadError instanceof RefundCaseAccessError ? undefined : liveOverviewSnapshot) ?? { cases: [], machines: [], managerAssignments: [] },
+      caseAccess === 'allowed' ? liveSupplements : undefined,
     ),
     managerWork: null,
-  }), [liveOverviewSnapshot, liveSupplements, error, queueReadError]);
+  }), [liveOverviewSnapshot, liveSupplements, error, queueReadError, caseAccess]);
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
@@ -3028,7 +3045,7 @@ export default function AdminRefundsPage() {
   } = useQuery({
     queryKey: ['nayax-card-refund-availability', selectedId],
     queryFn: () => availabilityPolling.read(() => fetchNayaxCardRefundAvailability(selectedId)),
-    enabled: !forceDemoData && Boolean(selectedId) && liveOverview.cases.find((item) => item.id === selectedId)?.resolutionMethod !== 'gift_card',
+    enabled: !forceDemoData && caseAccess === 'allowed' && liveOverview.cases.some((item) => item.id === selectedId && item.resolutionMethod !== 'gift_card'),
     staleTime: 1000 * 30,
     retry: false,
     refetchInterval: () => availabilityPolling.interval(selectedId && !availabilityCaseIsTerminal ? 5_000 : false),
@@ -3039,7 +3056,7 @@ export default function AdminRefundsPage() {
   const { data: gmailHealth } = useQuery({
     queryKey: ['refund-gmail-health'],
     queryFn: fetchRefundGmailHealth,
-    enabled: !forceDemoData,
+    enabled: !forceDemoData && caseAccess === 'allowed',
     staleTime: 1000 * 60,
     retry: false,
     refetchInterval: 15_000,
@@ -3048,7 +3065,7 @@ export default function AdminRefundsPage() {
   const { data: nayaxReliabilityHealth } = useQuery({
     queryKey: ['refund-nayax-reliability-health'],
     queryFn: fetchRefundNayaxReliabilityHealth,
-    enabled: !forceDemoData,
+    enabled: !forceDemoData && caseAccess === 'allowed',
     staleTime: 1000 * 30,
     retry: false,
   });
@@ -3066,6 +3083,7 @@ export default function AdminRefundsPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-operations-supplements'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-queue-search'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-nayax-reliability-health'] }),
@@ -3208,8 +3226,8 @@ export default function AdminRefundsPage() {
 
   const filteredPortalQueueItems = useMemo(() => {
     if (!queueProjectionActive || !liveQueueProjection) return [];
-    return filterRefundPortalQueue(companyQueueItems, statusFilter, search);
-  }, [liveQueueProjection, companyQueueItems, queueProjectionActive, search, statusFilter]);
+    return filterRefundPortalQueue(companyQueueItems, statusFilter, search, serverSearchMatches);
+  }, [liveQueueProjection, companyQueueItems, queueProjectionActive, search, statusFilter, serverSearchMatches]);
 
   const primaryQueueCounts = useMemo(() => queueProjectionActive && liveQueueProjection ? ({
     all_open: companyQueueItems.filter(item => item.isOpen && item.view !== 'internal_test').length,
@@ -3247,6 +3265,8 @@ export default function AdminRefundsPage() {
   const isSearching = search.trim().length > 0;
   const searchScope = `${statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views'}${companyId === 'all' ? '' : ' in the selected company'}`;
   const emptyQueueTitle = companyUnavailable ? 'Selected company is unavailable.' : refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
+    : isSearching && (debouncedSearch !== search.trim() || queueSearch.isFetching) ? 'Searching cases…'
+    : isSearching && queueSearch.isError ? 'Search is temporarily unavailable.'
     : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = refundQueueTruthUnavailable
     ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
@@ -4243,7 +4263,10 @@ export default function AdminRefundsPage() {
       toast.success('Refund case updated.');
     }
     if (targetStillSelected && result.updateApplied !== false) setIsInternalNoteDirty(false);
-    if (result.updateApplied !== false && targetCase.status === 'completed') void refresh();
+    if (result.refundCase?.status === 'completed') {
+      if (targetCase.paymentMethod !== 'card') confirmedCashCompletionsRef.current.add(targetCase.id);
+      void refresh();
+    }
     else await refresh();
     return {
       customerMessage: result.customerMessage ?? null,
@@ -5312,6 +5335,7 @@ export default function AdminRefundsPage() {
       cashCompletionInFlightRef.current ||
       !selectedCase ||
       selectedCase.paymentMethod === 'card' ||
+      confirmedCashCompletionsRef.current.has(selectedCase.id) ||
       !primaryActionEditor ||
       primaryActionEditor.status !== 'completed'
     ) {
@@ -7322,6 +7346,7 @@ export default function AdminRefundsPage() {
 
     const incidentTimezone = refundCaseTimezone(selectedCase);
     const cashCompletionRecorded =
+      confirmedCashCompletionsRef.current.has(selectedCase.id) ||
       selectedCase.status === 'completed' ||
       (editor.status === 'completed' &&
         Boolean(refundActionReceipt?.title.match(/refund sent via zelle|zelle refund .*confirmed/i)));
@@ -7670,12 +7695,14 @@ export default function AdminRefundsPage() {
                 </button>}
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
+                    <p role={overviewReadStatus === 'error' || caseAccess === 'error' ? 'alert' : 'status'}>
                     {selectedId
-                      ? overviewReadStatus === 'error'
+                      ? caseAccess === 'error' ? 'Request access could not be checked. Try again.' : caseAccess === 'pending' ? 'Checking request access…' : overviewReadStatus === 'error'
                         ? error instanceof RefundCaseAccessError ? error.message : 'This case could not be loaded. Try again.'
                         : 'Loading the current case details and available actions…'
                       : 'Select a refund case to review the details and choose the next step.'}
-                    {selectedId && overviewReadStatus === 'error' && !(error instanceof RefundCaseAccessError) && <Button variant="outline" className="mt-3 min-h-11" onClick={() => void refresh()}>Retry case</Button>}
+                    </p>
+                    {selectedId && (caseAccess === 'error' || overviewReadStatus === 'error') && !(error instanceof RefundCaseAccessError) && <Button variant="outline" className="mt-3 min-h-11" onClick={() => caseAccess === 'error' ? retryCaseAccess?.() : void refresh()}>Retry case</Button>}
                   </div>
                 ) : (
                   <div className="space-y-5">
@@ -7827,7 +7854,7 @@ export default function AdminRefundsPage() {
                     )}
 
                     {!selectedCaseIsInternalTest && (selectedCase.resolutionMethod === 'gift_card' ? (
-                      <RefundGiftCardManagerPanel key={selectedCase.id} refundCase={selectedCase} />
+                      <RefundGiftCardManagerPanel key={selectedCase.id} refundCase={selectedCase} onActionPendingChange={setIsGiftActionPending} />
                     ) : selectedCaseIsTerminal ? (
                       <RefundTerminalHistory
                         presentation={{
