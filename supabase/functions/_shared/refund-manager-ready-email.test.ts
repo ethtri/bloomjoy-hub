@@ -164,3 +164,29 @@ Deno.test("reviewed cash purchase renders advisory decision without payout autho
     assert(rejected, "reviewed cash cannot bypass current recommendation/proof or become payout authority");
   }
 });
+
+Deno.test("gift review describes gift value without invented payment proof", () => {
+  const gift = { ...notice, proofId: null, evidenceBasis: "gift_card_manager_review",
+    amountCents: 1500, preparationSummary: "Partial order." };
+  const parsed = parseRefundManagerReadyNotice(gift);
+  const email = buildRefundManagerReadyEmail({ notice: parsed, caseUrl: "https://portal.example/refunds?case=gift" });
+  assert(email.subject.startsWith("Gift-card decision ready"), "distinct decision subject");
+  for (const body of [email.text, email.html]) {
+    assert(body.includes("Gift-card value: $15.00"), "gift value is not the purchase or cash refund amount");
+    assert(body.includes("Review the gift-card request and approve or deny"), "direct gift decision");
+    assert(body.includes("Partial order"), "actual review reason retained");
+    assert(!/Zelle|prepared refund|purchase evidence|Recommendation:/.test(body), "no borrowed cash/card proof");
+  }
+  for (const unsafe of [
+    { ...gift, proofId: notice.proofId }, { ...gift, currencyCode: null },
+    { ...gift, currencyCode: "EUR" }, { ...gift, amountCents: 0 },
+    { ...gift, recommendationKind: "refund", recommendationReasonCode: "clear_purchase_match" },
+    { ...gift, actionCode: "send_cash_refund_and_confirm" },
+    { ...gift, actionCode: "reject_request", recommendationKind: "reject", recommendationReasonCode: "no_match_after_30_days" },
+    { ...notice, proofId: null },
+  ]) {
+    let rejected = false;
+    try { parseRefundManagerReadyNotice(unsafe); } catch { rejected = true; }
+    assert(rejected, "gift basis cannot weaken ordinary proof or payment boundaries");
+  }
+});

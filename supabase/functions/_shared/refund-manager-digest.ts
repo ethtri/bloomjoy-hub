@@ -232,7 +232,8 @@ export type RefundManagerDailyDigestItem = {
   recommendationKind: "refund" | "reject" | null;
   recommendationReasonCode: "clear_purchase_match" | "no_match_after_30_days" | null;
   evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
-    "cash_multiple_reviewed" | "cash_approved_payout" | "decision_recommendation_reject" | null;
+    "cash_multiple_reviewed" | "cash_approved_payout" | "decision_recommendation_reject" |
+    "gift_card_manager_review" | null;
   preparationSummary: string | null;
   paymentComplete: boolean;
   payloadRedacted: true;
@@ -282,7 +283,7 @@ export const parseRefundManagerDailyDigestProjection = (
       : true) throw new Error("Unsupported refund decision recommendation.");
     if (actor === "manager"
       ? recommendationKind === null && actionCode === "approve_or_deny_request"
-        ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
+        ? !["card_exact_selected", "card_reviewed_candidate_set", "gift_card_manager_review"].includes(evidenceBasis as string)
         : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
         ? evidenceBasis !== "cash_approved_payout"
         : recommendationKind === "refund"
@@ -295,6 +296,10 @@ export const parseRefundManagerDailyDigestProjection = (
       ? item.amountCents !== null || item.currencyCode !== null
       : actor === "manager" && item.amountCents === null) {
       throw new Error("Unsupported refund decision amount.");
+    }
+    if (evidenceBasis === "gift_card_manager_review" &&
+      (item.currencyCode !== "USD" || (item.amountCents as number) <= 0)) {
+      throw new Error("Gift-card value requires its recorded positive USD amount.");
     }
     if (actor === "manager"
       ? typeof item.preparationSummary !== "string" ||
@@ -371,7 +376,9 @@ export const buildRefundManagerDigestEmail = (
   const action = sorted.filter((item) => item.actor === "manager");
   const working = sorted.filter((item) => item.actor === "system" || item.actor === "agent");
   const waiting = sorted.filter((item) => item.actor === "customer");
-  const actionText = (item: RefundManagerDailyDigestItem) => item.actionCode === "send_cash_refund_and_confirm"
+  const actionText = (item: RefundManagerDailyDigestItem) => item.evidenceBasis === "gift_card_manager_review"
+    ? "Review the gift-card request and approve or deny it in the portal."
+    : item.actionCode === "send_cash_refund_and_confirm"
     ? "Review the saved cash evidence and verified destination. Send the prepared refund by Zelle, then confirm it in the portal."
     : item.actionCode === "reject_request"
     ? "Review the recommendation to decline this request. The final decision remains yours."
@@ -388,7 +395,7 @@ export const buildRefundManagerDigestEmail = (
     if (!entries.length) return { text: "", html: "" };
     const itemAmount = (item: RefundManagerDailyDigestItem) => item.recommendationKind === "reject"
       ? "No matched purchase amount"
-      : amount(item.amountCents, item.currencyCode);
+      : `${item.evidenceBasis === "gift_card_manager_review" ? "Gift-card value: " : ""}${amount(item.amountCents, item.currencyCode)}`;
     const lines = entries.map((item) => `${item.publicReference} — ${itemAmount(item)} — ${item.machineLabel} — open ${formatRefundManagerAge(item.ageMinutes)}\n${item.actor === "manager" ? `Prepared case summary: ${item.preparationSummary}\n${actionText(item)}` : otherText(item)}\nOpen case: ${caseUrl(item.caseId)}`);
     const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(itemAmount(item))}<br>${escapeHtml(item.machineLabel)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${item.actor === "manager" ? `Prepared case summary: ${escapeHtml(item.preparationSummary!)}<br>` : ""}${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
     return { text: `${heading}\n\n${lines.join("\n\n")}`, html: `<h2 style="font-size:18px;line-height:1.3;margin:26px 0 12px">${heading}</h2><ol style="padding-left:24px;margin:0">${rows}</ol>` };

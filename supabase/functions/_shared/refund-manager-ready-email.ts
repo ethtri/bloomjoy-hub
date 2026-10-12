@@ -12,7 +12,7 @@ export type RefundManagerReadyNotice = {
   evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
     "cash_multiple_reviewed" | "cash_researched_unmatched" |
     "cash_coverage_unavailable_researched" | "cash_approved_payout" |
-    "decision_recommendation_reject";
+    "decision_recommendation_reject" | "gift_card_manager_review";
   preparationSummary: string;
   publicReference: string;
   amountCents: number | null;
@@ -66,7 +66,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
   }
   if (!["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed",
     "cash_researched_unmatched", "cash_coverage_unavailable_researched",
-    "cash_approved_payout", "decision_recommendation_reject"].includes(evidenceBasis as string)) {
+    "cash_approved_payout", "decision_recommendation_reject", "gift_card_manager_review"].includes(evidenceBasis as string)) {
     throw new Error("Ready notice evidence basis is unsupported.");
   }
   const recommendationKind = data.recommendationKind;
@@ -79,7 +79,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
       actionCode === "reject_request";
   if (!recommendationValid ||
     (recommendationKind === null && actionCode === "approve_or_deny_request"
-      ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
+      ? !["card_exact_selected", "card_reviewed_candidate_set", "gift_card_manager_review"].includes(evidenceBasis as string)
       : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
       ? evidenceBasis !== "cash_approved_payout"
       : recommendationKind === "refund"
@@ -92,8 +92,11 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
     : data.amountCents === null) {
     throw new Error("Ready notice amount does not match the decision type.");
   }
-  if ((evidenceBasis === "cash_approved_payout" || evidenceBasis === "decision_recommendation_reject") !== (data.proofId === null)) {
-    throw new Error("Saved cash approval must not imply a new preparation proof.");
+  if (evidenceBasis === "gift_card_manager_review" && data.currencyCode !== "USD") {
+    throw new Error("Gift-card value requires its recorded USD currency.");
+  }
+  if ((evidenceBasis === "gift_card_manager_review" || evidenceBasis === "cash_approved_payout" || evidenceBasis === "decision_recommendation_reject") !== (data.proofId === null)) {
+    throw new Error("Ready notice proof does not match its evidence basis.");
   }
   return {
     schemaVersion: "refund_manager_ready_notice_v2",
@@ -124,27 +127,35 @@ export const buildRefundManagerReadyEmail = ({ notice, caseUrl }: {
   notice: RefundManagerReadyNotice;
   caseUrl: string;
 }) => {
-  const amount = notice.amountCents === null
+  const isGift = notice.evidenceBasis === "gift_card_manager_review";
+  const formattedAmount = notice.amountCents === null
     ? "No matched purchase amount"
     : notice.currencyCode === "USD"
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
       .format(notice.amountCents / 100)
     : `${(notice.amountCents / 100).toFixed(2)}${notice.currencyCode ? ` ${notice.currencyCode}` : " (currency not recorded)"}`;
-  const action = notice.actionCode === "reject_request"
+  const amount = isGift ? `Gift-card value: ${formattedAmount}` : formattedAmount;
+  const action = isGift
+    ? "Review the gift-card request and approve or deny it in the portal."
+    : notice.actionCode === "reject_request"
     ? "Review the recommendation to decline this request. The final decision remains yours."
     : notice.recommendationKind === "refund"
     ? "Review the refund recommendation and approve or deny it in the portal."
     : notice.actionCode === "approve_or_deny_request"
     ? "Review the prepared refund and approve or deny it in the portal."
     : "Review the saved cash evidence and payout destination. Send Zelle, then confirm it was sent in the portal.";
-  const reason = notice.recommendationKind !== null
+  const reason = isGift
+    ? notice.preparationSummary
+    : notice.recommendationKind !== null
     ? `Recommendation: ${notice.preparationSummary}`
     : notice.evidenceBasis === "cash_approved_payout"
     ? `Saved approval: ${notice.preparationSummary}`
     : `Prepared case summary: ${notice.preparationSummary}`;
   const navigation = "Opening the case does not approve, deny, send, or repeat a refund.";
-  const subject = `${notice.recommendationKind === "reject" ? "Decline recommendation" : "Refund decision"} ready: ${notice.publicReference} · ${amount}`;
-  const heading = notice.recommendationKind === "reject"
+  const subject = `${isGift ? "Gift-card decision" : notice.recommendationKind === "reject" ? "Decline recommendation" : "Refund decision"} ready: ${notice.publicReference} · ${amount}`;
+  const heading = isGift
+    ? "Gift-card decision ready"
+    : notice.recommendationKind === "reject"
     ? "Decline recommendation ready"
     : "Refund decision ready";
   const text = `${action}\n${reason}\n\n${notice.publicReference} · ${amount}\n${notice.machineLabel}, ${notice.locationName}\nOpen case: ${caseUrl}\n\n${navigation}`;
