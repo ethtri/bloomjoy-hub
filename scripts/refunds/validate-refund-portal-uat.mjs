@@ -4998,6 +4998,8 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   const functionBodies = [];
   let releaseQueueRefresh;
   const queueRefreshBarrier = new Promise(resolve => { releaseQueueRefresh = resolve; });
+  let releaseNextCaseRead;
+  const nextCaseReadBarrier = new Promise(resolve => { releaseNextCaseRead = resolve; });
   let delayedQueueReads = 0;
   const systemQueueResponse = {
     executed: false,
@@ -5031,6 +5033,10 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
       delayedQueueReads += 1;
       await queueRefreshBarrier;
     }
+    return route.fallback();
+  });
+  await context.route('**/rest/v1/rpc/get_refund_portal_case_detail', async route => {
+    if (route.request().postDataJSON()?.p_case_id === 'case-next-review') await nextCaseReadBarrier;
     return route.fallback();
   });
 
@@ -5081,6 +5087,10 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   );
   const navigationStarted = Date.now();
   await queueCase(page, 'RF-UAT-NEXT').click({ timeout: 2000 });
+  await page.getByText('Loading the current case details and available actions…', { exact: true }).waitFor();
+  recorder.assert('A slow next-case read cannot carry the previous approval receipt into the new case',
+    (await page.getByTestId('refund-action-receipt').count()) === 0);
+  releaseNextCaseRead();
   await page.getByRole('heading', { name: 'RF-UAT-NEXT', exact: true }).waitFor({ timeout: 2000 });
   recorder.assert('Confirmed approval releases navigation while the queue refresh is still pending',
     delayedQueueReads > 0 && Date.now() - navigationStarted < 2000 &&

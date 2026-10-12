@@ -4369,6 +4369,10 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     openCaseQuery(caseId, liveQueueProjection?.items.find(row => row.caseId === caseId)?.accountId);
     setSelectedId(caseId);
     setEditor(null);
+    setOfficialActionVersion(0);
+    setRefundActionReceipt(null);
+    setNayaxExecutionNotice(null);
+    setIsRefundConfirmationOpen(false);
     setIsMobileQueueExpanded(false);
   }
 
