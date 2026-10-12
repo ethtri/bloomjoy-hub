@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(14);
+select plan(15);
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
 begin
@@ -22,11 +22,18 @@ insert into public.reporting_locations(id,account_id,name,timezone) values('e230
 insert into public.reporting_machines(id,account_id,location_id,machine_label) values('e2400000-0000-4000-8000-000000000001','e2200000-0000-4000-8000-000000000001','e2300000-0000-4000-8000-000000000001','Freshness fixture');
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
  values('e2400000-0000-4000-8000-000000000001','e2100000-0000-4000-8000-000000000002','report-manager@example.invalid','Freshness fixture');
--- Before real JWT claims are installed, the historical helper can return NULL.
--- The new metadata boundary must fail closed without changing that old helper.
+-- Missing role/scheduler context has a definite denial at the shared helper.
 select set_config('request.jwt.claim.sub','e2100000-0000-4000-8000-000000000002',true);
+select is(public.is_super_admin(auth.uid()),false,'Absent role and scheduler scope produce a definite admin denial');
+-- Keep the metadata boundary regression independent of the helper contract:
+-- inject an uncertain decision, assert privacy, then restore the real helper.
+create temporary table freshness_admin_helper as
+ select pg_get_functiondef('public.is_super_admin(uuid)'::regprocedure) definition;
+create or replace function public.is_super_admin(uid uuid) returns boolean
+language sql stable security definer set search_path=public,auth as $$select null::boolean$$;
 select ok(public.is_super_admin(auth.uid()) is null,'Fixture exercises an unknown admin result when role and scheduler scope are absent');
 select is(public.get_refund_gmail_health()->'reportFreshness','null'::jsonb,'Unknown admin result cannot expose account-wide report metadata');
+do $$begin execute (select definition from freshness_admin_helper); end$$;
 select pg_temp.set_auth_claims('e2100000-0000-4000-8000-000000000001');
 select is(public.get_refund_gmail_health()#>>'{reportFreshness,status}','unobserved','No invented baseline before native message ingestion');
 insert into public.nayax_scheduled_report_files(file_digest,received_at,byte_count,row_count,report) values(repeat('2',64),now()-interval '121 minutes',100,1,'{}');
