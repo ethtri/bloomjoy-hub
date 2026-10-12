@@ -346,6 +346,11 @@ const setupContext = {
 };
 
 const installRoutes = async (context) => {
+  await context.route('**/functions/v1/pay-stub-generator', async (route) => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204 });
+    state.publicationStatus = 'queued';
+    return route.fulfill(json({ processedCount: 0, results: [{ requestId: '77000000-0000-4000-8000-000000000080', status: 'queued' }] }, 202));
+  });
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
     if (url.includes('/token')) return route.fulfill(json(session));
@@ -367,6 +372,7 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_my_time_review_context') return route.fulfill(json(timeContext()));
     if (rpcName === 'get_my_time_review_entry_options') return route.fulfill(json(timeEntryOptions));
     if (rpcName === 'get_my_time_report_access') return route.fulfill(json(true));
+    if (rpcName === 'admin_request_pay_stub_generation') return route.fulfill(json({ requestId: '77000000-0000-4000-8000-000000000080', status: 'queued' }));
     if (rpcName === 'manager_correct_operator_time_entry') {
       state.timeEntries = state.timeEntries.map((candidate) => candidate.id === body.p_time_entry_id ? { ...candidate, actualEndAt: body.p_actual_end_at, endTime: '09:00', actualDurationMinutes: 60, rawDurationMinutes: 60, paidShifts: 1, roundedPaidMinutes: 60 } : candidate);
       const legacyCorrectionContext = timeContext();
@@ -383,6 +389,16 @@ const installRoutes = async (context) => {
       }));
     }
     if (rpcName === 'get_current_technician_pay_report_context') {
+      if (state.publicationStatus) {
+        const closed = structuredClone(payContext);
+        for (const technician of closed.technicians) {
+          technician.calculationMeta.periodInProgress = false;
+          technician.publishable = true;
+          technician.payStubRegenerationRequired = false;
+          technician.payStubPublication = { status: state.publicationStatus };
+        }
+        return route.fulfill(json(closed));
+      }
       return route.fulfill(json(body.p_month === '2026-08-01' ? historicalAssignmentGapContext : payContext));
     }
     if (rpcName === 'get_operator_contact_directory') return route.fulfill(json([state.contact]));
@@ -676,6 +692,33 @@ const run = async () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1365, height: 900 });
+    for (const [status, label] of [
+      ['queued', 'Pay Stub generating automatically…'],
+      ['processing', 'Pay Stub generating automatically…'],
+      ['issued', 'Pay Stub published'],
+      ['failed', 'Pay Stub generation will retry automatically.'],
+      ['blocked', 'Pay Stub needs corrected inputs; generation retries automatically.'],
+    ]) {
+      state.publicationStatus = status;
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByText(label, { exact: true }).waitFor();
+      check(`Manager sees ${status} Pay Stub status`, await page.getByText(label, { exact: true }).isVisible());
+      if (status === 'queued' || status === 'processing') {
+        check('Generation in progress cannot create another manual request', await page.getByRole('button', { name: 'Publish Pay Stub' }).isDisabled());
+      }
+      if (status === 'issued') {
+        check('Published Pay Stub retains an explicit regeneration action', await page.getByRole('button', { name: 'Regenerate Pay Stub' }).isEnabled());
+        await page.screenshot({ path: path.join(artifactDir, 'pay-stub-published-desktop.png'), fullPage: true });
+        await page.setViewportSize({ width: 390, height: 667 });
+        check('Publication status has no mobile overflow', await noOverflow(page));
+        await page.screenshot({ path: path.join(artifactDir, 'pay-stub-published-mobile.png'), fullPage: true });
+        await page.setViewportSize({ width: 1365, height: 900 });
+        await page.getByRole('button', { name: 'Regenerate Pay Stub' }).click();
+        await page.getByText('Pay Stub queued. It will appear here automatically.', { exact: true }).waitFor();
+        check('Deferred regeneration confirms queueing without claiming publication', await page.getByText('Pay Stub generating automatically…', { exact: true }).isVisible());
+      }
+    }
   } finally {
     await browser.close();
   }

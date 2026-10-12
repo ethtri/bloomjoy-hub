@@ -6,6 +6,26 @@
 
 # QA Smoke Test Checklist
 
+## Shared mobile app controls (#1870)
+
+- At 320x568 and short landscape (568x320), open a long confirmation with an expanded customer email using synthetic data. The dialog stays inside the viewport with an inset, and scrolling reaches the title, every paragraph, editable controls, Cancel and the confirmation action without page overflow. Repeat at 200% text size.
+- Run `node scripts/validate-mobile-controls.mjs` for isolated synthetic confirmation focus/reachability checks (starts its own localhost server). Long confirmations start with visible dialog focus; short confirmations keep Cancel focus and explicit caller autofocus is preserved. Use Tab and Shift+Tab: focus stays inside, focused controls scroll into view, and Escape or Cancel restores the opener. Verify the existing machine dialog and navigation drawer also restore focus after Escape.
+- On authenticated phone layouts, shared buttons (including icon and linked buttons), inputs and select triggers have practical targets of at least 44px. Long button labels wrap within a content-sized button. Editable inputs, textareas and native selects use 16px text; include purchase-date and screenshot/file fields.
+- With reduced motion enabled, dialogs and sheets open and close without animated movement or fades, button transitions stop, and app scrolling is immediate. With motion enabled, state changes remain brief.
+- Check representative refunds, support and machine controls at desktop width and public pages at phone width. Desktop control density and public form/button defaults remain intact. Use synthetic records only; do not submit a real payment, refund or customer message for this check.
+
+## Automatic Pay Stubs
+
+- At the monthly Pacific cutoff, verify a payable synthetic Technician receives
+  one automatically issued private PDF without opening the manager portal.
+  Check winter/summer cutoff offsets, scheduler replay and duplicate prevention.
+- In `/admin/payouts`, verify generating, published and retry/blocked states;
+  a published or corrected statement offers **Regenerate Pay Stub**. Correct
+  an earlier month and verify immutable versions and later YTD refresh.
+- Interrupt a worker or simulate a PDF failure. Other contractors must continue;
+  the abandoned request must retry automatically. Missing required inputs must
+  remain a specific manager exception, with no incomplete statement issued.
+
 ## Explicit payroll payer
 
 - In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
@@ -25,6 +45,19 @@
   do not acquire the exhaustion exception. A gift-card resolution does not
   inherit the historical payout question. Message receipts, decisions and the
   consumed contact budget remain unchanged.
+
+## Reviewed legacy cash follow-up currentness (#1758)
+
+- In a disposable database, deliver the existing payout-destination request for
+  an undecided original-payment cash case with exact current reviewed purchase
+  proof and a historical empty research cycle. Customer wait remains outside
+  Manager decision preparation, while the ordinary due consumer can claim the
+  single follow-up. Exact-token replay must reuse that reminder.
+- At `/refunds`, preserve the same-case update fields and saved answers. Stale
+  source/fact/link evidence, unresolved payment outcomes, satisfied requests and
+  consumed contact budgets retain their existing protections. Sent receipt and
+  claim identities cannot be rewritten; legitimate exact provider events and
+  customer satisfaction still settle without a second question or payment.
 
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
