@@ -419,27 +419,49 @@ select ok(not has_function_privilege('anon','private.refund_snapcase_reviewed_ca
 
 create temporary table accepted_source as select public.refund_current_sunze_cash_source_key(
  '16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z') source_key;
-savepoint phase_probe;
-update public.refund_cases set decision='approved',status='cash_zelle_pending'
- where id='16617000-0000-4000-8000-000000000001';
-select is(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z'),
- (select source_key from accepted_source),'Manager approval cannot change the accepted purchase source identity');
-select is(public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'attemptId',
- (select result->>'attemptId' from recovered),'Approved cash read keeps its reviewed purchase instead of reverting to checking history');
-select is(pg_temp.error_state($call$select public.service_select_sunze_cash_candidate(
- '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from recovered),
- (select sale_id from before_move),1,3,'16600000-0000-4000-8000-000000000001')$call$),'P0001',
+-- Assertions stay outside rollback probes so TAP's plan/count metadata cannot
+-- be rolled back together with the synthetic workflow mutation.
+create function pg_temp.workflow_phase_probe(p_phase text)
+returns jsonb language plpgsql as $$
+declare result jsonb;
+begin
+ begin
+  if p_phase='approved' then
+   update public.refund_cases set decision='approved',status='cash_zelle_pending'
+    where id='16617000-0000-4000-8000-000000000001';
+   result:=jsonb_build_object(
+    'sourceKey',public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z'),
+    'attemptId',public.service_get_sunze_cash_correlation('16617000-0000-4000-8000-000000000001','16600000-0000-4000-8000-000000000001')->>'attemptId',
+    'selectionError',pg_temp.error_state($call$select public.service_select_sunze_cash_candidate(
+     '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from recovered),
+     (select sale_id from before_move),1,3,'16600000-0000-4000-8000-000000000001')$call$));
+  else
+   update public.refund_cases set nayax_refund_execution_status='manual_review'
+    where id='16617000-0000-4000-8000-000000000001';
+   result:=jsonb_build_object(
+    'sourceKey',public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z'),
+    'preparation',public.refund_manager_preparation_snapshot('16617000-0000-4000-8000-000000000001',
+     (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001')),
+    'payoutCurrent',public.refund_payout_destination_case_current((select c from public.refund_cases c where id='16617000-0000-4000-8000-000000000001')));
+  end if;
+  raise exception using errcode='P9999',message='Rollback synthetic phase probe';
+ exception when sqlstate 'P9999' then return result;
+ end;
+end;
+$$;
+create temporary table approved_phase as select pg_temp.workflow_phase_probe('approved') result;
+select is((select result->>'sourceKey' from approved_phase),(select source_key from accepted_source),
+ 'Manager approval cannot change the accepted purchase source identity');
+select is((select result->>'attemptId' from approved_phase),(select result->>'attemptId' from recovered),
+ 'Approved cash read keeps its reviewed purchase instead of reverting to checking history');
+select is((select result->>'selectionError' from approved_phase),'P0001',
  'Source association does not reopen selection after the Manager decision');
-rollback to phase_probe;
-update public.refund_cases set nayax_refund_execution_status='manual_review'
- where id='16617000-0000-4000-8000-000000000001';
-select is(public.refund_current_sunze_cash_source_key('16612000-0000-4000-8000-000000000002','2026-09-20T19:00:36Z'),
- (select source_key from accepted_source),'Outcome hold does not invent changed purchase source evidence');
-select is(public.refund_manager_preparation_snapshot('16617000-0000-4000-8000-000000000001',
- (select official_action_version from public.refund_cases where id='16617000-0000-4000-8000-000000000001')),null::jsonb,
+create temporary table unresolved_phase as select pg_temp.workflow_phase_probe('unresolved') result;
+select is((select result->>'sourceKey' from unresolved_phase),(select source_key from accepted_source),
+ 'Outcome hold does not invent changed purchase source evidence');
+select is((select result->'preparation' from unresolved_phase),'null'::jsonb,
  'Unresolved payment outcome remains unavailable to the Manager decision consumer');
-select ok(not public.refund_payout_destination_case_current((select c from public.refund_cases c where id='16617000-0000-4000-8000-000000000001')),
+select is((select result->>'payoutCurrent' from unresolved_phase),'false',
  'Unresolved payment outcome still blocks contact/payment continuation despite unchanged purchase proof');
-rollback to phase_probe;
 select * from finish();
 rollback;
