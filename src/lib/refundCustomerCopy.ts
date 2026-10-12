@@ -145,6 +145,7 @@ export const refundSpanishCopy = {
   'Please check the highlighted fields.': 'Revise los campos resaltados.',
   'Please wait for your gift card terms to load, then try again.': 'Espere a que carguen las condiciones de su tarjeta de regalo e inténtelo de nuevo.',
   'Unable to submit refund request.': 'No se pudo enviar la solicitud de reembolso.',
+  'The purchase date and time are later than your original email request. Check the purchase date and approximate local time. If they are correct, reply in the same email conversation so we can help.': 'La fecha y la hora de compra son posteriores a su solicitud original por correo. Revise la fecha de compra y la hora local aproximada. Si son correctas, responda en la misma conversación por correo para que podamos ayudarle.',
   'Your answers are still here. Try again to safely continue this same submission, even after refreshing this page.': 'Sus respuestas siguen aquí. Inténtelo de nuevo para continuar con esta misma solicitud, incluso después de actualizar la página.',
   'Your answers are still here. Try again without refreshing this page so we can safely continue this same submission.': 'Sus respuestas siguen aquí. Inténtelo de nuevo sin actualizar la página para continuar con esta misma solicitud.',
   'Tell us about one purchase so our team can review your request.': 'Cuéntenos sobre una compra para que nuestro equipo revise su solicitud.',

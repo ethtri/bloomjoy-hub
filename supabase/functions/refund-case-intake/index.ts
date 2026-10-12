@@ -14,6 +14,8 @@ import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import {
   RefundEmailContextUnavailableError,
+  RefundPurchaseTimeAfterRequestError,
+  refundEmailCaseCreationError,
   requireLinkedRefundEmailCase,
   requireLinkedRefundEmailThreadId,
 } from "../_shared/refund-email-context.ts";
@@ -143,6 +145,29 @@ type VerifiedRefundQrClaim = {
   reportingMachineId: string;
   openedAt: string;
   expiresAt: string;
+};
+
+const resolveRefundIntakeTimezone = async (
+  machine: {
+    id: string | null;
+    nayax_manual_portal_enabled?: boolean;
+    nayax_manual_portal_timezone?: string | null;
+  },
+  locationTimezone: string,
+): Promise<string> => {
+  // The reviewed grouped venue retains its existing location clock.
+  if (!machine.id) return locationTimezone;
+  if (!supabase) throw new Error("Refund intake is not configured.");
+  const { data, error } = await supabase.rpc("refund_intake_timezone", {
+    p_machine_id: machine.id,
+    p_location_timezone: locationTimezone,
+    p_manual_enabled: machine.nayax_manual_portal_enabled === true,
+    p_manual_timezone: machine.nayax_manual_portal_timezone ?? null,
+  });
+  if (error || typeof data !== "string" || !data) {
+    throw new Error("Unable to resolve the refund purchase timezone.");
+  }
+  return data;
 };
 
 const isRefundEmailContextToken = (value: string) =>
@@ -652,7 +677,7 @@ const startRefundQrClaim = async (
   const { data: machine, error: machineError } = await supabase
     .from("reporting_machines")
     .select(
-      "id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)",
+      "id, machine_label, machine_type, location_id, refund_public_display_label, nayax_manual_portal_enabled, nayax_manual_portal_timezone, reporting_locations(id, name, timezone, status)",
     )
     .eq("id", qrCodeRow.reporting_machine_id)
     .eq("status", "active")
@@ -668,6 +693,8 @@ const startRefundQrClaim = async (
     machine_type: string;
     location_id: string;
     refund_public_display_label: string | null;
+    nayax_manual_portal_enabled: boolean;
+    nayax_manual_portal_timezone: string | null;
     reporting_locations?:
       | { id: string; name: string; timezone: string; status: string }
       | { id: string; name: string; timezone: string; status: string }[]
@@ -694,6 +721,7 @@ const startRefundQrClaim = async (
     machineLabel: machineRecord.machine_label,
   });
 
+  const intakeTimezone = await resolveRefundIntakeTimezone(machineRecord, locationRecord.timezone);
   let claimToken = "";
   let insertedClaim:
     | { id: string; opened_at: string; expires_at: string }
@@ -738,7 +766,7 @@ const startRefundQrClaim = async (
           machineLabel: publicLabels.machineLabel,
           locationId: machineRecord.location_id,
           locationName: publicLabels.locationName,
-          locationTimezone: locationRecord.timezone,
+          locationTimezone: intakeTimezone,
           gift_card_enabled: await giftCardsEnabledForMachine(machineRecord.id),
         },
       },
@@ -1715,6 +1743,8 @@ serve(async (req) => {
       machine_type: string;
       location_id: string;
       refund_public_display_label: string | null;
+      nayax_manual_portal_enabled?: boolean;
+      nayax_manual_portal_timezone?: string | null;
       reporting_locations?:
         | { id: string; name: string; timezone: string; status: string }
         | { id: string; name: string; timezone: string; status: string }[]
@@ -1761,7 +1791,7 @@ serve(async (req) => {
 
       const { data: machine, error: machineError } = await supabase
         .from("reporting_machines")
-        .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
+        .select("id, machine_label, machine_type, location_id, refund_public_display_label, nayax_manual_portal_enabled, nayax_manual_portal_timezone, reporting_locations(id, name, timezone, status)")
         .eq("id", machineId)
         .eq("status", "active")
         .single();
@@ -1800,11 +1830,12 @@ serve(async (req) => {
       machineLabel: machineRecord.machine_label,
     });
 
+    const intakeTimezone = await resolveRefundIntakeTimezone(machineRecord, locationRecord.timezone);
     const incidentResolution = hasLocalIncidentInput
       ? resolveLocalDateTimeInZone({
           localDate: incidentDate,
           localTime: incidentTime,
-          timeZone: locationRecord?.timezone ?? "",
+          timeZone: intakeTimezone,
         })
       : {
           instant: legacyIncidentAt?.toISOString() ?? null,
@@ -1886,8 +1917,8 @@ serve(async (req) => {
           submissionId,
         })
       : null;
-    const submissionPayloadFingerprint = submissionIdentityHash
-      ? await buildPublicIntakeSubmissionFingerprint({
+    const fingerprintSubmissionTime = (resolvedInstant: string, resolvedTimezone: string) =>
+      buildPublicIntakeSubmissionFingerprint({
           salt: abuseControlSalt,
           submissionType: "refund_case",
           canonicalValues: [
@@ -1896,9 +1927,9 @@ serve(async (req) => {
             customerPhone,
             intakeSelectionKey ?? machineRecord.id,
             machineRecord.id,
-            incidentAt.toISOString(),
+            resolvedInstant,
             hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
-            locationRecord?.timezone ?? null,
+            resolvedTimezone,
             paymentValidation.paymentMethod,
             ...(resolutionMethod === "gift_card" ? [resolutionMethod, JSON.stringify(body.giftCardOffer)] : []),
             paymentValidation.amountCents,
@@ -1916,18 +1947,24 @@ serve(async (req) => {
             productDescription,
             issueSummary,
           ],
-        })
+        });
+    const submissionPayloadFingerprint = submissionIdentityHash
+      ? await fingerprintSubmissionTime(incidentAt.toISOString(), intakeTimezone)
       : null;
     const selectedRefundCaseColumns =
       "id, public_reference, status, correlation_status, deterministic_fact_version, intake_meta, submission_identity_hash, submission_payload_fingerprint";
-    const claimSubmissionIdentity = async (refundCaseId: string | null) => {
+    const claimSubmissionIdentity = async (
+      refundCaseId: string | null,
+      fingerprint = submissionPayloadFingerprint,
+      allowPreviousClockReplay = true,
+    ): Promise<{ outcome: "missing" | "match" | "conflict" | "adopted" | "occupied"; refundCaseId: string | null } | null> => {
       if (!submissionIdentityHash || !submissionPayloadFingerprint) return null;
       const { data, error } = await supabase.rpc(
         "service_claim_refund_submission_identity",
         {
           p_refund_case_id: refundCaseId,
           p_identity_hash: submissionIdentityHash,
-          p_payload_fingerprint: submissionPayloadFingerprint,
+          p_payload_fingerprint: fingerprint,
         },
       );
       if (error || !data || typeof data !== "object" || Array.isArray(data)) {
@@ -1941,6 +1978,22 @@ serve(async (req) => {
         || (claimedCaseId !== null && !isUuid(String(claimedCaseId)))
       ) {
         throw new Error("Unable to safely check this refund submission.");
+      }
+      // An unchanged browser retry can straddle the Norfolk clock correction.
+      // Probe the old fingerprint only after a known conflict, without a case ID:
+      // the RPC can read an existing match but cannot adopt or rewrite a case.
+      if (outcome === "conflict" && refundCaseId === null && allowPreviousClockReplay &&
+        intakeTimezone !== locationRecord.timezone) {
+        const previousInstant = hasLocalIncidentInput
+          ? resolveLocalDateTimeInZone({
+              localDate: incidentDate, localTime: incidentTime, timeZone: locationRecord.timezone,
+            }).instant
+          : incidentAt.toISOString();
+        if (previousInstant) {
+          const previousFingerprint = await fingerprintSubmissionTime(previousInstant, locationRecord.timezone);
+          const previous = await claimSubmissionIdentity(null, previousFingerprint, false);
+          if (previous?.outcome === "match" && previous.refundCaseId === claimedCaseId) return previous;
+        }
       }
       return {
         outcome: String(outcome) as "missing" | "match" | "conflict" | "adopted" | "occupied",
@@ -2074,7 +2127,7 @@ serve(async (req) => {
       issue_summary: issueSummary,
       incident_at: incidentAt.toISOString(),
       incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
-      incident_timezone: locationRecord?.timezone ?? null,
+      incident_timezone: intakeTimezone,
       incident_time_resolution: incidentResolution.resolution,
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
@@ -2215,7 +2268,7 @@ serve(async (req) => {
             );
           }
         }
-        throw new RefundEmailContextUnavailableError();
+        throw refundEmailCaseCreationError(linkError);
       }
       const linkedCase = requireLinkedRefundEmailCase(
         emailContextToken,
@@ -2620,6 +2673,13 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
+    if (error instanceof RefundPurchaseTimeAfterRequestError) {
+      console.warn("refund-case-intake purchase time after original request");
+      return new Response(
+        JSON.stringify({ error: error.message, errorCode: error.code }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
     if (error instanceof RefundEmailContextUnavailableError) {
       console.warn("refund-case-intake email context unavailable");
       return new Response(

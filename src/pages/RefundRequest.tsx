@@ -482,12 +482,16 @@ export default function RefundRequestPage() {
       ) {
         setQrSubmissionError(true);
       }
-      const message = locale === 'es' ? t('Unable to submit refund request.') : error instanceof Error ? error.message : t('Unable to submit refund request.');
+      const isPurchaseTimeError = isEdgeFunctionError(error) &&
+        error.data?.errorCode === 'refund_purchase_time_after_request';
+      const message = isPurchaseTimeError
+        ? t('The purchase date and time are later than your original email request. Check the purchase date and approximate local time. If they are correct, reply in the same email conversation so we can help.')
+        : locale === 'es' ? t('Unable to submit refund request.') : error instanceof Error ? error.message : t('Unable to submit refund request.');
       const recoveryGuidance = submissionAttemptPersistedRef.current
         ? t("Your answers are still here. Try again to safely continue this same submission, even after refreshing this page.")
         : t("Your answers are still here. Try again without refreshing this page so we can safely continue this same submission.");
       setSubmissionError(
-        `${message} ${recoveryGuidance}`,
+        isPurchaseTimeError ? message : `${message} ${recoveryGuidance}`,
       );
       requestAnimationFrame(() => submissionErrorRef.current?.focus());
     } finally {

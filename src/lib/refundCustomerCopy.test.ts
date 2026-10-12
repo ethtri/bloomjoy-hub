@@ -1,5 +1,15 @@
 /// <reference lib="deno.ns" />
 import { refundCustomerText, refundSpanishCopy } from './refundCustomerCopy.ts';
+import { RefundPurchaseTimeAfterRequestError } from '../../supabase/functions/_shared/refund-email-context.ts';
+
+Deno.test('linked-intake purchase time error is useful in English and Spanish', () => {
+  const english = new RefundPurchaseTimeAfterRequestError().message;
+  const spanish = refundCustomerText(english, 'es');
+  if (spanish === english || !spanish.includes('hora local aproximada')) {
+    throw new Error('Missing specific Spanish purchase time guidance');
+  }
+  if (refundCustomerText(spanish, 'en') !== english) throw new Error('Error translation loses its meaning');
+});
 
 Deno.test('Spanish customer copy covers the new scenarios, timing, errors and continuation', () => {
   for (const key of ['Received fewer items than I paid for', 'Expected change from a cash payment', 'Cash inserted', 'Change you expected', 'Your request is being reviewed', 'Enter the change you expected.', 'Check refund status']) {

@@ -242,6 +242,16 @@
 
 ## Refund workflow
 
+### Norfolk intake timezone and original-email date errors (#1888)
+
+- In disposable/synthetic data, keep the reviewed Norfolk machine on its shared Pacific placeholder and its existing Eastern machine-local setting. Verify the public option, QR context and new saved incident timezone all use Eastern; sibling machines, selection keys, source rows and historical cases stay unchanged.
+- Submit a synthetic Norfolk evening purchase before the original email receipt, then a genuine later date. The first succeeds; the later date gives purchase-date/local-time guidance rather than an expired-link message, in English and Spanish. Preserve all answers and avoid appending a blind-retry instruction.
+- Retry a pre-release committed Norfolk browser identity after the clock correction. Recover that same receipt without rewriting its old facts. Reusing that identity with changed customer input must still conflict.
+- Null/expired/consumed/mismatched email context stays unavailable. Other database errors, including unrelated P4625 receipt-integrity errors, remain generic and never expose database details.
+- Run `npm run refunds:validate-norfolk-intake` and the disposable migration suite. For rendered coverage, start a local app with synthetic Supabase URL `http://127.0.0.1:54329` and key `synthetic-browser-key` on port 4178, then run `node scripts/refunds/refund-norfolk-intake-browser.mjs`. It mocks API traffic and checks English/Spanish at 390px/1440px. No production form or customer message is part of these checks.
+- Release order: apply the forward migration before the intake Edge Function. For rollback, restore prior Edge code and public-option projection before removing the helper; never change location or case rows to roll this back.
+
+
 Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior. Tests and
 historical fixtures cannot add product gates that the workflow does not contain.
 
