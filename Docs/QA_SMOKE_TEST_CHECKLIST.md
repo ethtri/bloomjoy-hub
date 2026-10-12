@@ -19,6 +19,17 @@
   claim identities cannot be rewritten; legitimate exact provider events and
   customer satisfaction still settle without a second question or payment.
 
+## Exhausted legacy payout contact (#1757)
+
+- Use disposable synthetic data with a delivered original payout question, its
+  single delivered reminder and a current exhausted payout follow-up. At
+  `/refunds`, confirm the next step is Agent purchase research/internal review.
+- Confirm useful replies and current submitted same-case answers retain their
+  continuation; stale facts, unknown delivery and an unexpired response window
+  do not acquire the exhaustion exception. A gift-card resolution does not
+  inherit the historical payout question. Message receipts, decisions and the
+  consumed contact budget remain unchanged.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.
