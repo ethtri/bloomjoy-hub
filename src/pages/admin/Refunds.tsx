@@ -2841,7 +2841,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('decisions');
   const [selectedId, setSelectedId] = useState<string | null>(companyParams.get('case'));
   const [selectionRevision, setSelectionRevision] = useState(0);
-  const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
+  const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(!companyParams.has('case'));
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [managerCardAmountDraft, setManagerCardAmountDraft] = useState<{ key: string; value: string } | null>(null);
   const [officialActionVersion, setOfficialActionVersion] = useState(0);
@@ -3277,7 +3277,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     : 'New assigned refund requests will appear here.';
 
   useEffect(() => {
-    if (!selectedId || liveIsLoading || error) return;
+    if (!selectedId || caseAccess !== 'allowed' || liveIsLoading || error) return;
 
     const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
@@ -3298,7 +3298,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     setPendingCaseSelectionId(null);
   }, [
     overview.cases,
-    liveIsLoading, error,
+    liveIsLoading, error, caseAccess,
     internalTestCases,
     liveQueueProjection,
     queueProjectionActive,
@@ -3306,7 +3306,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
   ]);
 
   useEffect(() => {
-    if (!selectedId || isSearching || liveIsLoading || error) return;
+    if (!selectedId || caseAccess !== 'allowed' || isSearching || liveIsLoading || error) return;
     if (queueProjectionActive) return;
     if (filteredCases.some((refundCase) => refundCase.id === selectedId)) return;
     if (caseSelectionSafetyRef.current.actionInFlight) return;
@@ -3333,7 +3333,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     setPendingCaseSelectionId(null);
   }, [
     filteredCases,
-    liveIsLoading, error,
+    liveIsLoading, error, caseAccess,
     internalTestCases,
     isSearching,
     overview.cases,
@@ -5570,6 +5570,10 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     if (!queueProjectionActive || !linked || handledCaseQueryRef.current === linked) return;
     const item = visibleQueueItems.find(row => row.caseId === linked); if (!item) return;
     handledCaseQueryRef.current = linked;
+    if (!filteredPortalQueueItems.some(row => row.caseId === linked)) {
+      setStatusFilter(item.view);
+      setSearch('');
+    }
     if (companyId !== 'all' && item.accountId !== companyId) {
       const next = new URLSearchParams(companyParams); if (item.accountId) next.set('company', item.accountId); else next.delete('company'); setCompanyParams(next, { replace: true });
       setCompanyNotice('Company filter updated to show the linked case.');

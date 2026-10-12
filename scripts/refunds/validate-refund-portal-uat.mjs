@@ -4948,6 +4948,9 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const functionCalls = [];
   const functionBodies = [];
+  let releaseQueueRefresh;
+  const queueRefreshBarrier = new Promise(resolve => { releaseQueueRefresh = resolve; });
+  let delayedQueueReads = 0;
   const systemQueueResponse = {
     executed: false,
     status: 'system_finishing',
@@ -4958,17 +4961,29 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
     payloadRedacted: true,
   };
   await installMockSupabaseRoutes(context, {
-    refundOverview: buildManagerApprovalRefundOverview,
+    refundOverview: () => {
+      const model = buildManagerApprovalRefundOverview();
+      model.cases.push({ ...model.cases[0], id: 'case-next-review', publicReference: 'RF-UAT-NEXT',
+        customerEmail: 'next-customer@example.test', issueSummary: 'Second independent case.' });
+      return model;
+    },
     functionCalls,
     functionBodies,
     nayaxCardRefundStatus: 202,
     nayaxCardRefundResponse: systemQueueResponse,
   });
+  await context.route('**/rest/v1/rpc/get_refund_portal_queue_projection', async route => {
+    if (functionBodies.some(entry => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability')) {
+      delayedQueueReads += 1;
+      await queueRefreshBarrier;
+    }
+    return route.fallback();
+  });
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
   await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
-  await waitForQueueCount(page, 1);
+  await waitForQueueCount(page, 2);
   await queueCase(page, 'RF-UAT-CARD').click();
   await page.getByTestId('refund-run-nayax-refund').click();
   await page.getByTestId('refund-confirm-nayax-refund').click();
@@ -5002,6 +5017,19 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
       await page.getByTestId('refund-action-receipt').getByText('Your approval was saved.', { exact: false }).isVisible() &&
       await page.getByTestId('refund-action-receipt').getByText('Do not try the refund again.', { exact: false }).isVisible()
   );
+  const navigationStarted = Date.now();
+  await queueCase(page, 'RF-UAT-NEXT').click({ timeout: 2000 });
+  await page.getByText('Second independent case.', { exact: true }).waitFor({ timeout: 2000 });
+  recorder.assert('Confirmed approval releases navigation while the queue refresh is still pending',
+    delayedQueueReads > 0 && Date.now() - navigationStarted < 2000 &&
+      (await page.getByTestId('refund-action-receipt').count()) === 0 &&
+      functionBodies.filter(entry => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability').length === 1);
+  await page.getByRole('button', { name: /^All active \d+$/ }).click();
+  await queueCase(page, 'RF-UAT-CARD').click();
+  await page.getByTestId('refund-manager-state').getByText('Refund being completed', { exact: true }).waitFor();
+  recorder.assert('Reopening the confirmed case during a delayed refresh cannot repeat approval',
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+  releaseQueueRefresh();
   await closeRefundPortalContext(context);
 };
 
