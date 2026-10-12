@@ -5350,6 +5350,8 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (process.argv.includes('--manager-clarity-only')) {
+      await runManagerClarityChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
     } else if (args.cashOnly) {
       await runManualExternalCashWorkflowChecks({
         browser,
@@ -5617,6 +5619,17 @@ const run = async () => {
     }
     console.log('\nRefund manager-queue UAT passed.');
     console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (process.argv.includes('--manager-clarity-only')) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`Refund manager clarity UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('Refund manager clarity UAT passed.');
     return;
   }
 

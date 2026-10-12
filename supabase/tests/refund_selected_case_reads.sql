@@ -107,16 +107,18 @@ select is(coalesce(current_setting('bloomjoy.refund_read_case_id',true),''),'','
 select is(jsonb_array_length(public.admin_get_refund_operations_overview()->'cases'),95,'later legacy read still returns the full authorized queue');
 create function pg_temp.benchmark_refund_reads(p_count integer,p_queue boolean)
 returns table(read_count integer,slowest_ms numeric) language plpgsql as $$
-declare started timestamptz; value jsonb; elapsed numeric;
+declare started timestamptz; value jsonb; elapsed numeric; array_key text; expected_count integer;
 begin
  read_count:=0; slowest_ms:=0;
+ array_key:='cases'; expected_count:=1;
+ if p_queue then array_key:='items'; expected_count:=95; end if;
  for n in 1..p_count loop
   started:=clock_timestamp();
   value:=case when p_queue then public.get_refund_portal_queue_projection()
     else public.get_refund_portal_case_detail('aa455000-0000-4000-8000-000000000001') end;
   elapsed:=extract(epoch from clock_timestamp()-started)*1000;
   slowest_ms:=greatest(slowest_ms,elapsed);
-  if jsonb_array_length(value->case when p_queue then 'items' else 'cases' end)=case when p_queue then 95 else 1 end then
+  if jsonb_array_length(value->array_key)=expected_count then
    read_count:=read_count+1;
   end if;
  end loop;

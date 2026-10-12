@@ -348,6 +348,8 @@ const runManagerClarityChecks = async ({
     exact: true,
   });
   const askAction = clarityPage.getByTestId('refund-gmail-ask-for-details');
+  await draftNextStep.waitFor();
+  await askAction.and(clarityPage.locator(':enabled')).waitFor();
   recorder.assert(
     'Ambiguous draft card case aligns its displayed next step with the enabled Ask action',
     await draftNextStep.isVisible() &&
@@ -388,6 +390,7 @@ const runManagerClarityChecks = async ({
   await clarityPage.getByRole('button', { name: /^All active 2$/ }).click();
   await waitForQueueCount(clarityPage, 2);
   await queueCase(clarityPage, 'RF-UAT-WAITING-AMBIGUOUS').click();
+  await clarityPage.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).waitFor();
   recorder.assert(
     'Legacy waiting card without canonical next-work proof stays active and exposes no second customer request',
     await clarityPage.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
@@ -407,18 +410,19 @@ const runManagerClarityChecks = async ({
   });
   const initialFailurePage = await initialFailureContext.newPage();
   await signInRefundUser(initialFailurePage, appUrl);
-  const initialFailureStatus = initialFailurePage.getByTestId('refund-overview-read-status');
+  await initialFailurePage.getByRole('button', { name: /^All active 2$/ }).click();
+  await queueCase(initialFailurePage, 'RF-UAT-WAITING-AMBIGUOUS').click();
+  const initialFailureStatus = initialFailurePage.getByRole('alert').filter({ hasText: 'This case could not be loaded. Try again.' });
   await initialFailureStatus.getByText(
-    'The latest refund information could not be loaded. Bloomjoy will keep trying.',
+    'This case could not be loaded. Try again.',
     { exact: true }
   ).waitFor({ timeout: 10000 });
   recorder.assert(
-    'Initial overview failure remains a prominent live status without cached truth',
+    'Initial selected-case failure offers retry without discarding the queue',
     initialFailureReads.length >= 1 &&
       await initialFailureStatus.isVisible() &&
-      (await initialFailureStatus.getAttribute('role')) === 'status' &&
-      (await initialFailureStatus.getAttribute('aria-live')) === 'polite' &&
-      (await initialFailureStatus.getAttribute('class'))?.includes('destructive') === true
+      await initialFailurePage.getByRole('button', { name: 'Retry case', exact: true }).isVisible() &&
+      (await initialFailurePage.getByTestId('refund-run-nayax-refund').count()) === 0
   );
   await closeRefundPortalContext(initialFailureContext);
 
