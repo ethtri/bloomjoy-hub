@@ -1,10 +1,9 @@
-import { useState } from 'react';
-import { MessageSquare, Wrench, Package, ArrowRight, UserCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MessageSquare, Wrench, Package, ArrowRight, ChevronLeft, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { trackEvent } from '@/lib/analytics';
 import { createSupportRequest } from '@/lib/supportRequests';
 import { useAuth } from '@/contexts/auth-context';
@@ -86,9 +85,40 @@ const showLegacyWeChatGuide = false;
 
 export default function SupportPage() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [activeForm, setActiveForm] = useState<SupportType>(null);
-  const [formData, setFormData] = useState({ subject: '', message: '' });
+  const [drafts, setDrafts] = useState({
+    concierge: { subject: '', message: '' },
+    parts: { subject: '', message: '' },
+  });
+  const activeDraftType = activeForm === 'parts' ? 'parts' : 'concierge';
+  const formData = drafts[activeDraftType];
+  const setFormData = (draft: { subject: string; message: string }) =>
+    setDrafts((previous) => ({ ...previous, [activeDraftType]: draft }));
+  const taskRef = useRef<HTMLDivElement>(null);
+  const intentRef = useRef<HTMLDivElement>(null);
+  const originIntentRef = useRef<HTMLButtonElement | null>(null);
+  const originTypeRef = useRef<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const selectIntent = (type: SupportType) => {
+    originIntentRef.current = document.activeElement instanceof HTMLButtonElement
+      ? document.activeElement : originIntentRef.current;
+    originTypeRef.current = type;
+    setSubmitError(null);
+    setActiveForm(type);
+  };
+  useEffect(() => {
+    if (activeForm) {
+      const heading = taskRef.current?.querySelector<HTMLHeadingElement>('h2');
+      heading?.focus({ preventScroll: true });
+      taskRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    } else if (originIntentRef.current) {
+      const target = originIntentRef.current.isConnected ? originIntentRef.current
+        : intentRef.current?.querySelector<HTMLButtonElement>(`[data-support-intent="${originTypeRef.current}"]`);
+      target?.focus({ preventScroll: true });
+      intentRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
+  }, [activeForm]);
   const [wechatOnboardingData, setWechatOnboardingData] = useState({
     subject: '',
     phoneRegion: '+1',
@@ -106,7 +136,7 @@ export default function SupportPage() {
       ...prev,
       subject: prev.subject || t('support.defaultWechatSubject'),
     }));
-    setActiveForm('wechat_onboarding');
+    selectIntent('wechat_onboarding');
   };
 
   const handleSubmit = async (type: 'concierge' | 'parts' | 'wechat_onboarding') => {
@@ -115,6 +145,7 @@ export default function SupportPage() {
       return;
     }
 
+    setSubmitError(null);
     setLoading(true);
     try {
       await createSupportRequest({
@@ -129,6 +160,7 @@ export default function SupportPage() {
       setFormData({ subject: '', message: '' });
     } catch (error) {
       const message = error instanceof Error ? error.message : t('support.unableSubmit');
+      setSubmitError(message);
       toast.error(message);
     } finally {
       setLoading(false);
@@ -148,6 +180,7 @@ export default function SupportPage() {
     const normalizedWeChatId = wechatOnboardingData.wechatId.trim();
 
     if (!normalizedSubject || !normalizedPhoneRegion || !normalizedPhoneNumber) {
+      setSubmitError(t('support.validationRequired'));
       toast.error(t('support.validationRequired'));
       return;
     }
@@ -174,6 +207,7 @@ export default function SupportPage() {
       normalizedDetails || 'No additional details provided.',
     ].join('\n');
 
+    setSubmitError(null);
     setLoading(true);
     try {
       await createSupportRequest({
@@ -204,6 +238,7 @@ export default function SupportPage() {
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : t('support.unableSubmit');
+      setSubmitError(message);
       toast.error(message);
     } finally {
       setLoading(false);
@@ -212,96 +247,52 @@ export default function SupportPage() {
 
   return (
     <PortalLayout>
-      <section className="portal-section">
+      <section className="py-5 sm:py-8 lg:py-10">
         <div className="container-page">
-          <PortalPageIntro
-            title={t('support.title')}
-            description={t('support.description')}
-            badges={[
-              { label: t('support.plusSupport'), tone: 'success' },
-              { label: t('support.chooseLane'), tone: 'muted' },
-            ]}
-          />
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {/* WeChat Setup */}
-            <div className="card-elevated p-5 sm:p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sage-light">
-                <MessageSquare className="h-6 w-6 text-sage" />
-              </div>
-              <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                {t('support.manufacturerTitle')}
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('support.manufacturerDescription')}
-              </p>
-              <Button
-                variant="outline"
-                className="mt-4 min-h-11 w-full"
-                onClick={() => setActiveForm('wechat')}
-              >
-                {t('support.viewSetupGuide')}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+          {activeForm && <h1 className="sr-only">{t('support.title')}</h1>}
+          {!activeForm && (
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">{t('support.title')}</h1>
+              <p className="mt-2 text-sm text-muted-foreground">{t('support.chooseLane')}</p>
             </div>
+          )}
 
-            {/* WeChat Onboarding */}
-            <div className="card-elevated p-5 sm:p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100">
-                <UserCheck className="h-6 w-6 text-sky-700" />
-              </div>
-              <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                {t('support.wechatHelpTitle')}
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('support.wechatHelpDescription')}
-              </p>
-              <Button className="mt-4 min-h-11 w-full" onClick={openWeChatOnboardingForm}>
-                {t('support.requestOnboarding')}
-              </Button>
+          {!activeForm ? (
+            <div ref={intentRef} className="mt-6 grid gap-2 sm:grid-cols-2" aria-label={t('support.chooseLane')}>
+              {([
+                { type: 'concierge', title: 'support.conciergeTitle', description: 'support.conciergeDescription', Icon: Wrench },
+                { type: 'parts', title: 'support.partsTitle', description: 'support.partsDescription', Icon: Package },
+                { type: 'wechat_onboarding', title: 'support.wechatHelpTitle', description: 'support.wechatHelpDescription', Icon: UserCheck },
+                { type: 'wechat', title: 'support.manufacturerTitle', description: 'support.manufacturerDescription', Icon: MessageSquare },
+              ] as const).map(({ type, title, description, Icon }) => (
+                <button
+                  key={type}
+                  data-support-intent={type}
+                  type="button"
+                  onClick={() => type === 'wechat_onboarding' ? openWeChatOnboardingForm() : selectIntent(type)}
+                  className="flex min-h-11 items-start gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Icon aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-foreground">{t(title)}</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">{t(description)}</span>
+                  </span>
+                  <ArrowRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))}
             </div>
+          ) : (
+            <Button variant="ghost" className="mt-4 min-h-11 px-0" disabled={loading} onClick={() => setActiveForm(null)}>
+              <ChevronLeft aria-hidden="true" className="mr-1 h-4 w-4" />
+              {language === 'zh-Hans' ? '更换支持选项' : 'Change support option'}
+            </Button>
+          )}
 
-            {/* Concierge */}
-            <div className="card-elevated p-5 sm:p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                <Wrench className="h-6 w-6 text-primary" />
-              </div>
-              <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                {t('support.conciergeTitle')}
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('support.conciergeDescription')}
-              </p>
-              <Button className="mt-4 min-h-11 w-full" onClick={() => setActiveForm('concierge')}>
-                {t('support.submitRequest')}
-              </Button>
-            </div>
-
-            {/* Parts */}
-            <div className="card-elevated p-5 sm:p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber/10">
-                <Package className="h-6 w-6 text-amber" />
-              </div>
-              <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                {t('support.partsTitle')}
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('support.partsDescription')}
-              </p>
-              <Button
-                variant="outline"
-                className="mt-4 min-h-11 w-full"
-                onClick={() => setActiveForm('parts')}
-              >
-                {t('support.requestParts')}
-              </Button>
-            </div>
-          </div>
-
+          <div ref={taskRef} className="scroll-mt-24">
           {/* WeChat Guide */}
           {activeForm === 'wechat' && (
-            <div className="mt-8 card-elevated p-5 sm:p-6">
-              <h2 className="font-display text-xl font-semibold text-foreground">
+            <div className="mt-3 rounded-xl border border-border bg-card p-4 sm:p-6">
+              <h2 tabIndex={-1} className="text-xl font-semibold text-foreground focus:outline-none">
                 {t('support.wechatSetupGuideTitle')}
               </h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
@@ -395,8 +386,8 @@ export default function SupportPage() {
 
           {/* WeChat Onboarding Form */}
           {activeForm === 'wechat_onboarding' && (
-            <div className="mt-8 card-elevated p-5 sm:p-6">
-              <h2 className="font-display text-xl font-semibold text-foreground">
+            <div className="mt-3 rounded-xl border border-border bg-card p-4 sm:p-6">
+              <h2 tabIndex={-1} className="text-xl font-semibold text-foreground focus:outline-none">
                 {t('support.onboardingConciergeTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -410,23 +401,30 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
+                  <label htmlFor="support-wechat-subject" className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
                   <Input
+                    id="support-wechat-subject"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={wechatOnboardingData.subject}
                     onChange={(e) =>
                       setWechatOnboardingData({ ...wechatOnboardingData, subject: e.target.value })
                     }
                     placeholder={t('support.wechatSubjectPlaceholder')}
                     required
-                    className="mt-1 h-11"
+                    className="mt-1 h-11 text-base md:text-sm"
                   />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">{t('support.phoneRegion')}</label>
-                    <Input
-                      value={wechatOnboardingData.phoneRegion}
+                    <label htmlFor="support-wechat-phoneRegion" className="block text-sm font-medium text-foreground">{t('support.phoneRegion')}</label>
+                  <Input
+                    id="support-wechat-phoneRegion"
+                    disabled={loading}
+                    type="tel" inputMode="tel" autoComplete="tel-country-code"
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
+                    value={wechatOnboardingData.phoneRegion}
                       onChange={(e) =>
                         setWechatOnboardingData({
                           ...wechatOnboardingData,
@@ -435,13 +433,17 @@ export default function SupportPage() {
                       }
                       placeholder="+1"
                       required
-                      className="mt-1 h-11"
+                      className="mt-1 h-11 text-base md:text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">{t('support.phoneNumber')}</label>
-                    <Input
-                      value={wechatOnboardingData.phoneNumber}
+                    <label htmlFor="support-wechat-phoneNumber" className="block text-sm font-medium text-foreground">{t('support.phoneNumber')}</label>
+                  <Input
+                    id="support-wechat-phoneNumber"
+                    disabled={loading}
+                    type="tel" inputMode="tel" autoComplete="tel-national"
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
+                    value={wechatOnboardingData.phoneNumber}
                       onChange={(e) =>
                         setWechatOnboardingData({
                           ...wechatOnboardingData,
@@ -450,23 +452,26 @@ export default function SupportPage() {
                       }
                       placeholder={t('support.phoneNumberPlaceholder')}
                       required
-                      className="mt-1 h-11"
+                      className="mt-1 h-11 text-base md:text-sm"
                     />
                   </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">{t('support.device')}</label>
-                    <select
-                      value={wechatOnboardingData.deviceType}
+                    <label htmlFor="support-wechat-deviceType" className="block text-sm font-medium text-foreground">{t('support.device')}</label>
+                  <select
+                    id="support-wechat-deviceType"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
+                    value={wechatOnboardingData.deviceType}
                       onChange={(e) =>
                         setWechatOnboardingData({
                           ...wechatOnboardingData,
                           deviceType: e.target.value as WeChatDeviceType,
                         })
                       }
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm"
                     >
                       {(Object.keys(deviceLabelKeyMap) as WeChatDeviceType[]).map((value) => (
                         <option key={value} value={value}>
@@ -476,16 +481,19 @@ export default function SupportPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">{t('support.blockedStep')}</label>
-                    <select
-                      value={wechatOnboardingData.blockedStep}
+                    <label htmlFor="support-wechat-blockedStep" className="block text-sm font-medium text-foreground">{t('support.blockedStep')}</label>
+                  <select
+                    id="support-wechat-blockedStep"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
+                    value={wechatOnboardingData.blockedStep}
                       onChange={(e) =>
                         setWechatOnboardingData({
                           ...wechatOnboardingData,
                           blockedStep: e.target.value as WeChatBlockedStep,
                         })
                       }
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm"
                     >
                       {(Object.keys(blockedStepLabelKeyMap) as WeChatBlockedStep[]).map((value) => (
                         <option key={value} value={value}>
@@ -495,18 +503,21 @@ export default function SupportPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">
+                    <label htmlFor="support-wechat-referralNeeded" className="block text-sm font-medium text-foreground">
                       {t('support.referralNeeded')}
                     </label>
-                    <select
-                      value={wechatOnboardingData.referralNeeded}
+                  <select
+                    id="support-wechat-referralNeeded"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
+                    value={wechatOnboardingData.referralNeeded}
                       onChange={(e) =>
                         setWechatOnboardingData({
                           ...wechatOnboardingData,
                           referralNeeded: e.target.value as 'yes' | 'no' | 'unsure',
                         })
                       }
-                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm"
                     >
                       <option value="yes">{t('support.yes')}</option>
                       <option value="no">{t('support.no')}</option>
@@ -516,10 +527,13 @@ export default function SupportPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground">
+                  <label htmlFor="support-wechat-wechatId" className="block text-sm font-medium text-foreground">
                     {t('support.wechatIdOptional')}
                   </label>
                   <Input
+                    id="support-wechat-wechatId"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={wechatOnboardingData.wechatId}
                     onChange={(e) =>
                       setWechatOnboardingData({
@@ -528,13 +542,16 @@ export default function SupportPage() {
                       })
                     }
                     placeholder={t('support.wechatIdPlaceholder')}
-                    className="mt-1 h-11"
+                    className="mt-1 h-11 text-base md:text-sm"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.details')}</label>
+                  <label htmlFor="support-wechat-details" className="block text-sm font-medium text-foreground">{t('support.details')}</label>
                   <Textarea
+                    id="support-wechat-details"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={wechatOnboardingData.details}
                     onChange={(e) =>
                       setWechatOnboardingData({
@@ -544,10 +561,11 @@ export default function SupportPage() {
                     }
                     placeholder={t('support.detailsPlaceholder')}
                     rows={5}
-                    className="mt-1"
+                    className="mt-1 text-base md:text-sm"
                   />
                 </div>
 
+                {submitError && <p id="support-submit-error" role="alert" className="text-sm text-destructive">{submitError}</p>}
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitOnboarding')}
@@ -557,6 +575,7 @@ export default function SupportPage() {
                     variant="outline"
                     className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
+                    disabled={loading}
                   >
                     {t('support.cancel')}
                   </Button>
@@ -567,8 +586,8 @@ export default function SupportPage() {
 
           {/* Concierge Form */}
           {activeForm === 'concierge' && (
-            <div className="mt-8 card-elevated p-5 sm:p-6">
-              <h2 className="font-display text-xl font-semibold text-foreground">
+            <div className="mt-3 rounded-xl border border-border bg-card p-4 sm:p-6">
+              <h2 tabIndex={-1} className="text-xl font-semibold text-foreground focus:outline-none">
                 {t('support.requestConciergeTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -582,26 +601,33 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
+                  <label htmlFor="support-subject" className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
                   <Input
+                    id="support-subject"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     placeholder={t('support.subjectPlaceholder')}
                     required
-                    className="mt-1 h-11"
+                    className="mt-1 h-11 text-base md:text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.message')}</label>
+                  <label htmlFor="support-message" className="block text-sm font-medium text-foreground">{t('support.message')}</label>
                   <Textarea
+                    id="support-message"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     placeholder={t('support.messagePlaceholder')}
                     rows={4}
                     required
-                    className="mt-1"
+                    className="mt-1 text-base md:text-sm"
                   />
                 </div>
+                {submitError && <p id="support-submit-error" role="alert" className="text-sm text-destructive">{submitError}</p>}
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitRequest')}
@@ -611,6 +637,7 @@ export default function SupportPage() {
                     variant="outline"
                     className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
+                    disabled={loading}
                   >
                     {t('support.cancel')}
                   </Button>
@@ -621,8 +648,8 @@ export default function SupportPage() {
 
           {/* Parts Form */}
           {activeForm === 'parts' && (
-            <div className="mt-8 card-elevated p-5 sm:p-6">
-              <h2 className="font-display text-xl font-semibold text-foreground">
+            <div className="mt-3 rounded-xl border border-border bg-card p-4 sm:p-6">
+              <h2 tabIndex={-1} className="text-xl font-semibold text-foreground focus:outline-none">
                 {t('support.partsRequestTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -636,25 +663,32 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.partNameDescription')}</label>
+                  <label htmlFor="support-subject" className="block text-sm font-medium text-foreground">{t('support.partNameDescription')}</label>
                   <Input
+                    id="support-subject"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     placeholder={t('support.partNamePlaceholder')}
                     required
-                    className="mt-1 h-11"
+                    className="mt-1 h-11 text-base md:text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground">{t('support.additionalDetails')}</label>
+                  <label htmlFor="support-message" className="block text-sm font-medium text-foreground">{t('support.additionalDetails')}</label>
                   <Textarea
+                    id="support-message"
+                    disabled={loading}
+                    aria-describedby={submitError ? 'support-submit-error' : undefined}
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     placeholder={t('support.additionalDetailsPlaceholder')}
                     rows={4}
-                    className="mt-1"
+                    className="mt-1 text-base md:text-sm"
                   />
                 </div>
+                {submitError && <p id="support-submit-error" role="alert" className="text-sm text-destructive">{submitError}</p>}
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitRequest')}
@@ -664,6 +698,7 @@ export default function SupportPage() {
                     variant="outline"
                     className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
+                    disabled={loading}
                   >
                     {t('support.cancel')}
                   </Button>
@@ -671,6 +706,7 @@ export default function SupportPage() {
               </form>
             </div>
           )}
+          </div>
         </div>
       </section>
     </PortalLayout>
