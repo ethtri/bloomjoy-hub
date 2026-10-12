@@ -237,5 +237,10 @@ begin
     and statement.status = ''issued''
     and statement.payout_run_id in (select r.id from public.payout_runs r join public.payout_periods p on p.id=r.payout_period_id
       where p.period_start_date=period_row.period_start_date and p.period_end_date=period_row.period_end_date)');
+  definition:=replace(pg_get_functiondef('public.service_complete_pay_stub_without_time_source_revision(uuid,uuid,text)'::regprocedure),chr(13),'');
+  anchor:='where previous.payout_run_item_id = statement_row.payout_run_item_id';
+  if position(anchor in definition)=0 then raise exception 'Statement supersession seam changed'; end if;
+  execute replace(definition,anchor,'where (previous.payout_run_item_id = statement_row.payout_run_item_id
+    or previous.id = statement_row.revised_from_statement_id)');
 end;
 $patch$;

@@ -457,7 +457,7 @@ const run = async () => {
     } catch (error) {
       throw new Error(`${error.message}; browser errors: ${browserErrors.join(' | ')}`, { cause: error });
     }
-    await page.getByText('Cotton Candy 01 · Mall Atrium', { exact: true }).waitFor();
+    await page.getByText('Cotton Candy 01', { exact: true }).waitFor();
     await page.locator('#time-report-month').fill('');
     check('Time Report ignores an empty native month-input change without crashing', await page.locator('#time-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Time Report' }).isVisible());
     const initialTimeText = await page.locator('body').innerText();
