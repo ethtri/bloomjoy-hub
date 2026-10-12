@@ -6,13 +6,20 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
-## Email digest blocker
+## Machine email alerts
 
-Open gift-card Manager review can fail the canonical digest snapshot and block
-later candidates in the shared email dispatcher (#1728). The bounded repair adds
-gift-specific presentation and compatible strict consumers; deployment remains
-pending the reviewed consumer-first release sequence and migration-history
-prerequisites. The standalone new-request renderer (#1866) is already deployed.
+Case-first Manager notices (#1863) and gift-review digest compatibility (#1728)
+are deployed. Dispatcher v10 and all 12 governed refund workers match reviewed
+source; migrations are current and canonical production drift passes. Read-only
+verification passed 21 due previews, both current Manager gift snapshots and
+individual Manager/Technician weekly projections. Full-population weekly
+verification remains unproven because bulk diagnostic queries timed out.
+
+New-refund alerts are enabled for the 5 Managers and 17 Technicians in current
+assigned-machine scope. Existing 20:00–07:00 Pacific quiet hours and weekly
+opt-outs remain. The ordinary five-minute dispatcher tick completed during quiet
+hours without sending. General inquiries submitted before a refund request are
+not a machine-alert category.
 
 ## Contractor Timekeeping and Pay Stubs
 
@@ -804,11 +811,10 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 ## Durable references
 
-- Refund repairs #1757/#1758 remain in verification: exhausted legacy payout
-  contact must project internal review, and current reviewed cash proof must
-  permit the existing single follow-up during customer wait. Production rollout
-  remains pending coordinated migration-history reconciliation and final release
-  verification; no customer contact or payment is part of this repair.
+- Refund repairs #1757/#1758 are deployed; the continuation owner still needs
+  passive case readback to verify exhausted payout contact projects internal
+  review and current reviewed cash proof permits the existing single follow-up
+  during customer wait. Release verification sent no customer contact or payment.
 
 - Product and design: `PRODUCT.md`, `DESIGN.md`
 - Durable decisions: `Docs/DECISIONS.md`
