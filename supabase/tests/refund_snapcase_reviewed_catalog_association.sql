@@ -302,7 +302,7 @@ select is(pg_temp.error_state($call$select public.service_select_sunze_cash_cand
  (select sale_id from before_move),1,1,'16600000-0000-4000-8000-000000000001')$call$),'40001',
  'Changed mapping lineage cannot reuse pre-change review');
 rollback to challenge;
-update public.refund_sunze_cash_correlation_attempts set invalidated_at=statement_timestamp(),invalidation_reason='case_facts_changed'
+update public.refund_sunze_cash_correlation_attempts set invalidated_at=statement_timestamp(),invalidation_reason='selected_sale_released'
  where id=(select (result->>'attemptId')::uuid from original_proof);
 select is(pg_temp.error_state($call$select public.service_select_sunze_cash_candidate(
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from recovered),
@@ -348,6 +348,18 @@ select is(pg_temp.error_state($call$select public.service_select_sunze_cash_cand
  '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from recovered),
  (select sale_id from before_move),1,1,'16600000-0000-4000-8000-000000000001')$call$),'40001',
  'Changed payment window cannot reuse historical review');
+rollback to challenge;
+update public.machine_sales_facts set net_sales_cents=net_sales_cents+1
+ where id=(select sale_id from before_move);
+select is(pg_temp.error_state($call$select public.service_select_sunze_cash_candidate(
+ '16617000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from recovered),
+ (select sale_id from before_move),1,1,'16600000-0000-4000-8000-000000000001')$call$),'40001',
+ 'Changed current amount cannot borrow retained purchase identity');
+rollback to challenge;
+update public.refund_sunze_cash_correlation_attempts set evaluated_at=statement_timestamp()
+ where id=(select (result->>'attemptId')::uuid from original_proof);
+select ok(not private.refund_snapcase_reviewed_catalog_association('16617000-0000-4000-8000-000000000001',(select sale_id from before_move)),
+ 'Review after reassignment is not evidence of the original historical association');
 rollback to challenge;
 select ok(not private.refund_snapcase_reviewed_catalog_association('16617000-0000-4000-8000-000000000001',gen_random_uuid()),
  'An unrelated selected sale cannot borrow the exact retained proof');
