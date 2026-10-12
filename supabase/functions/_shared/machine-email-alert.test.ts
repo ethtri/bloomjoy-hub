@@ -940,3 +940,81 @@ Deno.test("weekly uses reported snapshot comparisons and many requests do not ex
     "many requests remain a compact digest",
   );
 });
+
+Deno.test("new-request email puts machine, customer issue and local received time first without filler", () => {
+  const p = fixtureVariants()["new-refund"];
+  const m = p.machines[0];
+  const c = m.refundCases[0];
+  m.timezone = "America/Los_Angeles";
+  c.receivedAt = "2026-10-11T16:42:00Z";
+  c.incidentAt = "2026-10-10T23:15:00Z";
+  c.commentExcerpt = "The spinner stopped and no candy came out.";
+  c.commentKind = "sanitized-narrative";
+  const email = buildMachineEmail({ projection: p, links });
+  assert(
+    email.subject === `New refund request: ${m.machineLabel}`,
+    "specific subject",
+  );
+  for (const output of [email.html, email.text]) {
+    assert(
+      output.includes("Oct 11, 2026, 9:42 AM PDT"),
+      "received timestamp in machine timezone",
+    );
+    assert(
+      output.includes("Reported purchase: Oct 10, 2026, 4:15 PM PDT"),
+      "purchase time separately labeled",
+    );
+    assert(output.includes(c.commentExcerpt), "useful symptom preserved");
+    for (
+      const filler of [
+        "A customer submitted",
+        "because you follow",
+        "details removed",
+        "No shareable",
+        "America/Los_Angeles",
+      ]
+    ) assert(!output.includes(filler), filler);
+  }
+  assert(
+    email.html.includes(`<h1 style=`) &&
+      email.html.includes(`>${m.machineLabel}</h1>`),
+    "machine is primary heading",
+  );
+  assert(
+    (email.html.match(/<a /g) ?? []).length === 2,
+    "one primary request CTA and quiet preference link",
+  );
+  assert(
+    email.html.includes(">View request</a>") &&
+      email.html.includes(">Email preferences</a>"),
+    "clear destinations",
+  );
+});
+
+Deno.test("new-request missing context does not infer purchase time, amount or access", () => {
+  const p = fixtureVariants()["new-refund"];
+  const c = p.machines[0].refundCases[0];
+  Object.assign(c, {
+    receivedAt: null,
+    incidentAt: null,
+    issueCategory: null,
+    commentExcerpt: null,
+    requestedAmountCents: null,
+    canOpenCase: false,
+  });
+  const email = buildMachineEmail({ projection: p, links });
+  assert(
+    email.text.includes("Request date unavailable") &&
+      email.text.includes("Requested: Unavailable"),
+    "missing context truthful",
+  );
+  assert(
+    !email.text.includes("Reported purchase") &&
+      !email.text.includes("View request:"),
+    "no invented time or unauthorized deep link",
+  );
+  assert(
+    !email.text.includes("No shareable"),
+    "missing quote does not become filler",
+  );
+});
