@@ -19,6 +19,15 @@
   claim identities cannot be rewritten; legitimate exact provider events and
   customer satisfaction still settle without a second question or payment.
 
+## Explicit payroll payer
+
+- In `/admin/payouts`, open **Set up Technician**. Choose a payroll payer and
+  Machines belonging to another company within your existing pay authority.
+  Activation must create one payer-scoped arrangement with the selected rates.
+- Verify the resulting Pay Report and Pay Stub show the selected payer, while
+  Machines and sales reporting retain their original company. Another Technician
+  cannot access this time or statement. Check the form on desktop and mobile.
+
 ## Exhausted legacy payout contact (#1757)
 
 - Use disposable synthetic data with a delivered original payout question, its
