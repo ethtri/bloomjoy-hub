@@ -2644,6 +2644,7 @@ const installMockSupabaseRoutes = async (
     internalTestClassificationHandler = null,
     refundOverviewReadStatuses = null,
     refundOverviewReadLog = [],
+    refundCaseReadPayloadSizes = [],
     refundOverviewReadBarrier = null,
     refundPortalQueueProjection,
     onRefundOverviewFailedRead = null,
@@ -3914,10 +3915,12 @@ const installMockSupabaseRoutes = async (
       }
       const current = currentRefundOverview();
       const selectedCaseId = request.postDataJSON()?.p_case_id;
-      return route.fulfill(jsonResponse(rpcName === 'get_refund_portal_case_detail' ? { ...current,
+      const result = rpcName === 'get_refund_portal_case_detail' ? { ...current,
         cases: current.cases.filter(row => row.id === selectedCaseId),
         internalTestCases: (current.internalTestCases ?? []).filter(row => row.id === selectedCaseId),
-      } : current));
+      } : current;
+      if (rpcName === 'get_refund_portal_case_detail') refundCaseReadPayloadSizes.push(Buffer.byteLength(JSON.stringify(result)));
+      return route.fulfill(jsonResponse(result));
     }
 
     if (rpcName === 'search_refund_portal_queue') {
@@ -4954,7 +4957,7 @@ const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
   for (let fresh = 0; fresh < 3; fresh += 1) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const readLog = [];
-    await installMockSupabaseRoutes(context, { refundOverviewReadLog: readLog, refundOverview: () => {
+    await installMockSupabaseRoutes(context, { refundOverviewReadLog: readLog, refundCaseReadPayloadSizes: payloadBytes, refundOverview: () => {
       const model = buildManagerApprovalRefundOverview();
       model.cases = Array.from({ length: 95 }, (_, index) => ({ ...model.cases[0],
         id: `aa455000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
@@ -4962,12 +4965,6 @@ const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
       return model;
     } });
     const page = await context.newPage();
-    page.on('response', async response => {
-      if (response.url().includes('/get_refund_portal_case_detail') && response.ok()) {
-        const body = await response.text().catch(() => '');
-        if (body) payloadBytes.push(Buffer.byteLength(body));
-      }
-    });
     await signInRefundUser(page, appUrl);
     const freshStarted = Date.now();
     await waitForQueueCount(page, 95);
