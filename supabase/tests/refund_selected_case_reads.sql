@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(31);
+select plan(33);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -62,6 +62,7 @@ set local role authenticated;
 select pg_temp.set_auth_claims('aa450000-0000-4000-8000-000000000001');
 create temporary table queue_projection on commit drop as
 select public.get_refund_portal_queue_projection(statement_timestamp()) value;
+select is(current_setting('plan_cache_mode'),'auto','successful queue read restores default caller planning');
 select is((select value->>'schemaVersion' from queue_projection),
   'refund_portal_queue_v1','the queue projection publishes its exact version');
 select is((select jsonb_array_length(value->'items')::text from queue_projection),
@@ -104,6 +105,7 @@ select is((select jsonb_array_length(value->'cases') from case_evidence),1,'case
 select is((select value->'cases'->0 from case_evidence),(select item from full_evidence,jsonb_array_elements(value->'cases') item where item->>'id'='aa455000-0000-4000-8000-000000000001'),'all target evidence matches compatible full overview');
 select is((select value#>'{cases,0,nayaxLookupCandidates}' from case_evidence),(select item->'nayaxLookupCandidates' from full_evidence,jsonb_array_elements(value->'cases') item where item->>'id'='aa455000-0000-4000-8000-000000000001'),'alternate candidate coverage is unchanged');
 select is(coalesce(current_setting('bloomjoy.refund_read_case_id',true),''),'','selected read restores its transaction scope');
+select is(current_setting('plan_cache_mode'),'auto','selected reads retain their default planning after queue reuse');
 select is(jsonb_array_length(public.admin_get_refund_operations_overview()->'cases'),95,'later legacy read still returns the full authorized queue');
 create function pg_temp.benchmark_refund_reads(p_count integer,p_queue boolean)
 returns table(read_count integer,slowest_ms numeric) language plpgsql as $$

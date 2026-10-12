@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(39);
+select plan(55);
 
 select has_column('public', 'refund_cases', 'intake_selection_key', 'Cases store the submitted opaque selection key');
 select has_column('public', 'refund_cases', 'intake_selection_machine_ids', 'Cases store the server-resolved selection scope separately');
@@ -369,6 +369,92 @@ values (
 select set_config('request.jwt.claim.sub','92140000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claims','{"sub":"92140000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+-- Include two independently appended unresolved pairs alongside exact-machine
+-- work. This population reproduced foreign-row rejection in production.
+insert into public.refund_cases(id,reporting_location_id,intake_selection_key,
+ intake_selection_kind,intake_selection_machine_ids,customer_email,issue_summary,
+ incident_at,payment_method,payment_amount_cents,status,correlation_status)
+values('92150000-0000-4000-8000-000000000004',
+ '92110000-0000-4000-8000-000000000001',public.refund_livermore_selection_key(),
+ 'livermore_pair',public.refund_livermore_selection_machine_ids(),
+ 'second-pair@example.invalid','Separate synthetic unresolved pair',now(),'card',550,
+ 'needs_review','needs_nayax');
+set local role authenticated;
+create temporary table pair_queue on commit drop as select public.get_refund_portal_queue_projection() value;
+create temporary table pair_full on commit drop as select public.admin_get_refund_operations_overview() value;
+create temporary table pair_detail on commit drop as select public.get_refund_portal_case_detail('92150000-0000-4000-8000-000000000001') value;
+create temporary table ordinary_detail on commit drop as select public.get_refund_portal_case_detail('92150000-0000-4000-8000-000000000002') value;
+select is((select jsonb_array_length(value->'items') from pair_queue),4,
+ 'queue retains both authorized unresolved pairs and exact-machine cases');
+select ok((select bool_and(item->>'machineLabel'='San Francisco Premium Outlets — Cotton candy'
+ and item->>'accountId'='92100000-0000-4000-8000-000000000001'
+ and not item ? 'customerEmail') from pair_queue,jsonb_array_elements(value->'items') item
+ where item->>'caseId' in ('92150000-0000-4000-8000-000000000001','92150000-0000-4000-8000-000000000004')),
+ 'pair queue rows retain their customer-safe label and canonical company without customer PII');
+select is((select jsonb_array_length(value->'cases') from pair_full),4,
+ 'compatible full overview still contains the complete mixed population');
+select is((select jsonb_array_length(value->'cases') from ordinary_detail),1,
+ 'ordinary selected read excludes independently appended unresolved pairs');
+select is((select value#>>'{cases,0,id}' from ordinary_detail),'92150000-0000-4000-8000-000000000002',
+ 'ordinary selected read retains the requested target');
+select is((select jsonb_array_length(value->'cases') from pair_detail),1,
+ 'unresolved-pair selected read returns only its requested target');
+select is((select value->'cases'->0 from pair_detail),
+ (select item from pair_full,jsonb_array_elements(value->'cases') item
+ where item->>'id'='92150000-0000-4000-8000-000000000001'),
+ 'selected unresolved pair retains the complete compatible case contract');
+select is((select value#>'{cases,0,nayaxLookupCandidates}' from pair_detail),
+ (select item->'nayaxLookupCandidates' from pair_full,jsonb_array_elements(value->'cases') item
+ where item->>'id'='92150000-0000-4000-8000-000000000001'),
+ 'selected unresolved pair preserves alternative transaction evidence');
+select is(coalesce(current_setting('bloomjoy.refund_read_case_id',true),''),'',
+ 'mixed ordinary and pair reads restore transaction scope');
+select ok((select bool_and(item->>'decisionReady'='false') from pair_queue,jsonb_array_elements(value->'items') item
+ where item->>'caseId' in ('92150000-0000-4000-8000-000000000001','92150000-0000-4000-8000-000000000004')),
+ 'unresolved pair visibility grants no premature decision authority');
+reset role;
+update public.reporting_machine_refund_managers set manager_email='divergent-manager@example.test'
+ where reporting_machine_id='8eda5a29-1718-4c70-9993-7c7e2fd6c65a';
+set local role authenticated;
+select throws_ok($$select public.get_refund_portal_case_detail('92150000-0000-4000-8000-000000000001')$$,
+ '42501','Current refund case access required','invalid pair cannot reuse selected-case access');
+select is(jsonb_array_length(public.get_refund_portal_queue_projection()->'items'),2,
+ 'invalid pairs disappear while authorized exact-machine work remains');
+reset role;
+update public.reporting_machine_refund_managers set manager_email='pair-manager@example.test'
+ where reporting_machine_id='8eda5a29-1718-4c70-9993-7c7e2fd6c65a';
+-- Operations can manage drafts independently of machine scope. They must not
+-- make generic or forged-pair machine-null drafts enter the financial queue.
+insert into public.admin_roles(user_id,role,active)
+values('92140000-0000-4000-8000-000000000001','super_admin',true);
+insert into public.refund_cases(id,intake_source,status,reporting_location_id,
+ customer_email,issue_summary,payment_method,intake_selection_kind,
+ intake_selection_key,intake_selection_machine_ids)
+values
+ ('92150000-0000-4000-8000-000000000005','gmail','draft','92110000-0000-4000-8000-000000000001',
+  'generic-draft@example.invalid','Generic synthetic draft','card',null,null,null),
+ ('92150000-0000-4000-8000-000000000006','gmail','draft','92110000-0000-4000-8000-000000000001',
+  'stale-pair@example.invalid','Stale synthetic pair key','card','livermore_pair',
+  'stale-opaque-selection',public.refund_livermore_selection_machine_ids()),
+ ('92150000-0000-4000-8000-000000000007','gmail','draft','92110000-0000-4000-8000-000000000001',
+  'wrong-scope@example.invalid','Synthetic wrong pair scope','card','livermore_pair',
+  public.refund_livermore_selection_key(),array['91bae5ac-4ba6-4378-91f0-ef266bdd4d7a'::uuid]);
+set local role authenticated;
+create temporary table operations_pair_queue on commit drop as select public.get_refund_portal_queue_projection() value;
+select is((select jsonb_array_length(value->'items') from operations_pair_queue),4,
+ 'Operations retains exact-machine and valid-pair financial work only');
+select ok((select not exists(select 1 from jsonb_array_elements(value->'items') item
+ where item->>'caseId' in ('92150000-0000-4000-8000-000000000005',
+  '92150000-0000-4000-8000-000000000006','92150000-0000-4000-8000-000000000007'))
+ from operations_pair_queue),'generic and malformed-pair drafts stay in their separate authorized reader');
+reset role;
+select ok(private.refund_add_current_company(
+ '[{"id":"92150000-0000-4000-8000-000000000006"}]','id')->0->'accountId'='null'::jsonb,
+ 'stale pair key cannot borrow the canonical pair company');
+select ok(private.refund_add_current_company(
+ '[{"id":"92150000-0000-4000-8000-000000000007"}]','id')->0->'accountId'='null'::jsonb,
+ 'wrong pair scope cannot borrow the canonical pair company');
+delete from public.admin_roles where user_id='92140000-0000-4000-8000-000000000001' and role='super_admin';
 set local role authenticated;
 select lives_ok(
   format(
