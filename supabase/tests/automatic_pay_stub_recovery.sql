@@ -90,6 +90,8 @@ insert into public.operator_recurring_compensation_items(account_id,operator_pro
 values(pg_temp.fixture_id(10),pg_temp.fixture_id(51),'supply_credit','Synthetic recurring credit',1000,'2025-01-01');
 select public.service_enqueue_automatic_pay_stubs('2025-02-05 08:00:00+00');
 select is((select count(*)::integer from public.pay_stub_generation_requests where operator_profile_id=pg_temp.fixture_id(51)),1,'Payable credit-only worker needs no time entry');
+update public.pay_stub_generation_requests set created_at=now()-interval '1 minute'
+  where operator_profile_id=pg_temp.fixture_id(50) and payout_period_id=pg_temp.fixture_id(80);
 select is(jsonb_array_length(public.service_claim_pay_stub_generation_requests(10)),1,'Worker reserves only one request, even when asked for a batch');
 select is((select count(*)::integer from public.pay_stub_generation_requests where status='queued' and operator_profile_id in (pg_temp.fixture_id(50),pg_temp.fixture_id(51))),1,'Other contractor stays queued instead of abandoned processing');
 insert into public.payout_periods(id,account_id,payout_policy_id,period_start_date,period_end_date,submission_due_date,lock_date,target_payout_date,status)
