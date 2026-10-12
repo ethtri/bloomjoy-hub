@@ -6,6 +6,14 @@
 
 # QA Smoke Test Checklist
 
+## Shared mobile app controls (#1870)
+
+- At 320x568 and short landscape (568x320), open a long confirmation with an expanded customer email using synthetic data. The dialog stays inside the viewport with an inset, and scrolling reaches the title, every paragraph, editable controls, Cancel and the confirmation action without page overflow. Repeat at 200% text size.
+- Run `node scripts/validate-mobile-controls.mjs` for isolated synthetic confirmation focus/reachability checks (starts its own localhost server). Long confirmations start with visible dialog focus; short confirmations keep Cancel focus and explicit caller autofocus is preserved. Use Tab and Shift+Tab: focus stays inside, focused controls scroll into view, and Escape or Cancel restores the opener. Verify the existing machine dialog and navigation drawer also restore focus after Escape.
+- On authenticated phone layouts, shared buttons (including icon and linked buttons), inputs and select triggers have practical targets of at least 44px. Long button labels wrap within a content-sized button. Editable inputs, textareas and native selects use 16px text; include purchase-date and screenshot/file fields.
+- With reduced motion enabled, dialogs and sheets open and close without animated movement or fades, button transitions stop, and app scrolling is immediate. With motion enabled, state changes remain brief.
+- Check representative refunds, support and machine controls at desktop width and public pages at phone width. Desktop control density and public form/button defaults remain intact. Use synthetic records only; do not submit a real payment, refund or customer message for this check.
+
 ## Machine full page navigation (#1810)
 - At 390px and desktop, Manage opens one full page for a bound machine (`/admin/machines/:machineId`) and an unbound Sunze/Kex source (`/admin/machines/source/:sourceKey`). Company/search/view/selected row/scroll return context stays in the URL. Reload and direct links load the same exact identity; no machine edit sheet competes with the page.
 - The machine page contains one Machine name, one State and one machine Save. Settings tabs retain drafts. Declining page Back or native browser Back/Forward preserves the editor and drafts; accepting navigation discards them. Untouched imports return without a discard prompt.
