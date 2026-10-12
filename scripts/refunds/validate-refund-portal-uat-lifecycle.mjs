@@ -271,7 +271,7 @@ assert.match(
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all_open'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(refundManagerView\(authoritativeCase\)\)/
+  /setStatusFilter\('all_open'\);[\s\S]*?await refreshCaseAndQueue\(\);[\s\S]*?getQueryData<RefundOperationsOverview>\(caseReadKey\(targetCase.id\)\)[\s\S]*?setStatusFilter\(refundManagerView\(authoritativeCase\)\)/
 );
 assert.match(
   refundsSource,
