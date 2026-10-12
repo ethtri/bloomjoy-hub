@@ -10,10 +10,14 @@ approval releases navigation before background reads. Compact purchase facts kee
 alternate transactions and material conflicts accessible. Optional original
 comments and verified replies remain supplementary to structured facts.
 
-Local build/unit/approval UAT checks pass. Fresh database migration validation
-requires hosted disposable-database CI because Docker is unavailable locally;
-production latency and deployment are not yet verified. The five issues and
-#1432 retain acceptance evidence and remaining release verification.
+Local build, lint, 41 unit tests, full refund regressions, 24 request-access
+checks, 29 mobile-navigation checks and cash/gift browser journeys pass. A
+95-case injected browser fixture rendered three fresh queue/detail loads in
+321-367 ms and twenty case switches in 100-152 ms; these exclude database and
+production-network cost. Delayed-refresh approval and optional/trusted comment
+checks pass. Hosted disposable-database CI validates the migration and separate
+SQL timings because Docker is unavailable locally. Production latency and
+deployment remain unverified; #1432 tracks release verification.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
