@@ -15,9 +15,11 @@ checks, 29 mobile-navigation checks and cash/gift browser journeys pass. A
 95-case injected browser fixture rendered three fresh queue/detail loads in
 321-367 ms and twenty case switches in 100-152 ms; these exclude database and
 production-network cost. Delayed-refresh approval and optional/trusted comment
-checks pass. Hosted disposable-database CI validates the migration and separate
-SQL timings because Docker is unavailable locally. Production latency and
-deployment remain unverified; #1432 tracks release verification.
+checks pass. Hosted disposable-database CI passed all 8,317 assertions. Its
+95-case fixture measured at most 50 ms for twenty selected reads and 355 ms for
+three fresh queue reads. Selected JSON was 7,916 bytes versus 625,668 for the
+compatible full overview. Production latency and deployment remain unverified;
+#1432 tracks release verification.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
