@@ -53,7 +53,7 @@ begin
  definition:=replace(definition,anchor,$label$
       case when refund_case.reporting_machine_id is null
         and refund_case.intake_selection_kind='livermore_pair'
-        then 'San Francisco Premium Outlets â€” Cotton candy'
+        then 'San Francisco Premium Outlets — Cotton candy'
         else machine.refund_public_display_label end as refund_public_display_label,$label$);
  execute definition;
 end;

@@ -24,10 +24,10 @@ Production-data profiling also identified repeated timezone enumeration and SQL
 planning costs. A rolled-back rehearsal now measures three queue reads at
 2.7-2.9 seconds and twenty selected reads at 0.21-0.31 seconds, compared with
 11.2-12.7 seconds for the previous queue. These are server-read measurements,
-not phone/network timings. A repeatable-read rehearsal preserved all 95 complete Manager contracts, 750
-candidate outputs, existing queue items, catalogues and helper permissions.
-Replacement PR #1900 includes regression coverage;
-final CI and deployment remain pending under #1432.
+not phone/network timings. A repeatable-read rehearsal preserved all 95 complete
+Manager contracts, 750 candidate outputs, existing queue items, catalogues and
+helper permissions. Replacement PR #1900 includes regression coverage; final CI
+and deployment remain pending under #1432.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -56,7 +56,7 @@ individual Manager/Technician weekly projections. Full-population weekly
 verification remains unproven because bulk diagnostic queries timed out.
 
 New-refund alerts are enabled for the 5 Managers and 17 Technicians in current
-assigned-machine scope. Existing 20:00Ã¢â‚¬â€œ07:00 Pacific quiet hours and weekly
+assigned-machine scope. Existing 20:00–07:00 Pacific quiet hours and weekly
 opt-outs remain. The ordinary five-minute dispatcher tick completed during quiet
 hours without sending. General inquiries submitted before a refund request are
 not a machine-alert category.
@@ -79,7 +79,7 @@ transaction-tax precedence and unchanged machine rates, including the owner's
 Nayax 7.5% correction for The Avenues. The indexed original-import lookup passed
 the atomic eight-second production annual guard; no reporting budget was raised.
 
-Latest production January 1Ã¢â‚¬â€œOctober 7 reporting has 9,511 rows and 59,837 recorded
+Latest production January 1–October 7 reporting has 9,511 rows and 59,837 recorded
 transactions, with zero unresolved imported sales and 19 unresolved refund
 components. The exact legacy case repair (#1848) and reviewed original Sheet
 payment evidence (#1849) are deployed. All 54 Sheet identities matched; metadata
@@ -102,7 +102,7 @@ database, editor and matching estimate exports are deployed through #1853 under
 fresh disposable database. The exact deployed SQL passed a rolled-back live
 annual/preview/save rehearsal; post-deploy totals and Auth checks are unchanged.
 The frontend's 139 served assets and both workers' six source files match the
-reviewed release. Use Machines Ã¢â€ â€™ Reporting Ã¢â€ â€™ Tax rate Ã¢â€ â€™ Adjust rate for past,
+reviewed release. Use Machines → Reporting → Tax rate → Adjust rate for past,
 current/future or combined purchase dates, preview and audited save history.
 Provisional estimates remain separate from confirmed amounts and payouts.
 No provisional NC percentages have been entered. Supported receipts remain partial where source
@@ -132,7 +132,7 @@ Issue #1815 / PR #1817 adds the guarded already-bound source + historical reader
 
 PR #1803 completes Sunze and Kex source association in one Manage save, including reviewed reuse of the same existing physical machine and dated reader replacement or reassignment. Nayax supplies card revenue and genuine app cash remains eligible; new app card observations do not duplicate revenue, tax, quantities or deductions, and exact previously counted financial inputs are preserved. Original transactions and reader-specific tax/refund evidence retain their original ownership. PR #1809 is deployed: ordinary machine saves preserve completed source identity, and the user-confirmed Gilroy source pointer was restored through the guarded audited repair with financial/history/configuration digests unchanged. There is no separate sales-activation step. Same-machine connection review now shows the exact source and reader, a short physical-machine confirmation and one Save action; optional details open by tap or keyboard. The user has now saved the Gilroy source/reader connection; agent verification made no business mapping changes.
 
-PR #1804 is deployed as an index-only repair for the full source-reuse reader lookup, preserving exact historical owners, account boundaries, permissions, financial data and the existing API timeout. The indexed authenticated getter returned all 35 options in 253.49 ms, with Gilroy eligible and its saved America/Los_Angeles configuration retained. Full disposable SQL passed 222 fixtures / 7,432 assertions. The pre-connection baseline preserved GilroyÃ¢â‚¬â„¢s 2,350 Nayax facts and 1,508 pending Sunze orders; the 16 existing dated authority records are preserved.
+PR #1804 is deployed as an index-only repair for the full source-reuse reader lookup, preserving exact historical owners, account boundaries, permissions, financial data and the existing API timeout. The indexed authenticated getter returned all 35 options in 253.49 ms, with Gilroy eligible and its saved America/Los_Angeles configuration retained. Full disposable SQL passed 222 fixtures / 7,432 assertions. The pre-connection baseline preserved Gilroy’s 2,350 Nayax facts and 1,508 pending Sunze orders; the 16 existing dated authority records are preserved.
 
 Repo agents have standing business-Chrome authorization to self-serve and reuse the private reusable Supabase credential at `C:/Users/ethtr/.codex/credentials/Bloomjoy_hub/.env`. The runbook governs its env-file loader, user-only access and unchanged Auth deployment checks; do not repeat routine approval requests or expose tokens.
 
@@ -144,9 +144,9 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
 
 ## Partnership workflow
 
-- Machine Reporting now offers a compact Add to partnership action (#1822): choose an existing permitted partnership and an explicit effective start date. It inherits the partnershipÃ¢â‚¬â„¢s dated terms, preserves existing assignments/history, and explains overlapping primary assignments. Machine drafts stay intact; imported machines must first have a saved, verified Hub identity. Release and verification receipts belong in the issue/PR.
+- Machine Reporting now offers a compact Add to partnership action (#1822): choose an existing permitted partnership and an explicit effective start date. It inherits the partnership’s dated terms, preserves existing assignments/history, and explains overlapping primary assignments. Machine drafts stay intact; imported machines must first have a saved, verified Hub identity. Release and verification receipts belong in the issue/PR.
 - PR #1790 is deployed (main `8f2c799e`) and guarded portal corrections are applied: Merlin and Bubble Planet are ongoing at 70% partner / 30% Bloomjoy from September 1, 2026, on sales after tax and refunds only, with zero stick, processing or other configured deductions. Previous terms end August 31; earlier Bubble 60/40 with $0.40-per-stick and Merlin 30/70 history stays intact. Current structured terms supersede older October dates/deduction descriptions in historical reference notes. All raw facts, nine machine assignments, lifecycle dates and 19 draft snapshots are unchanged; issued records remain immutable.
-- Bubble PlanetÃ¢â‚¬â„¢s verified October preview is $2,148.00 after tax/refunds, split $1,503.60 partner / $644.40 Bloomjoy with zero extra deductions. Both September previews and MerlinÃ¢â‚¬â„¢s October totals remain unavailable because of existing source-tax/refund evidence gaps. LA source `1785123901474964787735686` is now user-bound to Bubble Planet LA / Bloomjoy Enterprises / Nayax `361844295`; do not repeat the stale unbound-company diagnosis. #1784 retains historical allocation questions; prior pending-order counts describe the pre-connection snapshot and are not a current readiness claim.
+- Bubble Planet’s verified October preview is $2,148.00 after tax/refunds, split $1,503.60 partner / $644.40 Bloomjoy with zero extra deductions. Both September previews and Merlin’s October totals remain unavailable because of existing source-tax/refund evidence gaps. LA source `1785123901474964787735686` is now user-bound to Bubble Planet LA / Bloomjoy Enterprises / Nayax `361844295`; do not repeat the stale unbound-company diagnosis. #1784 retains historical allocation questions; prior pending-order counts describe the pre-connection snapshot and are not a current readiness claim.
 
 ## Refund workflow (current)
 
@@ -189,7 +189,7 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
   and direct request links use the same current assignment scope in Hub and email.
   Rollout follow-up #1737 removes repeated whole-scope scans from digest metadata;
   keep delivery paused until full replay and all-page live previews pass (#1729).
-  The October 6Ã¢â‚¬â€œ7 missing-digest incident is tracked in #1818: all 22 daily
+  The October 6–7 missing-digest incident is tracked in #1818: all 22 daily
   messages failed during rendering before provider submission. PR #1820 corrects
   the stale location reference in the plain-text template. Independent follow-up
   #1819 replaces repeated full permission scans in per-machine digest metadata
@@ -401,8 +401,8 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
   lightweight queue before full details, with correct counts and read-only
   navigation; actions still require the existing full case. Production desktop
   and mobile selection and case switching passed without error banners or
-  overflow. Fresh queue loads improved to 4.2Ã¢â‚¬â€œ8.2 seconds, while full details took
-  8.9Ã¢â‚¬â€œ12.0 seconds. Three consecutive loads within five seconds were not achieved;
+  overflow. Fresh queue loads improved to 4.2–8.2 seconds, while full details took
+  8.9–12.0 seconds. Three consecutive loads within five seconds were not achieved;
   #628 retains the performance gap. The next bounded diagnostic is the queue
   RPC/network delay, preserving slow samples and avoiding a broader redesign.
 - On September 30 the primary database scheduler missed two health dispatches
