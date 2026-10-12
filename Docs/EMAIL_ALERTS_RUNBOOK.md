@@ -155,6 +155,39 @@ deferred-work fields. The initial rollout timeout and recovery evidence live in
 
 ## Pause and recovery
 
+### Gift-review digest compatibility (#1728)
+
+The gift-review repair extends existing ready/digest evidence with
+`gift_card_manager_review`. It presents the accepted gift-card value and actual
+review reasons without creating card/cash preparation proof or changing Manager
+authority, inventory allocation, payment rules, or optional subscriptions.
+
+Use the compatible-consumer-first sequence in `PRODUCTION_RUNBOOK.md` Step B:
+
+1. Complete the reviewed migration-history prerequisites, including the existing
+   `20261009155358_refund_manager_notice_case_context.sql` notice-v2 RPC needed by
+   the current sweep. Apply only the reviewed pre-gift migration set at this stage.
+2. Deploy and independently verify the compatible `email-alert-dispatch` and
+   `refund-case-automation-sweep` consumers while the database still emits the
+   previous evidence set. These parsers accept both the old and gift formats.
+3. Apply `20261012042355_refund_gift_review_manager_notifications.sql`, then verify
+   current aggregate daily/weekly previews and opted-in ready projections without
+   sending test mail. The shared dispatch claim regression must pass in the
+   disposable database. Preserve current optional-ready preferences.
+
+The standalone new-request renderer release (#1866, dispatcher v9) is already
+live; it does not deploy this gift producer or the governed sweep. The canonical
+release owner records the exact reviewed source and existing Auth evidence; this
+change does not extend the historical `preMigrationCompatibility` bridge.
+
+Prefer retaining the compatible consumers during recovery. Before restoring an
+older strict consumer, pause delivery and withdraw the gift producer with a
+reviewed forward migration. Preserve queued gift actions and provider-start
+evidence: older consumers must not process gift-format claims. Do not delete or
+requeue delivered/unknown attempts. An old producer again cannot represent open
+gift review, so keep delivery paused until read-only previews pass with a
+compatible producer and consumer pair.
+
 Call `service_set_email_alert_delivery_enabled` with `p_enabled: false`. This
 pauses the dedicated cron and all adopted optional notification delivery. The
 first activation timestamp remains set, so the old manager digest sender cannot

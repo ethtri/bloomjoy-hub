@@ -28,6 +28,26 @@ const rejects = (value: unknown) => {
 };
 const links = machineEmailLinks();
 
+Deno.test("daily and weekly machine digests accept canonical gift decisions without changing intake totals", () => {
+  for (const category of ["daily", "weekly"] as const) {
+    const p = fixtureProjection();
+    p.category = category;
+    const mandatory = p.managerOpenCases as { items: Array<Record<string, unknown>> };
+    Object.assign(mandatory.items[0], {
+      evidenceBasis: "gift_card_manager_review", amountCents: 1500,
+      preparationSummary: "Partial order.",
+    });
+    const parsed = parseMachineEmailProjection(p);
+    const email = buildMachineEmail({ projection: parsed, links });
+    assert(email.html.startsWith("<!doctype html>"), "shared digest renders with a gift decision");
+    assert(JSON.stringify(parsed.summary) === JSON.stringify(p.summary),
+      "gift face value does not overwrite requested intake or sales totals");
+    const invalid = structuredClone(p);
+    ((invalid.managerOpenCases as typeof mandatory).items[0]).actionCode = "send_cash_refund_and_confirm";
+    rejects(invalid);
+  }
+});
+
 Deno.test("digest sales evidence distinguishes empty imports, unresolved normalization, partial amounts and verified zero", () => {
   const p = fixtureProjection();
   p.managerOpenCases = null;

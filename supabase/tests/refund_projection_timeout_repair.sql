@@ -9,8 +9,12 @@ select ok(strpos(pg_get_functiondef(
   'recommendation projection has the guarded impossible-evidence fast path');
 select ok(strpos(pg_get_functiondef(
     'public.service_refund_manager_ready_notice_snapshot(uuid,uuid,timestamptz)'::regprocedure),
+    'return public.service_refund_ready_snapshot_pre_gift_review_v1(')>0,
+  'gift adapter delegates non-gift cases to the optimized ready snapshot');
+select ok(strpos(pg_get_functiondef(
+    'public.service_refund_ready_snapshot_pre_gift_review_v1(uuid,uuid,timestamptz)'::regprocedure),
     'Delegate only when the')>0,
-  'ready snapshot reuses non-Manager lifecycle truth before legacy delegation');
+  'delegated ready snapshot retains non-Manager lifecycle reuse before legacy delegation');
 
 insert into auth.users (
   instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,

@@ -103,6 +103,10 @@ export default function TrainingDetailPage() {
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [videoLoadStartedAt, setVideoLoadStartedAt] = useState<number | null>(null);
   const hasTrackedStart = useRef(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const completionRequestRef = useRef(0);
+  const currentTrainingIdRef = useRef(trainingItem?.id);
+  currentTrainingIdRef.current = trainingItem?.id;
 
   const progressRecord = trainingItem
     ? canonicalProgress.find((entry) => entry.trainingId === trainingItem.id)
@@ -111,6 +115,9 @@ export default function TrainingDetailPage() {
 
   useEffect(() => {
     hasTrackedStart.current = false;
+    setCompletionError(null);
+    completionRequestRef.current += 1;
+    return () => { completionRequestRef.current += 1; };
   }, [trainingItem?.id]);
 
   useEffect(() => {
@@ -235,10 +242,13 @@ export default function TrainingDetailPage() {
   };
 
   const handleMarkComplete = async () => {
+    setCompletionError(null);
     if (trainingItem.surface !== 'task') {
       return;
     }
 
+    const requestId = ++completionRequestRef.current;
+    const trainingId = trainingItem.id;
     try {
       await saveProgressMutation.mutateAsync({
         trainingId: trainingItem.id,
@@ -246,10 +256,13 @@ export default function TrainingDetailPage() {
         markComplete: true,
         completionSource: 'detail_complete',
       });
-      toast.success('Training marked complete.');
       trackEvent('training_mark_completed', { id: trainingItem.id, title: trainingItem.title });
+      if (currentTrainingIdRef.current !== trainingId || completionRequestRef.current !== requestId) return;
+      toast.success('Training marked complete.');
     } catch (error) {
+      if (currentTrainingIdRef.current !== trainingId || completionRequestRef.current !== requestId) return;
       const message = error instanceof Error ? error.message : 'Unable to save training progress.';
+      setCompletionError(message);
       toast.error(message);
     }
   };
@@ -409,10 +422,19 @@ export default function TrainingDetailPage() {
                 </span>
               </div>
 
-              <h1 className="mt-4 font-display text-3xl font-bold text-foreground">
+              <h1 className="mt-4 text-2xl font-semibold text-foreground">
                 {trainingItem.title}
               </h1>
               <p className="mt-2 text-muted-foreground">{normalizeTrainingCopy(trainingItem.description)}</p>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm" aria-label="Training progress">
+                <span className="font-semibold text-foreground">
+                  {trainingItem.surface !== 'task' ? 'Supporting reference' : isCompleted ? 'Completed' : progressRecord?.startedAt ? 'In progress' : 'Not started'}
+                </span>
+                {trainingItem.surface === 'task' && !isCompleted && (
+                  <a href="#training-completion" className="inline-flex min-h-11 items-center text-primary underline underline-offset-4">Review completion</a>
+                )}
+              </div>
 
               {trainingItem.embed.url ? (
                 <div
@@ -539,42 +561,6 @@ export default function TrainingDetailPage() {
                 </div>
               )}
 
-              {primaryCompanion && (
-                <div className="mt-6 rounded-[28px] border border-primary/10 bg-primary/5 p-5 sm:p-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Use during this task
-                  </p>
-                  <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="max-w-2xl">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          {getCompanionLabel(primaryCompanion)}
-                        </span>
-                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Companion reference
-                        </span>
-                      </div>
-                      <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
-                        {primaryCompanion.title}
-                      </h2>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        {normalizeTrainingCopy(primaryCompanion.description)}
-                      </p>
-                    </div>
-                    <div className="shrink-0">
-                      <Button asChild className="w-full sm:w-auto">
-                        <Link
-                          to={`/portal/training/${primaryCompanion.id}`}
-                          onClick={() => handleResourceOpen(primaryCompanion.title)}
-                        >
-                          {primaryCompanion.surface === 'manual' ? 'Open manual' : 'Open quick aid'}
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="mt-6 grid gap-5 md:grid-cols-2">
                 <div className="card-elevated p-6">
                   <h2 className="font-display text-lg font-semibold text-foreground">
@@ -621,6 +607,63 @@ export default function TrainingDetailPage() {
                   )}
                 </div>
               </div>
+
+              <div id="training-completion" className="mt-6 scroll-mt-24 border-t border-border py-5">
+                <h2 className="text-lg font-semibold text-foreground">
+                  {trainingItem.surface === 'task' ? 'Finish this training' : 'Reference status'}
+                </h2>
+                <p role="status" aria-live="polite" className="mt-2 text-sm text-muted-foreground">
+                  {trainingItem.surface !== 'task'
+                    ? 'Supporting reference'
+                    : isCompleted ? 'Training completed.' : 'After reviewing the lesson and action items, mark this training complete.'}
+                </p>
+                {completionError && <p role="alert" className="mt-3 text-sm text-destructive">{completionError}</p>}
+                {trainingItem.surface === 'task' ? (
+                  <Button
+                    className="mt-4 min-h-11 w-full sm:w-auto"
+                    onClick={handleMarkComplete}
+                    disabled={isCompleted || saveProgressMutation.isPending}
+                  >
+                    {isCompleted ? 'Completed' : saveProgressMutation.isPending ? 'Saving...' : 'Mark complete'}
+                  </Button>
+                ) : null}
+              </div>
+
+              {primaryCompanion && (
+                <div className="mt-6 rounded-[28px] border border-primary/10 bg-primary/5 p-5 sm:p-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Use during this task
+                  </p>
+                  <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          {getCompanionLabel(primaryCompanion)}
+                        </span>
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Companion reference
+                        </span>
+                      </div>
+                      <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
+                        {primaryCompanion.title}
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {normalizeTrainingCopy(primaryCompanion.description)}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      <Button asChild className="w-full sm:w-auto">
+                        <Link
+                          to={`/portal/training/${primaryCompanion.id}`}
+                          onClick={() => handleResourceOpen(primaryCompanion.title)}
+                        >
+                          {primaryCompanion.surface === 'manual' ? 'Open manual' : 'Open quick aid'}
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {primaryTaskResource && (
                 <div className="mt-6 rounded-[28px] border border-primary/10 bg-primary/5 p-5 sm:p-6">
@@ -676,42 +719,6 @@ export default function TrainingDetailPage() {
             </div>
 
             <aside className="space-y-6">
-              <div className="card-elevated p-6">
-                <h2 className="font-display text-lg font-semibold text-foreground">
-                  {trainingItem.surface === 'task' ? 'Training status' : 'Reference status'}
-                </h2>
-                <p className="mt-3 text-sm text-muted-foreground">{trainingItem.summary}</p>
-                <div className="mt-4 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
-                  {trainingItem.surface !== 'task' ? (
-                    <span className="text-muted-foreground">Supporting reference</span>
-                  ) : isCompleted ? (
-                    <span className="inline-flex items-center gap-2 font-semibold text-sage">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Completed
-                    </span>
-                  ) : progressRecord?.startedAt ? (
-                    <span className="inline-flex items-center gap-2 font-semibold text-primary">
-                      <PlayCircle className="h-4 w-4" />
-                      In progress
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Not started</span>
-                  )}
-                </div>
-                {trainingItem.surface === 'task' ? (
-                  <Button
-                    className="mt-6 w-full"
-                    onClick={handleMarkComplete}
-                    disabled={isCompleted || saveProgressMutation.isPending}
-                  >
-                    {isCompleted
-                      ? 'Completed'
-                      : saveProgressMutation.isPending
-                        ? 'Saving...'
-                        : 'Mark complete'}
-                  </Button>
-                ) : null}
-              </div>
 
               <div className="card-elevated p-6">
                 <div className="flex items-start gap-3">

@@ -241,6 +241,39 @@
     min-height: 2.75rem;
   }
 
+  /* AppLayout also scopes body so Radix portals receive these mobile rules. */
+  @media (max-width: 767px) {
+    .app-surface :is([data-app-control="button"], [data-app-control="select"], input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select) {
+      min-height: 2.75rem;
+    }
+
+    .app-surface [data-app-control="button"] {
+      height: auto;
+      min-width: 2.75rem;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .app-surface :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select) {
+      font-size: 1rem;
+    }
+  }
+
+  .app-surface [data-app-control="button"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 150ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-surface [data-app-control="button"] {
+      transition: none;
+    }
+
+    html:has(.app-surface) {
+      scroll-behavior: auto;
+    }
+  }
+
   .btn-shadow {
     box-shadow: var(--shadow-warm);
   }
