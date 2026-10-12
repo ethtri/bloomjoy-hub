@@ -512,6 +512,7 @@ const run = async () => {
     await page.setViewportSize({ width: 1365, height: 900 });
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
+    await page.getByText('Contractor 1042', { exact: true }).waitFor();
     check('Pay Report labels a stale published statement as needing regeneration', await page.getByRole('button', { name: 'Regenerate Pay Stub' }).isVisible());
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
     check('Pay Report loads protected contact details beside the Technician', (await page.locator('body').innerText()).includes('alex.technician@example.test') && (await page.locator('body').innerText()).includes('+1 555 010 1042'));
