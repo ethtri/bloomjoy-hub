@@ -336,7 +336,8 @@
     "20261008210627_legacy_refund_exact_source_tax.sql",
     "20261008221944_legacy_refund_source_payment_evidence.sql",
     "20261009155358_refund_manager_notice_case_context.sql",
-    "20261012042355_refund_gift_review_manager_notifications.sql"
+    "20261012042355_refund_gift_review_manager_notifications.sql",
+    "20261012080709_refund_snapcase_reviewed_catalog_association.sql"
   ],
   "migrationFilesSha256": "a621686007623be4792537589facdc58d79f1c491a68914000585aae240852b2",
   "migrationVersionSetSha256": "a29c6c74596b8e23ffa000f7b59b84073cd05d81c09b8a3b07deb7734d2266e0",
