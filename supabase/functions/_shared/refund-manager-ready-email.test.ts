@@ -190,3 +190,17 @@ Deno.test("gift review describes gift value without invented payment proof", () 
     assert(rejected, "gift basis cannot weaken ordinary proof or payment boundaries");
   }
 });
+
+Deno.test("gift ready email uses effective Machine name without a legacy Location suffix", () => {
+  const parsed = parseRefundManagerReadyNotice({ ...notice,
+    proofId: null, evidenceBasis: "gift_card_manager_review",
+    machineLabel: "Atrium cotton candy & treats", locationName: "Legacy shopping center",
+    preparationSummary: "Partial order." });
+  const email = buildRefundManagerReadyEmail({ notice: parsed,
+    caseUrl: "https://portal.example/refunds?case=gift" });
+  assert(email.text.includes("Atrium cotton candy & treats"), "effective Machine name is present in text");
+  assert(email.html.includes("Atrium cotton candy &amp; treats"), "effective Machine name is escaped in HTML");
+  for (const content of [email.subject, email.text, email.html]) {
+    assert(!content.includes("Legacy shopping center"), "legacy Location cannot become an alternate machine label");
+  }
+});
