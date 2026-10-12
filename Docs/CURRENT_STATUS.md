@@ -6,6 +6,17 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Reviewed cash evidence after company correction
+
+#1758 remains open under #1375/#1350: an ordinary same-machine company save
+created a new internal Location and cash publication replay stranded the retained
+reviewed purchase. The SQL correction requires the exact prior reviewed source
+digest, unchanged provider lineage and one audited administrative association;
+it preserves original intake and financial facts under the October 3
+current-company policy. Deployment and actual supported re-correlation/current
+reviewed selection are separate recovery dependencies. No real case action is
+part of verification.
+
 ## Machine email alerts
 
 Case-first Manager notices (#1863) and gift-review digest compatibility (#1728)

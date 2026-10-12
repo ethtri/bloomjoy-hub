@@ -952,6 +952,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
+- [ ] Reviewed cash / ordinary company correction (#1375/#1350/#1758): run the disposable DB suite, including `refund_snapcase_reviewed_catalog_association.sql`. Reproduce exact reviewed purchase, audited company save and cash publication replay; the old zero-candidate attempt stays immutable, existing re-correlation exposes only the retained purchase, and authorized explicit selection restores current proof without another original question. Challenge marked transfers, relocation, unaudited/multiple associations, distinct provider owner, stale/revoked/conflicting review and tender/time/source contradictions. On localhost `/admin/refunds`, confirm current research/selection remains separate from the Manager payment decision. Never use production case writes, claims, messages or provider refreshes as smoke tests.
 - [ ] Quote, order, and support primary flows still succeed when WeCom alert delivery fails (verify non-blocking warning logs in function output)
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
