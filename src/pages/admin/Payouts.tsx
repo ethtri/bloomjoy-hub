@@ -1076,7 +1076,7 @@ export default function AdminPayoutsPage() {
         ) : error ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6" role="alert">
             <h2 className="font-semibold text-foreground">Pay Report unavailable</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Account-level pay access is required. If you should have access, ask a Bloomjoy owner to confirm your account role.</p>
+            <p className="mt-2 text-sm text-muted-foreground">The report could not load. This can be a data or connection problem; it does not necessarily mean your access changed. Try again, or ask a Bloomjoy owner to investigate if it continues.</p>
             <Button type="button" className="mt-5 min-h-11" onClick={() => void refetch()}>Try again</Button>
           </div>
         ) : !context?.hasAccess ? (

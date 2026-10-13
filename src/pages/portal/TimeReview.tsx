@@ -2,7 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import LaborReportPage, { TimekeepingReportNavigation } from './LaborReport';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, CalendarPlus2, Clock3, Edit3, Loader2, RefreshCw, Users } from 'lucide-react';
+import { CalendarDays, CalendarPlus2, Clock3, Edit3, Loader2, RefreshCw, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import {
   Select,
   SelectContent,
@@ -135,10 +136,14 @@ function TimeReviewEntriesPage() {
   const [technicianId, setTechnicianId] = useState('all');
   const [machineId, setMachineId] = useState('all');
   const [correctionEntry, setCorrectionEntry] = useState<OperatorTimeReviewEntry | null>(null);
+  const [voidEntry, setVoidEntry] = useState<OperatorTimeReviewEntry | null>(null);
+  const [uncertainVoidIds, setUncertainVoidIds] = useState<Set<string>>(() => new Set());
+  const [voidError, setVoidError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CorrectionDraft | null>(null);
   const [missedTimeDraft, setMissedTimeDraft] = useState<MissedTimeDraft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const editTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const voidTriggerRef = useRef<HTMLButtonElement | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement | null>(null);
   const workDate = `${month}-01`;
 
@@ -243,6 +248,30 @@ function TimeReviewEntriesPage() {
     },
   });
 
+  const voidMutation = useMutation({
+    mutationFn: (entry: OperatorTimeReviewEntry) => correctOperatorTimeEntry({
+      timeEntryId: entry.id,
+      machineId: entry.machineId,
+      actualStartAt: entry.actualStartAt,
+      actualEndAt: entry.actualEndAt,
+      void: true,
+    }),
+    onSuccess: (nextContext) => {
+      queryClient.setQueryData<OperatorTimeReviewContext>(reviewQueryKey(workDate), {
+        ...nextContext,
+        entryOptions: context?.entryOptions ?? [],
+      });
+      setVoidEntry(null);
+      setVoidError(null);
+      toast.success('Time entry voided. Its audit history is preserved.');
+      requestAnimationFrame(() => addTriggerRef.current?.focus());
+    },
+    onError: (_error, entry) => {
+      setUncertainVoidIds((current) => new Set(current).add(entry.id));
+      setVoidError('We could not confirm the void. Refresh the report before trying again.');
+    },
+  });
+
   const missedTimeMutation = useMutation({
     mutationFn: () => {
       if (!missedTimeDraft) throw new Error('Complete the missed time entry.');
@@ -320,15 +349,15 @@ function TimeReviewEntriesPage() {
         ? context.periodEndDate
         : today;
     const selectedTechnician =
-      availableTechnicians.find((technician) => technician.id === technicianId) ?? availableTechnicians[0];
+      availableTechnicians.find((technician) => technician.id === technicianId);
     const firstOption = context.entryOptions.find(
       (option) =>
-        option.operatorProfileId === selectedTechnician.id &&
+        option.operatorProfileId === selectedTechnician?.id &&
         option.effectiveStartDate <= defaultDate &&
         (!option.effectiveEndDate || option.effectiveEndDate >= defaultDate)
     );
     setMissedTimeDraft({
-      operatorProfileId: selectedTechnician.id,
+      operatorProfileId: selectedTechnician?.id ?? '',
       machineId: firstOption?.machineId ?? '',
       workDate: defaultDate,
       startTime: '',
@@ -412,7 +441,7 @@ function TimeReviewEntriesPage() {
                   <CalendarPlus2 className="mr-2 h-4 w-4" />
                   Add missed time
                 </Button>
-                <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
+                <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds(new Set()); }); }}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} />
                   Refresh
                 </Button>
@@ -431,7 +460,7 @@ function TimeReviewEntriesPage() {
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6" role="alert">
               <h2 className="font-semibold text-foreground">Time Report unavailable</h2>
               <p className="mt-2 text-sm text-muted-foreground">Your saved time has not changed. Refresh once, then ask Bloomjoy to confirm your manager access if this continues.</p>
-              <Button type="button" className="mt-5 min-h-11" onClick={() => void refetch()}>Try again</Button>
+              <Button type="button" className="mt-5 min-h-11" onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds(new Set()); }); }}>Try again</Button>
             </div>
           ) : !context?.hasAccess || context.machines.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-6">
@@ -492,7 +521,10 @@ function TimeReviewEntriesPage() {
                                   <p className="mt-1 text-sm text-muted-foreground">{formatDuration(actualMinutes(entry))} actual · <span className="font-semibold text-foreground">{paidShifts(entry)} paid {paidShifts(entry) === 1 ? 'shift' : 'shifts'}</span></p>
                                   {entry.notes && <p className="mt-2 text-sm text-muted-foreground">{entry.notes}</p>}
                                 </div>
-                                <Button type="button" variant="outline" className="min-h-11 sm:shrink-0" aria-label={`Edit ${entryLabel(entry)}`} onClick={(event) => openCorrection(entry, event.currentTarget)}><Edit3 className="mr-2 h-4 w-4" />Edit time</Button>
+                                <div className="flex flex-wrap gap-2 sm:shrink-0">
+                                  <Button type="button" variant="outline" className="min-h-11" aria-label={`Edit ${entryLabel(entry)}`} onClick={(event) => openCorrection(entry, event.currentTarget)}><Edit3 className="mr-2 h-4 w-4" />Edit time</Button>
+                                  <Button type="button" variant="outline" className="min-h-11" aria-label={`Void ${entryLabel(entry)}`} onClick={(event) => { voidTriggerRef.current = event.currentTarget; setVoidError(uncertainVoidIds.has(entry.id) ? 'We could not confirm the void. Refresh the report before trying again.' : null); setVoidEntry(entry); }}><Trash2 className="mr-2 h-4 w-4" />Void time</Button>
+                                </div>
                               </div>
                             </article>
                           ))}
@@ -506,6 +538,25 @@ function TimeReviewEntriesPage() {
           )}
         </div>
       </section>
+
+      <AlertDialog open={Boolean(voidEntry)} onOpenChange={(open) => { if (!open && !voidMutation.isPending) { setVoidEntry(null); setVoidError(null); requestAnimationFrame(() => voidTriggerRef.current?.focus()); } }}>
+        <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void this time entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {voidEntry && <span className="block font-medium">{entryLabel(voidEntry)}</span>}
+              This removes the entry from time calculations and preserves its audit history. Issued Pay Stubs are not replaced automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {voidError && <p className="text-sm text-destructive" role="alert">{voidError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voidMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button type="button" variant="destructive" disabled={voidMutation.isPending || Boolean(voidError)} onClick={() => { if (voidEntry) voidMutation.mutate(voidEntry); }}>
+              {voidMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Void entry
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={Boolean(correctionEntry && draft)} onOpenChange={(open) => !open && !correctionMutation.isPending && closeCorrection()}>
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
@@ -544,7 +595,7 @@ function TimeReviewEntriesPage() {
                   value={missedTimeDraft.operatorProfileId}
                   onValueChange={(value) => updateMissedTimeIdentity(value, missedTimeDraft.workDate)}
                 >
-                  <SelectTrigger id="missed-time-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="missed-time-technician" className="mt-2 min-h-11"><SelectValue placeholder="Choose a Technician" /></SelectTrigger>
                   <SelectContent>
                     {availableTechnicians.map((technician) => (
                       <SelectItem key={technician.id} value={technician.id}>{technician.name}</SelectItem>
@@ -577,7 +628,7 @@ function TimeReviewEntriesPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {missedTimeMachines.length === 0 && (
+                {missedTimeDraft.operatorProfileId && missedTimeMachines.length === 0 && (
                   <p className="mt-2 text-sm text-muted-foreground">This Technician was not assigned to one of your machines on that date.</p>
                 )}
               </div>
