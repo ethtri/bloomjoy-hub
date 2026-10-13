@@ -714,6 +714,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Multi-profile and machine controls have associated visible labels; repeated Edit and Delete controls announce the Technician, machine, date, and time context.
 
 ### Technician Pay Report (legacy validator: Admin Technician Pay Review)
+
+- [ ] On an existing Technician, **Add machine** offers only additional available machines from that payroll account, with no preselection. Choose dates and explicit machine pay/commission; verify the original assignments, default/historical rates, contacts, and access are unchanged.
+- [ ] A rejected add-machine save leaves no partial assignment/rates. After a lost response, Close/reload/reopen retains the exact request; **Check save status** confirms its audited result, and **Retry same save** never duplicates it. Cancel sends no write.
+- [ ] Run `node scripts/validate-add-technician-machine-uat.mjs` against `npm run dev:uat`; review desktop/mobile evidence in `output/playwright/add-technician-machine`.
 - [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
 - [ ] From `/admin/payouts`, an account pay manager can open **Set up Technician**, see the compact invitation prerequisite, choose the person/start date/machines, and enter the rate and commission for each selected machine in one form.
 - [ ] Initial Technician setup saves invitation email as the contact email plus optional phone and mailing address; an authorized pay manager can view and edit those details from the Technician card, while an unrelated authenticated user cannot read them and contact values never appear in admin audit payloads.

@@ -1,0 +1,47 @@
+name: Add Technician Machine UAT
+on:
+  pull_request:
+    paths:
+      - 'src/components/payouts/AddTechnicianMachineDialog.tsx'
+      - 'src/lib/operatorMachineArrangement.ts'
+      - 'src/pages/admin/Payouts.tsx'
+      - 'scripts/validate-add-technician-machine-uat.mjs'
+      - 'scripts/validate-manager-time-pay-reports-uat.mjs'
+      - '.github/workflows/add-technician-machine-uat.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-add-machine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify additive and interrupted save flows
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: mock-anon-key
+        run: |
+          npm run dev:uat > /tmp/add-machine-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8081/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/validate-add-technician-machine-uat.mjs
+      - name: Preserve synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: add-technician-machine-uat
+          path: output/playwright/add-technician-machine
+          if-no-files-found: ignore

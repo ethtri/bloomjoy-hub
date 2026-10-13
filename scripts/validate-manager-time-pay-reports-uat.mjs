@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:8081';
 const FIXED_NOW = new Date('2026-09-03T19:00:00.000Z');
@@ -727,4 +728,6 @@ const run = async () => {
   console.log('Manager Time and Pay Report rendered UAT passed without live writes.');
 };
 
-await run();
+export { installRoutes, openAuthenticated, payContext, setupContext, state, PROFILE_ID, ACCOUNT_ID, MACHINE_A, MACHINE_B, LOCATION_ID, FIXED_NOW };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await run();
