@@ -137,7 +137,7 @@ function TimeReviewEntriesPage() {
   const [machineId, setMachineId] = useState('all');
   const [correctionEntry, setCorrectionEntry] = useState<OperatorTimeReviewEntry | null>(null);
   const [voidEntry, setVoidEntry] = useState<OperatorTimeReviewEntry | null>(null);
-  const [uncertainVoidIds, setUncertainVoidIds] = useState<Set<string>>(() => new Set());
+  const [uncertainVoidIds, setUncertainVoidIds] = useState<Map<string, string>>(() => new Map());
   const [voidError, setVoidError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CorrectionDraft | null>(null);
   const [missedTimeDraft, setMissedTimeDraft] = useState<MissedTimeDraft | null>(null);
@@ -267,7 +267,7 @@ function TimeReviewEntriesPage() {
       requestAnimationFrame(() => addTriggerRef.current?.focus());
     },
     onError: (_error, entry) => {
-      setUncertainVoidIds((current) => new Set(current).add(entry.id));
+      setUncertainVoidIds((current) => new Map(current).set(entry.id, entry.workDate.slice(0, 7)));
       setVoidError('We could not confirm the void. Refresh the report before trying again.');
     },
   });
@@ -441,7 +441,7 @@ function TimeReviewEntriesPage() {
                   <CalendarPlus2 className="mr-2 h-4 w-4" />
                   Add missed time
                 </Button>
-                <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds(new Set()); }); }}>
+                <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds((current) => new Map([...current].filter(([, entryMonth]) => entryMonth !== month)));  }); }}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} />
                   Refresh
                 </Button>
@@ -460,7 +460,7 @@ function TimeReviewEntriesPage() {
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6" role="alert">
               <h2 className="font-semibold text-foreground">Time Report unavailable</h2>
               <p className="mt-2 text-sm text-muted-foreground">Your saved time has not changed. Refresh once, then ask Bloomjoy to confirm your manager access if this continues.</p>
-              <Button type="button" className="mt-5 min-h-11" onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds(new Set()); }); }}>Try again</Button>
+              <Button type="button" className="mt-5 min-h-11" onClick={() => { void refetch().then((result) => { if (!result.error) setUncertainVoidIds((current) => new Map([...current].filter(([, entryMonth]) => entryMonth !== month)));  }); }}>Try again</Button>
             </div>
           ) : !context?.hasAccess || context.machines.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-6">

@@ -80,15 +80,15 @@ set local session_replication_role = origin;
 -- An old revoked source assignment survived a payer consolidation. It has no
 -- valid retained mapping, whereas the original assignment remains historical.
 set local session_replication_role = replica;
-insert into public.operator_machine_assignments(id,operator_profile_id,account_id,reporting_machine_id,effective_start_date,status,revoked_at,grant_reason)
-values(pg_temp.fixture_id(61),pg_temp.fixture_id(51),pg_temp.fixture_id(10),pg_temp.fixture_id(31),'2025-01-01','revoked',now(),'Synthetic consolidated source');
-update public.operator_machine_assignments set status='revoked',revoked_at=now() where id=pg_temp.fixture_id(60);
+insert into public.operator_machine_assignments(id,operator_profile_id,account_id,reporting_machine_id,effective_start_date,status,revoked_at,revoke_reason,grant_reason)
+values(pg_temp.fixture_id(61),pg_temp.fixture_id(51),pg_temp.fixture_id(10),pg_temp.fixture_id(31),'2025-01-01','revoked',now(),'Synthetic historical revocation','Synthetic consolidated source');
+update public.operator_machine_assignments set status='revoked',revoked_at=now(),revoke_reason='Synthetic historical revocation' where id=pg_temp.fixture_id(60);
 -- A revoked valid machine with no sales must still be reconciled by the
 -- assignment arm (it cannot be rescued by the sales-attribution UNION arm).
 insert into public.reporting_machines(id,account_id,location_id,machine_label)
 values(pg_temp.fixture_id(34),pg_temp.fixture_id(10),pg_temp.fixture_id(20),'Synthetic zero-sales historical machine');
-insert into public.operator_machine_assignments(id,operator_profile_id,account_id,reporting_machine_id,effective_start_date,status,revoked_at,grant_reason)
-values(pg_temp.fixture_id(62),pg_temp.fixture_id(50),pg_temp.fixture_id(10),pg_temp.fixture_id(34),'2025-01-01','revoked',now(),'Synthetic historical no-sales assignment');
+insert into public.operator_machine_assignments(id,operator_profile_id,account_id,reporting_machine_id,effective_start_date,status,revoked_at,revoke_reason,grant_reason)
+values(pg_temp.fixture_id(62),pg_temp.fixture_id(50),pg_temp.fixture_id(10),pg_temp.fixture_id(34),'2025-01-01','revoked',now(),'Synthetic historical revocation','Synthetic historical no-sales assignment');
 update public.payout_period_machine_revenue_snapshots set gross_sales_cents=1 where id=pg_temp.fixture_id(92);
 insert into public.payout_runs(id,account_id,payout_period_id,status)
 values(pg_temp.fixture_id(100),pg_temp.fixture_id(10),pg_temp.fixture_id(80),'issued');

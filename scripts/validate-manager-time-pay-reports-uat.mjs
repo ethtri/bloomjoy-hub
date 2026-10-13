@@ -530,8 +530,11 @@ const run = async () => {
     check('Cancel void does not mutate', voidCalls().length === beforeVoidCalls);
     await page.getByRole('button', { name: /^Void Alex Magana.*10:00 AM to 10:20 AM/i }).click();
     await page.getByRole('button', { name: 'Void entry', exact: true }).click();
+    const voidRequestDeadline = Date.now() + 10000;
+    while (!state.releaseVoidResponse && Date.now() < voidRequestDeadline) await page.waitForTimeout(10);
+    if (!state.releaseVoidResponse) throw new Error('Void request did not reach the controlled response gate');
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Void entry' && button.disabled));
     check('Pending void cannot be submitted twice', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
-    while (!state.releaseVoidResponse) await page.waitForTimeout(10);
     state.releaseVoidResponse();
     state.releaseVoidResponse = null;
     await page.getByRole('alertdialog').waitFor({ state: 'hidden' });
@@ -568,6 +571,13 @@ const run = async () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
     check('Dismissing and reopening does not bypass uncertain-outcome refresh', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByLabel('Month', { exact: true }).fill('2026-08');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForTimeout(250);
+    await page.getByLabel('Month', { exact: true }).fill('2026-09');
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    check('Refreshing another month does not clear uncertain void protection', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
     await page.getByRole('button', { name: 'Cancel' }).click();
     state.failVoid = false;
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
