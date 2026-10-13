@@ -423,10 +423,15 @@ function run() {
       if (String(env.NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED || '').trim().toLowerCase() !== 'true') {
         errors.push('NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED must be true while live card refund approval is enabled.');
       }
-      const queueAccount = String(env.NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY || '')
-        .trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-      if (!activeCredentialAccounts.pairedAccounts.includes(queueAccount)) {
+      const queueAccounts = [...new Set([
+        env.NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY || '',
+        ...(env.NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEYS || '').split(','),
+      ].map((key) => String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')).filter(Boolean))];
+      if (!queueAccounts.length || queueAccounts.some((key) => !activeCredentialAccounts.pairedAccounts.includes(key))) {
         errors.push('NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY must match an account with paired refund write credentials.');
+        if (env.NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEYS) {
+          errors.push('Every additional NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEYS entry needs its own paired refund write credentials.');
+        }
       }
     }
 

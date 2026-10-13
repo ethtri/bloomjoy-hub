@@ -22,6 +22,10 @@ question, Manager approval, pilot, cohort, or account-wide payment gate.
 
 ## Changing the inventory integration
 
+For a separate account's credential and mapping setup, use
+[Nayax account onboarding](NAYAX_ACCOUNT_ONBOARDING.md). Its default readiness
+command is offline; its explicit probe makes only provider GET requests.
+
 For a change to the sync, schema, or reconciliation UI:
 
 1. Deploy any reviewed migration before the dependent function or UI.

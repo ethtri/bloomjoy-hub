@@ -2,6 +2,14 @@
 
 Last compacted: 2026-09-29.
 
+## NC Nayax account preparation
+
+Issue #1913 prepares a private, GET-only account check and additive refund-worker
+account configuration. The live audit found 13 stored NC machine records with
+manager/timezone coverage and no verified API mapping. Credentials, actual
+provider identities and an authenticated NC scheduled-report sample remain
+external dependencies under #944; no NC account or refund feature is activated.
+
 ## Refund responsiveness release (#1892-#1896)
 
 The October 12 repair is deployed through PR #1900 at `a87a343d`: scoped case evidence replaces whole-queue

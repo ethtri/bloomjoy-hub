@@ -80,6 +80,42 @@ const exactFlag = (value: string | undefined, expected: string) =>
 export const normalizeNayaxRefundAccountKey = (value: string | undefined) =>
   (value ?? "").trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 
+export const configuredNayaxRefundQueueAccounts = (
+  readEnv: (name: string) => string | undefined,
+) => [...new Set([
+  readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY") ?? "",
+  ...(readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEYS") ?? "").split(","),
+].map(normalizeNayaxRefundAccountKey).filter(Boolean))];
+
+export const resolveNayaxRefundWriteCredentials = (
+  accountKey: string,
+  readEnv: (name: string) => string | undefined,
+) => ({
+  requestToken: accountKey
+    ? readEnv(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? "" : "",
+  approveToken: accountKey
+    ? readEnv(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? "" : "",
+});
+
+export async function runConfiguredNayaxRefundAccounts({
+  readEnv, runAccount, onFailure,
+}: {
+  readEnv: (name: string) => string | undefined;
+  runAccount: (accountKey: string) => Promise<void>;
+  onFailure: () => void;
+}) {
+  const accounts = configuredNayaxRefundQueueAccounts(readEnv);
+  // Preserve the existing empty-configuration diagnostic without provider work.
+  for (const accountKey of accounts.length ? accounts : [""]) {
+    try {
+      await runAccount(accountKey);
+    } catch {
+      // A failed account must not prevent the other configured accounts running.
+      onFailure();
+    }
+  }
+}
+
 export const resolveNayaxRefundAttemptQueueReadiness = ({
   readEnv,
   requiredAccountKey,
@@ -89,15 +125,13 @@ export const resolveNayaxRefundAttemptQueueReadiness = ({
 }): NayaxRefundAttemptQueueReadiness => {
   const enabled = exactFlag(readEnv("REFUND_AUTOMATION_ENABLED"), "true") &&
     exactFlag(readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED"), "true");
-  const configuredAccountKey = normalizeNayaxRefundAccountKey(
-    readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY"),
-  );
+  const configuredAccounts = configuredNayaxRefundQueueAccounts(readEnv);
   const normalizedRequiredAccountKey = normalizeNayaxRefundAccountKey(
     requiredAccountKey ?? undefined,
   );
-  const accountConfigured = configuredAccountKey.length > 0;
+  const accountConfigured = configuredAccounts.length > 0;
   const accountMatches = !normalizedRequiredAccountKey ||
-    configuredAccountKey === normalizedRequiredAccountKey;
+    configuredAccounts.includes(normalizedRequiredAccountKey);
   const blockReason = !enabled
     ? "system_attempt_queue_disabled" as const
     : !accountConfigured || !accountMatches

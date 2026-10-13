@@ -1455,3 +1455,9 @@ assignment. Run it only through disposable database validation. The invalid pair
 must not reach snapshot refresh; the snapshot writer's scope rejection, valid
 historical revoked assignment, caller boundaries and issued statements remain
 unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile evidence.
+
+## Separate Nayax account preparation
+
+- Run `npm run nayax:account-readiness -- --account-key BLOOMJOY_NC_ADAM` without a token: reports pending credentials, zero provider calls and no activation.
+- Run `npm run nayax:validate-account-readiness`: synthetic account-scope, read-only transport and multi-account worker checks pass without real provider/customer actions.
+- Follow `Docs/NAYAX_ACCOUNT_ONBOARDING.md` when the private token and expected actor arrive. Preserve the existing inventory/worker account and verify exact provider mappings in the existing Machines workspace.

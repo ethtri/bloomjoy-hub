@@ -122,6 +122,31 @@ test('production rollout preflight requires the matching System attempt queue to
   assert.equal(ready.status, 0, `${ready.stdout}\n${ready.stderr}`);
 });
 
+test('additional refund queue accounts require their own pair and retain the legacy account', () => {
+  const live = {
+    NAYAX_REFUND_EXECUTION_ENABLED: 'true', NAYAX_REFUND_EXECUTION_DRY_RUN: 'false',
+    NAYAX_REFUND_EXECUTION_KILL_SWITCH: 'false', NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: 'true',
+    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: 'true', REFUND_AUTOMATION_ENABLED: 'true',
+    NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: 'true',
+    NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEYS: 'SECONDARY_TEST, TEST_ACCOUNT,SECONDARY_TEST',
+  };
+  const missing = runPreflight(live);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stdout, /Every additional.*entry needs its own paired refund write credentials/);
+  const ready = runPreflight({ ...live,
+    NAYAX_REFUND_REQUEST_WRITE_TOKEN_SECONDARY_TEST: 'secondary-request-token',
+    NAYAX_REFUND_APPROVE_WRITE_TOKEN_SECONDARY_TEST: 'secondary-approval-token',
+  });
+  assert.equal(ready.status, 0, `${ready.stdout}\n${ready.stderr}`);
+  const primaryMissing = runPreflight({ ...live,
+    NAYAX_REFUND_REQUEST_WRITE_TOKEN_TEST_ACCOUNT: undefined,
+    NAYAX_REFUND_APPROVE_WRITE_TOKEN_TEST_ACCOUNT: undefined,
+    NAYAX_REFUND_REQUEST_WRITE_TOKEN_SECONDARY_TEST: 'secondary-request-token',
+    NAYAX_REFUND_APPROVE_WRITE_TOKEN_SECONDARY_TEST: 'secondary-approval-token',
+  });
+  assert.equal(primaryMissing.status, 1);
+});
+
 test('email-list override accepts the explicit empty representation and rejects unsupported modes', () => {
   const enabled = runPreflight({ NAYAX_REFUND_EMAIL_LIST_MODE: 'empty_string' });
   assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
