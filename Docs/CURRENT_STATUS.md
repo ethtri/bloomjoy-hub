@@ -32,12 +32,18 @@ synthetic viewport timings are separate from production. See the
 [#1432 deployed evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
 for exact samples, source-verification qualifications and remaining QA.
 
-The next #1892 latency slice is under review: statement-local cash source checks,
-indexed import history and parallel protected case/routing reads. A rolled-back
-production rehearsal preserved 106 Manager contracts, 750 candidate outputs,
-all queue items and helper permissions. Its 2.4-second queue samples are server
-timings, not deployed browser acceptance. Manual access denial now also clears
-the observed case snapshot; desktop/mobile race and retry coverage is added.
+The second #1892 slice is deployed through #1908 at `d30bc0be`: statement-local
+cash source checks, indexed import history, parallel protected case/routing
+reads and observed refresh denial recovery. Queue server reads took 2.45-2.65
+seconds; actual desktop queues took 5.44, 3.65 and 3.51 seconds, including driver
+overhead. The reported case opened in 2.91 seconds. Queue and cold-load targets
+remain unmet. See [the release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6141432252).
+
+The next slice is under review: one current safety check per candidate inside
+the existing snapshot statement and a queue read that overlaps the lazy review
+module. A rolled-back rehearsal preserved all 106 complete Manager contracts,
+750 candidate outputs, snapshot proofs, queue items and helper permissions.
+Its 1.67-second queue samples are server timings, not deployed browser acceptance.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
