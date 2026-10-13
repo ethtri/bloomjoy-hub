@@ -147,7 +147,7 @@ function TimeReviewEntriesPage() {
   const addTriggerRef = useRef<HTMLButtonElement | null>(null);
   const workDate = `${month}-01`;
 
-  const { data: context, isLoading, isFetching, error, refetch } = useQuery({
+  const { data: context, isLoading, isFetching, isPaused, error, refetch } = useQuery({
     queryKey: reviewQueryKey(workDate),
     queryFn: () => fetchMyTimeReviewContext(workDate),
     staleTime: 20_000,
@@ -266,8 +266,11 @@ function TimeReviewEntriesPage() {
       toast.success('Time entry voided. Its audit history is preserved.');
       requestAnimationFrame(() => addTriggerRef.current?.focus());
     },
-    onError: (_error, entry) => {
+    onError: async (_error, entry) => {
       setUncertainVoidIds((current) => new Map(current).set(entry.id, entry.workDate.slice(0, 7)));
+      const uncertainQueryKey = reviewQueryKey(`${entry.workDate.slice(0, 7)}-01`);
+      await queryClient.cancelQueries({ queryKey: uncertainQueryKey, exact: true });
+      await queryClient.invalidateQueries({ queryKey: uncertainQueryKey, exact: true, refetchType: 'none' });
       setVoidError('We could not confirm the void. Refresh the report before trying again.');
     },
   });
@@ -523,7 +526,7 @@ function TimeReviewEntriesPage() {
                                 </div>
                                 <div className="flex flex-wrap gap-2 sm:shrink-0">
                                   <Button type="button" variant="outline" className="min-h-11" aria-label={`Edit ${entryLabel(entry)}`} onClick={(event) => openCorrection(entry, event.currentTarget)}><Edit3 className="mr-2 h-4 w-4" />Edit time</Button>
-                                  <Button type="button" variant="outline" className="min-h-11" aria-label={`Void ${entryLabel(entry)}`} onClick={(event) => { voidTriggerRef.current = event.currentTarget; setVoidError(uncertainVoidIds.has(entry.id) ? 'We could not confirm the void. Refresh the report before trying again.' : null); setVoidEntry(entry); }}><Trash2 className="mr-2 h-4 w-4" />Void time</Button>
+                                  <Button type="button" variant="outline" className="min-h-11" aria-label={`Void ${entryLabel(entry)}`} disabled={isFetching || isPaused} onClick={(event) => { voidTriggerRef.current = event.currentTarget; setVoidError(uncertainVoidIds.has(entry.id) ? 'We could not confirm the void. Refresh the report before trying again.' : null); setVoidEntry(entry); }}><Trash2 className="mr-2 h-4 w-4" />Void time</Button>
                                 </div>
                               </div>
                             </article>
@@ -551,7 +554,7 @@ function TimeReviewEntriesPage() {
           {voidError && <p className="text-sm text-destructive" role="alert">{voidError}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={voidMutation.isPending}>Cancel</AlertDialogCancel>
-            <Button type="button" variant="destructive" disabled={voidMutation.isPending || Boolean(voidError)} onClick={() => { if (voidEntry) voidMutation.mutate(voidEntry); }}>
+            <Button type="button" variant="destructive" disabled={voidMutation.isPending || isFetching || isPaused || Boolean(voidError)} onClick={() => { if (voidEntry) voidMutation.mutate(voidEntry); }}>
               {voidMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Void entry
             </Button>
           </AlertDialogFooter>

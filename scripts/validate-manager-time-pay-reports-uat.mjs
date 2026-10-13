@@ -369,7 +369,10 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_my_plus_access') return route.fulfill(json({ has_plus_access: true, membership_status: 'active', paid_subscription_active: false, free_grant_active: true }));
     if (rpcName === 'get_my_portal_access_context') return route.fulfill(json({ access_tier: 'plus', is_plus_member: true, is_training_operator: false, is_admin: true, is_corporate_partner: false, capabilities: ['timekeeping.review'], effective_presets: ['super_admin'] }));
     if (rpcName === 'get_my_reporting_access_context') return route.fulfill(json({ has_reporting_access: true, can_manage_reporting: true }));
-    if (rpcName === 'get_my_time_review_context') return route.fulfill(json(timeContext()));
+    if (rpcName === 'get_my_time_review_context') {
+      if (state.holdTimeRead) await new Promise((resolve) => { state.releaseTimeRead = resolve; });
+      return route.fulfill(json(timeContext()));
+    }
     if (rpcName === 'get_my_time_review_entry_options') return route.fulfill(json(timeEntryOptions));
     if (rpcName === 'get_my_time_report_access') return route.fulfill(json(true));
     if (rpcName === 'admin_request_pay_stub_generation') return route.fulfill(json({ requestId: '77000000-0000-4000-8000-000000000080', status: 'queued' }));
@@ -599,6 +602,30 @@ const run = async () => {
     await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
     check('Successful readback restores void for an entry still present', await page.getByRole('button', { name: 'Void entry', exact: true }).isEnabled());
     await page.getByRole('button', { name: 'Cancel' }).click();
+    state.failVoid = true;
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    await page.getByRole('button', { name: 'Void entry', exact: true }).click();
+    await page.getByRole('alert').getByText(/could not confirm the void/i).waitFor();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    const navigateWithinApp = async (pathname) => page.evaluate((nextPath) => {
+      history.pushState({}, '', nextPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, pathname);
+    await navigateWithinApp('/admin/payouts');
+    await page.getByRole('heading', { name: 'Technician Pay Report', exact: true }).waitFor();
+    state.holdTimeRead = true;
+    await navigateWithinApp('/portal/time-review');
+    const readDeadline = Date.now() + 10000;
+    while (!state.releaseTimeRead && Date.now() < readDeadline) await page.waitForTimeout(10);
+    if (!state.releaseTimeRead) throw new Error('Remount did not request fresh time-entry readback');
+    check('SPA remount cannot void a cached uncertain entry during readback', await page.getByRole('button', { name: /^Void Alex Magana/i }).first().isDisabled());
+    state.holdTimeRead = false;
+    state.releaseTimeRead();
+    state.releaseTimeRead = null;
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((button) => button.getAttribute('aria-label')?.startsWith('Void Alex Magana') && !button.disabled));
+    check('Completed remount readback restores remaining entry action', await page.getByRole('button', { name: /^Void Alex Magana/i }).first().isEnabled());
+    state.failVoid = false;
+
     await page.setViewportSize({ width: 1365, height: 900 });
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
