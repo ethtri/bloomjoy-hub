@@ -34,6 +34,8 @@ jobs:
           deno-version: v2.6.3
       - name: Refund customer-email regression matrix
         run: npm run refunds:validate-email-transport
+      - name: Nayax account onboarding and processor regression
+        run: npm run nayax:validate-account-readiness
       - name: Original refund source evidence regression
         run: deno test --no-lock supabase/functions/_shared/refund-adjustment-source-evidence.test.ts && deno check --no-lock supabase/functions/refund-adjustment-sync/index.ts
       - name: Build

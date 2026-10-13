@@ -79,7 +79,11 @@ import {
   type NayaxQueuedRefundClaim,
 } from "../_shared/nayax-refund-attempt-queue.ts";
 import { deliverNayaxRefundCustomerCompletion } from "../_shared/nayax-refund-completion-delivery.ts";
-import { resolveNayaxRefundExecutionConfig } from "../_shared/nayax-refund-gates.ts";
+import {
+  resolveNayaxRefundExecutionConfig,
+  resolveNayaxRefundWriteCredentials,
+  runConfiguredNayaxRefundAccounts,
+} from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
   buildRedactedNayaxStageDigest,
@@ -4463,9 +4467,6 @@ const runFailureTest = async (
   return alertStatus;
 };
 
-const normalizeNayaxAccountKey = (value: string) =>
-  value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-
 const sha256Text = async (value: string) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -4496,22 +4497,16 @@ const parseNayaxAttemptQueueContract = () => {
   }
 };
 
-const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
+const runNayaxRefundAccountSweep = async (counters: SweepCounters, accountKey: string) => {
   if (!automationEnabled || !nayaxAttemptQueueEnabled || !supabase) {
     addReason(counters, "nayax_refund_attempt_queue_disabled");
     return;
   }
   const executionConfig = resolveNayaxRefundExecutionConfig((name) => Deno.env.get(name));
   const contract = parseNayaxAttemptQueueContract();
-  const accountKey = normalizeNayaxAccountKey(
-    Deno.env.get("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY") ?? "",
+  const { requestToken, approveToken } = resolveNayaxRefundWriteCredentials(
+    accountKey, (name) => Deno.env.get(name),
   );
-  const requestToken = accountKey
-    ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
-    : "";
-  const approveToken = accountKey
-    ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
-    : "";
   if (executionConfig.blocks.length > 0 || executionConfig.dryRun ||
     executionConfig.killSwitchActive || !executionConfig.executorAssertion ||
     !executionConfig.idempotencySecret || !contract || !accountKey ||
@@ -4778,6 +4773,17 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
     addReason(counters, "nayax_refund_attempt_completion_deferred");
   }
 };
+const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
+  await runConfiguredNayaxRefundAccounts({
+    readEnv: (name) => Deno.env.get(name),
+    runAccount: (accountKey) => runNayaxRefundAccountSweep(counters, accountKey),
+    onFailure: () => {
+      counters.actionsFailed += 1;
+      addReason(counters, "nayax_refund_account_sweep_failed");
+    },
+  });
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });

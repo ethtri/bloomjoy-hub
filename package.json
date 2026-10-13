@@ -30,6 +30,8 @@
     "auth:templates:deploy": "node scripts/manage-auth-email-templates.mjs --apply",
     "auth:activation:uat": "node scripts/validate-auth-code-activation-uat.mjs",
     "agent:preflight": "node scripts/agent-preflight.mjs",
+    "nayax:account-readiness": "node scripts/nayax/account-readiness.mjs",
+    "nayax:validate-account-readiness": "node --test scripts/nayax/account-readiness.test.mjs scripts/refunds/commerce-refund-preflight.test.mjs && deno test --no-lock supabase/functions/_shared/nayax-refund-accounts.test.ts supabase/functions/_shared/nayax-refund-gates.test.ts supabase/functions/_shared/nayax-account-scope.test.ts supabase/functions/_shared/nayax-refund-attempt-queue.test.ts && deno check --no-lock supabase/functions/refund-case-automation-sweep/index.ts",
     "agent:context": "node scripts/agent-context.mjs",
     "agent:github-hygiene": "node scripts/agent-github-hygiene.mjs",
     "agent:worktree-hygiene": "node scripts/agent-worktree-hygiene.mjs",

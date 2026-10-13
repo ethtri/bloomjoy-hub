@@ -1552,8 +1552,10 @@ check(
     handler.includes('providerAttempted: false') &&
     !handler.includes('orchestrateNayaxRefund') &&
     !handler.includes('createNayaxRefundProviderAdapter') &&
-    systemWorker.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
-    systemWorker.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    systemWorker.includes('resolveNayaxRefundWriteCredentials(') &&
+    systemWorker.includes('runConfiguredNayaxRefundAccounts(') &&
+    gates.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
+    gates.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     systemWorker.includes('service_claim_due_nayax_refund_attempts_v1') &&
     systemWorker.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
