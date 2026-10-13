@@ -5049,6 +5049,131 @@ const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
       databaseAndProductionNetworkTimingExcluded: true }));
 };
 
+const runQueueWarmCancellationChecks = async ({ browser, appUrl, recorder }) => {
+  // Reports changes the outer authorization route and unmounts this workspace;
+  // Requests shares the workspace and can retain Manager under Suspense.
+  for (const scenario of ['requests', 'reports', 'signout', 'requests-module-held']) {
+    const destination = scenario.replace('-module-held', '');
+    const holdDestination = scenario.endsWith('-module-held');
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const functionCalls = [];
+    await installMockSupabaseRoutes(context, { functionCalls, refundOverview: () => buildManagerApprovalRefundOverview() });
+    // Hold the first fixture-owned transport promise before any HTTP request.
+    // This exercises the real SDK/controller and React lifecycle without
+    // treating intentional cancellation as an unknown network failure.
+    await context.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      const state = { started: 0, aborted: 0, signalBound: false };
+      window.__refundUatWarmTransport = state;
+      window.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        const pathname = new URL(url, window.location.href).pathname;
+        // Give this lifecycle test its intended confirmed logout response at
+        // the same owned adapter boundary. It makes no auth-network claim.
+        if (pathname === '/auth/v1/logout') return Promise.resolve(new Response(null, { status: 204 }));
+        if (pathname !== '/rest/v1/rpc/get_refund_portal_queue_projection') return originalFetch(input, init);
+        state.started += 1;
+        if (state.started !== 1) return originalFetch(input, init);
+        const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
+        state.signalBound = Boolean(signal);
+        return new Promise((resolve, reject) => {
+          const abort = () => { state.aborted += 1; reject(new DOMException('Synthetic queue canceled', 'AbortError')); };
+          if (signal?.aborted) abort();
+          else signal?.addEventListener('abort', abort, { once: true });
+        });
+      };
+    });
+    let releaseDestination; let acknowledgeDestination;
+    const destinationStarted = new Promise(resolve => { acknowledgeDestination = resolve; });
+    const destinationBarrier = new Promise(resolve => { releaseDestination = resolve; });
+    if (holdDestination) await context.route(/\/(?:src\/pages\/RefundRequests\.tsx|assets\/RefundRequests-[^/]+\.js)(?:\?|$)/, async route => {
+        acknowledgeDestination();
+        await destinationBarrier;
+        await route.continue();
+      });
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.waitForFunction(() => window.__refundUatWarmTransport?.started === 1);
+    await page.getByRole('heading', { name: 'Refunds', exact: true }).waitFor();
+    if (destination === 'signout') {
+      await page.getByRole('button', { name: /open profile menu/i }).click();
+      await page.getByRole('menuitem', { name: /sign out/i }).click();
+      await page.waitForURL('**/login', { timeout: 15000 });
+    } else await page.evaluate(view => {
+      window.history.pushState({}, '', `/refunds?view=${view}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, destination);
+    if (holdDestination) {
+      await Promise.race([destinationStarted, new Promise((_, reject) => setTimeout(() => reject(new Error('Requests module did not reach the owned barrier')), 10000))]);
+      await page.getByRole('status').filter({ hasText: 'Loading refunds' }).waitFor();
+      const retained = await page.evaluate(() => window.__refundUatWarmTransport);
+      // Suspense retains the hidden Manager and its enabled query observer
+      // until the destination commits. Preserve that observer's read, then
+      // abort it on unmount; warming never outlives all active consumers.
+      recorder.assert(`${scenario}: Suspense preserves the still-mounted Manager read`,
+        retained.started === 1 && retained.aborted === 0 && retained.signalBound && functionCalls.length === 0);
+      releaseDestination();
+    }
+    await page.waitForFunction(() => window.__refundUatWarmTransport?.aborted === 1);
+    const state = await page.evaluate(() => window.__refundUatWarmTransport);
+    recorder.assert(`${scenario}: superseded warming aborts the SDK-bound read without a provider action`,
+      state.started === 1 && state.aborted === 1 && state.signalBound && functionCalls.length === 0);
+    if (destination === 'requests' && !holdDestination) {
+      await page.getByText('Customer requests for your machines.', { exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Refunds', exact: true }).click();
+      await waitForQueueCount(page, 1);
+      const reopened = await page.evaluate(() => window.__refundUatWarmTransport);
+      recorder.assert('Queue to Requests to queue starts one fresh shared read after cancellation',
+        reopened.started === 2 && reopened.aborted === 1 && functionCalls.length === 0);
+    }
+    await closeRefundPortalContext(context);
+  }
+};
+
+const runQueueModuleOverlapChecks = async ({ browser, appUrl, recorder }) => {
+  for (const scenario of ['manager', 'requests', 'demo']) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const rpcCalls = []; const functionCalls = [];
+    await installMockSupabaseRoutes(context, { rpcCalls, functionCalls, refundOverview: () => buildManagerApprovalRefundOverview() });
+    let releaseModule; let acknowledgeModule; let moduleHeld = false; let developmentModule = false;
+    const moduleStarted = new Promise(resolve => { acknowledgeModule = resolve; });
+    const moduleBarrier = new Promise(resolve => { releaseModule = resolve; });
+    await context.route(/\/(?:src\/pages\/admin\/Refunds\.tsx|assets\/Refunds-[^/]+\.js)(?:\?|$)/, async route => {
+      moduleHeld = true;
+      developmentModule = requestPath(route.request()).endsWith('.tsx');
+      acknowledgeModule();
+      await moduleBarrier;
+      await route.continue();
+    });
+    const page = await context.newPage();
+    const queueStarted = scenario === 'demo' ? null : page.waitForResponse(
+      response => requestPath(response.request()) === '/rest/v1/rpc/get_refund_portal_queue_projection' && response.status() === 200, { timeout: 10000 });
+    await signInRefundUser(page, appUrl, scenario === 'demo' ? '/refunds?demo=on' : '/refunds');
+    await page.getByRole('status').filter({ hasText: 'Loading refunds' }).waitFor();
+    await moduleStarted;
+    if (queueStarted) await queueStarted;
+    recorder.assert(`${scenario}: queue warm-up respects the held Manager module and demo boundary`,
+      moduleHeld && (scenario === 'demo' ? !rpcCalls.includes('get_refund_portal_queue_projection')
+        : rpcCalls.includes('get_refund_portal_queue_projection')) && functionCalls.length === 0);
+    if (scenario === 'requests') {
+      // Exercise the same SPA route transition while the old lazy module is pending.
+      await page.evaluate(() => {
+        window.history.pushState({}, '', '/refunds?view=requests');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await page.getByText('Customer requests for your machines.', { exact: true }).waitFor();
+    }
+    releaseModule();
+    if (scenario !== 'requests') await page.getByTestId('refund-queue-count').waitFor();
+    await settleRefundPortalPage(page);
+    recorder.assert(`${scenario}: loaded review deduplicates the warm read without late route or demo reads`,
+      rpcCalls.filter(name => name === 'get_refund_portal_queue_projection').length === (scenario === 'demo' && developmentModule ? 0 : 1)
+        && functionCalls.length === 0 && (scenario !== 'requests' || await page.getByTestId('refund-queue-count').count() === 0));
+    await closeRefundPortalContext(context);
+  }
+  await runQueueWarmCancellationChecks({ browser, appUrl, recorder });
+};
+
 const runParallelCaseAccessChecks = async ({ browser, appUrl, recorder }) => {
   const caseId = CASE_ROUTE_ACCESS_FIXTURE_ID;
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
@@ -5718,6 +5843,7 @@ const run = async () => {
         recorder,
       });
     } else if (args.managerApprovalOnly) {
+      await runQueueModuleOverlapChecks({ browser, appUrl: args.appUrl, recorder });
       await runParallelCaseAccessChecks({ browser, appUrl: args.appUrl, recorder });
       await runSharedReadPreflightCheck({ browser, appUrl: args.appUrl, recorder });
       await runManagerApprovalChecks({
@@ -5745,6 +5871,7 @@ const run = async () => {
         ],
       });
     } else {
+      await runQueueModuleOverlapChecks({ browser, appUrl: args.appUrl, recorder });
       await runRefundQueueRecoveryChecks({ browser, appUrl: args.appUrl, recorder });
       await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
       await runParallelCaseAccessChecks({ browser, appUrl: args.appUrl, recorder });

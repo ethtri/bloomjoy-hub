@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(105);
+select plan(119);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -232,6 +232,187 @@ select is(public.refund_manager_preparation_snapshot(
   (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000004')
 )->>'evidenceBasis','card_reviewed_candidate_set',
   'normalized provider account evidence matches its punctuated stored machine key');
+
+-- Compare the preceding orchestration using the exact same private predicate.
+-- All fixture mutations, reference functions and call instrumentation roll back.
+savepoint candidate_statement_checks;
+create temporary sequence candidate_safety_calls;
+do $reference$
+declare definition text; before_aggregate text:=$before$
+  select count(*)::integer,
+    count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true')::integer,
+    count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true'
+      and public.refund_reviewed_card_candidate_safe_v1(c.id, k.token))::integer,
+    jsonb_agg(k.token order by k.token) filter (
+      where k.evidence_summary ->> 'selection_allowed' = 'true'
+        and public.refund_reviewed_card_candidate_safe_v1(c.id, k.token)),
+    encode(extensions.digest(convert_to(
+      coalesce(string_agg(
+        public.refund_nayax_candidate_evidence_hash(
+          k.refund_case_id, k.actor_user_id, k.provider_transaction_id,
+          k.site_id, k.machine_authorization_time, k.amount_cents,
+          k.card_last4, k.currency_code, k.evidence_summary,
+          k.expires_at, k.created_at
+        ) || ':' || case when public.refund_reviewed_card_candidate_safe_v1(c.id,k.token)
+          then 'safe' else 'blocked' end, '|' order by k.token), ''),
+      'UTF8'), 'sha256'), 'hex')
+    into candidate_count, selectable_count, safe_count, eligible_tokens, set_digest
+  from public.refund_nayax_lookup_candidates k
+  where k.refund_case_id = c.id
+    and k.lookup_generation = c.nayax_lookup_generation;
+$before$; after_aggregate text:=$after$
+  with checked as materialized (
+    select k.token,k.refund_case_id,k.actor_user_id,k.provider_transaction_id,
+      k.site_id,k.machine_authorization_time,k.amount_cents,k.card_last4,
+      k.currency_code,k.evidence_summary,k.expires_at,k.created_at,
+      public.refund_reviewed_card_candidate_safe_v1(c.id,k.token) as current_safety
+    from public.refund_nayax_lookup_candidates k
+    where k.refund_case_id = c.id
+      and k.lookup_generation = c.nayax_lookup_generation
+  )
+  select count(*)::integer,
+    count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true')::integer,
+    count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true'
+      and k.current_safety)::integer,
+    jsonb_agg(k.token order by k.token) filter (
+      where k.evidence_summary ->> 'selection_allowed' = 'true'
+        and k.current_safety),
+    encode(extensions.digest(convert_to(
+      coalesce(string_agg(
+        public.refund_nayax_candidate_evidence_hash(
+          k.refund_case_id, k.actor_user_id, k.provider_transaction_id,
+          k.site_id, k.machine_authorization_time, k.amount_cents,
+          k.card_last4, k.currency_code, k.evidence_summary,
+          k.expires_at, k.created_at
+        ) || ':' || case when k.current_safety
+          then 'safe' else 'blocked' end, '|' order by k.token), ''),
+      'UTF8'), 'sha256'), 'hex')
+    into candidate_count, selectable_count, safe_count, eligible_tokens, set_digest
+  from checked k;
+$after$;
+begin
+ definition:=replace(pg_get_functiondef('public.refund_reviewed_card_candidate_set_snapshot_v1(uuid,bigint)'::regprocedure),E'\r\n',E'\n');
+ if cardinality(string_to_array(definition,after_aggregate))<>2 then raise exception 'Expected materialized aggregate';end if;
+ definition:=replace(definition,after_aggregate,before_aggregate);
+ execute replace(definition,'FUNCTION public.refund_reviewed_card_candidate_set_snapshot_v1(', 'FUNCTION pg_temp.before_candidate_set(');
+ definition:=pg_get_functiondef('public.refund_reviewed_card_candidate_safe_v1(uuid,uuid)'::regprocedure);
+ execute replace(definition,'FUNCTION public.refund_reviewed_card_candidate_safe_v1(', 'FUNCTION pg_temp.real_candidate_safe(');
+end $reference$;
+create or replace function public.refund_reviewed_card_candidate_safe_v1(p_case_id uuid,p_candidate_token uuid)
+returns boolean language plpgsql stable security definer set search_path='' as $spy$
+begin
+ perform nextval('pg_temp.candidate_safety_calls');
+ return pg_temp.real_candidate_safe(p_case_id,p_candidate_token);
+end $spy$;
+create function pg_temp.current_candidate_set() returns jsonb language sql stable as $$
+ select public.refund_reviewed_card_candidate_set_snapshot_v1(c.id,c.official_action_version)
+ from public.refund_cases c where c.id='e1450000-0000-4000-8000-000000000001'
+$$;
+create function pg_temp.before_candidate_set() returns jsonb language sql stable as $$
+ select pg_temp.before_candidate_set(c.id,c.official_action_version)
+ from public.refund_cases c where c.id='e1450000-0000-4000-8000-000000000001'
+$$;
+select ok((select provolatile='s' and prosecdef and not proisstrict and proparallel='u'
+ and proconfig=array['search_path=""'] from pg_proc where oid='public.refund_reviewed_card_candidate_set_snapshot_v1(uuid,bigint)'::regprocedure)
+ and has_function_privilege('service_role','public.refund_reviewed_card_candidate_set_snapshot_v1(uuid,bigint)','execute')
+ and not has_function_privilege('authenticated','public.refund_reviewed_card_candidate_set_snapshot_v1(uuid,bigint)','execute')
+ and not has_function_privilege('anon','public.refund_reviewed_card_candidate_set_snapshot_v1(uuid,bigint)','execute'),
+ 'statement-local reuse preserves the private snapshot security and stability contract');
+create temporary table candidate_statement_baseline on commit drop as select pg_temp.current_candidate_set() value;
+select is((select value from candidate_statement_baseline),pg_temp.before_candidate_set(),
+ 'all fields of the original valid snapshot retain exact parity');
+create temporary table candidate_statement_events on commit drop as
+ select id,metadata from public.refund_case_events where refund_case_id='e1450000-0000-4000-8000-000000000001'
+ and event_type='nayax_lookup_completed';
+create temporary table candidate_statement_original_rows on commit drop as
+ select * from public.refund_nayax_lookup_candidates where refund_case_id='e1450000-0000-4000-8000-000000000001';
+-- Add an actor-blocked row and an unselectable row; both belong in the digest.
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select ('e1460000-0000-4000-8000-000000000'||n)::uuid,k.refund_case_id,k.lookup_generation,
+ case when n=901 then 'e1410000-0000-4000-8000-000000000001'::uuid else null end,k.reporting_machine_id,
+ 'CHECK-'||n,k.site_id,k.machine_authorization_time,k.amount_cents,k.card_last4,k.currency_code,
+ case when n=902 then k.evidence_summary||'{"selection_allowed":false,"source":"manual_nayax_portal"}'::jsonb else k.evidence_summary end,k.expires_at
+from candidate_statement_original_rows k cross join (values(901),(902)) extra(n)
+where k.token='e1460000-0000-4000-8000-000000000001';
+update public.refund_case_events set metadata=metadata||'{"candidate_count":4}'::jsonb where id in(select id from candidate_statement_events);
+do $$ begin perform setval('pg_temp.candidate_safety_calls',1,false);end $$;
+create temporary table candidate_statement_before on commit drop as select pg_temp.before_candidate_set() value;
+select is((select last_value from candidate_safety_calls),10::bigint,
+ 'preceding orchestration repeats safety for selectable rows and the complete digest');
+do $$ begin perform setval('pg_temp.candidate_safety_calls',1,false);end $$;
+create temporary table candidate_statement_mixed on commit drop as select pg_temp.current_candidate_set() value;
+select is((select last_value from candidate_safety_calls),4::bigint,
+ 'materialized statement checks each current row once, including blocked and unselectable rows');
+select is((select value from candidate_statement_mixed),(select value from candidate_statement_before),
+ 'mixed snapshot retains exact digest, proof ID, token array, counts and summary');
+select ok((select value->>'candidateSetDigest' is distinct from (select value->>'candidateSetDigest' from candidate_statement_baseline)
+ and value->'eligibleCandidateTokens'=(select value->'eligibleCandidateTokens' from candidate_statement_baseline)
+ and value->>'candidateCount'='2' from candidate_statement_mixed),
+ 'blocked and unselectable rows change the digest without becoming eligible');
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'e1460000-0000-4000-8000-000000000903',k.refund_case_id,k.lookup_generation+1,null,k.reporting_machine_id,
+ 'CHECK-OTHER-GENERATION',k.site_id,k.machine_authorization_time,k.amount_cents,k.card_last4,k.currency_code,k.evidence_summary,k.expires_at
+from candidate_statement_original_rows k where k.token='e1460000-0000-4000-8000-000000000001';
+select is(pg_temp.current_candidate_set(),(select value from candidate_statement_mixed),
+ 'noncurrent generation rows stay out of the current digest and eligibility');
+create temporary table candidate_statement_all_rows on commit drop as
+ select * from public.refund_nayax_lookup_candidates where refund_case_id='e1450000-0000-4000-8000-000000000001';
+do $reorder$
+declare columns text;
+begin
+ select string_agg(format('%I',attname),',' order by attnum) into columns from pg_attribute
+ where attrelid='public.refund_nayax_lookup_candidates'::regclass and attnum>0 and not attisdropped and attgenerated='';
+ delete from public.refund_nayax_lookup_candidates where refund_case_id='e1450000-0000-4000-8000-000000000001';
+ execute 'insert into public.refund_nayax_lookup_candidates('||columns||') select '||columns||' from candidate_statement_all_rows order by token desc';
+end $reorder$;
+select is(pg_temp.current_candidate_set(),(select value from candidate_statement_mixed),
+ 'shuffled physical insertion order preserves token-sorted proof and eligibility');
+update public.refund_nayax_lookup_candidates set expires_at='9999-12-31 23:59:59.999999+00'
+where token='e1460000-0000-4000-8000-000000000901';
+create temporary table candidate_statement_changed on commit drop as select pg_temp.current_candidate_set() value;
+select ok((select value is not null and value=pg_temp.before_candidate_set()
+ and value->>'proofId' is distinct from (select value->>'proofId' from candidate_statement_mixed)
+ and value->>'candidateSetDigest' is distinct from (select value->>'candidateSetDigest' from candidate_statement_mixed)
+ and value->'eligibleCandidateTokens'=(select value->'eligibleCandidateTokens' from candidate_statement_mixed)
+ from candidate_statement_changed),
+ 'a permitted blocked-row retention change replaces the exact proof without changing eligible tokens');
+update public.refund_nayax_lookup_candidates set actor_user_id='e1410000-0000-4000-8000-000000000001'
+where token='e1460000-0000-4000-8000-000000000001';
+select ok((select value=pg_temp.before_candidate_set() and value->>'candidateCount'='1'
+ and value->'eligibleCandidateTokens'='["e1460000-0000-4000-8000-000000000002"]'::jsonb
+ and value->>'proofId' is distinct from (select value->>'proofId' from candidate_statement_changed)
+ from (select pg_temp.current_candidate_set() value) current),
+ 'a permitted actor binding is read afresh and removes only that candidate from the prepared set');
+delete from public.refund_nayax_lookup_candidates where token='e1460000-0000-4000-8000-000000000002';
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at,created_at)
+select 'e1460000-0000-4000-8000-000000000904',k.refund_case_id,k.lookup_generation,null,k.reporting_machine_id,
+ k.provider_transaction_id,k.site_id,k.machine_authorization_time,k.amount_cents,k.card_last4,k.currency_code,k.evidence_summary,
+ statement_timestamp()-interval '1 second',statement_timestamp()-interval '1 hour'
+from candidate_statement_original_rows k where k.token='e1460000-0000-4000-8000-000000000002';
+select ok(pg_temp.current_candidate_set() is null and pg_temp.before_candidate_set() is null,
+ 'an expired replacement cannot reuse the earlier ready snapshot');
+select is(public.refund_reviewed_card_candidate_set_snapshot_v1('e1450000-0000-4000-8000-000000000001',0),null::jsonb,
+ 'stale official action versions remain ineligible');
+do $restore$
+declare columns text;
+begin
+ select string_agg(format('%I',attname),',' order by attnum) into columns from pg_attribute
+ where attrelid='public.refund_nayax_lookup_candidates'::regclass and attnum>0 and not attisdropped and attgenerated='';
+ delete from public.refund_nayax_lookup_candidates where refund_case_id='e1450000-0000-4000-8000-000000000001';
+ execute 'insert into public.refund_nayax_lookup_candidates('||columns||') select '||columns||' from candidate_statement_all_rows';
+end $restore$;
+update public.refund_case_events set metadata=metadata||'{"candidate_count":5}'::jsonb where id in(select id from candidate_statement_events);
+select ok(pg_temp.current_candidate_set() is null and pg_temp.before_candidate_set() is null,
+ 'completed read count mismatch stays in research');
+delete from public.refund_nayax_lookup_candidates where refund_case_id='e1450000-0000-4000-8000-000000000001';
+update public.refund_case_events set metadata=metadata||'{"candidate_count":0}'::jsonb where id in(select id from candidate_statement_events);
+select ok(pg_temp.current_candidate_set() is null and pg_temp.before_candidate_set() is null,
+ 'an empty completed set never becomes ready');
+rollback to candidate_statement_checks;
+
 
 -- A new completed read may mint fresh tokens and a new proof for the same
 -- eligible purchases. The notification identity follows business evidence.

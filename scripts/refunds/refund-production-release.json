@@ -339,7 +339,8 @@
     "20261012042355_refund_gift_review_manager_notifications.sql",
     "20261012080709_refund_snapcase_reviewed_catalog_association.sql",
     "20261012191445_refund_selected_case_reads.sql",
-    "20261013061711_refund_read_source_checks.sql"
+    "20261013061711_refund_read_source_checks.sql",
+    "20261013084324_refund_reviewed_candidate_checks.sql"
   ],
   "migrationFilesSha256": "3fbc4b68d830d30562c7c1dc6adedb5c09bfae005e771fa42a1ff236298e40b5",
   "migrationVersionSetSha256": "ed0c377cc1637d54f86fc395515e70cccceb5aefa04c4a4ac8002464268bc725",
