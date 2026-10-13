@@ -1420,6 +1420,11 @@ npm run refunds:validate-portal-uat-lifecycle
 
 ## Refund responsive case review (#1892-#1896)
 
+Deployed through PR #1900; [independent release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
+records final-source tests, migration/source verification and read-only live checks.
+Three actual fresh desktop loads pass five seconds; #1892's three-second queue/render
+target and detail-tail follow-up remain open. Physical iPhone acceptance is unobserved.
+
 - Open /refunds on 320/390px mobile and desktop. Confirm a scoped queue loads without downloading the full evidence overview; search customer/reference/machine and company/status views retain current counts.
 - Open A, return to its queue, reopen A and open B; test direct links, Back/Forward, focus/scroll and unsaved drafts. Slow/failed case reads retain the shell and offer Retry within ten seconds; confirmed access denial hides protected details.
 - With synthetic transport, approve A and delay/fail queue/availability refresh. Open B immediately after confirmed approval; late A responses do not alter B and reopening A cannot request the same decision. Verify pending/unknown outcomes still prevent a blind retry.
