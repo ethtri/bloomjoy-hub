@@ -469,6 +469,7 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
           ]
         : [];
     case 'get_sales_report':
+    case 'get_sales_report_complete':
       return persona.hasReportingAccess
         ? [
             {
