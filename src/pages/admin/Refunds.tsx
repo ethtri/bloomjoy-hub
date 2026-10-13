@@ -2962,12 +2962,15 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
   const caseReadKey = (caseId: string | null) => ['admin-refund-operations-overview', user?.id, caseId];
   const readFreshRefundOverview = async (caseId = selectedIdRef.current) => {
     if (!caseId) throw new Error('Select a refund case first.');
-    const incoming = await fetchRefundCaseDetail(caseId);
-    const merged = retainConfirmedCardApprovals(incoming,
-      mergeRefundOverviewContactTruth(queryClient.getQueryData(caseReadKey(caseId)), incoming));
-    if (selectedIdRef.current === caseId) overviewTruthRef.current = merged;
-    queryClient.setQueryData(caseReadKey(caseId), merged);
-    return merged;
+    // Keep manual refresh/preflight on the observed query. Its authorization
+    // errors must redact cached details just like a polling read does.
+    return queryClient.fetchQuery({ queryKey: caseReadKey(caseId), staleTime: 0, gcTime: 0, retry: false,
+      queryFn: async ({ signal }) => {
+        const incoming = await fetchRefundCaseDetail(caseId, signal);
+        return retainConfirmedCardApprovals(incoming,
+          mergeRefundOverviewContactTruth(queryClient.getQueryData(caseReadKey(caseId)), incoming));
+      },
+    });
   };
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
@@ -3006,11 +3009,12 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
         incoming,
         mergeRefundOverviewContactTruth(queryClient.getQueryData(caseReadKey(selectedId)), incoming),
       );
-      overviewTruthRef.current = merged;
       return merged;
     }),
     retry: false,
-    enabled: !forceDemoData && caseAccess === 'allowed' && Boolean(selectedId),
+    // This RPC independently checks the current user and selected case. Start
+    // it alongside routing access; only the allowed route publishes its data.
+    enabled: !forceDemoData && caseAccess !== 'error' && Boolean(user?.id && selectedId),
     staleTime: 0,
     gcTime: 0,
     refetchInterval: (query) => overviewPolling.interval(refundOverviewPollingInterval(
@@ -3036,6 +3040,12 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
     ),
     managerWork: null,
   }), [liveOverviewSnapshot, liveSupplements, error, queueReadError, caseAccess]);
+  useEffect(() => {
+    overviewTruthRef.current = caseAccess === 'allowed'
+      && !(error instanceof RefundCaseAccessError)
+      && !(queueReadError instanceof RefundCaseAccessError)
+      ? liveOverviewSnapshot : undefined;
+  }, [caseAccess, error, queueReadError, liveOverviewSnapshot]);
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
