@@ -714,6 +714,10 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Multi-profile and machine controls have associated visible labels; repeated Edit and Delete controls announce the Technician, machine, date, and time context.
 
 ### Technician Pay Report (legacy validator: Admin Technician Pay Review)
+
+- [ ] On an existing Technician, **Add machine** offers only additional available machines from that payroll account, with no preselection. Choose dates and explicit machine pay/commission; verify the original assignments, default/historical rates, contacts, and access are unchanged.
+- [ ] A rejected add-machine save leaves no partial assignment/rates. After a lost response, Close/reload/reopen retains the exact request; **Check save status** confirms its audited result, and **Retry same save** never duplicates it. Cancel sends no write.
+- [ ] Run `node scripts/validate-add-technician-machine-uat.mjs` against `npm run dev:uat`; review desktop/mobile evidence in `output/playwright/add-technician-machine`.
 - [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
 - [ ] From `/admin/payouts`, an account pay manager can open **Set up Technician**, see the compact invitation prerequisite, choose the person/start date/machines, and enter the rate and commission for each selected machine in one form.
 - [ ] Initial Technician setup saves invitation email as the contact email plus optional phone and mailing address; an authorized pay manager can view and edit those details from the Technician card, while an unrelated authenticated user cannot read them and contact values never appear in admin audit payloads.
@@ -1433,3 +1437,21 @@ target and detail-tail follow-up remain open. Physical iPhone acceptance is unob
 - Compare the recommended and alternate transactions, including a weaker candidate; review material differences and select an alternative. Verify exact selected transaction/amount after refresh. General caveats are expandable and decision controls follow essential facts.
 - Submit optional comments in English/Spanish without requiring them. Review original notes and latest verified customer replies across card/cash/gift cases; staff/automated/untrusted/deleted messages never become customer comments. Empty/loading/unavailable states never disable decisions.
 - Record database, HTTP and browser timings and payload sizes separately; use three fresh page loads, twenty repeated selected reads and larger synthetic fixtures. Report actual results against #1892 targets and verify deployed source separately. Use synthetic effects and read-only production checks.
+
+### Manager time-entry recovery and report scope
+
+Run `npm run operator-payouts:validate-manager-reports-uat` against the synthetic
+local app. From All Technicians, Add missed time must start with an explicit
+Technician choice. A filtered valid Technician remains selected. Check cancel,
+reopen and mobile overflow. Void time identifies the saved entry, cancels without
+a write, sends one existing audited manager correction, and refreshes totals
+without replacing issued Pay Stubs. An uncertain failed void stays visible and
+asks for a report refresh before retry. Generic report failures must not be
+presented as proof of missing account authority.
+
+`supabase/tests/manager_pay_report_scope_recovery.sql` exercises the authenticated
+report with an invalid revoked source assignment alongside a valid historical
+assignment. Run it only through disposable database validation. The invalid pair
+must not reach snapshot refresh; the snapshot writer's scope rejection, valid
+historical revoked assignment, caller boundaries and issued statements remain
+unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile evidence.

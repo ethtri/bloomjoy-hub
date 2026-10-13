@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -16,6 +16,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AddTechnicianMachineDialog } from '@/components/payouts/AddTechnicianMachineDialog';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -350,6 +351,7 @@ function TechnicianReport({
   technician,
   selectedMonth,
   onManageAssignments,
+  onAddMachine,
   onEditContact,
   onAddShiftRate,
   onAddCommissionRate,
@@ -361,6 +363,7 @@ function TechnicianReport({
   technician: TechnicianPayReportTechnician;
   selectedMonth: string;
   onManageAssignments: () => void;
+  onAddMachine: () => void;
   onEditContact: () => void;
   onAddShiftRate: () => void;
   onAddCommissionRate: () => void;
@@ -453,6 +456,9 @@ function TechnicianReport({
               onClick={onManageAssignments}
             >
               <CalendarDays className="mr-2 h-4 w-4" /> Assignment dates
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="min-h-11 bg-background" onClick={onAddMachine}>
+              <Plus className="mr-2 h-4 w-4" /> Add machine
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -712,6 +718,8 @@ export default function AdminPayoutsPage() {
   const [machineId, setMachineId] = useState('all');
   const [payInputDraft, setPayInputDraft] = useState<PayInputDraft | null>(null);
   const [payInputError, setPayInputError] = useState<string | null>(null);
+  const addMachineTrigger = useRef<HTMLElement | null>(null);
+  const [addMachineTechnician, setAddMachineTechnician] = useState<TechnicianPayReportTechnician | null>(null);
   const [assignmentInputDraft, setAssignmentInputDraft] = useState<AssignmentInputDraft | null>(null);
   const [assignmentInputError, setAssignmentInputError] = useState<string | null>(null);
   const [contactDraft, setContactDraft] = useState<TechnicianContactDraft | null>(null);
@@ -1076,7 +1084,7 @@ export default function AdminPayoutsPage() {
         ) : error ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6" role="alert">
             <h2 className="font-semibold text-foreground">Pay Report unavailable</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Account-level pay access is required. If you should have access, ask a Bloomjoy owner to confirm your account role.</p>
+            <p className="mt-2 text-sm text-muted-foreground">The report could not load. This can be a data or connection problem; it does not necessarily mean your access changed. Try again, or ask a Bloomjoy owner to investigate if it continues.</p>
             <Button type="button" className="mt-5 min-h-11" onClick={() => void refetch()}>Try again</Button>
           </div>
         ) : !context?.hasAccess ? (
@@ -1133,6 +1141,7 @@ export default function AdminPayoutsPage() {
                   technician={technician}
                   selectedMonth={month}
                   onManageAssignments={() => openAssignmentInput(technician)}
+                  onAddMachine={() => { addMachineTrigger.current = document.activeElement as HTMLElement; setAddMachineTechnician(technician); }}
                   onEditContact={() => openContactInput(technician)}
                   onAddShiftRate={() => openPayInput(technician, 'shift')}
                   onAddCommissionRate={() => openPayInput(technician, 'commission')}
@@ -1159,6 +1168,8 @@ export default function AdminPayoutsPage() {
             </p>
           </>
         )}
+
+        {addMachineTechnician && <AddTechnicianMachineDialog technician={addMachineTechnician} month={month} onClose={() => { setAddMachineTechnician(null); requestAnimationFrame(() => addMachineTrigger.current?.focus()); }} />}
 
         <Dialog open={Boolean(contactDraft)} onOpenChange={(open) => {
           if (!open && !saveContact.isPending) {

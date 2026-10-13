@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:8081';
 const FIXED_NOW = new Date('2026-09-03T19:00:00.000Z');
@@ -369,11 +370,20 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_my_plus_access') return route.fulfill(json({ has_plus_access: true, membership_status: 'active', paid_subscription_active: false, free_grant_active: true }));
     if (rpcName === 'get_my_portal_access_context') return route.fulfill(json({ access_tier: 'plus', is_plus_member: true, is_training_operator: false, is_admin: true, is_corporate_partner: false, capabilities: ['timekeeping.review'], effective_presets: ['super_admin'] }));
     if (rpcName === 'get_my_reporting_access_context') return route.fulfill(json({ has_reporting_access: true, can_manage_reporting: true }));
-    if (rpcName === 'get_my_time_review_context') return route.fulfill(json(timeContext()));
+    if (rpcName === 'get_my_time_review_context') {
+      if (state.holdTimeRead) await new Promise((resolve) => { state.releaseTimeRead = resolve; });
+      return route.fulfill(json(timeContext()));
+    }
     if (rpcName === 'get_my_time_review_entry_options') return route.fulfill(json(timeEntryOptions));
     if (rpcName === 'get_my_time_report_access') return route.fulfill(json(true));
     if (rpcName === 'admin_request_pay_stub_generation') return route.fulfill(json({ requestId: '77000000-0000-4000-8000-000000000080', status: 'queued' }));
     if (rpcName === 'manager_correct_operator_time_entry') {
+      if (body.p_void) {
+        if (state.failVoid) return route.fulfill(json({ code: 'P0001', message: 'Synthetic void failure' }, 400));
+        await new Promise((resolve) => { state.releaseVoidResponse = resolve; });
+        state.timeEntries = state.timeEntries.filter((candidate) => candidate.id !== body.p_time_entry_id);
+        return route.fulfill(json({ context: timeContext() }));
+      }
       state.timeEntries = state.timeEntries.map((candidate) => candidate.id === body.p_time_entry_id ? { ...candidate, actualEndAt: body.p_actual_end_at, endTime: '09:00', actualDurationMinutes: 60, rawDurationMinutes: 60, paidShifts: 1, roundedPaidMinutes: 60 } : candidate);
       const legacyCorrectionContext = timeContext();
       delete legacyCorrectionContext.entryOptions;
@@ -389,6 +399,8 @@ const installRoutes = async (context) => {
       }));
     }
     if (rpcName === 'get_current_technician_pay_report_context') {
+      if (state.failPayReport) return route.fulfill(json({ code: 'P0001', message: 'Pay Stub revenue snapshot scope not found' }, 400));
+      if (state.noPayAccess) return route.fulfill(json({ ...payContext, hasAccess: false, technicians: [] }));
       if (state.publicationStatus) {
         const closed = structuredClone(payContext);
         for (const technician of closed.technicians) {
@@ -456,7 +468,7 @@ const run = async () => {
   if (!response?.ok) throw new Error(`Unable to reach ${APP_URL}. Start npm run dev:uat first.`);
   const artifactDir = path.resolve('output/playwright/manager-time-pay-reports');
   await mkdir(artifactDir, { recursive: true });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });
   const context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
   await installRoutes(context);
   const page = await context.newPage();
@@ -480,6 +492,15 @@ const run = async () => {
     check('Time Report shows 61 minutes as two shifts', initialTimeText.includes('1 hr 1 min actual · 2 paid shifts'));
     check('Time Report groups totals by Technician', initialTimeText.includes('Alex Magana') && initialTimeText.includes('1 hr 21 min actual · 3 paid shifts'));
     check('Time Report contains no approval actions', !/approve|reject|request correction/i.test(await page.locator('body').innerText()));
+    await page.locator('#time-report-technician').click();
+    await page.getByRole('option', { name: 'Alex Magana', exact: true }).click();
+    const writesBeforeFilteredCancel = state.rpcCalls.filter((call) => call.rpcName === 'manager_create_operator_time_entry').length;
+    await page.getByRole('button', { name: 'Add missed time' }).click();
+    check('Explicitly filtered Technician remains selected', (await page.locator('#missed-time-technician').innerText()).includes('Alex Magana'));
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    check('Cancelling filtered missed time does not write', state.rpcCalls.filter((call) => call.rpcName === 'manager_create_operator_time_entry').length === writesBeforeFilteredCancel);
+    await page.locator('#time-report-technician').click();
+    await page.getByRole('option', { name: 'All Technicians', exact: true }).click();
     await page.getByRole('button', { name: /Edit Alex Magana.*8:00 AM to 9:01 AM/i }).click();
     check('Correction explains direct audited edit', await page.getByText(/No approval or written reason is required/i).isVisible());
     await page.locator('#correction-end').fill('09:00');
@@ -490,6 +511,11 @@ const run = async () => {
     const correction = state.rpcCalls.find((call) => call.rpcName === 'manager_correct_operator_time_entry');
     check('Correction sends exact canonical timestamps without reason', Boolean(correction?.body.p_actual_start_at && correction?.body.p_actual_end_at && !('p_reason' in correction.body)));
     await page.getByRole('button', { name: 'Add missed time' }).click();
+    check('All-Technician entry starts without an implicit identity', (await page.locator('#missed-time-technician').innerText()).includes('Choose a Technician'));
+    check('Add stays disabled until a Technician is chosen', await page.getByRole('button', { name: 'Add to report' }).isDisabled());
+    check('No misleading unassigned warning before choosing a Technician', !(await page.locator('body').innerText()).includes('This Technician was not assigned'));
+    await page.locator('#missed-time-technician').click();
+    await page.getByRole('option', { name: 'Alex Magana', exact: true }).click();
     check('Missed-time dialog explains the cutoff and audit behavior', await page.getByText(/works after the monthly cutoff and stays in the audit history/i).isVisible());
     await page.locator('#missed-time-date').fill('2026-09-03');
     await page.locator('#missed-time-start').fill('10:00');
@@ -508,6 +534,29 @@ const run = async () => {
     check('Late missed time clearly confirms it was included after cutoff without exposing pay-stub state', await page.getByText(/included in the manager report/i).isVisible());
     await page.screenshot({ path: path.join(artifactDir, 'time-report-desktop.png'), fullPage: true });
 
+    const savedVoidEntry = structuredClone(state.timeEntries.find((candidate) => candidate.id === 'time-20'));
+    const voidCalls = () => state.rpcCalls.filter((call) => call.rpcName === 'manager_correct_operator_time_entry' && call.body.p_void);
+    const beforeVoidCalls = voidCalls().length;
+    await page.getByRole('button', { name: /^Void Alex Magana.*10:00 AM to 10:20 AM/i }).click();
+    check('Void confirms exact identity and preserved audit', (await page.getByRole('alertdialog').innerText()).includes('Cotton Candy 02') && (await page.getByRole('alertdialog').innerText()).includes('audit history'));
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    check('Cancel void does not mutate', voidCalls().length === beforeVoidCalls);
+    await page.getByRole('button', { name: /^Void Alex Magana.*10:00 AM to 10:20 AM/i }).click();
+    await page.getByRole('button', { name: 'Void entry', exact: true }).click();
+    const voidRequestDeadline = Date.now() + 10000;
+    while (!state.releaseVoidResponse && Date.now() < voidRequestDeadline) await page.waitForTimeout(10);
+    if (!state.releaseVoidResponse) throw new Error('Void request did not reach the controlled response gate');
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Void entry' && button.disabled));
+    check('Pending void cannot be submitted twice', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
+    state.releaseVoidResponse();
+    state.releaseVoidResponse = null;
+    await page.getByRole('alertdialog').waitFor({ state: 'hidden' });
+    const voidCall = voidCalls().at(-1);
+    check('Void sends original saved identity and timestamps', voidCall?.body.p_time_entry_id === savedVoidEntry.id && voidCall?.body.p_reporting_machine_id === savedVoidEntry.machineId && voidCall?.body.p_actual_start_at === savedVoidEntry.actualStartAt && voidCall?.body.p_actual_end_at === savedVoidEntry.actualEndAt);
+    check('Void uses one existing audited RPC', voidCalls().length === beforeVoidCalls + 1);
+    check('Voided row disappears without removing other entries', !state.timeEntries.some((candidate) => candidate.id === 'time-20') && state.timeEntries.length === 2 && !(await page.locator('body').innerText()).includes('20 min actual'));
+    check('Void restores focus to a surviving report action', await page.getByRole('button', { name: 'Add missed time' }).evaluate((element) => element === document.activeElement));
+
     await page.setViewportSize({ width: 390, height: 667 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Time Report' }).waitFor();
@@ -525,6 +574,59 @@ const run = async () => {
     check('Missed-time action remains reachable on a short phone viewport', await mobileAddTimeButton.isVisible());
     await page.screenshot({ path: path.join(artifactDir, 'missed-time-mobile.png'), fullPage: true });
     await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    await page.screenshot({ path: path.join(artifactDir, 'void-time-mobile.png'), fullPage: false, animations: 'disabled' });
+    const voidDialogFits = await page.getByRole('alertdialog').evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.left >= 0 && bounds.right <= window.innerWidth + 1 && bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Void confirmation fits mobile viewport', voidDialogFits && await noOverflow(page));
+    state.failVoid = true;
+    await page.getByRole('button', { name: 'Void entry', exact: true }).click();
+    await page.getByRole('alert').getByText(/could not confirm the void/i).waitFor();
+    check('Unknown void outcome remains visible without immediate retry', await page.getByRole('alertdialog').isVisible() && await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    check('Dismissing and reopening does not bypass uncertain-outcome refresh', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByLabel('Month', { exact: true }).fill('2026-08');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForTimeout(250);
+    await page.getByLabel('Month', { exact: true }).fill('2026-09');
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    check('Refreshing another month does not clear uncertain void protection', await page.getByRole('button', { name: 'Void entry', exact: true }).isDisabled());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    state.failVoid = false;
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh', exact: true }).waitFor();
+    await page.waitForTimeout(250);
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    check('Successful readback restores void for an entry still present', await page.getByRole('button', { name: 'Void entry', exact: true }).isEnabled());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    state.failVoid = true;
+    await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
+    await page.getByRole('button', { name: 'Void entry', exact: true }).click();
+    await page.getByRole('alert').getByText(/could not confirm the void/i).waitFor();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    const navigateWithinApp = async (pathname) => page.evaluate((nextPath) => {
+      history.pushState({}, '', nextPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, pathname);
+    await navigateWithinApp('/admin/payouts');
+    await page.getByRole('heading', { name: 'Technician Pay Report', exact: true }).waitFor();
+    state.holdTimeRead = true;
+    await navigateWithinApp('/portal/time-review');
+    const readDeadline = Date.now() + 10000;
+    while (!state.releaseTimeRead && Date.now() < readDeadline) await page.waitForTimeout(10);
+    if (!state.releaseTimeRead) throw new Error('Remount did not request fresh time-entry readback');
+    check('SPA remount cannot void a cached uncertain entry during readback', await page.getByRole('button', { name: /^Void Alex Magana/i }).first().isDisabled());
+    state.holdTimeRead = false;
+    state.releaseTimeRead();
+    state.releaseTimeRead = null;
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((button) => button.getAttribute('aria-label')?.startsWith('Void Alex Magana') && !button.disabled));
+    check('Completed remount readback restores remaining entry action', await page.getByRole('button', { name: /^Void Alex Magana/i }).first().isEnabled());
+    state.failVoid = false;
+
     await page.setViewportSize({ width: 1365, height: 900 });
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
@@ -719,6 +821,16 @@ const run = async () => {
         check('Deferred regeneration confirms queueing without claiming publication', await page.getByText('Pay Stub generating automatically…', { exact: true }).isVisible());
       }
     }
+    state.failPayReport = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: 'Pay Report unavailable', exact: true }).waitFor();
+    check('Runtime failure is not described as an access denial', (await page.locator('body').innerText()).includes('data or connection problem') && !(await page.locator('body').innerText()).includes('Account-level pay access is required'));
+    await page.screenshot({ path: path.join(artifactDir, 'pay-report-error-desktop.png'), fullPage: true });
+    state.failPayReport = false;
+    state.noPayAccess = true;
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.getByRole('heading', { name: 'Account pay authority required', exact: true }).waitFor();
+    check('Confirmed no-access result still has distinct permission guidance', await page.getByText(/pay details are limited to account-level pay managers/i).isVisible());
   } finally {
     await browser.close();
   }
@@ -727,4 +839,6 @@ const run = async () => {
   console.log('Manager Time and Pay Report rendered UAT passed without live writes.');
 };
 
-await run();
+export { installRoutes, openAuthenticated, payContext, setupContext, state, PROFILE_ID, ACCOUNT_ID, MACHINE_A, MACHINE_B, LOCATION_ID, FIXED_NOW };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await run();
