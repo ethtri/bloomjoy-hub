@@ -68,7 +68,7 @@ try{
   await page.getByRole('button',{name:'Add machine and pay',exact:true}).click();
   await page.getByText(/We could not confirm this save/).waitFor();
   check('unknown save keeps its exact submitted fields locked',await page.locator('#add-machine-rate').isDisabled());
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await dialog().locator('form').getByRole('button',{name:'Close',exact:true}).click();
   await page.reload();await page.getByRole('heading',{name:'Technician Pay Report'}).waitFor();await open();
   check('interrupted save survives reload',await page.locator('#add-machine-rate').inputValue()==='27.00'&&await page.getByRole('button',{name:'Check save status'}).isVisible());
   await page.getByRole('button',{name:'Check save status'}).click();await dialog().waitFor({state:'hidden'});
