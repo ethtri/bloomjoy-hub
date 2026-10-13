@@ -25,9 +25,10 @@ including the largest 507 KB case. Actual desktop Chrome fresh page loads took
 in 2.24 seconds and all ten alternatives remained available. Optional comments
 show supported recorded text only, with no invented historical backfill.
 
-#1892 remains P0/In Progress: fresh loads meet five seconds, but the proposed
-three-second queue/render target is unmet. Bounded HTTP observation also found
-a selected-detail tail of 5.02 seconds. Physical iPhone behavior is unobserved;
+#1892 remains P0/In Progress. The initial fresh-load samples met five seconds;
+subsequent measurements and remaining acceptance are recorded below. Initial
+bounded HTTP observation found a selected-detail tail of 5.02 seconds.
+Physical iPhone behavior is unobserved;
 synthetic viewport timings are separate from production. See the
 [#1432 deployed evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
 for exact samples, source-verification qualifications and remaining QA.
@@ -39,11 +40,20 @@ seconds; actual desktop queues took 5.44, 3.65 and 3.51 seconds, including drive
 overhead. The reported case opened in 2.91 seconds. Queue and cold-load targets
 remain unmet. See [the release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6141432252).
 
-The next slice is under review: one current safety check per candidate inside
-the existing snapshot statement and a queue read that overlaps the lazy review
-module. A rolled-back rehearsal preserved all 106 complete Manager contracts,
-750 candidate outputs, snapshot proofs, queue items and helper permissions.
-Its 1.67-second queue samples are server timings, not deployed browser acceptance.
+The third slice is deployed through [#1909](https://github.com/ethtri/bloomjoy-hub/pull/1909)
+at `7f867fc1`: one current safety check per candidate inside the existing snapshot
+statement and a shared queue read that overlaps the lazy review module. A
+rolled-back rehearsal preserved all 106 complete Manager contracts, 750 candidate
+outputs, snapshot proofs, queue items and helper permissions. Final hosted UAT passed 718 portal
+assertions and 8,377 disposable-database assertions. Independent release verified
+canonical source/assets and all twelve unchanged worker bundles/settings.
+
+Deployed authenticated queue server reads took 1.99, 1.64 and 1.65 seconds;
+twenty distinct case reads took 0.11-1.06 seconds, including the largest 507 KB
+case. These are server measurements. Rendered queue/detail and three fresh-load
+budgets remain unobserved for this release because the required business Chrome
+profile is unavailable. #1892 remains open; no real case action or customer
+correspondence was used for QA.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
