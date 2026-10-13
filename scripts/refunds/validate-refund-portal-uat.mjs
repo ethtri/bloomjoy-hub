@@ -34,6 +34,7 @@ const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
 const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
 const EXPECTED_PORTAL_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
+const CASE_ROUTE_ACCESS_FIXTURE_ID = 'bb670000-0000-4000-8000-000000000004';
 const fixtureOwnedPortalRpcLabels = new WeakMap();
 const fixtureOwnedSelectionSaveFailures = new WeakSet();
 const fixtureOwnedPortalFailureDiagnostics = [];
@@ -4210,6 +4211,17 @@ const isExpectedPortalUatResponse = (response) => {
   const body = requestJson(request);
   const marker = response.headers()[EXPECTED_PORTAL_ERROR_HEADER] ?? '';
 
+  if (status === 503 && marker === 'refund-routing-access-read'
+    && path === '/rest/v1/rpc/get_refund_request'
+    && fixtureOwnedPortalRpcLabels.get(request) === 'get_refund_request'
+    && body?.p_case_id === CASE_ROUTE_ACCESS_FIXTURE_ID
+    && Object.keys(body).every(key => key === 'p_case_id')) return true;
+  if (status === 403 && marker === 'refund-case-access-denied'
+    && path === '/rest/v1/rpc/get_refund_portal_case_detail'
+    && fixtureOwnedPortalRpcLabels.get(request) === 'get_refund_portal_case_detail'
+    && body?.p_case_id === CASE_ROUTE_ACCESS_FIXTURE_ID
+    && Object.keys(body).every(key => key === 'p_case_id')) return true;
+
   if (
     status === 503 &&
     marker === 'public-machine-options' &&
@@ -5037,6 +5049,144 @@ const runRefundReadBudgetChecks = async ({ browser, appUrl, recorder }) => {
       databaseAndProductionNetworkTimingExcluded: true }));
 };
 
+const runParallelCaseAccessChecks = async ({ browser, appUrl, recorder }) => {
+  const caseId = CASE_ROUTE_ACCESS_FIXTURE_ID;
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    for (const lateDetail of [false, true]) {
+      const context = await browser.newContext({ viewport });
+      let releaseAccess; let releaseDetail; let accessError = lateDetail;
+      let detailStarted = false; let detailDenied = false; let acknowledgeDetailStart;
+      let reopenBarrier; let releaseReopen;
+      const detailStartedBarrier = new Promise(resolve => { acknowledgeDetailStart = resolve; });
+      const accessBarrier = new Promise(resolve => { releaseAccess = resolve; });
+      const detailBarrier = new Promise(resolve => { releaseDetail = resolve; });
+      const functionCalls = [];
+      const functionBodies = [];
+      await installMockSupabaseRoutes(context, {
+        refundOverview: () => {
+          const model = buildManagerApprovalRefundOverview();
+          model.cases[0] = { ...model.cases[0], id: caseId };
+          model.cases.push({ ...model.cases[0], id: 'bb670000-0000-4000-8000-000000000005', publicReference: 'RF-READ-NEXT' });
+          return model;
+        },
+        functionCalls,
+        functionBodies,
+      });
+      await context.route('**/rest/v1/rpc/get_refund_request', async route => {
+        labelFixtureOwnedPortalRpc(route, 'get_refund_request');
+        await accessBarrier;
+        return route.fulfill(accessError
+          ? { status: 503, contentType: 'application/json', headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'refund-routing-access-read' }, body: JSON.stringify({ message: 'Synthetic routing read unavailable' }) }
+          : jsonResponse(null));
+      });
+      await context.route('**/rest/v1/rpc/get_refund_portal_case_detail', async route => {
+        labelFixtureOwnedPortalRpc(route, 'get_refund_portal_case_detail');
+        detailStarted = true;
+        acknowledgeDetailStart();
+        if (lateDetail) await detailBarrier;
+        if (reopenBarrier && route.request().postDataJSON()?.p_case_id === caseId) await reopenBarrier;
+        if (detailDenied) return route.fulfill({ status: 403, contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'refund-case-access-denied' },
+          body: JSON.stringify({ code: '42501', message: 'Synthetic selected-case access revoked' }) });
+        return route.fallback();
+      });
+      const page = await context.newPage();
+      const detailRequest = page.waitForRequest(request => request.url().endsWith('/rpc/get_refund_portal_case_detail'));
+      const detailResponse = page.waitForResponse(response => response.url().endsWith('/rpc/get_refund_portal_case_detail'));
+      await signInRefundUser(page, appUrl, `/refunds?case=${caseId}`);
+      await page.getByText('Checking request access…', { exact: true }).waitFor();
+      await detailRequest;
+      await detailStartedBarrier;
+      if (!lateDetail) await detailResponse;
+      recorder.assert(`${viewport.width}px protected detail starts while routing access is pending`, detailStarted);
+      recorder.assert(`${viewport.width}px pending routing publishes no case details or decision`,
+        (await page.getByTestId('refund-customer-notes').count()) === 0 &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+      accessError = true;
+      releaseAccess();
+      await page.getByText('Request access could not be checked. Try again.', { exact: true }).waitFor();
+      releaseDetail();
+      await detailResponse;
+      recorder.assert(`${viewport.width}px ${lateDetail ? 'late' : 'early'} detail stays hidden after routing failure`,
+        (await page.getByTestId('refund-customer-notes').count()) === 0 &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+      accessError = false;
+      await page.getByRole('button', { name: 'Retry case', exact: true }).click();
+      await page.getByTestId('refund-customer-notes').waitFor();
+      recorder.assert(`${viewport.width}px verified routing retry publishes only the current case`,
+        await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
+        functionBodies.filter(entry => entry.functionName === 'nayax-card-refund'
+          && entry.body?.operation !== 'availability').length === 0 &&
+        !functionCalls.includes('refund-case-message-send'));
+      if (viewport.width === 1440 && !lateDetail) {
+        const refreshed = page.waitForResponse(response => response.url().endsWith('/rpc/get_refund_portal_case_detail'));
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await refreshed;
+        await queueCase(page, 'RF-READ-NEXT').click();
+        await page.getByRole('heading', { name: 'RF-READ-NEXT', exact: true }).waitFor();
+        reopenBarrier = new Promise(resolve => { releaseReopen = resolve; });
+        await queueCase(page, 'RF-UAT-CARD').click();
+        await page.getByText('Loading the current case details and available actions…', { exact: true }).waitFor();
+        recorder.assert('Manual refresh preserves zero inactive-case retention when the same case is reopened',
+          (await page.getByTestId('refund-customer-notes').count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+        releaseReopen();
+        await page.getByTestId('refund-customer-notes').waitFor();
+      }
+      detailDenied = true;
+      if (viewport.width >= 1024) await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      else await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await page.getByText('This case is not available in your current assignments.', { exact: true }).waitFor();
+      recorder.assert(`${viewport.width}px authoritative case denial hides its cached details and actions`,
+        (await page.getByTestId('refund-customer-notes').count()) === 0 &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0);
+      await closeRefundPortalContext(context);
+    }
+  }
+};
+
+const runSharedReadPreflightCheck = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const functionCalls = []; const functionBodies = [];
+  const model = buildManagerApprovalRefundOverview();
+  let holdRead = false; let changedVersion = false; let releaseRead; let readEntered;
+  const readBarrier = new Promise(resolve => { releaseRead = resolve; });
+  const enteredBarrier = new Promise(resolve => { readEntered = resolve; });
+  await installMockSupabaseRoutes(context, { refundOverview: () => model, functionCalls, functionBodies });
+  await context.route('**/rest/v1/rpc/get_refund_portal_case_detail', async route => {
+    if (!holdRead) return route.fallback();
+    labelFixtureOwnedPortalRpc(route, 'get_refund_portal_case_detail');
+    const snapshot = JSON.parse(JSON.stringify(model));
+    readEntered(); await readBarrier;
+    return route.fulfill(jsonResponse(snapshot));
+  });
+  await context.route('**/functions/v1/nayax-card-refund', async route => {
+    const body = route.request().postDataJSON();
+    if (!changedVersion || body?.operation !== 'availability') return route.fallback();
+    functionCalls.push('nayax-card-refund');
+    functionBodies.push({ functionName: 'nayax-card-refund', body });
+    return route.fulfill(jsonResponse({ available: true, status: 'available', caseId: body.caseId,
+      transactionConfirmed: true, canIssueCardRefund: true, caseVersion: 2,
+      refundAmountCents: model.cases[0].refundAmountCents, machineLimitCents: 1200,
+      blockReason: null, payloadRedacted: true }));
+  });
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await queueCase(page, 'RF-UAT-CARD').click();
+  await page.getByTestId('refund-run-nayax-refund').click();
+  await page.getByTestId('refund-confirm-nayax-refund').waitFor();
+  holdRead = true;
+  await page.getByTestId('refund-confirm-nayax-refund').click();
+  await enteredBarrier;
+  changedVersion = true;
+  holdRead = false; releaseRead();
+  await page.getByTestId('refund-action-details').getByText('The saved transaction or case version changed. No refund was submitted. Review the refreshed case before continuing.', { exact: true }).waitFor();
+  recorder.assert('A delayed preflight read cannot authorize a case whose current version changed',
+    functionBodies.every(entry => entry.functionName === 'nayax-card-refund' && entry.body?.operation === 'availability') &&
+    !functionCalls.includes('refund-case-admin-update') && !functionCalls.includes('refund-case-message-send'));
+  await closeRefundPortalContext(context);
+};
+
 const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const functionCalls = [];
@@ -5568,6 +5718,8 @@ const run = async () => {
         recorder,
       });
     } else if (args.managerApprovalOnly) {
+      await runParallelCaseAccessChecks({ browser, appUrl: args.appUrl, recorder });
+      await runSharedReadPreflightCheck({ browser, appUrl: args.appUrl, recorder });
       await runManagerApprovalChecks({
         browser,
         appUrl: args.appUrl,
@@ -5595,6 +5747,8 @@ const run = async () => {
     } else {
       await runRefundQueueRecoveryChecks({ browser, appUrl: args.appUrl, recorder });
       await runRefundReadBudgetChecks({ browser, appUrl: args.appUrl, recorder });
+      await runParallelCaseAccessChecks({ browser, appUrl: args.appUrl, recorder });
+      await runSharedReadPreflightCheck({ browser, appUrl: args.appUrl, recorder });
       await runManagerApprovalChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
       await runMixedVersionWorkflowChecks({
         browser, appUrl: args.appUrl, recorder, realProjectionSeed,

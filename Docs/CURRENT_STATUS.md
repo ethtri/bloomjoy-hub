@@ -32,6 +32,13 @@ synthetic viewport timings are separate from production. See the
 [#1432 deployed evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
 for exact samples, source-verification qualifications and remaining QA.
 
+The next #1892 latency slice is under review: statement-local cash source checks,
+indexed import history and parallel protected case/routing reads. A rolled-back
+production rehearsal preserved 106 Manager contracts, 750 candidate outputs,
+all queue items and helper permissions. Its 2.4-second queue samples are server
+timings, not deployed browser acceptance. Manual access denial now also clears
+the observed case snapshot; desktop/mobile race and retry coverage is added.
+
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
