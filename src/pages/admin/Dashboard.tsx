@@ -20,7 +20,6 @@ import { useAuth } from '@/contexts/auth-context';
 import { fetchAdminAccountSummaries } from '@/lib/adminAccounts';
 import { fetchAdminAuditLog, fetchScopedAdminGrants } from '@/lib/adminGovernance';
 import { fetchAdminOrders } from '@/lib/orders';
-import { fetchPartnershipReportingSetup } from '@/lib/partnershipReporting';
 import { fetchRefundManagerSetup } from '@/lib/refundOperations';
 import { fetchSupportRequests } from '@/lib/supportRequests';
 
@@ -60,13 +59,6 @@ export default function AdminDashboardPage() {
     staleTime: 1000 * 30,
   });
 
-  const machineSetupQuery = useQuery({
-    queryKey: ['admin-dashboard', 'machine-setup'],
-    queryFn: fetchPartnershipReportingSetup,
-    enabled: canAccessSurface('machines'),
-    staleTime: 1000 * 30,
-  });
-
   const refundManagerQuery = useQuery({
     queryKey: ['admin-dashboard', 'refund-manager-setup'],
     queryFn: fetchRefundManagerSetup,
@@ -91,7 +83,6 @@ export default function AdminDashboardPage() {
   const orders = ordersQuery.data ?? [];
   const supportRequests = supportQuery.data ?? [];
   const accounts = accountsQuery.data ?? [];
-  const machines = machineSetupQuery.data?.machines ?? [];
   const refundMachineSetup = refundManagerQuery.data?.machines ?? [];
   const scopedAdminGrants = scopedAdminQuery.data ?? [];
   const recentAudit = auditQuery.data ?? [];
@@ -111,10 +102,6 @@ export default function AdminDashboardPage() {
   const urgentSupportRequests = supportRequests.filter(
     (request) => openSupportStatuses.has(request.status) && request.priority === 'urgent'
   ).length;
-  const visibleMachineCount = accounts.reduce(
-    (sum, account) => sum + account.total_machine_count,
-    0
-  );
   const machinesWithoutManagers = refundMachineSetup.filter(
     (machine) => machine.managerEmails.length === 0
   ).length;
@@ -132,7 +119,6 @@ export default function AdminDashboardPage() {
     ordersQuery.isFetching ||
     supportQuery.isFetching ||
     accountsQuery.isFetching ||
-    machineSetupQuery.isFetching ||
     refundManagerQuery.isFetching ||
     scopedAdminQuery.isFetching ||
     auditQuery.isFetching;
@@ -149,13 +135,12 @@ export default function AdminDashboardPage() {
             <div className="max-w-3xl">
               <h1 className="font-display text-3xl font-bold text-foreground">Overview</h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Use the sidebar as the map. This overview only shows live queues, setup gaps,
-                access risk, and recent sensitive activity.
+                See what needs attention across orders, support, machine setup, and access.
               </p>
             </div>
-            <Button variant="outline" onClick={refreshDashboard} disabled={isRefreshing}>
+            <Button variant="outline" className="min-h-11" onClick={refreshDashboard} disabled={isRefreshing}>
               {isRefreshing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
               )}
@@ -185,6 +170,7 @@ export default function AdminDashboardPage() {
                   href="/admin/orders"
                   action="Review orders"
                   tone={ordersNeedingWork > 0 || orderNotificationIssues > 0 ? 'warning' : 'success'}
+                  query={ordersQuery}
                 />
               )}
               {canAccessSurface('support') && (
@@ -203,6 +189,7 @@ export default function AdminDashboardPage() {
                   href="/admin/support"
                   action="Triage support"
                   tone={openSupportRequests > 0 ? 'warning' : 'success'}
+                  query={supportQuery}
                 />
               )}
               {!canAccessSurface('orders') && !canAccessSurface('support') && (
@@ -212,7 +199,7 @@ export default function AdminDashboardPage() {
 
             <OverviewPanel
               title="Customers and machines"
-              description="Account and machine-record signals without duplicating navigation."
+              description="Customer accounts and machine setup that may need a closer look."
               icon={Building2}
             >
               {canAccessSurface('accounts') && (
@@ -221,37 +208,35 @@ export default function AdminDashboardPage() {
                   detail={
                     accountsQuery.isLoading
                       ? 'Loading accounts...'
-                      : `${formatCount(accounts.length, 'account')} visible; ${formatCount(
-                          visibleMachineCount,
-                          'linked machine record'
-                        )}`
+                      : `${formatCount(accounts.length, 'account')} available`
                   }
                   href="/admin/accounts"
                   action="Review accounts"
                   tone="neutral"
+                  query={accountsQuery}
                 />
               )}
               {canAccessSurface('machines') && (
                 <AttentionRow
-                  title="Machine registry"
+                  title="Machine setup"
                   detail={
-                    machineSetupQuery.isLoading || refundManagerQuery.isLoading
+                    refundManagerQuery.isLoading
                       ? 'Loading machine setup...'
-                      : machines.length === 0
-                        ? 'No machines are visible for this admin grant yet.'
-                        : `${formatCount(machines.length, 'machine')} visible; ${formatCount(
-                            machinesWithoutManagers,
-                            'without a manager'
-                          )}`
+                      : refundMachineSetup.length === 0
+                        ? 'No manager setup records are available.'
+                        : machinesWithoutManagers > 0
+                          ? `${formatCount(machinesWithoutManagers, 'setup record')} without a manager.`
+                          : 'All checked setup records have a manager.'
                   }
                   href="/admin/machines"
-                  action="Open registry"
+                  action="Open machines"
                   tone={
-                    machines.length === 0 || machinesWithoutManagers > 0 ? 'warning' : 'success'
+                    machinesWithoutManagers > 0 ? 'warning' : 'neutral'
                   }
+                  query={refundManagerQuery}
                 />
               )}
-              {canAccessSurface('machines') && machinesMissingRefundSetup > 0 && (
+              {canAccessSurface('machines') && refundManagerQuery.isSuccess && machinesMissingRefundSetup > 0 && (
                 <AttentionRow
                   title="Refund setup gaps"
                   detail={`${formatCount(
@@ -284,11 +269,12 @@ export default function AdminDashboardPage() {
                             scopedAdminsWithoutMachines,
                             'scoped admin'
                           )} can enter Admin Console but has no machine access.`
-                        : 'Every active scoped admin grant has its intended machine scope or no active grant is present.'
+                        : 'No active scoped admins are missing machine access.'
                   }
                   href="/admin/access"
                   action="Manage access"
                   tone={scopedAdminsWithoutMachines > 0 ? 'warning' : 'success'}
+                  query={scopedAdminQuery}
                 />
               )}
               {canAccessSurface('audit') && (
@@ -305,9 +291,10 @@ export default function AdminDashboardPage() {
                   href="/admin/audit"
                   action="Review audit"
                   tone={sensitiveAuditCount > 0 ? 'neutral' : 'success'}
+                  query={auditQuery}
                 />
               )}
-              {!canAccessSurface('access') && !canAccessSurface('audit') && (
+              {!(isSuperAdmin && canAccessSurface('access')) && !canAccessSurface('audit') && (
                 <EmptyPanelRow text="No access or audit signals are visible for this admin grant." />
               )}
             </OverviewPanel>
@@ -357,36 +344,67 @@ function AttentionRow({
   href,
   action,
   tone,
+  query,
 }: {
   title: string;
   detail: string;
   href: string;
   action: string;
   tone: AttentionTone;
+  query?: {
+    isLoading: boolean;
+    isError: boolean;
+    isFetching: boolean;
+    refetch: () => Promise<unknown>;
+  };
 }) {
-  const ToneIcon = tone === 'success' ? CheckCircle2 : tone === 'warning' ? AlertTriangle : History;
+  const displayTone = query?.isError ? 'warning' : query?.isLoading ? 'neutral' : tone;
+  const ToneIcon = query?.isLoading
+    ? Loader2
+    : displayTone === 'success'
+      ? CheckCircle2
+      : displayTone === 'warning'
+        ? AlertTriangle
+        : History;
   const toneClass =
-    tone === 'success'
+    displayTone === 'success'
       ? 'text-sage'
-      : tone === 'warning'
+      : displayTone === 'warning'
         ? 'text-amber-600'
         : 'text-muted-foreground';
 
   return (
-    <div className="grid gap-3 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className={`grid gap-3 px-4 py-3 ${query?.isError ? '' : 'sm:grid-cols-[1fr_auto] sm:items-center'}`}>
       <div className="flex min-w-0 items-start gap-3">
-        <ToneIcon className={`mt-0.5 h-4 w-4 shrink-0 ${toneClass}`} />
+        <ToneIcon aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${toneClass} ${query?.isLoading ? 'animate-spin motion-reduce:animate-none' : ''}`} />
         <div className="min-w-0">
           <div className="text-sm font-medium text-foreground">{title}</div>
-          <div className="mt-1 text-sm leading-5 text-muted-foreground">{detail}</div>
+          <div className="mt-1 text-sm leading-5 text-muted-foreground" role={query?.isError ? 'alert' : query?.isLoading ? 'status' : undefined}>
+            {query?.isError ? 'This update could not be loaded. Try again or open the workspace.' : detail}
+          </div>
         </div>
       </div>
-      <Button asChild variant="ghost" size="sm" className="justify-self-start sm:justify-self-end">
-        <Link to={href}>
-          {action}
-          <ArrowRight className="ml-2 h-4 w-4" />
-        </Link>
-      </Button>
+      <div className={`flex flex-wrap items-center gap-2 justify-self-start ${query?.isError ? '' : 'sm:justify-self-end'}`}>
+        {query?.isError && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+            aria-label={`Retry ${title.toLowerCase()}`}
+          >
+            <RefreshCw aria-hidden="true" className={`mr-2 h-4 w-4 ${query.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+            {query.isFetching ? 'Retrying…' : 'Try again'}
+          </Button>
+        )}
+        <Button asChild variant="ghost" size="sm" className="min-h-11">
+          <Link to={href}>
+            {action}
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }
