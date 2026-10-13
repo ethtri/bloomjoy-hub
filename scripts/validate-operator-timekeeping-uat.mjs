@@ -196,7 +196,8 @@ const buildContext = (state, requestedDate) => {
     state.contextLocked && target.startsWith('2026-09'),
     state.periodStatus
   );
-  if (state.contextMode === 'no_profile' && typeof requestedDate === 'string') {
+  // The shell probes access with today's Pacific date; Time loads month anchors.
+  if (state.contextMode === 'no_profile' && requestedDate?.endsWith('-01')) {
     return { workDate: target, profiles: [] };
   }
   const assignments = state.contextMode === 'no_assignment' ? [] : machineAssignments;
@@ -310,7 +311,7 @@ const installRoutes = async (context, state) => {
       return route.fulfill(jsonResponse({ technicianEmail: mockUser.email }));
     }
     if (rpcName === 'get_my_operator_timekeeping_context') {
-      if (state.loadError && typeof body.p_work_date === 'string') {
+      if (state.loadError && body.p_work_date?.endsWith('-01')) {
         return route.fulfill(rpcError('Mock weekly time load failed.'));
       }
       return route.fulfill(jsonResponse(buildContext(state, body.p_work_date)));

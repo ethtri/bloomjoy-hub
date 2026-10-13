@@ -64,7 +64,7 @@ export function MemberRoute() {
   if (
     loading ||
     (isTeamRoute && isResolvingPortalTeam) ||
-    (isTimekeepingRoute && isResolvingPortalTimekeeping) ||
+    (isTimekeepingRoute && !canUsePortalTimekeeping && isResolvingPortalTimekeeping) ||
     (isReportingRoute && !canAccessRoute && !canAccessReportingDomain && analyticsAccess.isLoading)
   ) {
     return (
