@@ -2,32 +2,59 @@
 
 Last compacted: 2026-09-29.
 
-## Refund responsiveness candidate (#1892-#1896)
+## Refund responsiveness release (#1892-#1896)
 
-The October 12 repair is under review: scoped case evidence replaces whole-queue
+The October 12 repair is deployed through PR #1900 at `a87a343d`: scoped case evidence replaces whole-queue
 loading in the Manager portal, case access retains the workspace, and confirmed
 approval releases navigation before background reads. Compact purchase facts keep
 alternate transactions and material conflicts accessible. Optional original
 comments and verified replies remain supplementary to structured facts.
 
-Local build, lint, 41 unit tests, full refund regressions, 24 request-access
-checks, 29 mobile-navigation checks and cash/gift browser journeys pass. A
-95-case injected browser fixture rendered three fresh queue/detail loads in
-321-367 ms and twenty case switches in 100-152 ms; these exclude database and
-production-network cost. Delayed-refresh approval and optional/trusted comment
-checks pass. Hosted disposable-database CI passed all 8,317 assertions. Its
-95-case fixture measured at most 50 ms for twenty selected reads and 355 ms for
-three fresh queue reads. Selected JSON was 7,916 bytes versus 625,668 for the
-compatible full overview. Independent review found and repaired cash next-work wording drift, unresolved
-pair rows escaping selected-case scope, and pair cases missing from the queue.
-Production-data profiling also identified repeated timezone enumeration and SQL
-planning costs. A rolled-back rehearsal now measures three queue reads at
-2.7-2.9 seconds and twenty selected reads at 0.21-0.31 seconds, compared with
-11.2-12.7 seconds for the previous queue. These are server-read measurements,
-not phone/network timings. A repeatable-read rehearsal preserved all 95 complete
+Build, lint, 41 unit tests, all 8,351 disposable-database assertions and final-source
+Refund UAT Evidence pass. Independent review repaired cash next-work wording,
+selected-case pair scope and two missing valid queue pairs. All 95 complete
 Manager contracts, 750 candidate outputs, existing queue items, catalogues and
-helper permissions. Replacement PR #1900 includes regression coverage; final CI
-and deployment remain pending under #1432.
+helper permissions retain parity. The reviewed migration was applied before
+frontend publication; canonical production source/assets and all 12 unchanged
+worker bundles are verified.
+
+Actual authenticated server reads improved from 11.2-12.7 seconds for the queue
+to 2.7-3.3 seconds. Twenty distinct selected reads took 0.11-1.51 seconds,
+including the largest 507 KB case. Actual desktop Chrome fresh page loads took
+3.80, 4.19 and 3.83 seconds including driver overhead; the reported case opened
+in 2.24 seconds and all ten alternatives remained available. Optional comments
+show supported recorded text only, with no invented historical backfill.
+
+#1892 remains P0/In Progress. The initial fresh-load samples met five seconds;
+subsequent measurements and remaining acceptance are recorded below. Initial
+bounded HTTP observation found a selected-detail tail of 5.02 seconds.
+Physical iPhone behavior is unobserved;
+synthetic viewport timings are separate from production. See the
+[#1432 deployed evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
+for exact samples, source-verification qualifications and remaining QA.
+
+The second #1892 slice is deployed through #1908 at `d30bc0be`: statement-local
+cash source checks, indexed import history, parallel protected case/routing
+reads and observed refresh denial recovery. Queue server reads took 2.45-2.65
+seconds; actual desktop queues took 5.44, 3.65 and 3.51 seconds, including driver
+overhead. The reported case opened in 2.91 seconds. Queue and cold-load targets
+remain unmet. See [the release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6141432252).
+
+The third slice is deployed through [#1909](https://github.com/ethtri/bloomjoy-hub/pull/1909)
+at `7f867fc1`: one current safety check per candidate inside the existing snapshot
+statement and a shared queue read that overlaps the lazy review module. A
+rolled-back rehearsal preserved all 106 complete Manager contracts, 750 candidate
+outputs, snapshot proofs, queue items and helper permissions. Final hosted UAT passed 718 portal
+assertions and 8,377 disposable-database assertions. Independent release verified
+canonical source/assets and all twelve unchanged worker bundles/settings.
+
+Deployed authenticated queue server reads took 1.99, 1.64 and 1.65 seconds;
+twenty distinct case reads took 0.11-1.06 seconds, including the largest 507 KB
+case. These are server measurements. Rendered queue/detail and three fresh-load
+budgets remain unobserved for this release because the required business Chrome
+profile is unavailable. #1892 remains open; no real case action or customer
+correspondence was used for QA. See the
+[#1432 independent release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6143309947).
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short

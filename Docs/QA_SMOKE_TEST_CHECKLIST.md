@@ -1424,8 +1424,15 @@ npm run refunds:validate-portal-uat-lifecycle
 
 ## Refund responsive case review (#1892-#1896)
 
+Deployed through PR #1900; [independent release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6135090682)
+records final-source tests, migration/source verification and read-only live checks.
+Three actual fresh desktop loads pass five seconds; #1892's three-second queue/render
+target and detail-tail follow-up remain open. Physical iPhone acceptance is unobserved.
+
 - Open /refunds on 320/390px mobile and desktop. Confirm a scoped queue loads without downloading the full evidence overview; search customer/reference/machine and company/status views retain current counts.
+- In both development and the compiled build, delay the Manager review module. The ordinary signed-in Manager queue read starts during module loading and is shared when review mounts. Requests/Reports, direct-case, non-Manager, sign-out/user switches and local demo routes preserve their guards; superseded warming stops unless an active same-user Manager observer still needs the read. Test rapid queue-to-Requests-to-queue transitions and retained Manager case state.
 - Open A, return to its queue, reopen A and open B; test direct links, Back/Forward, focus/scroll and unsaved drafts. Slow/failed case reads retain the shell and offer Retry within ten seconds; confirmed access denial hides protected details.
+- With synthetic transport, let protected details finish before and after a delayed routing check. Details and decisions remain hidden until access succeeds; failed routing offers Retry. After manual refresh or focus, a case authorization denial hides its cached details/actions. Reopening after a manual refresh waits for a current read, and a delayed preflight read cannot approve a case whose current version changed.
 - With synthetic transport, approve A and delay/fail queue/availability refresh. Open B immediately after confirmed approval; late A responses do not alter B and reopening A cannot request the same decision. Verify pending/unknown outcomes still prevent a blind retry.
 - Compare the recommended and alternate transactions, including a weaker candidate; review material differences and select an alternative. Verify exact selected transaction/amount after refresh. General caveats are expandable and decision controls follow essential facts.
 - Submit optional comments in English/Spanish without requiring them. Review original notes and latest verified customer replies across card/cash/gift cases; staff/automated/untrusted/deleted messages never become customer comments. Empty/loading/unavailable states never disable decisions.
