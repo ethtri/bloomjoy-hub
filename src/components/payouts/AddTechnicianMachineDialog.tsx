@@ -56,7 +56,7 @@ export function AddTechnicianMachineDialog({ technician, month, onClose }: {
     toast.success('Machine and pay arrangement added. Existing arrangements are unchanged.');
     onClose();
   };
-  const save = async (input: AddMachineArrangementInput) => {
+  const save = async (input: AddMachineArrangementInput, retrying = false) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -69,7 +69,10 @@ export function AddTechnicianMachineDialog({ technician, month, onClose }: {
       await addOperatorMachineArrangement(input);
       finish();
     } catch (saveError) {
-      if (saveError instanceof ArrangementSaveError && !saveError.outcomeUnknown) {
+      // A rejected retry only rolls back that attempt. The original request may
+      // already have committed before its response was lost (including when
+      // the actor subsequently lost authority to read its receipt).
+      if (!retrying && saveError instanceof ArrangementSaveError && !saveError.outcomeUnknown) {
         clearPending();
         setError(`${saveError.message} No changes were saved.`);
       } else {
@@ -142,7 +145,7 @@ export function AddTechnicianMachineDialog({ technician, month, onClose }: {
           <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={onClose}>{pending ? 'Close' : 'Cancel'}</Button>
           {pending ? <>
             <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void checkSave()}>Check save status</Button>
-            <Button type="button" className="min-h-11" disabled={busy} onClick={() => void save(pending)}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Retry same save</Button>
+            <Button type="button" className="min-h-11" disabled={busy} onClick={() => void save(pending, true)}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Retry same save</Button>
           </> : <Button type="submit" className="min-h-11" disabled={busy || choices.isLoading || Boolean(choices.error) || !selectedMachine}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add machine and pay</Button>}
         </DialogFooter>
       </form>
