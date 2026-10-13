@@ -509,6 +509,19 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
       };
     case 'get_my_operator_timekeeping_context':
       return makeTimekeepingContext(persona);
+    case 'get_my_time_review_entry_options':
+      return [];
+    case 'get_my_time_review_context':
+      return {
+        workDate: '2026-06-01',
+        periodStartDate: '2026-06-01',
+        periodEndDate: '2026-06-30',
+        hasAccess: persona.isSuperAdmin || persona.allowedSurfaces.includes('*') ||
+          persona.allowedSurfaces.includes('payouts') || persona.capabilities.includes('timekeeping.review'),
+        entries: [],
+        machines: [],
+        technicians: [],
+      };
     case 'get_my_operator_pay_statement_context':
       return {
         profiles: persona.timekeeping
@@ -541,6 +554,8 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
       };
     case 'admin_get_refund_manager_setup':
       return { machines: [] };
+    case 'get_refund_request_access':
+      return { hasAccess: false, machines: [] };
     default:
       return {};
   }
@@ -962,10 +977,10 @@ const assertAllowedDirectLoad = async (
 
 const assertBlockedDirectLoad = async (
   page,
-  { route, expectedHeading, forbiddenHref = route, label },
+  { route, expectedHeading, headingLevel = 1, forbiddenHref = route, label },
 ) => {
   await page.goto(`${appUrl}${route}`, { waitUntil: 'networkidle' });
-  await page.getByRole('heading', { name: expectedHeading, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: expectedHeading, level: headingLevel }).waitFor();
   await assert(
     (await page.locator(`[data-auth-primary-navigation]:visible a[href="${forbiddenHref}"]`).count()) ===
       0,
@@ -2742,6 +2757,7 @@ try {
     '/portal/support',
   ];
   const superAdminHrefs = [
+    '/portal/time-review',
     '/refunds',
     '/admin',
     '/admin/orders',
@@ -2757,7 +2773,6 @@ try {
   ];
   const superAdminPortalHrefs = [
     '/portal',
-    '/portal/time-review',
     '/portal/orders',
     '/portal/account',
     '/portal/team',
@@ -2778,7 +2793,7 @@ try {
     '/admin/partnerships',
     '/admin/audit',
   ];
-  const scopedAdminPortalHrefs = [...baselinePortalHrefs, ...scopedAdminHrefs];
+  const scopedAdminPortalHrefs = [...baselinePortalHrefs, '/portal/reports', ...scopedAdminHrefs];
 
   const signedOutPage = await createSignedOutPage(browser, {
     width: 1366,
@@ -2859,7 +2874,7 @@ try {
       label: `Baseline customer direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
@@ -2867,11 +2882,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(baselineMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Baseline customer denied direct load ${route}`,
     });
   }
@@ -2895,17 +2911,18 @@ try {
       label: `Generic Plus member direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(plusMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Generic Plus member denied direct load ${route}`,
     });
   }
@@ -2934,15 +2951,16 @@ try {
       label: `Corporate Partner direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(partnerMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Corporate Partner denied direct load ${route}`,
     });
   }
@@ -2983,7 +3001,7 @@ try {
       label: `Reporting Technician direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/orders', /Orders is not included/],
     ['/portal/account', /Account Settings is not included/],
     ['/portal/time', 'Timekeeping setup required'],
@@ -2991,11 +3009,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(reportingTechnicianMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Reporting Technician denied direct load ${route}`,
     });
   }
@@ -3011,7 +3030,7 @@ try {
     route: '/portal/training',
     label: 'Training-only Technician direct load /portal/training',
   });
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/orders', /Orders is not included/],
     ['/portal/account', /Account Settings is not included/],
     ['/portal/time', 'Timekeeping setup required'],
@@ -3020,11 +3039,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(trainingMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Training-only Technician denied direct load ${route}`,
     });
   }
@@ -3042,18 +3062,19 @@ try {
       label: `Technician timekeeper direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
     ['/portal/training', /Training is not included/],
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(timekeeperMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Technician timekeeper denied direct load ${route}`,
     });
   }
