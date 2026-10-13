@@ -105,6 +105,17 @@ test('Last Sales evidence from another machine does not pass the sampled check',
   assert.equal(result.errorCode, 'sale_scope_mismatch');
 });
 
+test('nonempty Last Sales rows require explicit sampled-machine identity', async () => {
+  for (const sale of [{}, { TransactionID: '1234', ActorID: '999999' },
+    { MachineID: null }, { MachineID: 'invalid' }, [], null]) {
+    const result = await checkAccountReadiness({ accountKey, expectedActorId: actorId, env, probe: true,
+      fetchImpl: syntheticTransport([json(hierarchy), json(machines), json([sale])]) });
+    assert.equal(result.status, 'probe_failed');
+    assert.equal(result.errorCode, 'sale_scope_mismatch');
+    assert.equal(result.providerCalls, 3);
+  }
+});
+
 test('HTTP errors and transport exceptions produce bounded diagnostics without raw errors', async () => {
   for (const status of [401, 403, 307, 500]) {
     const result = await checkAccountReadiness({ accountKey, expectedActorId: actorId, env, probe: true,

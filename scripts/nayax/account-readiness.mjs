@@ -185,7 +185,7 @@ export async function checkAccountReadiness({
       const sales = records(await read(`/machines/${identifier(sample.MachineID)}/lastSales`),
         ['data', 'Data', 'sales', 'Sales', 'result', 'Result', 'records', 'Records']);
       if (sales.some((sale) => !sale || typeof sale !== 'object' || Array.isArray(sale)
-        || (sale.MachineID !== undefined && identifier(sale.MachineID) !== identifier(sample.MachineID)))) {
+        || identifier(sale.MachineID) !== identifier(sample.MachineID))) {
         throw new ReadinessError('sale_scope_mismatch');
       }
       lastSales = 'read_succeeded';
