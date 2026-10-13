@@ -20,8 +20,9 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label)
 values(pg_temp.fixture_id(3),pg_temp.fixture_id(1),pg_temp.fixture_id(2),'Synthetic freshness machine');
 insert into public.payout_policies(id,account_id,name,frequency,period_anchor_type,monthly_period_type,rounding_rule,review_model)
 values(pg_temp.fixture_id(4),pg_temp.fixture_id(1),'Synthetic freshness policy','monthly','calendar','calendar_month','round_up_60_minutes','no_review_required');
-insert into public.operator_payout_profiles(id,account_id,display_name,worker_type,payout_policy_id)
-values(pg_temp.fixture_id(5),pg_temp.fixture_id(1),'Synthetic freshness technician','contractor_1099',pg_temp.fixture_id(4));
+insert into auth.users(id,email) values(pg_temp.fixture_id(16),'synthetic-freshness@example.invalid');
+insert into public.operator_payout_profiles(id,account_id,user_id,display_name,worker_type,payout_policy_id)
+values(pg_temp.fixture_id(5),pg_temp.fixture_id(1),pg_temp.fixture_id(16),'Synthetic freshness technician','contractor_1099',pg_temp.fixture_id(4));
 insert into public.operator_machine_assignments(id,operator_profile_id,account_id,reporting_machine_id,effective_start_date,grant_reason)
 values(pg_temp.fixture_id(6),pg_temp.fixture_id(5),pg_temp.fixture_id(1),pg_temp.fixture_id(3),'2025-01-01','Synthetic boundary fixture');
 insert into public.payout_periods(id,account_id,payout_policy_id,period_start_date,period_end_date,submission_due_date,lock_date,target_payout_date,status)
