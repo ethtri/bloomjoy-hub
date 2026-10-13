@@ -53,7 +53,8 @@ twenty distinct case reads took 0.11-1.06 seconds, including the largest 507 KB
 case. These are server measurements. Rendered queue/detail and three fresh-load
 budgets remain unobserved for this release because the required business Chrome
 profile is unavailable. #1892 remains open; no real case action or customer
-correspondence was used for QA.
+correspondence was used for QA. See the
+[#1432 independent release evidence](https://github.com/ethtri/bloomjoy-hub/issues/1432#issuecomment-6143309947).
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
