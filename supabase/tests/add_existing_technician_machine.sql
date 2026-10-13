@@ -29,7 +29,7 @@ select pg_temp.fixture_id(n),pg_temp.fixture_id(10),pg_temp.fixture_id(20),'Synt
 from generate_series(30,34) n;
 insert into public.reporting_machines(id,account_id,location_id,machine_label,status,operational_phase)
 values(pg_temp.fixture_id(35),pg_temp.fixture_id(11),pg_temp.fixture_id(21),'Synthetic other company machine','active','live');
-update public.reporting_machines set management_archived_at=now() where id=pg_temp.fixture_id(34);
+update public.reporting_machines set management_archived_at=now(),management_archive_reason='Synthetic archive coverage' where id=pg_temp.fixture_id(34);
 insert into public.payout_policies(id,account_id,name,frequency,period_anchor_type,monthly_period_type,submission_due_offset_days,lock_offset_days,target_payout_offset_days,rounding_rule,review_model)
 values(pg_temp.fixture_id(40),pg_temp.fixture_id(10),'Synthetic policy','monthly','calendar','calendar_month',4,4,5,'round_up_60_minutes','no_review_required');
 insert into public.operator_payout_profiles(id,account_id,user_id,display_name,worker_type,payout_policy_id)

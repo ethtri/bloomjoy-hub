@@ -60,7 +60,15 @@ try{
   await page.locator('#add-payroll-machine').click();
   check('existing and other-payer machines are excluded',await page.getByRole('option',{name:'Cotton Candy 01',exact:true}).count()===0&&await page.getByRole('option',{name:'Other payer machine',exact:true}).count()===0);
   await page.keyboard.press('Escape');await fill(0);
-  await page.screenshot({path:'output/playwright/add-technician-machine/desktop.png',fullPage:true});
+  await page.waitForTimeout(4500);
+  await page.screenshot({path:'output/playwright/add-technician-machine/desktop.png'});
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForTimeout(250);
+  check('mobile populated dialog does not overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await page.screenshot({path:'output/playwright/add-technician-machine/mobile.png'});
+  await page.getByRole('button',{name:'Cancel',exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:'output/playwright/add-technician-machine/mobile-actions.png'});
+  await page.setViewportSize({width:1365,height:1000});
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
   check('cancel sends no writes',writes.length===0);
   check('cancel restores focus',await page.getByRole('button',{name:'Add machine',exact:true}).evaluate(element=>element===document.activeElement));
@@ -92,7 +100,8 @@ try{
   await page.getByText(/No additional machines are available/).waitFor();
   check('empty choices explain existing assignment editing',await page.getByText(/Existing assignments can be changed with Assignment dates/).isVisible());
   check('mobile dialog does not overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-  await page.screenshot({path:'output/playwright/add-technician-machine/mobile.png',fullPage:true});
+  await page.waitForTimeout(4500);
+  await page.screenshot({path:'output/playwright/add-technician-machine/mobile-empty.png'});
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
   check('no runtime errors',errors.length===0);
   console.log('Add-machine UAT passed with synthetic requests only.');

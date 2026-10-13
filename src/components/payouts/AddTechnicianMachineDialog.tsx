@@ -116,7 +116,7 @@ export function AddTechnicianMachineDialog({ technician, month, onClose }: {
           {choices.isLoading ? <p className="text-sm text-muted-foreground">Loading available machines…</p>
             : choices.error ? <div role="alert" className="text-sm text-destructive">Machine choices could not load. <Button type="button" variant="link" onClick={() => void choices.refetch()}>Try again</Button></div>
               : !machines.length && !pending ? <p className="text-sm text-muted-foreground">No additional machines are available in this payroll account. Existing assignments can be changed with Assignment dates.</p> : null}
-          <fieldset disabled={locked} className="space-y-4">
+          {(machines.length > 0 || pending) && <fieldset disabled={locked} className="space-y-4">
             <div><label htmlFor="add-payroll-machine" className="text-sm font-medium">Machine</label>
               <Select value={machineId} onValueChange={setMachineId} disabled={locked || Boolean(choices.error)}>
                 <SelectTrigger id="add-payroll-machine" className="mt-2 min-h-11"><SelectValue placeholder="Choose a machine" /></SelectTrigger>
@@ -133,7 +133,7 @@ export function AddTechnicianMachineDialog({ technician, month, onClose }: {
               <div><label htmlFor="add-machine-commission" className="text-sm font-medium">Commission (%)</label><Input id="add-machine-commission" type="number" min="0" max="100" step="0.01" className="mt-2 min-h-11" value={commission} onChange={(event) => setCommission(event.target.value)} required /></div>
               <div><label htmlFor="add-machine-commission-start" className="text-sm font-medium">Commission starts</label><Input id="add-machine-commission-start" type="date" min={startDate} max={endDate || undefined} className="mt-2 min-h-11" value={commissionDate} onChange={(event) => setCommissionDate(event.target.value)} required /></div>
             </div>
-          </fieldset>
+          </fieldset>}
           {commissionDate > startDate && <p className="text-sm text-muted-foreground">Commission is 0% from the assignment start until the commission start date.</p>}
           <p className="text-xs leading-5 text-muted-foreground">These terms apply only to this machine. Backdating changes pay attribution for those dates. The complete arrangement saves together and stays in the audit history.</p>
           {error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{error}</p>}
