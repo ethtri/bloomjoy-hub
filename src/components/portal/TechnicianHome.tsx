@@ -94,7 +94,7 @@ export function TechnicianHome({ timekeeping, canAccessTraining, canAccessReport
                       {entries.slice(0, 3).map((entry, index) => (
                         <li key={entry.id} className={index === 2 ? 'hidden sm:block' : undefined}>
                           <Link to={`/portal/time?profile=${encodeURIComponent(profile.id)}&week=${getWeekStart(entry.workDate)}&date=${entry.workDate}`} className="group flex min-h-20 items-center gap-3 rounded-lg py-4 outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring" data-workday-entry>
-                            <span className="min-w-0 flex-1"><span className="block break-words text-sm font-medium">{entry.machineLabel}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground sm:text-sm">{date(entry.workDate)}, {time(entry.startTime)} – {time(entry.endTime)}</span></span>
+                            <span className="min-w-0 flex-1"><span className="block break-words text-sm font-medium">{entry.machineLabel}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground sm:text-sm">{date(entry.workDate)}, <span className="whitespace-nowrap">{time(entry.startTime)}</span> – <span className="whitespace-nowrap">{time(entry.endTime)}</span></span></span>
                             <span className="shrink-0 text-xs tabular-nums sm:text-sm">{duration(entry.actualDurationMinutes)}</span>
                             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
                           </Link>

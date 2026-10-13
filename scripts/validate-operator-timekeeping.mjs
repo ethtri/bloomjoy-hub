@@ -250,7 +250,7 @@ expect(readText(files.helper), 'fetchMyTimeReviewContext', 'time review context 
 expect(readText(files.helper), 'correctOperatorTimeEntry', 'time correction action helper');
 expect(
   readText(files.accessHook),
-  'queryFn: () => fetchMyOperatorTimekeepingContext()',
+  'queryFn: () => fetchMyOperatorTimekeepingContext(workDate)',
   'timekeeping access query'
 );
 expect(readText(files.smoke), 'Technician Time (`/portal/time`)', 'smoke checklist');
