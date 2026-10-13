@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import ts from 'typescript';
 
 const [consoleSource, payoutSource, directorySource, migrationSource, machinePickerSource] = await Promise.all([
   readFile(new URL('../src/pages/admin/accessPersonConsole.tsx', import.meta.url), 'utf8'),
@@ -26,7 +27,12 @@ for (const expected of [
   'Additional access details',
 ]) assert.ok(consoleSource.includes(expected), `missing people workspace contract: ${expected}`);
 
-const newWorkspaceSource = consoleSource.slice(consoleSource.indexOf('function AdminPersonAccessConsoleInner'), consoleSource.indexOf('function LegacyAdminPersonAccessConsoleInner'));
+const consoleSyntax = ts.createSourceFile('accessPersonConsole.tsx', consoleSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const workspaceFunction = consoleSyntax.statements.find(
+  (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'AdminPersonAccessConsoleInner'
+);
+assert.ok(workspaceFunction, 'active people workspace function must exist');
+const newWorkspaceSource = workspaceFunction.getText(consoleSyntax);
 assert.ok(!newWorkspaceSource.includes('Refresh sales'), 'new workspace must not expose a manual sales refresh');
 assert.ok(!newWorkspaceSource.includes('<CustomerContextCard'), 'new workspace must not expose customer context');
 assert.match(newWorkspaceSource, /showActivity && <PersonActivityPanel/, 'activity must load only when expanded');
