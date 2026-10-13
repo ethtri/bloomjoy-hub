@@ -1430,3 +1430,21 @@ npm run refunds:validate-portal-uat-lifecycle
 - Compare the recommended and alternate transactions, including a weaker candidate; review material differences and select an alternative. Verify exact selected transaction/amount after refresh. General caveats are expandable and decision controls follow essential facts.
 - Submit optional comments in English/Spanish without requiring them. Review original notes and latest verified customer replies across card/cash/gift cases; staff/automated/untrusted/deleted messages never become customer comments. Empty/loading/unavailable states never disable decisions.
 - Record database, HTTP and browser timings and payload sizes separately; use three fresh page loads, twenty repeated selected reads and larger synthetic fixtures. Report actual results against #1892 targets and verify deployed source separately. Use synthetic effects and read-only production checks.
+
+### Manager time-entry recovery and report scope
+
+Run `npm run operator-payouts:validate-manager-reports-uat` against the synthetic
+local app. From All Technicians, Add missed time must start with an explicit
+Technician choice. A filtered valid Technician remains selected. Check cancel,
+reopen and mobile overflow. Void time identifies the saved entry, cancels without
+a write, sends one existing audited manager correction, and refreshes totals
+without replacing issued Pay Stubs. An uncertain failed void stays visible and
+asks for a report refresh before retry. Generic report failures must not be
+presented as proof of missing account authority.
+
+`supabase/tests/manager_pay_report_scope_recovery.sql` exercises the authenticated
+report with an invalid revoked source assignment alongside a valid historical
+assignment. Run it only through disposable database validation. The invalid pair
+must not reach snapshot refresh; the snapshot writer's scope rejection, valid
+historical revoked assignment, caller boundaries and issued statements remain
+unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile evidence.
