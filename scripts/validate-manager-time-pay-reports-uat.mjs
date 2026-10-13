@@ -488,6 +488,15 @@ const run = async () => {
     check('Time Report shows 61 minutes as two shifts', initialTimeText.includes('1 hr 1 min actual · 2 paid shifts'));
     check('Time Report groups totals by Technician', initialTimeText.includes('Alex Magana') && initialTimeText.includes('1 hr 21 min actual · 3 paid shifts'));
     check('Time Report contains no approval actions', !/approve|reject|request correction/i.test(await page.locator('body').innerText()));
+    await page.locator('#time-report-technician').click();
+    await page.getByRole('option', { name: 'Alex Magana', exact: true }).click();
+    const writesBeforeFilteredCancel = state.rpcCalls.filter((call) => call.rpcName === 'manager_create_operator_time_entry').length;
+    await page.getByRole('button', { name: 'Add missed time' }).click();
+    check('Explicitly filtered Technician remains selected', (await page.locator('#missed-time-technician').innerText()).includes('Alex Magana'));
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    check('Cancelling filtered missed time does not write', state.rpcCalls.filter((call) => call.rpcName === 'manager_create_operator_time_entry').length === writesBeforeFilteredCancel);
+    await page.locator('#time-report-technician').click();
+    await page.getByRole('option', { name: 'All Technicians', exact: true }).click();
     await page.getByRole('button', { name: /Edit Alex Magana.*8:00 AM to 9:01 AM/i }).click();
     check('Correction explains direct audited edit', await page.getByText(/No approval or written reason is required/i).isVisible());
     await page.locator('#correction-end').fill('09:00');
@@ -562,8 +571,12 @@ const run = async () => {
     await page.screenshot({ path: path.join(artifactDir, 'missed-time-mobile.png'), fullPage: true });
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: /^Void Alex Magana/i }).first().click();
-    await page.screenshot({ path: path.join(artifactDir, 'void-time-mobile.png'), fullPage: true });
-    check('Void confirmation fits mobile viewport', await noOverflow(page));
+    await page.screenshot({ path: path.join(artifactDir, 'void-time-mobile.png'), fullPage: false, animations: 'disabled' });
+    const voidDialogFits = await page.getByRole('alertdialog').evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.left >= 0 && bounds.right <= window.innerWidth + 1 && bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Void confirmation fits mobile viewport', voidDialogFits && await noOverflow(page));
     state.failVoid = true;
     await page.getByRole('button', { name: 'Void entry', exact: true }).click();
     await page.getByRole('alert').getByText(/could not confirm the void/i).waitFor();
