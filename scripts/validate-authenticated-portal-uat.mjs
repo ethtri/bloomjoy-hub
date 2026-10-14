@@ -17,6 +17,7 @@ const getArg = (name, fallback) => {
 };
 
 const appUrl = getArg('--app-url', 'http://127.0.0.1:8081');
+const technicianHomeOnly = process.argv.includes('--technician-home-only');
 const expiresAt = Math.floor(Date.now() / 1000) + 3600;
 const debug = process.env.PORTAL_UAT_DEBUG === '1';
 const unexpectedBrowserErrors = [];
@@ -214,6 +215,12 @@ const normalizeDashboardTaskHref = (href) => {
   if (href?.startsWith('/portal/training')) {
     return '/portal/training';
   }
+  if (href?.startsWith('/portal/time') && href.endsWith('#pay-stubs')) {
+    return '/portal/time#pay-stubs';
+  }
+  if (href === '/portal/time-review') {
+    return href;
+  }
   if (href?.startsWith('/portal/time')) {
     return '/portal/time';
   }
@@ -295,6 +302,97 @@ const makeTimekeepingContext = (persona) => ({
     : [],
 });
 
+const makeWorkdayFixture = () => {
+  const context = makeTimekeepingContext(personas.timekeeper);
+  const profile = context.profiles[0];
+  profile.currentPeriod = {
+    ...profile.currentPeriod,
+    periodStartDate: '2026-06-01',
+    periodEndDate: '2026-06-30',
+  };
+  const entry = (id, workDate, startTime, endTime, minutes, machineLabel, status = 'submitted') => ({
+    id,
+    accountId: profile.accountId,
+    operatorProfileId: profile.id,
+    machineId: 'machine-uat',
+    machineLabel,
+    locationId: 'location-uat',
+    locationName: 'UAT Location',
+    locationTimezone: 'America/Los_Angeles',
+    payoutPolicyId: profile.policy.id,
+    payoutPeriodId: profile.currentPeriod.id,
+    workDate,
+    startTime,
+    endTime,
+    actualStartAt: `${workDate}T${startTime}:00-07:00`,
+    actualEndAt: `${workDate}T${endTime}:00-07:00`,
+    actualDurationMinutes: minutes,
+    rawDurationMinutes: minutes,
+    paidShifts: Math.ceil(minutes / 60),
+    roundedPaidMinutes: Math.ceil(minutes / 60) * 60,
+    status,
+    managerReviewStatus: 'pending',
+    managerReviewReason: null,
+    managerReviewedAt: null,
+    notes: null,
+    technicianEditable: false,
+    technicianCutoffAt: '2026-07-05T07:00:00.000Z',
+    lockedAt: '2026-07-05T07:00:00.000Z',
+    createdAt: `${workDate}T20:00:00.000Z`,
+    updatedAt: `${workDate}T20:00:00.000Z`,
+  });
+  // Deliberately unsorted, with an older fourth entry and a voided newer entry.
+  profile.currentEntries = [
+    entry('workday-old', '2026-06-25', '08:00', '08:20', 20, 'UAT Machine oldest visit'),
+    entry('workday-early', '2026-06-27', '09:00', '09:20', 20, 'UAT Machine early visit'),
+    entry('workday-morning', '2026-06-26', '09:00', '09:30', 30, 'UAT Machine morning visit'),
+    entry('workday-late', '2026-06-27', '10:00', '11:00', 60, 'UAT Machine late visit'),
+    entry('workday-voided', '2026-06-28', '12:00', '13:00', 60, 'Voided visit', 'voided'),
+  ];
+  const secondProfile = structuredClone(profile);
+  secondProfile.id = 'operator-profile-second';
+  secondProfile.accountId = 'account-second';
+  secondProfile.accountName = 'Second UAT Account';
+  secondProfile.currentEntries = [{
+    ...entry('workday-second', '2026-06-26', '14:00', '14:45', 45, 'Second account machine'),
+    operatorProfileId: secondProfile.id,
+    accountId: secondProfile.accountId,
+  }];
+  context.profiles.push(secondProfile);
+
+  const statement = (id, statementLabel, totalPayoutCents) => ({
+    id,
+    statementNumber: id,
+    statementLabel,
+    status: 'issued',
+    version: 1,
+    issuedAt: '2026-07-03T12:00:00.000Z',
+    storageBucket: 'operator-pay-statements',
+    storagePath: `${id}.pdf`,
+    totalPayoutCents,
+    periodStartDate: '2026-06-01',
+    periodEndDate: '2026-06-30',
+    notificationStatus: 'portal_published',
+    targetPayoutDate: '2026-07-03',
+    revisionCount: 0,
+    downloadFileName: `${id}.pdf`,
+  });
+  const payContext = {
+    profiles: context.profiles.map((item, index) => ({
+      id: item.id,
+      accountId: item.accountId,
+      accountName: item.accountName,
+      displayName: item.displayName,
+      workerType: item.workerType,
+      statements: [statement(`pay-stub-${index}`, index === 0 ? 'June Pay Stub North' : 'June Pay Stub South', index === 0 ? 12500 : 6500)],
+    })),
+  };
+  return {
+    get_my_operator_timekeeping_context: context,
+    get_my_operator_pay_statement_context: payContext,
+  };
+};
+
 const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
   switch (rpcName) {
     case 'resolve_my_technician_entitlements':
@@ -371,6 +469,7 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
           ]
         : [];
     case 'get_sales_report':
+    case 'get_sales_report_complete':
       return persona.hasReportingAccess
         ? [
             {
@@ -410,6 +509,19 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
       };
     case 'get_my_operator_timekeeping_context':
       return makeTimekeepingContext(persona);
+    case 'get_my_time_review_entry_options':
+      return [];
+    case 'get_my_time_review_context':
+      return {
+        workDate: '2026-06-01',
+        periodStartDate: '2026-06-01',
+        periodEndDate: '2026-06-30',
+        hasAccess: persona.isSuperAdmin || persona.allowedSurfaces.includes('*') ||
+          persona.allowedSurfaces.includes('payouts') || persona.capabilities.includes('timekeeping.review'),
+        entries: [],
+        machines: [],
+        technicians: [],
+      };
     case 'get_my_operator_pay_statement_context':
       return {
         profiles: persona.timekeeping
@@ -442,6 +554,8 @@ const rpcResponse = (rpcName, persona, { plusAccessOverride = null } = {}) => {
       };
     case 'admin_get_refund_manager_setup':
       return { machines: [] };
+    case 'get_refund_request_access':
+      return { hasAccess: false, machines: [] };
     default:
       return {};
   }
@@ -462,12 +576,19 @@ const createPageForPersona = async (
     plusAccessFailureAttempts = 0,
     edgeFunctionResponses = {},
     edgeFunctionCallCounts = null,
+    rpcOverrides = {},
+    rpcCalls = [],
+    payStatementFailureAttempts = 0,
+    payStatementDelayMs = 0,
+    clockTime = null,
   } = {},
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
+  if (clockTime) session.expires_at = Math.floor(new Date(clockTime).getTime() / 1000) + 3600;
   let dashboardStatusRequestCount = 0;
   let plusAccessRequestCount = 0;
+  let payStatementRequestCount = 0;
 
   await context.addInitScript(
     ({ value, email, completedStepIds, initialLanguage }) => {
@@ -526,6 +647,7 @@ const createPageForPersona = async (
     }),
   );
   const fulfillRpc = async (route, rpcName) => {
+    rpcCalls.push({ name: rpcName, body: route.request().postDataJSON() });
     if (rpcName === 'get_my_plus_access') {
       plusAccessRequestCount += 1;
       if (plusAccessRequestCount <= plusAccessFailureAttempts) {
@@ -551,10 +673,24 @@ const createPageForPersona = async (
       }
     }
 
+    if (rpcName === 'get_my_operator_pay_statement_context') {
+      payStatementRequestCount += 1;
+      if (payStatementDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, payStatementDelayMs));
+      }
+      if (payStatementRequestCount <= payStatementFailureAttempts) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Pay statements unavailable in UAT.' }),
+        });
+      }
+    }
+
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(rpcResponse(rpcName, persona, { plusAccessOverride })),
+      body: JSON.stringify(rpcOverrides[rpcName] ?? rpcResponse(rpcName, persona, { plusAccessOverride })),
     });
   };
 
@@ -616,7 +752,12 @@ const createPageForPersona = async (
       edgeFunctionCallCounts[functionName] = (edgeFunctionCallCounts[functionName] ?? 0) + 1;
     }
 
-    const response = edgeFunctionResponses[functionName];
+    const requestBody = route.request().postDataJSON();
+    const globalRefundAvailability = functionName === 'nayax-card-refund' &&
+      requestBody?.operation === 'availability' && !requestBody.caseId
+      ? { status: 200, body: { available: false, status: 'unavailable', blockReason: 'configuration_missing', payloadRedacted: true } }
+      : null;
+    const response = edgeFunctionResponses[functionName] ?? globalRefundAvailability;
     return route.fulfill({
       status: response?.status ?? 501,
       contentType: 'application/json',
@@ -625,6 +766,7 @@ const createPageForPersona = async (
   });
 
   const page = await context.newPage();
+  if (clockTime) await page.clock.install({ time: new Date(clockTime) });
   page.on('console', (message) => {
     const isExpectedLanguageSyncFailure =
       failLanguageSync &&
@@ -638,6 +780,10 @@ const createPageForPersona = async (
       plusAccessFailureAttempts > 0 &&
       message.type() === 'error' &&
       message.text().includes('503 (Service Unavailable)');
+    const isExpectedPayStatementFailure =
+      payStatementFailureAttempts > 0 &&
+      message.type() === 'error' &&
+      message.text().includes('503 (Service Unavailable)');
     const isExpectedEdgeFunctionFailure =
       message.type() === 'error' &&
       Object.values(edgeFunctionResponses).some(
@@ -649,6 +795,7 @@ const createPageForPersona = async (
       !isExpectedLanguageSyncFailure &&
       !isExpectedDashboardStatusFailure &&
       !isExpectedPlusAccessFailure &&
+      !isExpectedPayStatementFailure &&
       !isExpectedEdgeFunctionFailure
     ) {
       const errorMessage = `[${persona.email}] console error: ${message.text()}`;
@@ -695,12 +842,17 @@ const createPageForPersona = async (
       plusAccessFailureAttempts > 0 &&
       response.status() === 503 &&
       requestUrl.pathname.endsWith('/rest/v1/rpc/get_my_plus_access');
+    const isExpectedPayStatementFailure =
+      payStatementFailureAttempts > 0 &&
+      response.status() === 503 &&
+      requestUrl.pathname.endsWith('/rest/v1/rpc/get_my_operator_pay_statement_context');
 
     if (
       isExpectedDashboardStatusFailure ||
       isExpectedLanguageSyncFailure ||
       isExpectedEdgeFunctionResponse ||
-      isExpectedPlusAccessFailure
+      isExpectedPlusAccessFailure ||
+      isExpectedPayStatementFailure
     ) {
       return;
     }
@@ -825,10 +977,10 @@ const assertAllowedDirectLoad = async (
 
 const assertBlockedDirectLoad = async (
   page,
-  { route, expectedHeading, forbiddenHref = route, label },
+  { route, expectedHeading, headingLevel = 1, forbiddenHref = route, label },
 ) => {
   await page.goto(`${appUrl}${route}`, { waitUntil: 'networkidle' });
-  await page.getByRole('heading', { name: expectedHeading, level: 1 }).waitFor();
+  await page.getByRole('heading', { name: expectedHeading, level: headingLevel }).waitFor();
   await assert(
     (await page.locator(`[data-auth-primary-navigation]:visible a[href="${forbiddenHref}"]`).count()) ===
       0,
@@ -1198,9 +1350,234 @@ const assertActionTreatment = async (page, selector, label) => {
 
 fs.mkdirSync(outputDir, { recursive: true });
 
+const assertFocusedPayView = async (page, { profileId, statementLabel, label }) => {
+  try {
+    await page.getByRole('heading', { name: /^Pay stubs$/i, level: 1 }).waitFor();
+  } catch (error) {
+    await page.screenshot({ path: path.join(outputDir, 'technician-pay-view-failed.png'), fullPage: true });
+    console.error(`${label} at ${page.url()}: ${await textContent(page.locator('body'))}`);
+    throw error;
+  }
+  await page.locator('section#pay-stubs').waitFor();
+  if (statementLabel) await page.locator('#pay-stubs').getByText(statementLabel, { exact: true }).waitFor();
+  await assert(
+    (await page.locator('#work-date, #start-time, #end-time, #week-profile').count()) === 0 &&
+      (await page.getByRole('button', { name: 'Previous week', exact: true }).count()) === 0,
+    `${label} must show published pay history without the weekly time form.`,
+  );
+  if (profileId) {
+    await assert(
+      (await page.locator(`main a[href="/portal/time?profile=${profileId}"]`).count()) === 1,
+      `${label} return-to-time link must retain the selected account.`,
+    );
+  }
+  await assertNoHorizontalOverflow(page, label);
+};
+
+const runTechnicianHomeScenarios = async (browser) => {
+  const rpcOverrides = makeWorkdayFixture();
+  const workdayPersona = {
+    ...personas.reportingTechnician,
+    timekeeping: true,
+    capabilities: ['training.view', 'operator.timekeeping'],
+  };
+  for (const viewport of [
+    { width: 320, height: 740 },
+    { width: 390, height: 844 },
+    { width: 1366, height: 768 },
+  ]) {
+    const page = await createPageForPersona(browser, workdayPersona, viewport, { rpcOverrides });
+    const label = `Populated technician home at ${viewport.width}px`;
+    await page.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'Your workday', level: 1 }).waitFor();
+    await assertDashboardExperience(page, {
+      label,
+      expectedPrimaryHref: '/portal/time/new?profile=operator-profile-uat',
+      primaryInFirstViewport: true,
+    });
+    await assert(
+      (await textContent(page.locator('[data-workday-summary]'))).includes('2 hr 10 min recorded · 4 paid shifts'),
+      `${label} must total all non-voided entries, including entries beyond the recent list.`,
+    );
+    const recentEntries = page.locator('[data-workday-entry]');
+    await assert((await recentEntries.count()) === 3, `${label} must cap recent entries at three.`);
+    await assert(
+      (await page.locator('[data-workday-entry]:visible').count()) === (viewport.width < 640 ? 2 : 3),
+      `${label} must keep the recent list compact on mobile.`,
+    );
+    const recentText = await recentEntries.allTextContents();
+    await assert(
+      recentText[0].includes('late visit') && recentText[1].includes('early visit') && recentText[2].includes('morning visit'),
+      `${label} must order recent work by date and time and exclude voided work.`,
+    );
+    await assert(
+      (await page.locator('main a[href="/portal/reports"]').count()) === 1 &&
+        (await page.locator('main a[href="/portal/training"]').count()) === 1,
+      `${label} must retain authorized reporting and training shortcuts.`,
+    );
+    await assert(
+      (await page.locator('main a[href^="/admin"], main a[href="/portal/orders"], main a[href="/portal/team"]').count()) === 0,
+      `${label} must focus on technician work without owner or administrator shortcuts.`,
+    );
+    const payLink = page.locator('[data-dashboard-secondary-action]');
+    await assert(
+      (await payLink.getAttribute('href')) === '/portal/time?profile=operator-profile-uat#pay-stubs',
+      `${label} pay shortcut must preserve the selected profile.`,
+    );
+    const payBox = await payLink.boundingBox();
+    await assert(payBox && payBox.height >= 44, `${label} pay shortcut must have a 44px touch target.`);
+    await page.screenshot({ path: path.join(outputDir, `technician-home-populated-${viewport.width}.png`), fullPage: true });
+
+    await recentEntries.first().click();
+    await page.waitForURL((url) => url.pathname === '/portal/time' &&
+      url.searchParams.get('profile') === 'operator-profile-uat' &&
+      url.searchParams.get('date') === '2026-06-27' && url.searchParams.get('week') === '2026-06-22');
+    await page.getByRole('heading', { name: 'Time', exact: true, level: 1 }).waitFor();
+    await assert(
+      (await textContent(page.locator('main'))).includes('UAT Machine late visit'),
+      `${label} recent entry must open the correct week with the selected day's work visible.`,
+    );
+
+    await page.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+    await page.locator('#home-profile').selectOption('operator-profile-second');
+    await assert(
+      (await textContent(page.locator('[data-workday-summary]'))).includes('0 hr 45 min recorded · 1 paid shift'),
+      `${label} changing profiles must replace the time summary.`,
+    );
+    await assert(
+      (await page.locator('[data-dashboard-primary-action]').getAttribute('href')) === '/portal/time/new?profile=operator-profile-second',
+      `${label} add-time action must follow the selected profile.`,
+    );
+    await page.locator('[data-dashboard-secondary-action]').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL((url) => url.hash === '#pay-stubs' && url.searchParams.get('profile') === 'operator-profile-second');
+    await assertFocusedPayView(page, {
+      profileId: 'operator-profile-second', statementLabel: 'June Pay Stub South', label: `${label} keyboard pay navigation`,
+    });
+    await assert(
+      !(await textContent(page.locator('#pay-stubs'))).includes('June Pay Stub North'),
+      `${label} pay view must only show the selected profile's statement.`,
+    );
+    await page.reload({ waitUntil: 'networkidle' });
+    await assertFocusedPayView(page, {
+      profileId: 'operator-profile-second', statementLabel: 'June Pay Stub South', label: `${label} pay deep-link refresh`,
+    });
+    await page.locator('#pay-profile').click();
+    await page.getByRole('option', { name: 'Timekeeper UAT · UAT Account', exact: true }).click();
+    await assertFocusedPayView(page, {
+      profileId: 'operator-profile-uat', statementLabel: 'June Pay Stub North', label: `${label} pay profile switch`,
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await assertFocusedPayView(page, {
+      profileId: 'operator-profile-uat', statementLabel: 'June Pay Stub North', label: `${label} switched pay profile refresh`,
+    });
+    await page.screenshot({ path: path.join(outputDir, `technician-pay-stubs-${viewport.width}.png`), fullPage: true });
+    await page.context().close();
+  }
+
+  const payCalls = [];
+  const payLoadingPage = await createPageForPersona(browser, personas.timekeeper, { width: 320, height: 740 }, {
+    rpcOverrides, rpcCalls: payCalls, payStatementDelayMs: 1_500,
+  });
+  await payLoadingPage.goto(`${appUrl}/portal/time?profile=operator-profile-second#pay-stubs`, { waitUntil: 'domcontentloaded' });
+  await payLoadingPage.getByLabel('Loading Pay Stubs').waitFor();
+  await assert(
+    (await payLoadingPage.getByText(/No Pay Stubs have been published/).count()) === 0,
+    'Loading published pay history must not briefly claim there are no pay stubs.',
+  );
+  await assertFocusedPayView(payLoadingPage, {
+    profileId: 'operator-profile-second', statementLabel: 'June Pay Stub South', label: 'Direct pay deep link after loading',
+  });
+  await assert(
+    payCalls.filter((call) => call.name === 'get_my_operator_timekeeping_context').length <= 1,
+    'Focused pay history must not request monthly time entries beyond the shared access check.',
+  );
+  await payLoadingPage.context().close();
+
+  const emptyPayPage = await createPageForPersona(browser, personas.timekeeper, { width: 390, height: 844 });
+  await emptyPayPage.goto(`${appUrl}/portal/time#pay-stubs`, { waitUntil: 'networkidle' });
+  await emptyPayPage.getByText(/No Pay Stubs have been published yet/).waitFor();
+  await assertFocusedPayView(emptyPayPage, { profileId: 'operator-profile-uat', label: 'Empty published pay history' });
+  await assert((await emptyPayPage.getByRole('button', { name: 'Download Pay Stub' }).count()) === 0,
+    'Empty pay history must not offer a download.');
+  await emptyPayPage.context().close();
+
+  const failedPayPage = await createPageForPersona(browser, personas.timekeeper, { width: 390, height: 844 }, {
+    rpcOverrides, payStatementFailureAttempts: 4,
+  });
+  await failedPayPage.goto(`${appUrl}/portal/time?profile=operator-profile-second#pay-stubs`, { waitUntil: 'domcontentloaded' });
+  await failedPayPage.locator('#pay-stubs [role="alert"]').waitFor({ timeout: 20_000 });
+  await assert(
+    (await failedPayPage.getByText(/No Pay Stubs have been published/).count()) === 0,
+    'Unavailable pay history must display a failure instead of a false empty state.',
+  );
+  await failedPayPage.getByRole('button', { name: 'Retry status' }).click();
+  await assertFocusedPayView(failedPayPage, {
+    profileId: 'operator-profile-second', statementLabel: 'June Pay Stub South', label: 'Recovered pay history',
+  });
+  await failedPayPage.locator('#pay-stubs [role="alert"]').waitFor({ state: 'hidden' });
+  await failedPayPage.context().close();
+
+  const independentPayPage = await createPageForPersona(browser, personas.timekeeper, { width: 390, height: 844 }, {
+    rpcOverrides, dashboardStatusFailureAttempts: 100,
+  });
+  await independentPayPage.goto(`${appUrl}/portal/time?profile=operator-profile-second#pay-stubs`, { waitUntil: 'domcontentloaded' });
+  await assertFocusedPayView(independentPayPage, {
+    profileId: 'operator-profile-second', statementLabel: 'June Pay Stub South', label: 'Pay history while time data is unavailable',
+  });
+  await independentPayPage.context().close();
+
+  for (const width of [320, 390]) {
+    const emptyHomePage = await createPageForPersona(browser, personas.timekeeper, { width, height: 740 });
+    await emptyHomePage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+    await emptyHomePage.locator('[data-workday-empty]').waitFor();
+    await assertDashboardExperience(emptyHomePage, {
+      label: `Empty technician home at ${width}px`, expectedPrimaryHref: '/portal/time/new?profile=operator-profile-uat', primaryInFirstViewport: true,
+    });
+    await assert((await emptyHomePage.locator('[data-workday-entry]').count()) === 0,
+      `Empty technician home at ${width}px must not invent recent work.`);
+    await emptyHomePage.context().close();
+  }
+
+  const boundaryCalls = [];
+  const boundaryPage = await createPageForPersona(browser, personas.timekeeper, { width: 390, height: 844 }, {
+    rpcCalls: boundaryCalls, clockTime: '2026-11-01T01:00:00.000Z',
+  });
+  await boundaryPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await boundaryPage.getByRole('heading', { name: 'Your workday', level: 1 }).waitFor();
+  const boundaryTimeCalls = boundaryCalls.filter((call) => call.name === 'get_my_operator_timekeeping_context');
+  await assert(
+    boundaryTimeCalls.length > 0 && boundaryTimeCalls.every((call) => call.body?.p_work_date === '2026-10-31'),
+    'Technician home must request the Pacific work date while UTC has crossed into the next month.',
+  );
+  await boundaryPage.context().close();
+
+  const managerPage = await createPageForPersona(browser, {
+    ...personas.timekeeper,
+    capabilities: ['operator.timekeeping', 'timekeeping.review'],
+  }, { width: 1366, height: 768 }, {
+    rpcOverrides: {
+      ...rpcOverrides,
+      get_my_time_review_context: {
+        hasAccess: true, periodStartDate: '2026-06-01', periodEndDate: '2026-06-30', entries: [], machines: [], technicians: [],
+      },
+      get_my_time_review_entry_options: [],
+    },
+  });
+  await managerPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertDashboardExperience(managerPage, { label: 'Manager home with personal timekeeping', expectedPrimaryHref: '/portal/time-review' });
+  await managerPage.screenshot({ path: path.join(outputDir, 'manager-home-time-review-desktop.png'), fullPage: true });
+  await assertDashboardPrimaryNavigation(managerPage, { label: 'Manager home', expectedPath: '/portal/time-review' });
+  await managerPage.context().close();
+  console.log('Technician home, focused pay history, manager home, and Pacific month-boundary scenarios passed.');
+};
+
 const browser = await chromium.launch();
 
 try {
+  if (technicianHomeOnly) {
+    await runTechnicianHomeScenarios(browser);
+  } else {
   const adminPage = await createPageForPersona(browser, personas.admin, {
     width: 1366,
     height: 768,
@@ -1406,7 +1783,7 @@ try {
   await timekeeperPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
   await waitForHeading(
     timekeeperPage,
-    { name: 'Welcome back', level: 1 },
+    { name: 'Your workday', level: 1 },
     'portal-shell-timekeeper-debug-failed.png',
   );
   await assert(
@@ -1415,8 +1792,13 @@ try {
   );
   await assertDashboardExperience(timekeeperPage, {
     label: 'Timekeeper dashboard',
-    expectedPrimaryHref: '/portal/time/new',
+    expectedPrimaryHref: '/portal/time/new?profile=operator-profile-uat',
   });
+  await timekeeperPage.locator('[data-workday-empty]').waitFor();
+  await assert(
+    (await textContent(timekeeperPage.locator('[data-workday-summary]'))).includes('0 hr 0 min'),
+    'Empty technician home must clearly show no recorded time.',
+  );
   await timekeeperPage.screenshot({
     path: path.join(outputDir, 'portal-dashboard-timekeeper-desktop.png'),
     fullPage: true,
@@ -1440,6 +1822,8 @@ try {
     fullPage: true,
   });
   await timekeeperPage.close();
+
+  await runTechnicianHomeScenarios(browser);
 
   const loginDesktopContext = await browser.newContext({
     viewport: { width: 1366, height: 768 },
@@ -1612,7 +1996,7 @@ try {
   });
   await assertDashboardExperience(loadingDashboardPage, {
     label: 'Resolved delayed timekeeper dashboard',
-    expectedPrimaryHref: '/portal/time/new',
+    expectedPrimaryHref: '/portal/time/new?profile=operator-profile-uat',
     primaryInFirstViewport: true,
   });
   await assertDashboardPrimaryNavigation(loadingDashboardPage, {
@@ -1645,12 +2029,12 @@ try {
   });
   await errorDashboardPage.getByRole('button', { name: 'Retry status' }).click();
   await errorDashboardPage
-    .locator('[data-dashboard-primary-action][href="/portal/time/new"]')
+    .locator('[data-dashboard-primary-action][href="/portal/time/new?profile=operator-profile-uat"]')
     .waitFor();
   await errorDashboardPage.locator('[data-dashboard-error-state]').waitFor({ state: 'hidden' });
   await assertDashboardExperience(errorDashboardPage, {
     label: 'Recovered timekeeper dashboard',
-    expectedPrimaryHref: '/portal/time/new',
+    expectedPrimaryHref: '/portal/time/new?profile=operator-profile-uat',
   });
   await errorDashboardPage.close();
 
@@ -2134,7 +2518,7 @@ try {
     width: 1366,
     height: 768,
   });
-  await reportingPage.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
+  await reportingPage.goto(`${appUrl}/portal/reports?view=sales`, { waitUntil: 'networkidle' });
   await waitForHeading(
     reportingPage,
     { name: 'Reporting', level: 1 },
@@ -2156,7 +2540,7 @@ try {
     width: 390,
     height: 844,
   });
-  await mobileReportingPage.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
+  await mobileReportingPage.goto(`${appUrl}/portal/reports?view=sales`, { waitUntil: 'networkidle' });
   await waitForHeading(
     mobileReportingPage,
     { name: 'Reporting', level: 1 },
@@ -2373,6 +2757,7 @@ try {
     '/portal/support',
   ];
   const superAdminHrefs = [
+    '/portal/time-review',
     '/refunds',
     '/admin',
     '/admin/orders',
@@ -2388,7 +2773,6 @@ try {
   ];
   const superAdminPortalHrefs = [
     '/portal',
-    '/portal/time-review',
     '/portal/orders',
     '/portal/account',
     '/portal/team',
@@ -2409,7 +2793,7 @@ try {
     '/admin/partnerships',
     '/admin/audit',
   ];
-  const scopedAdminPortalHrefs = [...baselinePortalHrefs, ...scopedAdminHrefs];
+  const scopedAdminPortalHrefs = [...baselinePortalHrefs, '/portal/reports', ...scopedAdminHrefs];
 
   const signedOutPage = await createSignedOutPage(browser, {
     width: 1366,
@@ -2490,7 +2874,7 @@ try {
       label: `Baseline customer direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
@@ -2498,11 +2882,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(baselineMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Baseline customer denied direct load ${route}`,
     });
   }
@@ -2526,17 +2911,18 @@ try {
       label: `Generic Plus member direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(plusMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Generic Plus member denied direct load ${route}`,
     });
   }
@@ -2565,15 +2951,16 @@ try {
       label: `Corporate Partner direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time', 'Timekeeping setup required'],
     ['/portal/time-review', 'Time review access required'],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(partnerMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Corporate Partner denied direct load ${route}`,
     });
   }
@@ -2614,7 +3001,7 @@ try {
       label: `Reporting Technician direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/orders', /Orders is not included/],
     ['/portal/account', /Account Settings is not included/],
     ['/portal/time', 'Timekeeping setup required'],
@@ -2622,11 +3009,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(reportingTechnicianMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Reporting Technician denied direct load ${route}`,
     });
   }
@@ -2642,7 +3030,7 @@ try {
     route: '/portal/training',
     label: 'Training-only Technician direct load /portal/training',
   });
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/orders', /Orders is not included/],
     ['/portal/account', /Account Settings is not included/],
     ['/portal/time', 'Timekeeping setup required'],
@@ -2651,11 +3039,12 @@ try {
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(trainingMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Training-only Technician denied direct load ${route}`,
     });
   }
@@ -2673,18 +3062,19 @@ try {
       label: `Technician timekeeper direct load ${route}`,
     });
   }
-  for (const [route, expectedHeading] of [
+  for (const [route, expectedHeading, headingLevel = 1] of [
     ['/portal/time-review', 'Time review access required'],
     ['/portal/reports', /Reporting is not included/],
     ['/portal/training', /Training is not included/],
     ['/portal/support', /Support is not included/],
     ['/portal/team', /Team management is not included/],
     ['/admin/access', 'Admin Access Required'],
-    ['/refunds', 'Refund Workflow Access Required'],
+    ['/refunds', 'No assigned machines', 2],
   ]) {
     await assertBlockedDirectLoad(timekeeperMatrixPage, {
       route,
       expectedHeading,
+      headingLevel,
       label: `Technician timekeeper denied direct load ${route}`,
     });
   }
@@ -2790,12 +3180,13 @@ try {
     screenshotName: 'persona-baseline-mobile-drawer.png',
   });
   await baselineMobileMatrixPage.close();
+  }
 
   await assert(
     unexpectedBrowserErrors.length === 0,
     `Authenticated portal UAT encountered unexpected browser errors:\n${unexpectedBrowserErrors.join('\n')}`,
   );
-  console.log(`Authenticated portal UAT passed at ${appUrl}`);
+  console.log(`${technicianHomeOnly ? 'Technician home' : 'Authenticated portal'} UAT passed at ${appUrl}`);
   console.log(`Screenshots written to ${path.relative(repoRoot, outputDir)}`);
 } finally {
   await browser.close();

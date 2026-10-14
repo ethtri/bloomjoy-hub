@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { getVisibleAdminDestinations } from '@/components/layout/authenticatedNavigation';
 import { PortalLayout } from '@/components/portal/PortalLayout';
+import { TechnicianHome } from '@/components/portal/TechnicianHome';
 import {
   canAccessPortalLevel,
   type PortalAccessLevel,
@@ -229,7 +230,8 @@ export default function PortalDashboard() {
       canUsePortalTimekeeping,
     );
   };
-  const usesDashboardTrainingData = canAccessTraining && !hasActionableAdminPrimary;
+  const canReviewTime = isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('payouts') || capabilities.includes('timekeeping.review');
+  const usesDashboardTrainingData = canAccessTraining && !hasActionableAdminPrimary && !canUsePortalTimekeeping;
   const onboardingProgress = getOnboardingProgress(user?.email);
   const libraryQuery = useTrainingLibrary(usesDashboardTrainingData);
   const tracksQuery = useTrainingTracks(usesDashboardTrainingData);
@@ -263,6 +265,10 @@ export default function PortalDashboard() {
 
   if (!user) {
     return null;
+  }
+
+  if (canUsePortalTimekeeping && !hasActionableAdminPrimary && !canReviewTime) {
+    return <PortalLayout><TechnicianHome timekeeping={timekeepingAccess} canAccessTraining={canAccessTraining} canAccessReporting={hasEffectiveReportingAccess} /></PortalLayout>;
   }
 
   const trainingExperience = buildTrainingExperience(library);
@@ -327,7 +333,15 @@ export default function PortalDashboard() {
 
   let primaryAction: DashboardAction;
 
-  if (hasActionableAdminPrimary && firstAdminDestination) {
+  if (canReviewTime && !isSuperAdmin) {
+    primaryAction = {
+      title: t('workday.reviewTitle'),
+      description: t('workday.reviewDescription'),
+      label: t('workday.reviewAction'),
+      href: '/portal/time-review',
+      icon: Clock3,
+    };
+  } else if (hasActionableAdminPrimary && firstAdminDestination) {
     primaryAction = {
       title: t(firstAdminDestination.labelKey),
       description: t(firstAdminDestination.descriptionKey),
@@ -425,10 +439,12 @@ export default function PortalDashboard() {
             href: '/portal/reports',
           }
         : null
+      : primaryAction.href === '/portal/time-review'
+        ? hasEffectiveReportingAccess ? { label: t('dashboard.openReporting'), href: '/portal/reports' } : null
       : primaryAction.href.startsWith('/portal/time')
         ? {
-            label: t('dashboard.viewOrders'),
-            href: '/portal/orders',
+            label: t('workday.viewPay'),
+            href: '/portal/time#pay-stubs',
           }
         : primaryAction.href === '/portal/reports'
           ? canAccessTraining
@@ -691,10 +707,7 @@ export default function PortalDashboard() {
             data-dashboard-header
           >
             <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {t('portal.memberPortal')}
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
+              <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
                 {t('dashboard.welcome')}
               </h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">

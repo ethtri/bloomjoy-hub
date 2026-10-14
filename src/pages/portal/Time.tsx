@@ -14,7 +14,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import {
   calculateOperatorPaidShifts,
@@ -182,11 +183,14 @@ const defaultForm = (workDate: string): TimeEntryForm => ({
 });
 
 export default function PortalTimePage() {
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { entryId } = useParams<{ entryId?: string }>();
   const search = new URLSearchParams(location.search);
+  const requestedProfile = search.get('profile');
+  const showPayStubs = location.pathname === '/portal/time' && location.hash === '#pay-stubs';
   const today = getTodayInTimekeepingZone();
   const requestedDate = search.get('date');
   const requestedWeek = search.get('week');
@@ -201,7 +205,7 @@ export default function PortalTimePage() {
   const isFormRoute = location.pathname === '/portal/time/new' || Boolean(entryId);
   const [weekStart, setWeekStart] = useState(() => getWeekStart(initialDate));
   const [selectedDate, setSelectedDate] = useState(initialDate);
-  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [selectedProfileId, setSelectedProfileId] = useState(requestedProfile ?? '');
   const [form, setForm] = useState<TimeEntryForm>(() => defaultForm(initialDate));
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [serverLockedFormDate, setServerLockedFormDate] = useState<string | null>(null);
@@ -210,11 +214,13 @@ export default function PortalTimePage() {
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
   const [downloadingPayStubId, setDownloadingPayStubId] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const payHeadingRef = useRef<HTMLHeadingElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [location.pathname]);
+    if (showPayStubs) payHeadingRef.current?.focus({ preventScroll: true });
+  }, [location.pathname, showPayStubs]);
 
   useEffect(() => {
     if (isFormRoute || !isDateValue(requestedWeek)) return;
@@ -240,6 +246,7 @@ export default function PortalTimePage() {
       queryFn: () => fetchMyOperatorTimekeepingContext(monthAnchor),
       staleTime: 20_000,
       retry: false,
+      enabled: !showPayStubs,
     })),
   });
 
@@ -252,15 +259,26 @@ export default function PortalTimePage() {
   const loadError = contextQueries.find((query) => query.error)?.error;
 
   useEffect(() => {
-    if (!profiles.length) return;
+    if (showPayStubs || !profiles.length) return;
     if (profiles.some((profile) => profile.id === selectedProfileId)) return;
     setSelectedProfileId(
       profiles.find((profile) => profile.assignedMachines.length > 0)?.id ?? profiles[0].id
     );
-  }, [profiles, selectedProfileId]);
+  }, [profiles, selectedProfileId, showPayStubs]);
+
+  useEffect(() => {
+    if (requestedProfile) setSelectedProfileId(requestedProfile);
+  }, [requestedProfile]);
 
   const selectedProfile =
     profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null;
+  const profileParam = selectedProfile ? `&profile=${encodeURIComponent(selectedProfile.id)}` : '';
+  const selectProfile = (id: string) => {
+    setSelectedProfileId(id);
+    const nextSearch = new URLSearchParams(location.search);
+    nextSearch.set('profile', id);
+    navigate(`${location.pathname}?${nextSearch}${location.hash}`, { replace: true });
+  };
   const routeEntry = entryId
     ? profiles.flatMap((profile) => profile.currentEntries).find((entry) => entry.id === entryId) ??
       null
@@ -374,7 +392,7 @@ export default function PortalTimePage() {
     queryKey: getPayStubsQueryKey,
     queryFn: fetchMyOperatorPayStatementContext,
     staleTime: 30_000,
-    enabled: !isFormRoute && profiles.length > 0,
+    enabled: showPayStubs || (!isFormRoute && profiles.length > 0),
   });
   const payStubProfile = payStubsQuery.data?.profiles.find(
     (profile) => profile.id === selectedProfile?.id
@@ -382,9 +400,9 @@ export default function PortalTimePage() {
 
   const invalidateVisibleMonths = async () => {
     await Promise.all(
-      baseMonthAnchors.map((monthAnchor) =>
+      [queryClient.invalidateQueries({ queryKey: ['operator-timekeeping-access'] }), ...baseMonthAnchors.map((monthAnchor) =>
         queryClient.invalidateQueries({ queryKey: getContextQueryKey(monthAnchor) })
-      )
+      )]
     );
   };
 
@@ -419,7 +437,7 @@ export default function PortalTimePage() {
           timeEntry.paidShifts === 1 ? 'shift' : 'shifts'
         }.`
       );
-      navigate(`/portal/time?week=${nextWeek}&date=${timeEntry.workDate}`);
+      navigate(`/portal/time?week=${nextWeek}&date=${timeEntry.workDate}${profileParam}`);
     },
     onError: async (error) => {
       const message = describeTimekeepingError(error);
@@ -460,19 +478,19 @@ export default function PortalTimePage() {
     const nextSelectedDate = nextWeekStart === currentWeekStart ? today : nextWeekStart;
     setWeekStart(nextWeekStart);
     setSelectedDate(nextSelectedDate);
-    navigate(`/portal/time?week=${nextWeekStart}&date=${nextSelectedDate}`);
+    navigate(`/portal/time?week=${nextWeekStart}&date=${nextSelectedDate}${profileParam}`);
   };
 
   const openAddTime = (date = selectedDate) => {
     setForm(defaultForm(date));
     setFormErrors({});
     setInitializedEntryId(null);
-    navigate(`/portal/time/new?date=${date}&week=${weekStart}`);
+    navigate(`/portal/time/new?date=${date}&week=${weekStart}${profileParam}`);
   };
 
   const openEditTime = (entry: OperatorTimeEntry) =>
     navigate(
-      `/portal/time/${entry.id}/edit?date=${entry.workDate}&week=${weekStart}&month=${entry.workDate.slice(0, 7)}`
+      `/portal/time/${entry.id}/edit?date=${entry.workDate}&week=${weekStart}&month=${entry.workDate.slice(0, 7)}${profileParam}`
     );
 
   const validateAndSave = () => {
@@ -528,6 +546,34 @@ export default function PortalTimePage() {
   };
 
   const retryLoad = () => Promise.all(contextQueries.map((query) => query.refetch()));
+
+  if (showPayStubs && !isFormRoute) {
+    const payProfiles = payStubsQuery.data?.profiles ?? [];
+    const selectedPayProfile = payProfiles.find((profile) => profile.id === selectedProfileId) ?? payProfiles[0];
+    return (
+      <PortalLayout>
+        <section className="portal-section">
+          <div className="container-page max-w-5xl space-y-5">
+            <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 ref={payHeadingRef} tabIndex={-1} className="font-display text-3xl font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('workday.payStubs')}</h1>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('workday.payDescription')}</p>
+              </div>
+              <Button asChild variant="outline" className="min-h-11"><Link to={`/portal/time${selectedPayProfile ? `?profile=${encodeURIComponent(selectedPayProfile.id)}` : ''}`}><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" />{t('workday.allTime')}</Link></Button>
+            </header>
+            {payProfiles.length > 1 && <div className="max-w-md space-y-2">
+              <label htmlFor="pay-profile" className="block text-sm font-medium">{t('workday.account')}</label>
+              <Select value={selectedPayProfile?.id ?? ''} onValueChange={selectProfile}>
+                <SelectTrigger id="pay-profile" className="min-h-11 bg-card"><SelectValue /></SelectTrigger>
+                <SelectContent>{payProfiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.displayName} · {profile.accountName}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>}
+            <PayStubsPanel payStubs={selectedPayProfile?.statements ?? []} isLoading={payStubsQuery.isLoading} error={payStubsQuery.error} downloadingId={downloadingPayStubId} onDownload={downloadPayStub} onRetry={() => void payStubsQuery.refetch()} expanded />
+          </div>
+        </section>
+      </PortalLayout>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -597,7 +643,7 @@ export default function PortalTimePage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}`)}
+                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}${profileParam}`)}
                   className="min-h-11"
                 >
                   <ChevronLeft className="mr-2 h-4 w-4" />
@@ -615,7 +661,7 @@ export default function PortalTimePage() {
                 <Button
                   type="button"
                   className="mt-5 min-h-11"
-                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${selectedDate}`)}
+                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${selectedDate}${profileParam}`)}
                 >
                   View this week
                 </Button>
@@ -642,7 +688,7 @@ export default function PortalTimePage() {
                       <label htmlFor="technician-profile" className="text-sm font-medium text-foreground">
                         Technician account
                       </label>
-                      <Select value={selectedProfile?.id ?? ''} onValueChange={setSelectedProfileId}>
+                      <Select value={selectedProfile?.id ?? ''} onValueChange={selectProfile}>
                         <SelectTrigger id="technician-profile" className="min-h-11">
                           <SelectValue placeholder="Choose an account" />
                         </SelectTrigger>
@@ -822,7 +868,7 @@ export default function PortalTimePage() {
                       type="button"
                       variant="outline"
                       className="min-h-11"
-                      onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}`)}
+                      onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}${profileParam}`)}
                       disabled={saveMutation.isPending}
                     >
                       Cancel
@@ -858,6 +904,7 @@ export default function PortalTimePage() {
             eyebrow="Technician"
             title="Time"
             description="Record completed work by machine. Each saved entry rounds up independently to the next paid hour."
+            actions={<Button asChild variant="outline" className="min-h-11"><Link to={`/portal/time${selectedProfile ? `?profile=${encodeURIComponent(selectedProfile.id)}` : ''}#pay-stubs`}><FileText className="mr-2 h-4 w-4" aria-hidden="true" />{t('workday.viewPay')}</Link></Button>}
             badges={[
               {
                 label: `${formatDuration(totalActualMinutes)} worked · ${totalPaidShifts} paid ${
@@ -874,7 +921,7 @@ export default function PortalTimePage() {
               <label htmlFor="week-profile" className="text-sm font-medium text-foreground">
                 Technician account
               </label>
-              <Select value={selectedProfile?.id ?? ''} onValueChange={setSelectedProfileId}>
+              <Select value={selectedProfile?.id ?? ''} onValueChange={selectProfile}>
                 <SelectTrigger id="week-profile" className="min-h-11 bg-card">
                   <SelectValue />
                 </SelectTrigger>
@@ -956,7 +1003,7 @@ export default function PortalTimePage() {
                     type="button"
                     onClick={() => {
                       setSelectedDate(date);
-                      navigate(`/portal/time?week=${weekStart}&date=${date}`, { replace: true });
+                      navigate(`/portal/time?week=${weekStart}&date=${date}${profileParam}`, { replace: true });
                     }}
                     aria-pressed={isSelected}
                     aria-label={`${formatPlainDate(date, {
@@ -1117,6 +1164,7 @@ export default function PortalTimePage() {
             error={payStubsQuery.error}
             downloadingId={downloadingPayStubId}
             onDownload={downloadPayStub}
+            onRetry={() => void payStubsQuery.refetch()}
           />
 
           <AlertDialog
@@ -1172,33 +1220,22 @@ function PayStubsPanel({
   error,
   downloadingId,
   onDownload,
+  onRetry,
+  expanded = false,
 }: {
   payStubs: OperatorPayStatementSummary[];
   isLoading: boolean;
   error: unknown;
   downloadingId: string | null;
   onDownload: (payStub: OperatorPayStatementSummary) => void;
+  onRetry: () => void;
+  expanded?: boolean;
 }) {
-  return (
-    <details id="pay-stubs" className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="rounded-lg bg-muted p-2 text-muted-foreground">
-            <FileText className="h-5 w-5" />
-          </span>
-          <span>
-            <span className="block font-semibold text-foreground">Pay Stubs</span>
-            <span className="block text-sm text-muted-foreground">View and download published history</span>
-          </span>
-        </div>
-        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none" />
-      </summary>
-
-      <div className="border-t border-border">
+  const { t } = useLanguage();
+  const content = (
+      <div>
         {error ? (
-          <p className="p-5 text-sm text-destructive" role="alert">
-            Pay Stubs could not be loaded right now. Your time entries are still available above.
-          </p>
+          <div className="p-5" role="alert"><p className="text-sm text-destructive">{t('workday.payUnavailable')}</p><Button variant="outline" onClick={onRetry} className="mt-3 min-h-11"><RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />{t('dashboard.retryStatus')}</Button></div>
         ) : isLoading ? (
           <div className="space-y-3 p-5" aria-label="Loading Pay Stubs">
             <Skeleton className="h-5 w-40" />
@@ -1206,7 +1243,7 @@ function PayStubsPanel({
           </div>
         ) : payStubs.length === 0 ? (
           <p className="p-5 text-sm text-muted-foreground">
-            No Pay Stubs have been published yet. They will appear here when available.
+            {t('workday.noPay')}
           </p>
         ) : (
           <div className="divide-y divide-border">
@@ -1238,13 +1275,27 @@ function PayStubsPanel({
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  Download Pay Stub
+                  {t('workday.downloadPay')}
                 </Button>
               </article>
             ))}
           </div>
         )}
       </div>
+  );
+
+  if (expanded) return <section id="pay-stubs" aria-label={t('workday.payStubs')} className="overflow-hidden rounded-2xl border border-border bg-card">{content}</section>;
+
+  return (
+    <details id="pay-stubs" className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="rounded-lg bg-muted p-2 text-muted-foreground"><FileText className="h-5 w-5" aria-hidden="true" /></span>
+          <span><span className="block font-semibold text-foreground">{t('workday.payStubs')}</span><span className="block text-sm text-muted-foreground">{t('workday.payDescription')}</span></span>
+        </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+      </summary>
+      <div className="border-t border-border">{content}</div>
     </details>
   );
 }

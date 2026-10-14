@@ -136,8 +136,8 @@ assert(
 
 const adminDashboard = includes(
   'src/pages/admin/Dashboard.tsx',
-  'Use the sidebar as the map',
-  'Admin Console overview must explain that the sidebar is the navigation map.',
+  'See what needs attention',
+  'Admin Console overview must explain its operational purpose.',
 );
 assert(
   adminDashboard.includes('Work queues') &&

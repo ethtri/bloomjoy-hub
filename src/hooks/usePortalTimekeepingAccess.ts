@@ -2,13 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 
 import { useAuth } from '@/contexts/auth-context';
 import { fetchMyOperatorTimekeepingContext } from '@/lib/operatorPayouts';
+import { getTodayInTimekeepingZone } from '@/lib/timekeepingUi';
 
 export function usePortalTimekeepingAccess() {
   const { capabilities, user } = useAuth();
+  const workDate = getTodayInTimekeepingZone();
 
   const query = useQuery({
-    queryKey: ['operator-timekeeping-access', user?.id],
-    queryFn: () => fetchMyOperatorTimekeepingContext(),
+    queryKey: ['operator-timekeeping-access', user?.id, workDate],
+    queryFn: () => fetchMyOperatorTimekeepingContext(workDate),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
   });
