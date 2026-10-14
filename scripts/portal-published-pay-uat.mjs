@@ -73,7 +73,10 @@ export async function runPublishedPayScenarios({ browser, createPageForPersona, 
     await page.getByText('Machine and rate details', { exact: true }).click();
     for (const value of ['$24.00', '$26.50', '$72.00', '$53.00', '3.65%', '9.09%', 'Synthetic second machine']) await assert((await page.locator('[data-pay-stub-detail]').innerText()).includes(value), 'Published machine/rate lines must use saved values.');
     await assertNoHorizontalOverflow(page, `Expanded published details ${width}`);
-    if (width === 390) await page.screenshot({ path: path.join(evidenceDir, 'detail-expanded-390.png'), fullPage: true });
+    if (width === 390) {
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      await page.screenshot({ path: path.join(evidenceDir, 'detail-expanded-390.png'), fullPage: true });
+    }
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download Pay Stub', exact: true }).click();
     await download;
@@ -111,9 +114,22 @@ export async function runPublishedPayScenarios({ browser, createPageForPersona, 
   await chinese.getByRole('heading', { name: '工资单详情', exact: true }).waitFor();
   await chinese.getByText('机器与费率明细', { exact: true }).click();
   await assertNoHorizontalOverflow(chinese, 'Chinese statement detail');
-  await chinese.evaluate(() => window.scrollTo(0, 0));
+  await chinese.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   await chinese.screenshot({ path: path.join(evidenceDir, 'detail-zh-320.png'), fullPage: true });
   await chinese.context().close();
+
+  const { page: olderHistory, fixture: olderFixture, artifactCalls: historyCalls } = await create({ width: 390, height: 844 });
+  for (const month of ['01', '02', '03', '04', '05']) {
+    const id = `synthetic-older-${month}`;
+    olderFixture.rpc.get_my_operator_pay_statement_context.profiles[0].statements.push({ ...olderFixture.july, id, version: 1, periodStartDate: `2026-${month}-01`, periodEndDate: `2026-${month}-28` });
+    olderFixture.artifacts[id] = { ...olderFixture.artifacts['published-july'], statement: { ...olderFixture.artifacts['published-july'].statement, id } };
+  }
+  await olderHistory.goto(`${appUrl}/portal/time?profile=operator-profile-uat#pay-stubs`, { waitUntil: 'networkidle' });
+  await assert(historyCalls.length === 6, 'History must fetch only the first six visible statement amounts.');
+  await olderHistory.getByRole('button', { name: 'Show older Pay Stubs', exact: true }).click();
+  await olderHistory.locator('section#pay-stubs article').nth(6).locator('[data-published-pay-amount]').waitFor();
+  await assert(historyCalls.length === 7, 'Older history loads the remaining statement only when requested.');
+  await olderHistory.context().close();
 
   const { page: recovery, state, fixture: recoveryFixture, artifactCalls } = await create({ width: 390, height: 844 }, { dashboardStatusFailureAttempts: 100, expectedArtifactStatuses: [403, 503] });
   state.delay = 800;
@@ -127,6 +143,14 @@ export async function runPublishedPayScenarios({ browser, createPageForPersona, 
   await assert((await recovery.locator('[data-pay-stub-detail]').count()) === 0, 'Failure must not present an old cached amount as a successful read.');
   await recovery.getByRole('button', { name: 'Retry status' }).click();
   await recovery.locator('[data-pay-stub-detail]').waitFor();
+  await recovery.getByRole('link', { name: 'Back to Pay Stubs', exact: true }).click();
+  await recovery.waitForLoadState('networkidle');
+  const cachedArtifact = recoveryFixture.artifacts['published-july'];
+  delete recoveryFixture.artifacts['published-july'];
+  await recovery.locator('section#pay-stubs article').first().getByRole('link', { name: 'View Pay Stub', exact: true }).click();
+  await recovery.locator('main [role="alert"]').waitFor();
+  await assert((await recovery.locator('[data-pay-stub-detail]').count()) === 0, 'A statement superseded after history was cached must fail its fresh artifact check.');
+  recoveryFixture.artifacts['published-july'] = cachedArtifact;
   const before = artifactCalls.length;
   for (const id of ['another-profile-statement', 'unpublished-draft', 'superseded-copy']) {
     await recovery.goto(`${appUrl}/portal/time?profile=operator-profile-uat&statement=${id}#pay-stubs`, { waitUntil: 'networkidle' });

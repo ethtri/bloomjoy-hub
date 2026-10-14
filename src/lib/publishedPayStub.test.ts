@@ -59,6 +59,7 @@ Deno.test('draft, superseded and unsupported payloads do not expose an inferred 
   equal(parsePublishedPayStub({ ...fixture(), status: 'revised' }), null);
   equal(publishedPayAmount({ ...fixture(), schemaVersion: 'imported-pdf' }), null);
   equal(parsePublishedPayStub({ ...fixture(), schemaVersion: 'imported-pdf' }), null);
+  equal(publishedStatementDate({ ...fixture(), schemaVersion: 'imported-pdf' }), null);
 });
 
 Deno.test('legacy published payload retains authoritative total but has no fabricated v2 detail', () => {

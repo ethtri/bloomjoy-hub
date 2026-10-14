@@ -99,7 +99,7 @@ export function publishedPayAmount(value: unknown): number | null {
 }
 
 export function publishedStatementDate(value: unknown): string | null {
-  return record(value) && isPayDate(value.statementDate) ? value.statementDate : null;
+  return record(value) && value.schemaVersion === 'operator-pay-stub-v2' && value.status === 'issued' && isPayDate(value.statementDate) ? value.statementDate : null;
 }
 
 export function newestPublishedStatements<T extends { id: string; status: string; version: number; periodStartDate: string; periodEndDate: string }>(statements: T[]): T[] {

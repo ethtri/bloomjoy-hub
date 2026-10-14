@@ -1157,4 +1157,3 @@ export default function PortalTimePage() {
     </PortalLayout>
   );
 }
-
