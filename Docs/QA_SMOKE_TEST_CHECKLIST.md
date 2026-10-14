@@ -1464,3 +1464,5 @@ unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile eviden
 - Run `npm run nayax:account-readiness -- --account-key BLOOMJOY_NC_ADAM` without a token: reports pending credentials, zero provider calls and no activation.
 - Run `npm run nayax:validate-account-readiness`: synthetic account-scope, read-only transport and multi-account worker checks pass without real provider/customer actions.
 - Follow `Docs/NAYAX_ACCOUNT_ONBOARDING.md` when the private token and expected actor arrive. Preserve the existing inventory/worker account and verify exact provider mappings in the existing Machines workspace.
+
+- Technician deadlines (#1921): Home links to the nearest open month (previous month on Pacific days 1–4); Time shows both deadlines for cross-month weeks. Leave a completed-work form open across Pacific midnight on day five: editing closes, context refreshes, and entered values remain. Check server-locked entries, failed refresh/retry, no-entry state, English/Chinese, keyboard and 320/390 px plus desktop.

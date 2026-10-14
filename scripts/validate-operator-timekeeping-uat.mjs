@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { verifyTimeDeadlines } from './timekeeping/deadline-uat.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright/technician-weekly-time';
@@ -174,7 +175,7 @@ const makeEntry = ({
     managerReviewStatus: 'pending',
     managerReviewReason: null,
     managerReviewedAt: null,
-    technicianCutoffAt: `${workDate.slice(0, 7)}-05T07:00:00.000Z`,
+    technicianCutoffAt: `${getMonthPeriod(workDate).lockDate}T07:00:00.000Z`,
     technicianEditable: editable,
     lockedAt: editable ? null : '2026-09-05T07:00:00.000Z',
     createdAt: '2026-09-03T16:00:00.000Z',
@@ -665,6 +666,7 @@ const run = async () => {
     );
     await page.keyboard.press('Escape');
     await deleteDialog.waitFor({ state: 'detached' });
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Delete '));
     check.assert(
       'Canceling delete returns focus to the entry action',
       await deleteButton.evaluate((element) => element === document.activeElement)
@@ -678,6 +680,7 @@ const run = async () => {
       'Delete failure leaves the entry visible',
       await page.getByText('12:00 PM to 1:02 PM', { exact: true }).isVisible()
     );
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Delete '));
     check.assert(
       'Delete failure returns focus to the same entry',
       await deleteButton.evaluate((element) => element === document.activeElement)
@@ -731,6 +734,8 @@ const run = async () => {
     await page.getByRole('button', { name: 'Try again' }).click();
     await page.getByText('Week of', { exact: true }).waitFor();
     check.assert('Load error can recover in place', true);
+
+    await verifyTimeDeadlines({ page, state, args, check, profileId: PROFILE_ID });
 
     const unexpectedBrowserErrors = browserErrors.filter(
       (message) => !message.includes('Failed to load resource: the server responded with a status of 500')
