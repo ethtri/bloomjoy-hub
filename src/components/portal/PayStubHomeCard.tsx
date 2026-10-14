@@ -27,7 +27,7 @@ export function PayStubHomeCard({ profileId }: { profileId?: string }) {
           {statementDate && <div><dt className="text-muted-foreground">{t('payStub.statementDate')}</dt><dd className="mt-1">{date(statementDate)}</dd></div>}
           {amount !== null && <div><dt className="text-muted-foreground">{t('payStub.total')} (USD)</dt><dd className="mt-1 text-xl font-semibold tabular-nums" data-published-pay-amount>{money(amount)}</dd></div>}
         </dl>}
-        <Button asChild className="mt-5 min-h-11 w-full"><Link to={payStubHref(profile.id, newest.id)}>{t('payStub.view')}</Link></Button>
+        <Button asChild variant="outline" className="mt-5 min-h-11 w-full"><Link to={payStubHref(profile.id, newest.id)}>{t('payStub.view')}</Link></Button>
       </> : <p className="text-sm leading-6 text-muted-foreground">{t(profile ? 'workday.noPay' : 'workday.payDescription')}</p>}
     </div>
     <div className="mt-5 border-t border-border pt-2"><Link className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" to={payStubHref(profile?.id ?? profileId)} data-dashboard-secondary-action>{t('payStub.history')}<ChevronRight className="h-4 w-4" aria-hidden="true" /></Link></div>
