@@ -117,8 +117,19 @@ boundary issue remains owned by #1912 and must be resolved before activation.
 The assignment-only regression gives its synthetic snapshot an earlier timestamp
 to isolate the new assignment guard; it does not claim to fix that existing issue.
 
-Release requires separate authorization. Deploy a compatible PDF worker before
-any database begins emitting the new earnings payload, then the reviewed migrations
-and UI; verify before enabling a real agreement. Do not regenerate real statements
+Release requires separate authorization. The exact database order is #1912's
+`20261013174640_pay_stub_snapshot_freshness_boundary.sql`, then this draft's
+`20261014154314_monthly_visit_compensation_evaluator.sql`, then
+`20261014155851_monthly_visit_compensation_workflow.sql`. The workflow renames and
+wraps the freshness helper; applying #1912 afterward fails its guarded patch anchors.
+The combined order must pass a disposable replay before production readiness can
+be claimed. The manual Supabase Migrations workflow has an optional combined-replay
+input pinned to #1912 commit `6a4fb7971318dacf26bf212f8519f9741d8732f9`; it stages
+only that migration and its regression test in the disposable CI checkout. Normal
+PR validation does not include that dependency and neither mode deploys anything.
+
+Deploy a compatible PDF worker before the monthly workflow migration can emit the
+new earnings payload, then release the UI; verify before enabling a real agreement.
+Do not regenerate real statements
 until the contract for the affected month is confirmed. The unresolved rules above
 must be agreed before affected months or broader visit grouping are supported.

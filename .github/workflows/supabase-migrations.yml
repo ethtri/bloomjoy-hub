@@ -11,6 +11,11 @@ on:
       - 'scripts/refunds/fixtures/refund-*.sql'
       - '.github/workflows/supabase-migrations.yml'
   workflow_dispatch:
+    inputs:
+      include_reviewed_freshness_dependency:
+        description: 'Disposable combined replay with reviewed PR1912 (no deployment)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,5 +39,26 @@ jobs:
         uses: supabase/setup-cli@v2
         with:
           version: 2.67.1
+      - name: Stage reviewed freshness dependency for combined replay
+        if: github.event_name == 'workflow_dispatch' && inputs.include_reviewed_freshness_dependency
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dependency=6a4fb7971318dacf26bf212f8519f9741d8732f9
+          for file in \
+            supabase/migrations/20261013174640_pay_stub_snapshot_freshness_boundary.sql \
+            supabase/tests/pay_stub_snapshot_freshness_boundary.sql; do
+            staged="$RUNNER_TEMP/$(basename "$file")"
+            gh api -H 'Accept: application/vnd.github.raw+json' \
+              "repos/$GITHUB_REPOSITORY/contents/$file?ref=$dependency" > "$staged"
+            if [ -e "$file" ]; then
+              cmp "$staged" "$file"
+            else
+              cp "$staged" "$file"
+            fi
+          done
+          printf 'Combined disposable replay: monthly source `%s`, freshness dependency `%s`. No deployment.\n' "$GITHUB_SHA" "$dependency" >> "$GITHUB_STEP_SUMMARY"
       - name: Validate Supabase Migration Apply
         run: npm run db:validate-migrations
