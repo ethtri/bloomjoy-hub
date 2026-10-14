@@ -1,3 +1,4 @@
+import { validMonthlyVisitStatement } from '../../supabase/functions/_shared/monthly-visit-statement.ts';
 /** Saved statement data only. Never derive published earnings from a live pay report. */
 import type { MonthlyVisitLine } from './monthlyVisitCompensation';
 export type PublishedPayTotals = {
@@ -76,7 +77,7 @@ const nullableNumber = (value: unknown) => value === null || (typeof value === '
 
 /** Unsupported/incomplete legacy payloads remain downloadable; missing values are never zero-filled. */
 export function parsePublishedPayStub(value: unknown): PublishedPayStub | null {
-  if (!record(value) || value.schemaVersion !== 'operator-pay-stub-v2'
+  if (!validMonthlyVisitStatement(value) || !record(value) || value.schemaVersion !== 'operator-pay-stub-v2'
     || typeof value.id !== 'string' || value.status !== 'issued' || !integer(value.version)
     || typeof value.statementNumber !== 'string' || typeof value.statementLabel !== 'string'
     || typeof value.issuedAt !== 'string' || !isPayDate(value.statementDate)
@@ -119,6 +120,7 @@ export function parsePublishedPayStub(value: unknown): PublishedPayStub | null {
 
 export function publishedPayAmount(value: unknown): number | null {
   if (!record(value) || value.status !== 'issued') return null;
+  if (value.schemaVersion === 'operator-pay-stub-v2' && !validMonthlyVisitStatement(value)) return null;
   if (value.earningsSchemaVersion !== undefined && !parsePublishedPayStub(value)) return null;
   if (value.schemaVersion === 'operator-pay-stub-v2' && record(value.current) && integer(value.current.totalEarningsCents)) return value.current.totalEarningsCents;
   if (value.schemaVersion === 'operator-pay-statement-v1' && record(value.totals) && integer(value.totals.totalPayoutCents)) return value.totals.totalPayoutCents;

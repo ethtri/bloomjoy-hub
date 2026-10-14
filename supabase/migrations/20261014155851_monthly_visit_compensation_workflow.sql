@@ -142,7 +142,7 @@ begin
   if p_active and exists(select 1 from private.operator_monthly_visit_agreements a
     where a.operator_profile_id=profile.id and a.active and a.id is distinct from p_agreement_id
       and a.effective_start_date<=coalesce(p_effective_end_date,'infinity'::date)
-      and coalesce(a.effective_end_date,'infinity'::date)>=p_effective_start_date)) then
+      and coalesce(a.effective_end_date,'infinity'::date)>=p_effective_start_date) then
     raise exception 'Monthly agreements cannot overlap for one Technician';
   end if;
   source_revision:=nextval('private.time_entry_change_source_revision_seq');

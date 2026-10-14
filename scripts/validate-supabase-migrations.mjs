@@ -15,6 +15,7 @@ import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest }
 import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-parity.mjs';
 import { writeRealRefundPreparationSeed } from './refunds/refund-real-preparation-seed.mjs';
 import { stageInactiveGiftMigrations, verifyInactiveBaselineCatalog, writeInactiveGiftCompatibilityTest } from './refunds/refund-inactive-compatibility-upgrade.mjs';
+import { verifyMonthlyVisitConcurrency } from './monthly-visit-compensation-concurrency.mjs';
 import { verifyCompanyAssignmentConcurrency } from './company-assignment-concurrency.mjs';
 import { verifyCompanyPayrollCorrection } from './company-payroll-correction.mjs';
 
@@ -743,6 +744,8 @@ async function main() {
         testSummary,
       });
       log('Supabase database persona tests passed.');
+      await verifyMonthlyVisitConcurrency({ dbPort });
+      log('Monthly agreement preparation, assignment and payer-correction concurrency passed.');
       await verifyCompanyAssignmentConcurrency({ dbPort });
       log('Company duplicate-create, rename/create, archive/assignment and stale-save concurrent transactions passed without access provisioning.');
       await verifyCompanyPayrollCorrection({ dbPort });

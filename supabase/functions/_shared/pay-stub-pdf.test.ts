@@ -1,6 +1,30 @@
 import { assertEquals, assertGreater, assertRejects } from "jsr:@std/assert@1";
 import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 import { buildPayStubPdf, payStubEarningRows, type PayStubPayload } from "./pay-stub-pdf.ts";
+import { monthlyStatementFixture } from '../../../src/lib/monthlyVisitCompensation.fixture.ts';
+
+Deno.test('monthly PDF separates base, extra and commission without changing saved evidence', async () => {
+  const payload = monthlyStatementFixture();
+  const before = structuredClone(payload);
+  const rows = payStubEarningRows(payload);
+  assertEquals(rows.find(row => row[0] === 'Monthly base'), ['Monthly base', '$180.00', '$180.00']);
+  assertEquals(rows.find(row => row[0] === 'Extra time'), ['Extra time', '$24.00', '$24.00']);
+  assertEquals(rows.find(row => row[0] === 'Commission'), ['Commission', '$5.00', '$5.00']);
+  const pdf = await PDFDocument.load(await buildPayStubPdf(payload));
+  assertEquals(pdf.getPageCount(), 2);
+  assertEquals(payload, before);
+});
+
+Deno.test('monthly PDF rejects unsupported versions and invalid visit evidence', async () => {
+  for (const payload of [
+    { ...monthlyStatementFixture(), earningsSchemaVersion: 'future' },
+    { ...monthlyStatementFixture(), earningsSchemaVersion: undefined },
+    { ...monthlyStatementFixture(), monthlyVisitLines: [] },
+  ]) await assertRejects(() => buildPayStubPdf(payload as PayStubPayload));
+  const malformed = monthlyStatementFixture();
+  malformed.monthlyVisitLines[0].agreement.extra_hour_rate_cents = -1;
+  await assertRejects(() => buildPayStubPdf(malformed));
+});
 
 export const samplePayStubPayload: PayStubPayload = {
   schemaVersion: "operator-pay-stub-v2",

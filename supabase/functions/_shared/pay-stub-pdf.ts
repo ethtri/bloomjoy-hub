@@ -1,3 +1,4 @@
+import { validMonthlyVisitStatement } from './monthly-visit-statement.ts';
 import {
   PDFDocument,
   PDFPage,
@@ -8,12 +9,7 @@ import {
 
 export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v4";
 
-type MonthlyVisitLine = {
-  machineLabel: string;
-  agreement: { included_visits: number; included_minutes_per_visit: number; extra_hour_rate_cents: number };
-  evaluation: { visitUnits: number; baseEarningsCents: number | null; extraEarningsCents: number | null; blockers: unknown[] };
-  entries: Array<{ workDate: string; actualMinutes: number }>;
-};
+import type { MonthlyVisitLine } from '../../../src/lib/monthlyVisitCompensation.ts';
 
 export type PayStubMachineSegment = {
   segmentStartDate: string | null;
@@ -137,6 +133,7 @@ const date = (value: string | null) => {
 const period = (start: string | null, end: string | null) => `${date(start)} - ${date(end)}`;
 
 export function payStubEarningRows(payload: PayStubPayload): string[][] {
+  if (!validMonthlyVisitStatement(payload)) throw new Error('Monthly compensation statement is incomplete, unsupported or inconsistent');
   const rows = [
     ['Paid shifts', String(payload.current.paidShifts), String(payload.yearToDate.paidShifts)],
     ['Shift pay', money(payload.current.shiftEarningsCents), money(payload.yearToDate.shiftEarningsCents)],
@@ -325,7 +322,9 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload, h
     ensureSpace(92);
     text(page, fonts.bold, 'Monthly base and visits', MARGIN, cursor, 10);
     cursor -= 20;
-    text(page, fonts.bold, line.machineLabel.slice(0, 75), MARGIN, cursor, 8);
+    let label = line.machineLabel;
+    while (fonts.bold.widthOfTextAtSize(label, 8) > WIDTH - MARGIN * 2 && label.length > 1) label = label.slice(0, -2) + '…';
+    text(page, fonts.bold, label, MARGIN, cursor, 8);
     cursor -= 18;
     text(page, fonts.regular, `${line.evaluation.visitUnits} of ${line.agreement.included_visits} included visits; ${line.agreement.included_minutes_per_visit} minutes per visit`, MARGIN, cursor, 8);
     cursor -= 18;
@@ -341,6 +340,7 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload, h
   }
 
   if (shiftLines.length > 0) {
+    ensureSpace(58);
     text(page, fonts.bold, "Started-hour pay by machine", MARGIN, cursor, 10);
     cursor -= 24;
     shiftLines.forEach((line) => {
