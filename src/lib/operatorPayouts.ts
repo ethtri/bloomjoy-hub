@@ -1,5 +1,24 @@
 import { supabaseClient } from '@/lib/supabaseClient';
 import type { PublishedPayStub } from '@/lib/publishedPayStub';
+import type { MonthlyVisitAgreement } from './monthlyVisitCompensation';
+
+export async function fetchMonthlyVisitAgreements(operatorProfileId: string): Promise<MonthlyVisitAgreement[]> {
+  const { data, error } = await supabaseClient.rpc('get_operator_monthly_visit_agreements', { p_operator_profile_id: operatorProfileId });
+  if (error) throw new Error(error.message);
+  return data as MonthlyVisitAgreement[];
+}
+
+export async function saveMonthlyVisitAgreement(agreement: Omit<MonthlyVisitAgreement, 'id' | 'revision'> & { id: string | null; revision: number | null }) {
+  const { data, error } = await supabaseClient.rpc('admin_save_monthly_visit_agreement', {
+    p_agreement_id: agreement.id, p_operator_profile_id: agreement.operator_profile_id,
+    p_machine_id: agreement.reporting_machine_id, p_effective_start_date: agreement.effective_start_date,
+    p_effective_end_date: agreement.effective_end_date, p_monthly_base_cents: agreement.monthly_base_cents,
+    p_included_visits: agreement.included_visits, p_included_minutes_per_visit: agreement.included_minutes_per_visit,
+    p_extra_hour_rate_cents: agreement.extra_hour_rate_cents, p_active: agreement.active, p_expected_revision: agreement.revision,
+  });
+  if (error) throw new Error(error.message);
+  return data as MonthlyVisitAgreement;
+}
 
 export type OperatorWorkerType =
   | 'contractor_1099'
@@ -386,6 +405,7 @@ export type TechnicianPayReportRate = {
 };
 
 export type TechnicianPayReportEntry = {
+  compensationModel?: 'monthly_base' | 'started_hour';
   id: string;
   workDate: string;
   actualStartAt: string;
@@ -497,6 +517,10 @@ export type TechnicianPayReportOtherEarning = {
 };
 
 export type TechnicianPayReportTechnician = {
+  monthlyBaseEarningsCents?: number | null;
+  extraTimeEarningsCents?: number | null;
+  visitUnits?: number;
+  monthlyVisitLines?: import('./monthlyVisitCompensation').MonthlyVisitLine[];
   operatorProfileId: string;
   accountId: string;
   displayName: string;
@@ -517,7 +541,7 @@ export type TechnicianPayReportTechnician = {
   bonusCents: number;
   supplyCreditCents: number;
   expenseReimbursementCents: number;
-  currentTotalCents: number;
+  currentTotalCents: number | null;
   publishable: boolean;
   payStubRegenerationRequired?: boolean;
   payStubPublication?: {

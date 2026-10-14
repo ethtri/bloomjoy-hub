@@ -1,10 +1,44 @@
 /// <reference lib="deno.ns" />
 
 import { newestPublishedStatements, parsePublishedPayStub, payStubHref, publishedPayAmount, publishedStatementDate } from './publishedPayStub.ts';
+import { invalidMonthlyExtraFixtures, monthlyStatementFixture } from './monthlyVisitCompensation.fixture.ts';
 
 const equal = (actual: unknown, expected: unknown) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Published Pay Stub assertion failed.');
 };
+
+Deno.test('saved extra pay must match whole extra hours per visit and the saved rate', () => {
+  for (const payload of invalidMonthlyExtraFixtures()) {
+    equal(parsePublishedPayStub(payload), null);
+    equal(publishedPayAmount(payload), null);
+  }
+});
+
+Deno.test('monthly statement preserves saved base, extra, exact time and later-month YTD', () => {
+  const saved = monthlyStatementFixture();
+  equal(parsePublishedPayStub(saved), saved);
+  equal(publishedPayAmount(saved), 20900);
+  saved.current = { ...saved.current, actualMinutes: 20, paidShifts: 1, shiftEarningsCents: 2000,
+    monthlyBaseEarningsCents: 0, extraTimeEarningsCents: 0, visitUnits: 0, totalEarningsCents: 2500 };
+  saved.monthlyVisitLines = [];
+  equal(parsePublishedPayStub(saved)?.yearToDate.monthlyBaseEarningsCents, 18000);
+});
+
+Deno.test('incomplete, blocked, duplicated or inconsistent monthly details never show a payable amount', () => {
+  const invalid = [
+    (p: ReturnType<typeof monthlyStatementFixture>) => { p.monthlyVisitLines[0].agreement.included_visits = -3; },
+    (p: ReturnType<typeof monthlyStatementFixture>) => { p.monthlyVisitLines[0].entries = []; },
+    (p: ReturnType<typeof monthlyStatementFixture>) => { p.monthlyVisitLines[0].entries[1].id = p.monthlyVisitLines[0].entries[0].id; },
+    (p: ReturnType<typeof monthlyStatementFixture>) => { p.current.totalEarningsCents++; },
+    (p: ReturnType<typeof monthlyStatementFixture>) => { p.monthlyVisitLines[0].entries[0].actualMinutes = 1; },
+  ];
+  for (const change of invalid) { const p = monthlyStatementFixture(); change(p); equal(parsePublishedPayStub(p), null); equal(publishedPayAmount(p), null); }
+  equal(parsePublishedPayStub({ ...monthlyStatementFixture(), earningsSchemaVersion: 'future' }), null);
+  equal(parsePublishedPayStub({ ...monthlyStatementFixture(), earningsSchemaVersion: undefined }), null);
+  equal(publishedPayAmount({ ...monthlyStatementFixture(), earningsSchemaVersion: undefined }), null);
+  equal(publishedPayAmount({ ...fixture(), yearToDate: null }), 14764);
+  equal(publishedPayAmount({ ...fixture(), yearToDate: undefined }), 14764);
+});
 const fixture = () => {
   const totals = { paidShifts: 5, shiftEarningsCents: 12500, commissionableSalesCents: 25455, commissionEarningsCents: 764, bonusCents: 1000, supplyCreditCents: 500, expenseReimbursementCents: 0, totalEarningsCents: 14764 };
   return {

@@ -708,7 +708,7 @@ const run = async () => {
     await page.getByRole('button', { name: 'More filters' }).click();
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
-    await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
+    await page.getByText('Machine filtering includes the monthly base once for its agreement machine', { exact: false }).waitFor();
     const filteredMachineText = await page.locator('article').filter({ hasText: 'Contractor 1042' }).innerText();
     check('Machine filter scopes current financial totals without hiding month-wide publishing status', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('Month in progress') && filteredMachineText.includes('Current total\n$36.40') && !filteredMachineText.includes('September bonus'));
     await page.locator('#pay-report-machine').click();

@@ -1,5 +1,10 @@
+import { validMonthlyVisitStatement } from '../../supabase/functions/_shared/monthly-visit-statement.ts';
 /** Saved statement data only. Never derive published earnings from a live pay report. */
+import type { MonthlyVisitLine } from './monthlyVisitCompensation';
 export type PublishedPayTotals = {
+  monthlyBaseEarningsCents?: number;
+  extraTimeEarningsCents?: number;
+  visitUnits?: number;
   paidShifts: number;
   shiftEarningsCents: number;
   commissionableSalesCents: number;
@@ -38,6 +43,8 @@ export type PublishedPayShiftLine = {
 
 /** Matches the fields rendered by the existing pay-stub PDF contract. */
 export type PublishedPayStub = {
+  earningsSchemaVersion?: 'monthly-visits-v1';
+  monthlyVisitLines?: MonthlyVisitLine[];
   schemaVersion: 'operator-pay-stub-v2';
   id: string;
   statementNumber: string;
@@ -59,6 +66,9 @@ export type PublishedPayStub = {
 
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
+const duration = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const monthlyTotals = (value: Record<string, unknown>) => ['monthlyBaseEarningsCents', 'extraTimeEarningsCents', 'visitUnits'].every(key => integer(value[key]) && value[key] >= 0)
+  && ['shiftEarningsCents', 'monthlyBaseEarningsCents', 'extraTimeEarningsCents', 'commissionEarningsCents', 'bonusCents', 'supplyCreditCents', 'expenseReimbursementCents'].reduce((sum, key) => sum + (value[key] as number), 0) === value.totalEarningsCents;
 const optionalText = (value: unknown) => value == null || typeof value === 'string';
 export const isPayDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
 const totals = (value: unknown): value is PublishedPayTotals & Record<string, unknown> => record(value) && ['paidShifts', 'shiftEarningsCents', 'commissionableSalesCents', 'commissionEarningsCents', 'bonusCents', 'supplyCreditCents', 'expenseReimbursementCents', 'totalEarningsCents'].every(key => integer(value[key]));
@@ -67,7 +77,7 @@ const nullableNumber = (value: unknown) => value === null || (typeof value === '
 
 /** Unsupported/incomplete legacy payloads remain downloadable; missing values are never zero-filled. */
 export function parsePublishedPayStub(value: unknown): PublishedPayStub | null {
-  if (!record(value) || value.schemaVersion !== 'operator-pay-stub-v2'
+  if (!validMonthlyVisitStatement(value) || !record(value) || value.schemaVersion !== 'operator-pay-stub-v2'
     || typeof value.id !== 'string' || value.status !== 'issued' || !integer(value.version)
     || typeof value.statementNumber !== 'string' || typeof value.statementLabel !== 'string'
     || typeof value.issuedAt !== 'string' || !isPayDate(value.statementDate)
@@ -75,7 +85,7 @@ export function parsePublishedPayStub(value: unknown): PublishedPayStub | null {
     || !record(value.contractor) || typeof value.contractor.displayName !== 'string'
     || !optionalText(value.contractor.workerIdentifier) || !optionalText(value.contractor.positionTitle)
     || !record(value.period) || !isPayDate(value.period.periodStartDate) || !isPayDate(value.period.periodEndDate)
-    || !totals(value.current) || !integer(value.current.actualMinutes) || !totals(value.yearToDate)
+    || !totals(value.current) || !duration(value.current.actualMinutes) || !totals(value.yearToDate)
     || typeof value.classificationNotice !== 'string' || !Array.isArray(value.machines)) return null;
   if (!value.machines.every(machine => record(machine) && typeof machine.machineId === 'string'
     && typeof machine.machineLabel === 'string' && machineAmounts(machine) && Array.isArray(machine.commissionSegments)
@@ -85,14 +95,33 @@ export function parsePublishedPayStub(value: unknown): PublishedPayStub | null {
       && nullableNumber(segment.taxRatePercent) && nullableNumber(segment.commissionBasisPoints)))) return null;
   if (value.shiftRateLines !== undefined && (!Array.isArray(value.shiftRateLines) || !value.shiftRateLines.every(line => record(line)
     && optionalText(line.machineLabel) && (line.shiftRateCents === null || integer(line.shiftRateCents))
-    && integer(line.paidShifts) && integer(line.actualDurationMinutes) && integer(line.shiftEarningsCents)))) return null;
+    && integer(line.paidShifts) && duration(line.actualDurationMinutes) && integer(line.shiftEarningsCents)))) return null;
   if (value.otherEarnings !== undefined && (!Array.isArray(value.otherEarnings) || !value.otherEarnings.every(line => record(line)
     && typeof line.description === 'string' && integer(line.amountCents)))) return null;
+  if (value.earningsSchemaVersion !== undefined) {
+    if (value.earningsSchemaVersion !== 'monthly-visits-v1' || !monthlyTotals(value.current) || !monthlyTotals(value.yearToDate)
+      || !Array.isArray(value.monthlyVisitLines) || !value.monthlyVisitLines.every(line => record(line)
+        && typeof line.machineId === 'string' && typeof line.machineLabel === 'string' && record(line.agreement)
+        && typeof line.agreement.id === 'string' && integer(line.agreement.included_visits)
+        && integer(line.agreement.included_minutes_per_visit) && integer(line.agreement.extra_hour_rate_cents)
+        && record(line.evaluation) && line.evaluation.calculationStatus === 'ready'
+        && Array.isArray(line.evaluation.blockers) && line.evaluation.blockers.length === 0
+        && integer(line.evaluation.baseEarningsCents) && integer(line.evaluation.extraEarningsCents)
+        && integer(line.evaluation.visitUnits) && duration(line.evaluation.extraActualMinutes)
+        && Array.isArray(line.entries) && line.entries.every(entry => record(entry) && typeof entry.id === 'string'
+          && isPayDate(entry.workDate) && duration(entry.actualMinutes)))) return null;
+    const lines = value.monthlyVisitLines as MonthlyVisitLine[];
+    if (lines.reduce((sum, line) => sum + line.evaluation.baseEarningsCents!, 0) !== value.current.monthlyBaseEarningsCents
+      || lines.reduce((sum, line) => sum + line.evaluation.extraEarningsCents!, 0) !== value.current.extraTimeEarningsCents
+      || lines.reduce((sum, line) => sum + line.evaluation.visitUnits, 0) !== value.current.visitUnits) return null;
+  }
   return value as PublishedPayStub;
 }
 
 export function publishedPayAmount(value: unknown): number | null {
   if (!record(value) || value.status !== 'issued') return null;
+  if (value.schemaVersion === 'operator-pay-stub-v2' && !validMonthlyVisitStatement(value)) return null;
+  if (value.earningsSchemaVersion !== undefined && !parsePublishedPayStub(value)) return null;
   if (value.schemaVersion === 'operator-pay-stub-v2' && record(value.current) && integer(value.current.totalEarningsCents)) return value.current.totalEarningsCents;
   if (value.schemaVersion === 'operator-pay-statement-v1' && record(value.totals) && integer(value.totals.totalPayoutCents)) return value.totals.totalPayoutCents;
   return null;

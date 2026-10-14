@@ -1472,3 +1472,20 @@ unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile eviden
 - Follow `Docs/NAYAX_ACCOUNT_ONBOARDING.md` when the private token and expected actor arrive. Preserve the existing inventory/worker account and verify exact provider mappings in the existing Machines workspace.
 
 - Technician deadlines (#1921): Home links to the nearest open month (previous month on Pacific days 1–4); Time shows both deadlines for cross-month weeks. Leave a completed-work form open across Pacific midnight on day five: editing closes, context refreshes, and entered values remain. Check server-locked entries, failed refresh/retry, no-entry state, English/Chinese, keyboard and 320/390 px plus desktop.
+
+
+## Draft monthly base compensation (#1929 / #1930)
+
+- In a synthetic local manager session, open `/admin/payouts` → Adjust pay →
+  Monthly base plus extra time. Save terms, reopen, and verify exact dates/amounts.
+- Verify a second stale form is rejected; deactivation after assignment revocation
+  works without allowing a new/retargeted unassigned machine.
+- Complete full-month visits show base once, extra time separately, actual seconds,
+  unchanged commission and no duplicate started-hour earnings. Other machine filters
+  exclude this base; missing/extra/partial/fractional-extra cases cannot publish.
+- Check saved portal details and PDF against the same saved current/YTD amounts.
+  Verify the next ordinary-pay month retains earlier base/extra and exact time.
+- A source edit during PDF generation must reject completion; earlier issued PDF
+  and statement payload stay unchanged. Test desktop and 390px mobile rendering.
+- Use `scripts/validate-monthly-visit-compensation-uat.mjs` and the disposable SQL
+  suite. Do not create or regenerate real compensation records for this draft.

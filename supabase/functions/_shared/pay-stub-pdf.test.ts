@@ -1,6 +1,60 @@
-import { assertEquals, assertGreater } from "jsr:@std/assert@1";
-import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
-import { buildPayStubPdf, type PayStubPayload } from "./pay-stub-pdf.ts";
+import { assertEquals, assertGreater, assertRejects } from "jsr:@std/assert@1";
+import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from "https://esm.sh/pdf-lib@1.17.1";
+import { buildPayStubPdf, payStubEarningRows, type PayStubPayload } from "./pay-stub-pdf.ts";
+import { invalidMonthlyExtraFixtures, monthlyStatementFixture } from '../../../src/lib/monthlyVisitCompensation.fixture.ts';
+
+Deno.test('monthly PDF rejects fractional per-visit extras and inconsistent saved rates or amounts', async () => {
+  for (const payload of invalidMonthlyExtraFixtures()) {
+    await assertRejects(() => buildPayStubPdf(payload));
+  }
+});
+
+Deno.test('monthly PDF separates base, extra and commission without changing saved evidence', async () => {
+  const payload = monthlyStatementFixture();
+  const before = structuredClone(payload);
+  const rows = payStubEarningRows(payload);
+  assertEquals(rows.find(row => row[0] === 'Monthly base'), ['Monthly base', '$180.00', '$180.00']);
+  assertEquals(rows.find(row => row[0] === 'Extra time'), ['Extra time', '$24.00', '$24.00']);
+  assertEquals(rows.find(row => row[0] === 'Commission'), ['Commission', '$5.00', '$5.00']);
+  const pdf = await PDFDocument.load(await buildPayStubPdf(payload));
+  assertEquals(pdf.getPageCount(), 2);
+  assertEquals(payload, before);
+});
+
+Deno.test('monthly PDF rejects unsupported versions and invalid visit evidence', async () => {
+  for (const payload of [
+    { ...monthlyStatementFixture(), earningsSchemaVersion: 'future' },
+    { ...monthlyStatementFixture(), earningsSchemaVersion: undefined },
+    { ...monthlyStatementFixture(), monthlyVisitLines: [] },
+  ]) await assertRejects(() => buildPayStubPdf(payload as PayStubPayload));
+  const malformed = monthlyStatementFixture();
+  malformed.monthlyVisitLines[0].agreement.extra_hour_rate_cents = -1;
+  await assertRejects(() => buildPayStubPdf(malformed));
+});
+
+Deno.test('monthly visits keep the next pay heading with its first row across a page break', async () => {
+  const payload: PayStubPayload = monthlyStatementFixture();
+  const line = payload.monthlyVisitLines![0];
+  line.machineLabel = 'W'.repeat(100);
+  line.agreement.included_visits = 22;
+  line.entries = Array.from({ length: 22 }, (_, index) => {
+    const workDate = `2025-01-${String(index + 1).padStart(2, '0')}`;
+    return { id: `long-${index}`, workDate, actualStartAt: `${workDate}T08:00:00Z`, actualEndAt: `${workDate}T08:20:00Z`, actualMinutes: 20 };
+  });
+  Object.assign(line.evaluation, { actualMinutes: 440, visitUnits: 22, extraActualMinutes: 0, extraEarningsCents: 0, timeEarningsCents: 18000 });
+  Object.assign(payload.current, { actualMinutes: 460, paidShifts: 1, shiftEarningsCents: 2000, visitUnits: 22, extraTimeEarningsCents: 0, totalEarningsCents: 20500 });
+  payload.yearToDate = { ...payload.current };
+  payload.shiftRateLines = [{ machineLabel: 'Another machine', shiftRateCents: 2000, paidShifts: 1, actualDurationMinutes: 20, shiftEarningsCents: 2000 }];
+  const pdf = await PDFDocument.load(await buildPayStubPdf(payload));
+  assertGreater(pdf.getPageCount(), 2);
+  const heading = Array.from(new TextEncoder().encode('Started-hour pay by machine'), b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const content = pdf.getPages().map(page => {
+    const streams = pdf.context.lookup(page.node.Contents(), PDFArray);
+    return Array.from({ length: streams.size() }, (_, i) => new TextDecoder().decode(decodePDFRawStream(streams.lookup(i, PDFRawStream)).decode())).join('');
+  });
+  assertEquals(content[1].includes(heading), false);
+  assertEquals(content[2].includes(heading), true);
+});
 
 export const samplePayStubPayload: PayStubPayload = {
   schemaVersion: "operator-pay-stub-v2",
@@ -70,7 +124,7 @@ Deno.test("Pay Stub PDF includes a summary and machine pay details", async () =>
   assertGreater(bytes.length, 1_000);
   const pdf = await PDFDocument.load(bytes);
   assertEquals(pdf.getPageCount(), 2);
-  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v3");
+  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v4");
 });
 
 Deno.test("simple Pay Stub stays on one page when no appendix is needed", async () => {

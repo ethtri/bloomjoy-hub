@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddTechnicianMachineDialog } from '@/components/payouts/AddTechnicianMachineDialog';
+import { MonthlyVisitAgreementDialog } from '@/components/payouts/MonthlyVisitAgreementDialog';
+import { monthlyVisitTotals } from '@/lib/monthlyVisitCompensation';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -169,11 +171,10 @@ const formatAbsoluteCurrency = (cents: number | null | undefined) =>
   cents == null ? 'Unavailable' : formatCurrency(Math.abs(cents));
 
 const formatDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  if (!hours) return `${remainder} min`;
-  if (!remainder) return `${hours} hr${hours === 1 ? '' : 's'}`;
-  return `${hours} hr ${remainder} min`;
+  const seconds = Math.round(minutes * 60);
+  const hours = Math.floor(seconds / 3600);
+  const remainder = Math.floor(seconds % 3600 / 60);
+  return `${hours ? `${hours} hr ` : ''}${remainder} min${seconds % 60 ? ` ${seconds % 60} sec` : ''}`;
 };
 
 const formatDate = (value: string | null | undefined) =>
@@ -278,6 +279,7 @@ const hasMissingShiftRate = (technician: TechnicianPayReportTechnician) =>
 const buildShiftRateLines = (
   entries: TechnicianPayReportEntry[]
 ): TechnicianPayReportShiftRateLine[] => {
+  entries = entries.filter(entry => entry.compensationModel !== 'monthly_base');
   const distinctRates = new Set(entries.map((entry) => entry.shiftRateCents ?? 'missing'));
   const showMachine = distinctRates.size > 1;
   const groups = new Map<string, TechnicianPayReportShiftRateLine>();
@@ -320,12 +322,16 @@ const scopeTechnicianToMachine = (
   const blockers = technician.blockers;
   const warnings = technician.warnings.filter((issue) => !issue.machineId || issue.machineId === machineId);
   const shiftEarningsCents = entries.reduce((sum, entry) => sum + entry.shiftEarningsCents, 0);
+  const monthlyVisitLines = (technician.monthlyVisitLines ?? []).filter(line => line.machineId === machineId);
+  const monthly = monthlyVisitTotals(monthlyVisitLines);
   const commissionEarningsCents = machines.reduce((sum, machine) => sum + machine.commissionEarningsCents, 0);
   return {
     ...technician,
     actualDurationMinutes: entries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0),
     paidShifts: entries.reduce((sum, entry) => sum + entry.paidShifts, 0),
     shiftEarningsCents,
+    ...monthly,
+    monthlyVisitLines,
     taxCents: machines.reduce((sum, machine) => sum + (machine.taxCents ?? 0), 0),
     commissionableSalesCents: machines.reduce(
       (sum, machine) => sum + (machine.commissionableSalesCents ?? 0),
@@ -335,7 +341,8 @@ const scopeTechnicianToMachine = (
     bonusCents: 0,
     supplyCreditCents: 0,
     expenseReimbursementCents: 0,
-    currentTotalCents: shiftEarningsCents + commissionEarningsCents,
+    currentTotalCents: blockers.length || monthly.monthlyBaseEarningsCents === null || monthly.extraTimeEarningsCents === null
+      ? null : shiftEarningsCents + commissionEarningsCents + monthly.monthlyBaseEarningsCents + monthly.extraTimeEarningsCents,
     publishable: technician.publishable,
     entries,
     shiftRateLines: buildShiftRateLines(entries),
@@ -354,6 +361,7 @@ function TechnicianReport({
   onAddMachine,
   onEditContact,
   onAddShiftRate,
+  onMonthlyAgreement,
   onAddCommissionRate,
   onAddOtherEarning,
   onEditOtherEarning,
@@ -366,6 +374,7 @@ function TechnicianReport({
   onAddMachine: () => void;
   onEditContact: () => void;
   onAddShiftRate: () => void;
+  onMonthlyAgreement: () => void;
   onAddCommissionRate: () => void;
   onAddOtherEarning: () => void;
   onEditOtherEarning: (earning: TechnicianPayReportOtherEarning) => void;
@@ -468,6 +477,7 @@ function TechnicianReport({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={onAddShiftRate}>Change started-hour rate</DropdownMenuItem>
+                <DropdownMenuItem onSelect={onMonthlyAgreement}>Monthly base plus extra time</DropdownMenuItem>
                 <DropdownMenuItem onSelect={onAddCommissionRate} disabled={!technician.machines.length}>Change commission</DropdownMenuItem>
                 <DropdownMenuItem onSelect={onAddOtherEarning}>Add another earning</DropdownMenuItem>
               </DropdownMenuContent>
@@ -492,9 +502,13 @@ function TechnicianReport({
           </p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border/70 pt-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
-          <div><span className="text-muted-foreground">Paid shifts</span><strong className="mt-1 block text-foreground">{technician.paidShifts}</strong></div>
+          <div><span className="text-muted-foreground">{technician.monthlyVisitLines?.length ? 'Visits / started hours' : 'Paid shifts'}</span><strong className="mt-1 block text-foreground">{technician.monthlyVisitLines?.length ? `${technician.visitUnits ?? 0} / ${technician.paidShifts}` : technician.paidShifts}</strong></div>
           <div><span className="text-muted-foreground">Time worked</span><strong className="mt-1 block text-foreground">{formatDuration(technician.actualDurationMinutes)}</strong></div>
-          <div><span className="text-muted-foreground">Shift pay</span><strong className="mt-1 block text-foreground">{shiftPayUnavailable ? 'Unavailable' : formatCurrency(technician.shiftEarningsCents)}</strong></div>
+          <div><span className="text-muted-foreground">Started-hour pay</span><strong className="mt-1 block text-foreground">{shiftPayUnavailable ? 'Unavailable' : formatCurrency(technician.shiftEarningsCents)}</strong></div>
+          {Boolean(technician.monthlyVisitLines?.length) && <>
+            <div><span className="text-muted-foreground">Monthly base</span><strong className="mt-1 block">{technician.monthlyBaseEarningsCents == null ? 'Unavailable' : formatCurrency(technician.monthlyBaseEarningsCents)}</strong></div>
+            <div><span className="text-muted-foreground">Extra time</span><strong className="mt-1 block">{technician.extraTimeEarningsCents == null ? 'Unavailable' : formatCurrency(technician.extraTimeEarningsCents)}</strong></div>
+          </>}
           <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{commissionUnavailable ? 'Unavailable' : formatCurrency(technician.commissionEarningsCents)}</strong></div>
           <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(otherEarningsCents)}</strong></div>
           <div><span className="text-muted-foreground">Total</span><strong className="mt-1 block text-lg text-foreground">{totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}</strong></div>
@@ -580,7 +594,16 @@ function TechnicianReport({
         </section>
       )}
 
-      <section className="p-4 sm:p-5" aria-labelledby={`shift-pay-${technician.operatorProfileId}`}>
+      {(technician.monthlyVisitLines ?? []).map(line => <section key={line.agreement.id} className="border-t border-border p-4 sm:p-5" aria-label="Monthly visit pay">
+        <h3 className="font-semibold">Monthly base · {line.machineLabel}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{line.evaluation.visitUnits} of {line.agreement.included_visits} included visits · {line.agreement.included_minutes_per_visit} minutes included per visit</p>
+        <div className="mt-3 rounded-lg border border-border px-3">
+          <BreakdownRow label="Monthly base" detail="Paid once for this agreement and month" amount={line.evaluation.blockers.length || line.evaluation.baseEarningsCents == null ? 'Unavailable' : formatCurrency(line.evaluation.baseEarningsCents)} />
+          <BreakdownRow label="Extra time" detail={`${formatDuration(line.evaluation.extraActualMinutes)} beyond the per-visit allowance · ${formatCurrency(line.agreement.extra_hour_rate_cents)} per hour`} amount={line.evaluation.blockers.length || line.evaluation.extraEarningsCents == null ? 'Unavailable' : formatCurrency(line.evaluation.extraEarningsCents)} />
+          {line.entries.map(entry => <BreakdownRow key={entry.id} label={formatDate(entry.workDate)} detail={`${formatDuration(entry.actualMinutes)} actually worked`} amount="1 visit" />)}
+        </div>
+      </section>)}
+      {(shiftRateLines.length > 0 || !technician.monthlyVisitLines?.length) && <section className="p-4 sm:p-5" aria-labelledby={`shift-pay-${technician.operatorProfileId}`}>
         <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Every started hour is one paid shift. A 61-minute entry is two shifts.
@@ -595,7 +618,7 @@ function TechnicianReport({
             />
           )) : <p className="py-4 text-sm text-muted-foreground">No paid shifts in this month.</p>}
         </div>
-      </section>
+      </section>}
 
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`commission-${technician.operatorProfileId}`}>
         <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
@@ -608,6 +631,7 @@ function TechnicianReport({
           {technician.machines.length ? technician.machines.map((machine) => {
             const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
             const machineActualMinutes = machineEntries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0);
+            const machineVisits = technician.monthlyVisitLines?.filter(line => line.machineId === machine.machineId).reduce((sum, line) => sum + line.evaluation.visitUnits, 0) ?? 0;
             const machinePaidShifts = machineEntries.reduce((sum, entry) => sum + entry.paidShifts, 0);
             const hasIncompleteCommissionSegment = machine.commissionSegments.some(
               (segment) => segment.commissionBasisPoints == null
@@ -622,7 +646,7 @@ function TechnicianReport({
                 label={machine.machineLabel}
                 detail={
                   <>
-                    <span>{formatDuration(machineActualMinutes)} worked · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
+                    <span>{formatDuration(machineActualMinutes)} worked · {machineVisits > 0 ? `${machineVisits} visits · ${machinePaidShifts} started hours` : `${machinePaidShifts} paid ${machinePaidShifts === 1 ? 'shift' : 'shifts'}`} </span>
                     {machineSalesUnavailable ? (
                       <span className="mt-1 block">
                         Commissionable Sales unavailable{machine.commissionBasisPoints == null ? '' : ` × ${formatRate(machine.commissionBasisPoints)}`}
@@ -697,6 +721,10 @@ function TechnicianReport({
       </section>
 
       <footer className="grid gap-2 border-t border-border bg-muted/20 p-4 text-sm sm:grid-cols-4 sm:p-5">
+        {Boolean(technician.monthlyVisitLines?.length) && <>
+          <div><span className="text-muted-foreground">Monthly base</span><strong className="mt-1 block">{technician.monthlyBaseEarningsCents == null ? 'Unavailable' : formatCurrency(technician.monthlyBaseEarningsCents)}</strong></div>
+          <div><span className="text-muted-foreground">Extra time</span><strong className="mt-1 block">{technician.extraTimeEarningsCents == null ? 'Unavailable' : formatCurrency(technician.extraTimeEarningsCents)}</strong></div>
+        </>}
         <div><span className="text-muted-foreground">Shift earnings</span><strong className="mt-1 block text-foreground">{shiftPayUnavailable ? 'Unavailable' : formatCurrency(technician.shiftEarningsCents)}</strong></div>
         <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{commissionUnavailable ? 'Unavailable' : formatCurrency(technician.commissionEarningsCents)}</strong></div>
         <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents)}</strong></div>
@@ -708,6 +736,7 @@ function TechnicianReport({
 }
 
 export default function AdminPayoutsPage() {
+  const [monthlyTechnician, setMonthlyTechnician] = useState<TechnicianPayReportTechnician | null>(null);
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedMonth = searchParams.get('month');
@@ -756,7 +785,7 @@ export default function AdminPayoutsPage() {
     if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
   }, [month, searchParams, setSearchParams, technicianId]);
   const machines = useMemo(
-    () => [...new Map(technicians.flatMap((technician) => technician.machines.map((machine) => [machine.machineId, machine.machineLabel] as const))).entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label)),
+    () => [...new Map(technicians.flatMap((technician) => [...technician.machines, ...(technician.monthlyVisitLines ?? [])].map((machine) => [machine.machineId, machine.machineLabel] as const))).entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label)),
     [technicians]
   );
   const visibleTechnicians = useMemo(
@@ -764,7 +793,7 @@ export default function AdminPayoutsPage() {
       .filter((technician) =>
         (accountId === 'all' || technician.accountId === accountId) &&
         (technicianId === 'all' || technician.operatorProfileId === technicianId) &&
-        (machineId === 'all' || technician.machines.some((machine) => machine.machineId === machineId))
+        (machineId === 'all' || [...technician.machines, ...(technician.monthlyVisitLines ?? [])].some((machine) => machine.machineId === machineId))
       )
       .map((technician) =>
         machineId === 'all' ? technician : scopeTechnicianToMachine(technician, machineId)
@@ -777,9 +806,9 @@ export default function AdminPayoutsPage() {
     (sum, technician) => sum + technician.commissionableSalesCents,
     0
   );
-  const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
+  const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + (technician.currentTotalCents ?? 0), 0);
   const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
-  const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0);
+  const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0 || technician.currentTotalCents === null);
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
     technician.machines.some((machine) => machine.revenueSnapshotId == null) ||
     hasUnresolvedCommission(technician)
@@ -1109,7 +1138,7 @@ export default function AdminPayoutsPage() {
                 <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
               </>}
             </section>
-            {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals; publishing status remains month-wide.</p>}
+            {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering includes the monthly base once for its agreement machine, plus that machine’s time, sales, and commission. Technician-level other earnings are excluded; publishing status remains month-wide.</p>}
 
             {periodInProgress && visibleSalesThroughDate && (
               <section className="rounded-xl border border-border bg-muted/25 px-4 py-3" aria-label="Current month sales status">
@@ -1119,7 +1148,7 @@ export default function AdminPayoutsPage() {
             )}
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
-              <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
+              <Metric label="Visits / started hours" value={`${visibleTechnicians.reduce((sum, t) => sum + (t.visitUnits ?? 0), 0)} / ${totalPaidShifts}`} helper="Monthly visits / hourly pay units" icon={Clock3} />
               <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'See the details below' : allVisibleSharedSalesBasis ? `${formatCurrency(totalEstimatedTax)} sales tax separated` : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
               <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : periodInProgress ? 'Current estimate, before payment or tax' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
@@ -1144,6 +1173,7 @@ export default function AdminPayoutsPage() {
                   onAddMachine={() => { addMachineTrigger.current = document.activeElement as HTMLElement; setAddMachineTechnician(technician); }}
                   onEditContact={() => openContactInput(technician)}
                   onAddShiftRate={() => openPayInput(technician, 'shift')}
+                  onMonthlyAgreement={() => setMonthlyTechnician(technicians.find(t => t.operatorProfileId === technician.operatorProfileId) ?? technician)}
                   onAddCommissionRate={() => openPayInput(technician, 'commission')}
                   onAddOtherEarning={() => openPayInput(technician, 'bonus')}
                   onEditOtherEarning={(earning) => openPayInput(technician, earning.type, earning)}
@@ -1220,6 +1250,7 @@ export default function AdminPayoutsPage() {
           </DialogContent>
         </Dialog>
 
+        {monthlyTechnician && <MonthlyVisitAgreementDialog technician={monthlyTechnician} month={month} onClose={() => setMonthlyTechnician(null)} />}
         <Dialog open={Boolean(payInputDraft)} onOpenChange={(open) => {
           if (!open && !savePayInput.isPending) {
             setPayInputDraft(null);

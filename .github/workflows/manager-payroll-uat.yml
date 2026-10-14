@@ -6,6 +6,9 @@ on:
       - 'src/pages/portal/TimeReview.tsx'
       - 'src/pages/admin/Payouts.tsx'
       - 'src/lib/operatorPayouts.ts'
+      - 'src/components/payouts/MonthlyVisitAgreementDialog.tsx'
+      - 'src/lib/monthlyVisitCompensation*'
+      - 'scripts/validate-monthly-visit-compensation-uat.mjs'
       - 'scripts/validate-manager-time-pay-reports-uat.mjs'
       - '.github/workflows/manager-payroll-uat.yml'
   workflow_dispatch:
@@ -40,10 +43,13 @@ jobs:
             sleep 1
           done
           npm run operator-payouts:validate-manager-reports-uat
+          node scripts/validate-monthly-visit-compensation-uat.mjs
       - name: Preserve synthetic browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: manager-payroll-uat
-          path: output/playwright/manager-time-pay-reports
+          path: |
+            output/playwright/manager-time-pay-reports
+            output/playwright/monthly-visits
           if-no-files-found: ignore
