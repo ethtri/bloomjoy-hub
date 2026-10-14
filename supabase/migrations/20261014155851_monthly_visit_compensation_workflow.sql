@@ -252,7 +252,10 @@ begin
       'actualDurationMinutes',(select (x->>'actualMinutes')::numeric from jsonb_array_elements(evidence) x where x->>'id'=e->>'id')) else e end order by ord),'[]')
       from jsonb_array_elements(result->'entries') with ordinality q(e,ord)),
     'shiftRateLines',(select coalesce(jsonb_agg(l),'[]') from jsonb_array_elements(result->'shiftRateLines') l where l->>'machineId' is distinct from agreement.reporting_machine_id::text),
-    'currentTotalCents',case when jsonb_array_length(blockers)=0 then earnings_shift+(evaluation->>'timeEarningsCents')::bigint
+    -- Preserve the candidate amount for the existing status normalizer, which
+    -- can clear source-freshness/verified-zero findings after this calculation.
+    -- Only unresolved monthly terms make the monthly amount unknowable here.
+    'currentTotalCents',case when jsonb_array_length(evaluation->'blockers')+jsonb_array_length(extra_blockers)=0 then earnings_shift+(evaluation->>'timeEarningsCents')::bigint
       +(result->>'commissionEarningsCents')::bigint+(result->>'bonusCents')::bigint+(result->>'supplyCreditCents')::bigint+(result->>'expenseReimbursementCents')::bigint else null end);
   result:=result||jsonb_build_object('paidShifts',(select coalesce(sum((e->>'paidShifts')::integer),0) from jsonb_array_elements(result->'entries') e),
     'actualDurationMinutes',(select coalesce(sum((e->>'actualDurationMinutes')::numeric),0) from jsonb_array_elements(result->'entries') e));

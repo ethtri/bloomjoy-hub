@@ -49,6 +49,12 @@ The report labels monthly base, extra time, commission and other earnings
 separately. Machine filtering attributes the base only to its agreement machine;
 Technician-level other earnings remain excluded from a machine-filtered view.
 
+When monthly terms are calculable, the adapter preserves a candidate total while
+the existing status normalizer decides sales readiness. A matching closed-month
+snapshot or verified-zero attestation can clear its existing source findings
+without losing the base amount. Unresolved monthly terms still produce no total;
+unverified sales still block publication under the existing rules.
+
 ## Saved statements, YTD and freshness
 
 The existing publication workflow is retained. New payloads use
@@ -58,6 +64,10 @@ actual minutes. The portal and PDF validate the saved payload; neither recalcula
 published amounts from current settings. Genuine older statement payloads and their
 PDF-download fallback remain supported. Earlier issued statement versions are
 unchanged and only the current issued version contributes to following-month YTD.
+
+Both consumers share a guard that verifies whole extra hours per visit and their
+earnings against the saved hourly rate. Fractional extras cannot be combined across
+visits or accepted through an internally balanced but inconsistent saved total.
 
 Monthly base and extra time have dedicated run/item columns. Existing integer
 minute counters remain compatible; new exact-minute columns and saved payloads

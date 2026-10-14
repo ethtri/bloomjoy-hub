@@ -34,7 +34,7 @@ export function validMonthlyVisitStatement(value: unknown): boolean {
       || e.baseEarningsCents !== a.monthly_base_cents || e.visitUnits !== a.included_visits || e.visitUnits !== line.entries.length
       || e.timeEarningsCents !== e.baseEarningsCents + e.extraEarningsCents) return false;
     seenAgreements.add(a.id);
-    let actual = 0, extraActual = 0;
+    let actual = 0, extraActual = 0, expectedExtraEarnings = 0;
     for (const entry of line.entries) {
       if (!record(entry) || typeof entry.id !== 'string' || seenEntries.has(entry.id)
         || typeof entry.workDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.workDate)
@@ -44,9 +44,15 @@ export function validMonthlyVisitStatement(value: unknown): boolean {
       if (!Number.isFinite(elapsed) || !close(elapsed, entry.actualMinutes)) return false;
       seenEntries.add(entry.id);
       actual += entry.actualMinutes;
-      extraActual += Math.max(entry.actualMinutes - a.included_minutes_per_visit, 0);
+      const extraMinutes = Math.max(entry.actualMinutes - a.included_minutes_per_visit, 0);
+      // Fractional extra-hour policy is unset, even when several visits would
+      // add up to a whole hour. Validate only the immutable saved agreement.
+      if (!Number.isInteger(extraMinutes / 60)) return false;
+      extraActual += extraMinutes;
+      expectedExtraEarnings += extraMinutes / 60 * a.extra_hour_rate_cents;
     }
-    if (!close(actual, e.actualMinutes) || !close(extraActual, e.extraActualMinutes)) return false;
+    if (!close(actual, e.actualMinutes) || !close(extraActual, e.extraActualMinutes)
+      || !whole(expectedExtraEarnings) || expectedExtraEarnings !== e.extraEarningsCents) return false;
     base += e.baseEarningsCents; extra += e.extraEarningsCents; visits += e.visitUnits;
   }
   return base === value.current.monthlyBaseEarningsCents && extra === value.current.extraTimeEarningsCents && visits === value.current.visitUnits;

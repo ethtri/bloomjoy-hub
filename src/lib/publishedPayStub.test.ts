@@ -1,11 +1,18 @@
 /// <reference lib="deno.ns" />
 
 import { newestPublishedStatements, parsePublishedPayStub, payStubHref, publishedPayAmount, publishedStatementDate } from './publishedPayStub.ts';
-import { monthlyStatementFixture } from './monthlyVisitCompensation.fixture.ts';
+import { invalidMonthlyExtraFixtures, monthlyStatementFixture } from './monthlyVisitCompensation.fixture.ts';
 
 const equal = (actual: unknown, expected: unknown) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Published Pay Stub assertion failed.');
 };
+
+Deno.test('saved extra pay must match whole extra hours per visit and the saved rate', () => {
+  for (const payload of invalidMonthlyExtraFixtures()) {
+    equal(parsePublishedPayStub(payload), null);
+    equal(publishedPayAmount(payload), null);
+  }
+});
 
 Deno.test('monthly statement preserves saved base, extra, exact time and later-month YTD', () => {
   const saved = monthlyStatementFixture();

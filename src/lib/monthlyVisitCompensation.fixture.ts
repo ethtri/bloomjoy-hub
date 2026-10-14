@@ -27,3 +27,31 @@ export function monthlyStatementFixture() {
     classificationNotice: 'Synthetic contractor statement. No payment execution.',
   };
 }
+
+/** Internally reconciled but contract-invalid payloads for both consumers. */
+export function invalidMonthlyExtraFixtures() {
+  const wrongRate = monthlyStatementFixture();
+  wrongRate.monthlyVisitLines[0].agreement.extra_hour_rate_cents = 9900;
+  const wrongAmount = monthlyStatementFixture();
+  wrongAmount.monthlyVisitLines[0].evaluation.extraEarningsCents += 100;
+  wrongAmount.monthlyVisitLines[0].evaluation.timeEarningsCents += 100;
+  for (const total of [wrongAmount.current, wrongAmount.yearToDate]) {
+    total.extraTimeEarningsCents += 100;
+    total.totalEarningsCents += 100;
+  }
+  const withMinutes = (minutes: number[]) => {
+    const payload = monthlyStatementFixture();
+    const line = payload.monthlyVisitLines[0];
+    line.entries.forEach((entry, i) => {
+      entry.actualMinutes = minutes[i];
+      entry.actualEndAt = new Date(Date.parse(entry.actualStartAt) + minutes[i] * 60000).toISOString();
+    });
+    const actual = minutes.reduce((sum, n) => sum + n, 0);
+    line.evaluation.actualMinutes = actual;
+    line.evaluation.extraActualMinutes = minutes.reduce((sum, n) => sum + Math.max(n - 60, 0), 0);
+    payload.current.actualMinutes = actual;
+    payload.yearToDate.actualMinutes = actual;
+    return payload;
+  };
+  return [wrongRate, wrongAmount, withMinutes([90, 35.5, 45]), withMinutes([90, 90, 45])];
+}

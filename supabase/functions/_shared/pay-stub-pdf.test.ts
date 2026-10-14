@@ -1,7 +1,13 @@
 import { assertEquals, assertGreater, assertRejects } from "jsr:@std/assert@1";
 import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from "https://esm.sh/pdf-lib@1.17.1";
 import { buildPayStubPdf, payStubEarningRows, type PayStubPayload } from "./pay-stub-pdf.ts";
-import { monthlyStatementFixture } from '../../../src/lib/monthlyVisitCompensation.fixture.ts';
+import { invalidMonthlyExtraFixtures, monthlyStatementFixture } from '../../../src/lib/monthlyVisitCompensation.fixture.ts';
+
+Deno.test('monthly PDF rejects fractional per-visit extras and inconsistent saved rates or amounts', async () => {
+  for (const payload of invalidMonthlyExtraFixtures()) {
+    await assertRejects(() => buildPayStubPdf(payload));
+  }
+});
 
 Deno.test('monthly PDF separates base, extra and commission without changing saved evidence', async () => {
   const payload = monthlyStatementFixture();
