@@ -39,6 +39,9 @@ import {
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { TimeEditingDeadline } from '@/components/portal/TimeEditingDeadline';
+import { useTimekeepingClock } from '@/hooks/useTimekeepingClock';
+import { getFormTimeEditingAuthority, getTimeEditingDeadline } from '@/lib/timeEditingDeadline';
 import { useAuth } from '@/contexts/auth-context';
 import { useTimeEntryDraft } from '@/hooks/useTimeEntryDraft';
 import { clearTimeEntryDraft, getEditDraftConflict, isTimeEntryDraftUserActive, type TimeEntryDraftFields } from '@/lib/timeEntryDrafts';
@@ -69,7 +72,6 @@ import {
   getWeekMonthAnchors,
   getWeekStart,
   isCompletedTimeInFuture,
-  isTechnicianWorkDateEditable,
   timeDraftMatchesEntry,
   timeDraftOverlapsEntry,
   TIMEKEEPING_TIME_ZONE,
@@ -198,7 +200,8 @@ export default function PortalTimePage() {
   const search = new URLSearchParams(location.search);
   const requestedProfile = search.get('profile');
   const showPayStubs = location.pathname === '/portal/time' && location.hash === '#pay-stubs';
-  const today = getTodayInTimekeepingZone();
+  const now = useTimekeepingClock(!showPayStubs);
+  const today = getTodayInTimekeepingZone(now);
   const requestedDate = search.get('date');
   const requestedWeek = search.get('week');
   const requestedMonth = search.get('month');
@@ -379,9 +382,10 @@ export default function PortalTimePage() {
   const profileForFormDate = contextForFormDate?.profiles.find(
     (profile) => profile.id === selectedProfile?.id
   );
+  const formDateAuthority = getFormTimeEditingAuthority(form.workDate, now, routeEntry ?? undefined);
   const formDateCanEdit = Boolean(
     profileForFormDate &&
-      isTechnicianWorkDateEditable(form.workDate) &&
+      getTimeEditingDeadline(form.workDate, now, formDateAuthority)?.editable &&
       serverLockedFormDate !== form.workDate
   );
   const entries = useMemo(
@@ -746,6 +750,7 @@ export default function PortalTimePage() {
               <div className="mx-auto max-w-2xl overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                 <div className="border-b border-border px-4 py-5 sm:px-6">
                   <h2 className="text-lg font-semibold text-foreground">Work details</h2>
+                  <div className="mt-3"><TimeEditingDeadline workDate={form.workDate} now={now} authority={serverLockedFormDate === form.workDate ? { ...formDateAuthority, technicianEditable: false } : formDateAuthority} /></div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Times use the selected machine's local timezone.
                   </p>
@@ -921,15 +926,6 @@ export default function PortalTimePage() {
                     )}
                   </div>
 
-                  {formLocked && !formErrors.form && (
-                    <div className="flex gap-3 rounded-xl border border-amber/30 bg-amber/10 p-4 text-sm text-foreground">
-                      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
-                      <p>
-                        Technician editing is closed for this month. Your manager can still correct an error.
-                      </p>
-                    </div>
-                  )}
-
                   {formErrors.form && (
                     <div
                       id="time-form-error"
@@ -1014,6 +1010,13 @@ export default function PortalTimePage() {
               </Select>
             </div>
           )}
+
+          <div className="space-y-2" aria-label={t('timeDeadline.label')}>
+            {baseMonthAnchors.map((month) => {
+              const savedEntry = entries.find((entry) => entry.workDate.slice(0, 7) === month.slice(0, 7));
+              return <TimeEditingDeadline key={month} workDate={month} now={now} authority={savedEntry ? { technicianCutoffAt: savedEntry.technicianCutoffAt } : undefined} />;
+            })}
+          </div>
 
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="flex flex-col gap-3 border-b border-border px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -1172,7 +1175,7 @@ export default function PortalTimePage() {
               ) : (
                 <div className="mt-4 divide-y divide-border rounded-xl border border-border">
                   {selectedDayEntries.map((entry) => {
-                    const canEdit = entry.technicianEditable;
+                    const canEdit = getTimeEditingDeadline(entry.workDate, now, entry)?.editable ?? false;
                     return (
                       <article key={entry.id} className="p-4 sm:p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
