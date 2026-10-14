@@ -14,6 +14,7 @@ import {
 import { useMemo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { WorkSummary } from '@/components/dashboard/WorkSummary';
 import type { AdminSurface } from '@/components/layout/authenticatedNavigation';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
@@ -124,7 +125,10 @@ export default function AdminDashboardPage() {
     auditQuery.isFetching;
 
   const refreshDashboard = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['home-labor-summary'] }),
+    ]);
   };
 
   return (
@@ -300,6 +304,8 @@ export default function AdminDashboardPage() {
             </OverviewPanel>
 
           </div>
+
+          <div className="mt-6"><WorkSummary /></div>
 
           <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-sage" />
