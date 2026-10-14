@@ -20,6 +20,7 @@ import {
 import { getVisibleAdminDestinations } from '@/components/layout/authenticatedNavigation';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { TechnicianHome } from '@/components/portal/TechnicianHome';
+import { WorkSummary } from '@/components/dashboard/WorkSummary';
 import {
   canAccessPortalLevel,
   type PortalAccessLevel,
@@ -31,6 +32,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
+import { useReportingAnalyticsAccess } from '@/hooks/useReportingAnalyticsAccess';
 import { trackEvent } from '@/lib/analytics';
 import type { TranslationKey } from '@/lib/i18n';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
@@ -208,6 +210,7 @@ export default function PortalDashboard() {
     hasReportingAccess || capabilities.includes('reports.partner.view');
   const teamAccess = usePortalTechnicianManagement();
   const timekeepingAccess = usePortalTimekeepingAccess();
+  const analyticsAccess = useReportingAnalyticsAccess(true, 'labor');
   const { canUsePortalTeam } = teamAccess;
   const { canUsePortalTimekeeping } = timekeepingAccess;
   const canAccessPortalAction = (access: PortalAccessLevel) => {
@@ -268,7 +271,10 @@ export default function PortalDashboard() {
   }
 
   if (canUsePortalTimekeeping && !hasActionableAdminPrimary && !canReviewTime) {
-    return <PortalLayout><TechnicianHome timekeeping={timekeepingAccess} canAccessTraining={canAccessTraining} canAccessReporting={hasEffectiveReportingAccess} /></PortalLayout>;
+    return <PortalLayout>
+      <TechnicianHome timekeeping={timekeepingAccess} canAccessTraining={canAccessTraining} canAccessReporting={hasEffectiveReportingAccess} />
+      {analyticsAccess.canUseLabor && <div className="container-page pb-8"><WorkSummary /></div>}
+    </PortalLayout>;
   }
 
   const trainingExperience = buildTrainingExperience(library);
@@ -956,6 +962,8 @@ export default function PortalDashboard() {
               )}
             </aside>
           </div>
+
+          <WorkSummary />
 
           {shortcutActions.length > 0 && (
             <nav

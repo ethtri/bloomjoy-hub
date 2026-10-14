@@ -6,6 +6,15 @@
 
 # QA Smoke Test Checklist
 
+## Manager and Admin Home work summaries (#1923)
+
+- With synthetic machine-only, account-pay, scoped-admin and Super Admin personas, open `/portal` and permitted `/admin` Home. Recorded time uses the current Pacific calendar month and managed-machine scope; pay-input issues use the complete prior month and authorized account-pay scope. A technician sees their existing personal Home instead.
+- Check 320 px, 390 px and desktop in English and Chinese. Each measure has a precise label, cards remain readable, links retain their dates, and keyboard focus is visible. Empty recorded time does not imply no work happened.
+- Fail access, current-month and prior-month requests separately. Retry restores only the failed summary; other Home actions remain usable. Revoke access and revisit Home: old counts and pay links disappear.
+- Correct a synthetic report, return to Home without reloading, and verify refreshed counts. At UTC/Pacific month boundaries, the displayed months and report links agree.
+- Inspect network calls: Home summaries use `get_labor_analytics_access` and read-only `get_labor_analytics_report`; no pay-context reconciliation, snapshot refresh, publication or regeneration calls. No compensation amounts appear for machine-only managers.
+- Run `deno test --no-lock src/lib/homeLaborSummary.test.ts` and `node scripts/validate-home-labor-summary-uat.mjs --base-url http://127.0.0.1:8324`. **Release dependency:** #1912's corrected revision freshness must be merged and deployed before releasing this summary; equal timestamps and the current calculation version must not report a revision. Revision count is distinct from calculation issues, approvals and payment status.
+
 ## Mobile refund review (#1869)
 
 - On the PR branch, use synthetic `/refunds` data at 320, 390, 768 and 1440px. Open a late queue row, return, reopen the same case, and use browser Back/Forward. Verify queue search/company/view, originating row focus and scroll position survive; desktop panes remain usable.
