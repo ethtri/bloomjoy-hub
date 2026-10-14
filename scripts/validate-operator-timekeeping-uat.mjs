@@ -54,8 +54,9 @@ const mockUser = {
 const mockSession = {
   access_token: 'mock-technician-time-access-token',
   token_type: 'bearer',
-  expires_in: 3600,
-  expires_at: Math.floor(FIXED_NOW.getTime() / 1000) + 3600,
+  // Keep fixture auth valid while the deadline cases jump between months.
+  expires_in: 366 * 24 * 60 * 60,
+  expires_at: Math.floor(FIXED_NOW.getTime() / 1000) + 366 * 24 * 60 * 60,
   refresh_token: 'mock-technician-time-refresh-token',
   user: mockUser,
 };
