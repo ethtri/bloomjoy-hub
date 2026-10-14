@@ -22,6 +22,8 @@ export const personas = {
   adminWithoutPayouts: { ...base, surfaces: ['overview', 'machines'], canViewPay: true },
   superAdmin: { ...base, surfaces: ['*'], isSuperAdmin: true, canViewPay: true },
   technician: { ...base, capabilities: ['operator.timekeeping'], technician: true, hasAccess: false },
+  technicianManager: { ...base, capabilities: ['operator.timekeeping'], technician: true, hasAccess: true, canViewPay: true },
+  technicianMachineManager: { ...base, capabilities: ['operator.timekeeping'], technician: true, hasAccess: true, canViewPay: false },
   noAccess: { ...base, capabilities: [], hasAccess: false },
 };
 

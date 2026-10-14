@@ -134,6 +134,29 @@ try {
     await finish(name);
   }
 
+  for (const [name, persona] of [
+    ['technician-pay-manager', personas.technicianManager],
+    ['technician-machine-manager', personas.technicianMachineManager],
+  ]) {
+    const { page, state } = await open(browser, { persona, width: 390 });
+    await verifyValues(page, { both: persona.canViewPay });
+    const primary = page.locator('[data-dashboard-primary-action]');
+    assert.equal(await primary.count(), 1);
+    assert.equal(await primary.getAttribute('href'), '/portal/time/new?profile=technician-profile');
+    check(`${name}: personal Add time remains primary without a review capability`, (await primary.innerText()).trim() === 'Add time' && !persona.capabilities.includes('timekeeping.review'));
+    const personalSummary = await text(page, '[data-workday-summary]');
+    check(`${name}: personal time remains separate from manager totals`, personalSummary.includes('0') && !personalSummary.includes('5 Paid Shifts'));
+    const personalBounds = await page.locator('.portal-section').first().boundingBox();
+    const managerBounds = await page.locator(section).boundingBox();
+    check(`${name}: manager summary follows the personal technician section`, personalBounds && managerBounds && managerBounds.y >= personalBounds.y + personalBounds.height - 1);
+    assert.equal(await page.locator(pay).count(), persona.canViewPay ? 1 : 0);
+    assertRangeCalls(state, [currentRange, ...(persona.canViewPay ? [previousRange] : [])]);
+    check(`${name}: no unauthorized admin payout destination`, await page.locator(`${section} a[href^="/admin/payouts"]`).count() === 0);
+    await verifyLayout(page, name);
+    if (persona.canViewPay) await screenshot(page, 'technician-manager-390');
+    await finish(name);
+  }
+
   for (const width of [320, 390]) {
     const { page } = await open(browser, { language: 'zh-Hans', width });
     await verifyValues(page);
