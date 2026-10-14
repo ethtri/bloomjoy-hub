@@ -13,6 +13,10 @@ export function usePortalTimekeepingAccess() {
     queryFn: () => fetchMyOperatorTimekeepingContext(workDate),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
+    // A Pacific date rollover must not unmount an open time form while the
+    // next day's access context loads. Never carry access across identities.
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === user?.id ? previousData : undefined,
   });
 
   const hasCapability = capabilities.some((capability) =>

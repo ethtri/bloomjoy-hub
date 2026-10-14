@@ -3,6 +3,8 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { verifyTimeDeadlines } from './timekeeping/deadline-uat.mjs';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright/technician-weekly-time';
@@ -52,8 +54,9 @@ const mockUser = {
 const mockSession = {
   access_token: 'mock-technician-time-access-token',
   token_type: 'bearer',
-  expires_in: 3600,
-  expires_at: Math.floor(FIXED_NOW.getTime() / 1000) + 3600,
+  // Keep fixture auth valid while the deadline cases jump between months.
+  expires_in: 366 * 24 * 60 * 60,
+  expires_at: Math.floor(FIXED_NOW.getTime() / 1000) + 366 * 24 * 60 * 60,
   refresh_token: 'mock-technician-time-refresh-token',
   user: mockUser,
 };
@@ -174,7 +177,7 @@ const makeEntry = ({
     managerReviewStatus: 'pending',
     managerReviewReason: null,
     managerReviewedAt: null,
-    technicianCutoffAt: `${workDate.slice(0, 7)}-05T07:00:00.000Z`,
+    technicianCutoffAt: `${getMonthPeriod(workDate).lockDate}T07:00:00.000Z`,
     technicianEditable: editable,
     lockedAt: editable ? null : '2026-09-05T07:00:00.000Z',
     createdAt: '2026-09-03T16:00:00.000Z',
@@ -665,6 +668,7 @@ const run = async () => {
     );
     await page.keyboard.press('Escape');
     await deleteDialog.waitFor({ state: 'detached' });
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Delete '));
     check.assert(
       'Canceling delete returns focus to the entry action',
       await deleteButton.evaluate((element) => element === document.activeElement)
@@ -678,6 +682,7 @@ const run = async () => {
       'Delete failure leaves the entry visible',
       await page.getByText('12:00 PM to 1:02 PM', { exact: true }).isVisible()
     );
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Delete '));
     check.assert(
       'Delete failure returns focus to the same entry',
       await deleteButton.evaluate((element) => element === document.activeElement)
@@ -732,6 +737,8 @@ const run = async () => {
     await page.getByText('Week of', { exact: true }).waitFor();
     check.assert('Load error can recover in place', true);
 
+    await verifyTimeDeadlines({ page, state, args, check, profileId: PROFILE_ID });
+
     const unexpectedBrowserErrors = browserErrors.filter(
       (message) => !message.includes('Failed to load resource: the server responded with a status of 500')
     );
@@ -748,7 +755,9 @@ const run = async () => {
   console.log(`Technician weekly Timekeeping UAT passed. Screenshots: ${args.artifactDir}`);
 };
 
-run().catch((error) => {
+export { buildContext, initialEntries, installRoutes, makeEntry, mockSession, mockUser, pageOverflows, PROFILE_ID, ACCOUNT_ID, MACHINE_A, MACHINE_B, FIXED_NOW, jsonResponse };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) run().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

@@ -41,6 +41,13 @@ import { PayStubsPage } from '@/components/portal/PayStubsPage';
 import { PayStubsPanel } from '@/components/portal/PayStubsPanel';
 import { usePublishedPayStubs } from '@/hooks/usePublishedPayStubs';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { TimeEditingDeadline } from '@/components/portal/TimeEditingDeadline';
+import { useTimekeepingClock } from '@/hooks/useTimekeepingClock';
+import { getFormTimeEditingAuthority, getTimeEditingDeadline } from '@/lib/timeEditingDeadline';
+import { useAuth } from '@/contexts/auth-context';
+import { useTimeEntryDraft } from '@/hooks/useTimeEntryDraft';
+import { clearTimeEntryDraft, getEditDraftConflict, isTimeEntryDraftUserActive, type TimeEntryDraftFields } from '@/lib/timeEntryDrafts';
+import { TimeEntryDraftNotice } from '@/components/portal/TimeEntryDraftNotice';
 import { cn } from '@/lib/utils';
 import {
   calculateOperatorPaidShifts,
@@ -62,18 +69,12 @@ import {
   getWeekMonthAnchors,
   getWeekStart,
   isCompletedTimeInFuture,
-  isTechnicianWorkDateEditable,
   timeDraftMatchesEntry,
   timeDraftOverlapsEntry,
   TIMEKEEPING_TIME_ZONE,
 } from '@/lib/timekeepingUi';
 
-type TimeEntryForm = {
-  workDate: string;
-  machineId: string;
-  startTime: string;
-  endTime: string;
-};
+type TimeEntryForm = TimeEntryDraftFields;
 
 type FormErrors = Partial<Record<keyof TimeEntryForm | 'form', string>>;
 
@@ -175,8 +176,16 @@ const defaultForm = (workDate: string): TimeEntryForm => ({
   endTime: '',
 });
 
+const preferredMachine = (profile: OperatorTimekeepingProfileContext | null, workDate: string) => {
+  const machines = profile?.assignedMachines.filter((machine) => machineIsEffective(machine, workDate)) ?? [];
+  let remembered: string | null = null;
+  try { if (profile) remembered = window.localStorage.getItem(lastMachineStorageKey(profile.id)); } catch { /* Optional preference. */ }
+  return machines.find((machine) => machine.machineId === remembered)?.machineId ?? machines[0]?.machineId ?? '';
+};
+
 export default function PortalTimePage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -184,7 +193,8 @@ export default function PortalTimePage() {
   const search = new URLSearchParams(location.search);
   const requestedProfile = search.get('profile');
   const showPayStubs = location.pathname === '/portal/time' && location.hash === '#pay-stubs';
-  const today = getTodayInTimekeepingZone();
+  const now = useTimekeepingClock(!showPayStubs);
+  const today = getTodayInTimekeepingZone(now);
   const requestedDate = search.get('date');
   const requestedWeek = search.get('week');
   const requestedMonth = search.get('month');
@@ -202,11 +212,19 @@ export default function PortalTimePage() {
   const [form, setForm] = useState<TimeEntryForm>(() => defaultForm(initialDate));
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [serverLockedFormDate, setServerLockedFormDate] = useState<string | null>(null);
-  const [initializedEntryId, setInitializedEntryId] = useState<string | null>(null);
+  const [initializedFormKey, setInitializedFormKey] = useState<string | null>(null);
+  const [recoveryDate, setRecoveryDate] = useState<string | null>(null);
   const [deleteEntry, setDeleteEntry] = useState<OperatorTimeEntry | null>(null);
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const liveFormRef = useRef({ key: '', form, pathname: location.pathname, userId: user?.id });
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -227,14 +245,16 @@ export default function PortalTimePage() {
     const anchors = [...baseMonthAnchors];
     if (entryId && isMonthValue(requestedMonth)) anchors.push(`${requestedMonth}-01`);
     if (entryId && isDateValue(requestedDate)) anchors.push(`${requestedDate.slice(0, 7)}-01`);
+    if (isDateValue(recoveryDate)) anchors.push(`${recoveryDate.slice(0, 7)}-01`);
     return [...new Set(anchors)];
-  }, [baseMonthAnchors, entryId, requestedDate, requestedMonth]);
+  }, [baseMonthAnchors, entryId, recoveryDate, requestedDate, requestedMonth]);
 
   const contextQueries = useQueries({
     queries: queryMonthAnchors.map((monthAnchor) => ({
       queryKey: getContextQueryKey(monthAnchor),
       queryFn: () => fetchMyOperatorTimekeepingContext(monthAnchor),
       staleTime: 20_000,
+      refetchOnMount: 'always' as const,
       retry: false,
       enabled: !showPayStubs,
     })),
@@ -261,32 +281,78 @@ export default function PortalTimePage() {
   }, [requestedProfile]);
 
   const selectedProfile =
-    profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null;
+    (!requestedProfile && entryId
+      ? profiles.find((profile) => profile.currentEntries.some((entry) => entry.id === entryId))
+      : null) ?? profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null;
   const profileParam = selectedProfile ? `&profile=${encodeURIComponent(selectedProfile.id)}` : '';
   const selectProfile = (id: string) => {
     setSelectedProfileId(id);
     const nextSearch = new URLSearchParams(location.search);
     nextSearch.set('profile', id);
-    navigate(`${location.pathname}?${nextSearch}${location.hash}`, { replace: true });
+    navigate(`${entryId ? '/portal/time/new' : location.pathname}?${nextSearch}${location.hash}`, { replace: true });
   };
   const routeEntry = entryId
-    ? profiles.flatMap((profile) => profile.currentEntries).find((entry) => entry.id === entryId) ??
+    ? selectedProfile?.currentEntries.find((entry) => entry.id === entryId) ??
       null
     : null;
+  const draftScope = isFormRoute && user && selectedProfile
+    ? { userId: user.id, accountId: selectedProfile.accountId, profileId: selectedProfile.id, entryId: entryId ?? null }
+    : null;
+  const draft = useTimeEntryDraft(draftScope, !isLoading && !isRefreshing && !loadError);
+  liveFormRef.current = { key: draft.key, form, pathname: location.pathname, userId: user?.id };
+  const draftConflict = draft.draft && draftScope && !isLoading && !isRefreshing
+    ? getEditDraftConflict(draft.draft, routeEntry, draftScope) : null;
 
   useEffect(() => {
-    if (!entryId || !routeEntry || initializedEntryId === entryId) return;
-    setSelectedProfileId(routeEntry.operatorProfileId);
-    setSelectedDate(routeEntry.workDate);
-    setWeekStart(getWeekStart(routeEntry.workDate));
-    setForm({
-      workDate: routeEntry.workDate,
-      machineId: routeEntry.machineId,
-      startTime: routeEntry.startTime,
-      endTime: routeEntry.endTime,
-    });
-    setInitializedEntryId(entryId);
-  }, [entryId, initializedEntryId, routeEntry]);
+    if (!entryId || !routeEntry || requestedProfile) return;
+    const nextSearch = new URLSearchParams(location.search);
+    nextSearch.set('profile', routeEntry.operatorProfileId);
+    navigate(`${location.pathname}?${nextSearch}`, { replace: true });
+  }, [entryId, location.pathname, location.search, navigate, requestedProfile, routeEntry]);
+
+  useEffect(() => {
+    if (!isFormRoute) {
+      setInitializedFormKey(null);
+      setRecoveryDate(null);
+      return;
+    }
+    if (!draft.initialized || initializedFormKey === draft.key) return;
+    const date = routeEntry?.workDate ?? initialDate;
+    setSelectedDate(date);
+    setWeekStart(getWeekStart(date));
+    setForm(routeEntry ? {
+      workDate: routeEntry.workDate, machineId: routeEntry.machineId,
+      startTime: routeEntry.startTime, endTime: routeEntry.endTime,
+    } : { ...defaultForm(date), machineId: preferredMachine(selectedProfile, date) });
+    setRecoveryDate(draft.draft?.fields.workDate ?? null);
+    setFormErrors({});
+    setServerLockedFormDate(null);
+    setInitializedFormKey(draft.key);
+  }, [draft.draft, draft.initialized, draft.key, initialDate, initializedFormKey, isFormRoute, routeEntry, selectedProfile]);
+
+  const changeForm = (change: Partial<TimeEntryForm>) => {
+    const next = { ...form, ...change };
+    setForm(next);
+    setFormErrors({});
+    draft.write(next, draft.draft?.originalUpdatedAt ?? routeEntry?.updatedAt ?? null);
+  };
+
+  const continueDraft = () => {
+    const restored = draft.resume();
+    if (!restored) return;
+    setForm(restored.fields);
+    const date = isDateValue(restored.fields.workDate) ? restored.fields.workDate : initialDate;
+    setSelectedDate(date);
+    setWeekStart(getWeekStart(date));
+    setFormErrors({});
+    requestAnimationFrame(() => document.getElementById('work-date')?.focus());
+  };
+
+  const discardDraft = () => {
+    if (!draft.discard()) return;
+    setInitializedFormKey(null);
+    requestAnimationFrame(() => document.getElementById('work-date')?.focus());
+  };
 
   const effectiveMachines = useMemo(
     () =>
@@ -300,29 +366,16 @@ export default function PortalTimePage() {
   );
   const formTimeZone = selectedMachine?.locationTimezone ?? TIMEKEEPING_TIME_ZONE;
 
-  useEffect(() => {
-    if (!isFormRoute || !selectedProfile) return;
-    setForm((current) => {
-      if (effectiveMachines.some((machine) => machine.machineId === current.machineId)) {
-        return current;
-      }
-      const lastMachineId = window.localStorage.getItem(lastMachineStorageKey(selectedProfile.id));
-      const nextMachineId = effectiveMachines.find((machine) => machine.machineId === lastMachineId)?.machineId
-        ?? effectiveMachines[0]?.machineId
-        ?? '';
-      return { ...current, machineId: nextMachineId };
-    });
-  }, [effectiveMachines, isFormRoute, selectedProfile]);
-
   const contextForFormDate = contexts.find(
     (context) => context.workDate.slice(0, 7) === form.workDate.slice(0, 7)
   );
   const profileForFormDate = contextForFormDate?.profiles.find(
     (profile) => profile.id === selectedProfile?.id
   );
+  const formDateAuthority = getFormTimeEditingAuthority(form.workDate, now, routeEntry ?? undefined);
   const formDateCanEdit = Boolean(
     profileForFormDate &&
-      isTechnicianWorkDateEditable(form.workDate) &&
+      getTimeEditingDeadline(form.workDate, now, formDateAuthority)?.editable &&
       serverLockedFormDate !== form.workDate
   );
   const entries = useMemo(
@@ -392,43 +445,60 @@ export default function PortalTimePage() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedProfile) throw new Error('Technician timekeeping access required.');
+    mutationFn: (submission: {
+      form: TimeEntryForm; profileId: string; entryId: string | null; timeZone: string;
+      notes: string | null; draft: ReturnType<typeof draft.capture>; key: string; userId: string;
+      pathname: string; url: string;
+    }) => {
       return saveCompletedOperatorTimeEntry({
-        timeEntryId: entryId ?? null,
-        operatorProfileId: selectedProfile.id,
-        machineId: form.machineId,
+        timeEntryId: submission.entryId,
+        operatorProfileId: submission.profileId,
+        machineId: submission.form.machineId,
         actualStartAt: combineDateAndTimeInTimekeepingZone(
-          form.workDate,
-          form.startTime,
-          formTimeZone
+          submission.form.workDate,
+          submission.form.startTime,
+          submission.timeZone
         ),
         actualEndAt: combineDateAndTimeInTimekeepingZone(
-          form.workDate,
-          form.endTime,
-          formTimeZone
+          submission.form.workDate,
+          submission.form.endTime,
+          submission.timeZone
         ),
-        notes: routeEntry?.notes ?? null,
+        notes: submission.notes,
       });
     },
-    onSuccess: async ({ context, timeEntry }) => {
-      window.localStorage.setItem(lastMachineStorageKey(timeEntry.operatorProfileId), timeEntry.machineId);
+    onSuccess: async ({ context, timeEntry }, submission) => {
+      if (submission.draft) clearTimeEntryDraft(submission.draft.scope, submission.draft.revision);
+      const canApplyResult = () => mountedRef.current && liveFormRef.current.userId === submission.userId &&
+        isTimeEntryDraftUserActive(submission.userId) &&
+        `${window.location.pathname}${window.location.search}${window.location.hash}` === submission.url;
+      // During a lazy-route transition React may retain this tree after the URL has changed.
+      if (!canApplyResult()) return;
+      try { window.localStorage.setItem(lastMachineStorageKey(timeEntry.operatorProfileId), timeEntry.machineId); } catch { /* Saving time does not require device storage. */ }
       const monthAnchor = `${context.workDate.slice(0, 7)}-01`;
       queryClient.setQueryData(getContextQueryKey(monthAnchor), context);
       await invalidateVisibleMonths();
+      if (!canApplyResult()) return;
       const nextWeek = getWeekStart(timeEntry.workDate);
       toast.success(
         `Saved ${formatDuration(timeEntry.actualDurationMinutes)} as ${timeEntry.paidShifts} paid ${
           timeEntry.paidShifts === 1 ? 'shift' : 'shifts'
         }.`
       );
-      navigate(`/portal/time?week=${nextWeek}&date=${timeEntry.workDate}${profileParam}`);
+      const current = liveFormRef.current;
+      if (current.key === submission.key && current.pathname === submission.pathname &&
+          JSON.stringify(current.form) === JSON.stringify(submission.form)) {
+        navigate(`/portal/time?week=${nextWeek}&date=${timeEntry.workDate}&profile=${encodeURIComponent(submission.profileId)}`);
+      }
     },
-    onError: async (error) => {
+    onError: async (error, submission) => {
+      if (!mountedRef.current || liveFormRef.current.key !== submission.key || liveFormRef.current.userId !== submission.userId ||
+          !isTimeEntryDraftUserActive(submission.userId) ||
+          `${window.location.pathname}${window.location.search}${window.location.hash}` !== submission.url) return;
       const message = describeTimekeepingError(error);
       setFormErrors((current) => ({ ...current, form: message }));
       if (/closed|cutoff|locked/i.test(String(error))) {
-        setServerLockedFormDate(form.workDate);
+        setServerLockedFormDate(submission.form.workDate);
       }
       if (/closed|cutoff|locked|assigned|assignment/i.test(String(error))) {
         await invalidateVisibleMonths();
@@ -469,7 +539,7 @@ export default function PortalTimePage() {
   const openAddTime = (date = selectedDate) => {
     setForm(defaultForm(date));
     setFormErrors({});
-    setInitializedEntryId(null);
+    setInitializedFormKey(null);
     navigate(`/portal/time/new?date=${date}&week=${weekStart}${profileParam}`);
   };
 
@@ -479,6 +549,8 @@ export default function PortalTimePage() {
     );
 
   const validateAndSave = () => {
+    if (!selectedProfile || !user || draft.pending || !draft.initialized || draftConflict ||
+        (entryId && !routeEntry) || isRefreshing) return;
     const errors: FormErrors = {};
     if (!form.workDate) errors.workDate = 'Choose the day you worked.';
     if (!form.machineId) errors.machineId = 'Choose the machine you worked on.';
@@ -514,7 +586,9 @@ export default function PortalTimePage() {
 
     setFormErrors(errors);
     if (Object.keys(errors).length) return;
-    saveMutation.mutate();
+    saveMutation.mutate({ form: { ...form }, profileId: selectedProfile.id, entryId: entryId ?? null,
+      timeZone: formTimeZone, notes: routeEntry?.notes ?? null, draft: draft.capture(), key: draft.key,
+      userId: user.id, pathname: location.pathname, url: `${location.pathname}${location.search}${location.hash}` });
   };
 
   const retryLoad = () => Promise.all(contextQueries.map((query) => query.refetch()));
@@ -598,6 +672,12 @@ export default function PortalTimePage() {
               }
             />
 
+            <TimeEntryDraftNotice
+              draft={draft.draft} pending={draft.pending} status={draft.status} conflict={draftConflict}
+              machineName={selectedProfile?.assignedMachines.find((machine) => machine.machineId === draft.draft?.fields.machineId)?.machineLabel}
+              checking={isRefreshing} onContinue={continueDraft} onDiscard={discardDraft}
+            />
+
             {editingEntryMissing ? (
               <div className="rounded-xl border border-border bg-card p-6 shadow-sm" role="alert">
                 <h2 className="text-lg font-semibold text-foreground">Time entry not found</h2>
@@ -616,6 +696,7 @@ export default function PortalTimePage() {
               <div className="mx-auto max-w-2xl overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                 <div className="border-b border-border px-4 py-5 sm:px-6">
                   <h2 className="text-lg font-semibold text-foreground">Work details</h2>
+                  <div className="mt-3"><TimeEditingDeadline workDate={form.workDate} now={now} authority={serverLockedFormDate === form.workDate ? { ...formDateAuthority, technicianEditable: false } : formDateAuthority} /></div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Times use the selected machine's local timezone.
                   </p>
@@ -649,6 +730,8 @@ export default function PortalTimePage() {
                     </div>
                   )}
 
+                  <fieldset className="space-y-5" disabled={draft.pending || Boolean(draftConflict) || !draft.initialized || initializedFormKey !== draft.key}>
+                  <legend className="sr-only">{t('timeDraft.workDetails')}</legend>
                   <div className="space-y-2">
                     <label htmlFor="work-date" className="text-sm font-medium text-foreground">
                       Work date
@@ -662,8 +745,7 @@ export default function PortalTimePage() {
                       aria-invalid={Boolean(formErrors.workDate)}
                       aria-describedby={formErrors.workDate ? 'work-date-error' : undefined}
                       onChange={(event) => {
-                        setForm((current) => ({ ...current, workDate: event.target.value }));
-                        setFormErrors({});
+                        changeForm({ workDate: event.target.value });
                       }}
                       className="min-h-11"
                     />
@@ -681,10 +763,11 @@ export default function PortalTimePage() {
                     <Select
                       value={form.machineId}
                       onValueChange={(machineId) => {
-                        setForm((current) => ({ ...current, machineId }));
-                        setFormErrors({});
+                        // Radix's hidden native select may emit an empty initialization event.
+                        // It is not a user choice and must not erase an assigned/restored machine.
+                        if (machineId && machineId !== form.machineId) changeForm({ machineId });
                       }}
-                      disabled={!effectiveMachines.length}
+                      disabled={!effectiveMachines.length || draft.pending || Boolean(draftConflict) || !draft.initialized}
                     >
                       <SelectTrigger
                         id="work-machine"
@@ -695,6 +778,7 @@ export default function PortalTimePage() {
                         <SelectValue placeholder="Choose a machine" />
                       </SelectTrigger>
                       <SelectContent>
+                        {form.machineId && !selectedMachine && <SelectItem value={form.machineId} disabled>{t('timeDraft.unavailableMachine')}</SelectItem>}
                         {effectiveMachines.map((machine) => (
                           <SelectItem key={machine.assignmentId} value={machine.machineId}>
                             {machineLabel(machine)}
@@ -702,6 +786,7 @@ export default function PortalTimePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {form.machineId && !selectedMachine && <p className="text-sm text-muted-foreground">{t('timeDraft.chooseMachine')}</p>}
                     {!effectiveMachines.length && (
                       <p className="text-sm text-muted-foreground">
                         No machine assignment is active for this date. Choose another day or ask your manager to check the assignment.
@@ -726,8 +811,7 @@ export default function PortalTimePage() {
                         aria-invalid={Boolean(formErrors.startTime)}
                         aria-describedby={formErrors.startTime ? 'start-time-error' : undefined}
                         onChange={(event) => {
-                          setForm((current) => ({ ...current, startTime: event.target.value }));
-                          setFormErrors({});
+                          changeForm({ startTime: event.target.value });
                         }}
                         className="min-h-11"
                       />
@@ -748,8 +832,7 @@ export default function PortalTimePage() {
                         aria-invalid={Boolean(formErrors.endTime)}
                         aria-describedby={formErrors.endTime ? 'end-time-error' : undefined}
                         onChange={(event) => {
-                          setForm((current) => ({ ...current, endTime: event.target.value }));
-                          setFormErrors({});
+                          changeForm({ endTime: event.target.value });
                         }}
                         className="min-h-11"
                       />
@@ -789,15 +872,6 @@ export default function PortalTimePage() {
                     )}
                   </div>
 
-                  {formLocked && !formErrors.form && (
-                    <div className="flex gap-3 rounded-xl border border-amber/30 bg-amber/10 p-4 text-sm text-foreground">
-                      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
-                      <p>
-                        Technician editing is closed for this month. Your manager can still correct an error.
-                      </p>
-                    </div>
-                  )}
-
                   {formErrors.form && (
                     <div
                       id="time-form-error"
@@ -822,7 +896,7 @@ export default function PortalTimePage() {
                     <Button
                       type="submit"
                       className="min-h-11"
-                      disabled={saveMutation.isPending || formLocked || !effectiveMachines.length}
+                      disabled={saveMutation.isPending || formLocked || !effectiveMachines.length || isRefreshing}
                       aria-describedby={formErrors.form ? 'time-form-error' : undefined}
                     >
                       {saveMutation.isPending ? (
@@ -833,6 +907,7 @@ export default function PortalTimePage() {
                       {saveMutation.isPending ? 'Saving…' : 'Save time'}
                     </Button>
                   </div>
+                  </fieldset>
                 </form>
               </div>
             )}
@@ -881,6 +956,13 @@ export default function PortalTimePage() {
               </Select>
             </div>
           )}
+
+          <div className="space-y-2" aria-label={t('timeDeadline.label')}>
+            {baseMonthAnchors.map((month) => {
+              const savedEntry = entries.find((entry) => entry.workDate.slice(0, 7) === month.slice(0, 7));
+              return <TimeEditingDeadline key={month} workDate={month} now={now} authority={savedEntry ? { technicianCutoffAt: savedEntry.technicianCutoffAt } : undefined} />;
+            })}
+          </div>
 
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="flex flex-col gap-3 border-b border-border px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -1039,7 +1121,7 @@ export default function PortalTimePage() {
               ) : (
                 <div className="mt-4 divide-y divide-border rounded-xl border border-border">
                   {selectedDayEntries.map((entry) => {
-                    const canEdit = entry.technicianEditable;
+                    const canEdit = getTimeEditingDeadline(entry.workDate, now, entry)?.editable ?? false;
                     return (
                       <article key={entry.id} className="p-4 sm:p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

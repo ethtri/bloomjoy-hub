@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
+import { TimeEditingDeadline } from '@/components/portal/TimeEditingDeadline';
+import { useTimekeepingClock } from '@/hooks/useTimekeepingClock';
+import { getNextTimeEditingWorkDate } from '@/lib/timeEditingDeadline';
 import { getWeekStart } from '@/lib/timekeepingUi';
 import { PayStubHomeCard } from './PayStubHomeCard';
 
@@ -18,6 +21,7 @@ const linkStyle = 'inline-flex min-h-11 items-center gap-2 rounded-lg text-sm fo
 
 export function TechnicianHome({ timekeeping, canAccessTraining, canAccessReporting }: Props) {
   const { language, t } = useLanguage();
+  const now = useTimekeepingClock();
   const [profileId, setProfileId] = useState('');
   const profiles = timekeeping.data?.profiles.filter((profile) => profile.status === 'active') ?? [];
   const profile = profiles.find((item) => item.id === profileId) ?? profiles[0];
@@ -83,6 +87,7 @@ export function TechnicianHome({ timekeeping, canAccessTraining, canAccessReport
               <p className="mt-5 text-sm leading-6 text-muted-foreground">{t('dashboard.timeSetupDescription')}</p>
             ) : (
               <>
+                <div className="mt-5"><TimeEditingDeadline workDate={getNextTimeEditingWorkDate(now)} now={now} profileId={profile.id} link /></div>
                 <div className="mt-5 border-t border-border pt-4">
                   <h3 className="text-sm font-semibold">{t('workday.recentEntries')}</h3>
                   {entries.length === 0 ? (
