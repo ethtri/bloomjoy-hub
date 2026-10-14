@@ -92,11 +92,10 @@ for (const snippet of [
   'saveCompletedOperatorTimeEntry',
   'correctOperatorTimeEntry',
   'upsertEffectiveOperatorMachineAssignmentAdmin',
-  'upsertOperatorCompensationRateAdmin',
+  'supersedeOperatorCompensationRateAdmin',
   'upsertOperatorRecurringItemAdmin',
-  'upsertOperatorYtdOpeningBalanceAdmin',
   "'manager_correct_operator_time_entry'",
-  "'admin_upsert_operator_compensation_rate'",
+  "'admin_supersede_operator_compensation_rate'",
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);

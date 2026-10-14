@@ -72,12 +72,13 @@ for (const snippet of [
 
 const helper = readText(files.helper);
 for (const snippet of [
-  'PayoutRevenueSnapshot',
-  'fetchPayoutRevenueSnapshotContext',
-  'generatePayoutRevenueSnapshotAdmin',
-  'generatePayoutRevenueSnapshotsForPeriodAdmin',
-  'overridePayoutRevenueSnapshotAdmin',
-  'eligibleCommissionRevenueCents',
+  'PayoutRevenueSnapshotStatus',
+  'OperatorPayStatementPayloadMachine',
+  'TechnicianPayReportCommissionSegment',
+  'fetchTechnicianPayReportContext',
+  'get_current_technician_pay_report_context',
+  'commissionableSalesCents',
+  'snapshotCommissionableSalesCents',
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);

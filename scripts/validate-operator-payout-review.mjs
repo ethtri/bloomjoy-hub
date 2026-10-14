@@ -31,7 +31,7 @@ const files = {
   rpcSurface: path.join(repoRoot, 'scripts', 'validate-rpc-execute-surface.mjs'),
   packageJson: path.join(repoRoot, 'package.json'),
   smoke: path.join(repoRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
-  status: path.join(repoRoot, 'Docs', 'CURRENT_STATUS.md'),
+  decisions: path.join(repoRoot, 'Docs', 'DECISIONS.md'),
 };
 
 const fail = (message) => {
@@ -92,15 +92,13 @@ for (const snippet of [
 
 const helper = readText(files.helper);
 for (const snippet of [
-  'PayoutReviewContext',
-  'PayoutReviewPeriod',
-  'PayoutReviewWorkflowResult',
-  'fetchPayoutReviewContext',
-  'markPayoutRunReviewedAdmin',
-  'finalizePayoutRunAdmin',
-  'reopenPayoutRunAdmin',
-  'voidPayoutRunAdmin',
-  'get_payout_review_context',
+  'TechnicianPayReportContext',
+  'fetchTechnicianPayReportContext',
+  'get_current_technician_pay_report_context',
+  'requestPayStubGenerationAdmin',
+  'accountPayAuthorityRequired: true',
+  'approvalRequired: false',
+  'paymentExecution: false',
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);
@@ -120,8 +118,8 @@ for (const snippet of [
   'Expense Reimbursement',
   'Blocks publishing',
   'does not approve or send payment',
-  'do not record proof of payment',
-  'calculate taxes',
+  'does not record proof of payment',
+  'calculate payroll withholding',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);
@@ -185,9 +183,14 @@ if (!smoke.includes('Technician Pay Report')) {
   fail('Smoke checklist missing Technician Pay Report coverage.');
 }
 
-const status = readText(files.status);
-if (!status.includes('Operator Pay calculation, finalization')) {
-  fail('CURRENT_STATUS missing the separation between Timekeeping V1 and pay-run review.');
+const decisions = readText(files.decisions);
+for (const snippet of [
+  'This decision supersedes the per-entry manager-approval workflow',
+  'requires neither approval nor proof that payment occurred',
+]) {
+  if (!decisions.includes(snippet)) {
+    fail(`DECISIONS missing the current Timekeeping boundary: ${snippet}`);
+  }
 }
 
 const actionOrder = ['draft', 'review', 'finalized', 'reopened', 'voided'];

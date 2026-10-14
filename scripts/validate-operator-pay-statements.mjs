@@ -18,6 +18,7 @@ const files = {
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
   adminPage: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
   portalTime: path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx'),
+  i18n: path.join(repoRoot, 'src', 'lib', 'i18n.ts'),
   rpcSurface: path.join(repoRoot, 'scripts', 'validate-rpc-execute-surface.mjs'),
   packageJson: path.join(repoRoot, 'package.json'),
   smoke: path.join(repoRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
@@ -78,8 +79,9 @@ for (const snippet of [
   'OperatorPayStatementPayload',
   'fetchMyOperatorPayStatementContext',
   'fetchPayStatementArtifact',
-  'previewPayStatementsAdmin',
-  'issuePayStatementsAdmin',
+  'requestPayStubGenerationAdmin',
+  'admin_request_pay_stub_generation',
+  'pay-stub-generator',
   'buildOperatorPayStatementHtml',
   'downloadOperatorPayStatementHtml',
   'get_my_operator_pay_statement_context',
@@ -113,13 +115,23 @@ const portalTime = readText(files.portalTime);
 for (const snippet of [
   'PayStubsPanel',
   'downloadPayStub',
-  'Download Pay Stub',
-  'No Pay Stubs have been published yet.',
+  "t('workday.downloadPay')",
+  "t('workday.noPay')",
   'fetchPayStatementArtifact',
   'downloadOperatorPayStatementHtml',
 ]) {
   if (!portalTime.includes(snippet)) {
     fail(`Portal time page missing ${snippet}`);
+  }
+}
+
+const i18n = readText(files.i18n);
+for (const snippet of [
+  "'workday.downloadPay': 'Download Pay Stub'",
+  "'workday.noPay': 'No Pay Stubs have been published yet.",
+]) {
+  if (!i18n.includes(snippet)) {
+    fail(`Pay Stub translations missing ${snippet}`);
   }
 }
 
