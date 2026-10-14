@@ -38,7 +38,16 @@ select lives_ok($$select public.service_complete_pay_stub((result->>'requestId')
 -- Generated empty data still blocks. Only the existing explicit zero-revenue
 -- attestation can clear missing-source findings, using the same publication path.
 delete from public.machine_sales_facts where id=pg_temp.mid(101);
+-- The preservation contract also requires calculationComplete from the shared
+-- source adapter. A fresh-schema legacy adapter has no such coverage metadata.
+-- Enable the real adapter only inside this rolled-back synthetic transaction;
+-- do not mock the predicate or treat missing completeness as verified zero.
+insert into private.refund_request_recognition_rollout(singleton,activated_at,activated_by)
+ values(true,now(),'Synthetic monthly publication readiness')
+ on conflict(singleton) do update set activated_at=excluded.activated_at,activated_by=excluded.activated_by;
 select public.service_refresh_pay_stub_revenue_snapshot(pg_temp.mid(80),pg_temp.mid(30));
+select is((public.operator_revenue_snapshot_source_values(pg_temp.mid(80),pg_temp.mid(30))#>>'{sourceMetadata,calculationComplete}')::boolean,true,
+ 'Verified-zero fixture uses the complete real shared source adapter');
 select is((pg_temp.normalized()->>'publishable')::boolean,false,'Generated empty snapshot remains unverified');
 select is(pg_temp.prepare()->>'status','blocked','Unverified empty month cannot prepare a statement');
 update public.payout_period_machine_revenue_snapshots
