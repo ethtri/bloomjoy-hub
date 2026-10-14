@@ -1,5 +1,5 @@
 import { assertEquals, assertGreater, assertRejects } from "jsr:@std/assert@1";
-import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
+import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from "https://esm.sh/pdf-lib@1.17.1";
 import { buildPayStubPdf, payStubEarningRows, type PayStubPayload } from "./pay-stub-pdf.ts";
 import { monthlyStatementFixture } from '../../../src/lib/monthlyVisitCompensation.fixture.ts';
 
@@ -24,6 +24,30 @@ Deno.test('monthly PDF rejects unsupported versions and invalid visit evidence',
   const malformed = monthlyStatementFixture();
   malformed.monthlyVisitLines[0].agreement.extra_hour_rate_cents = -1;
   await assertRejects(() => buildPayStubPdf(malformed));
+});
+
+Deno.test('monthly visits keep the next pay heading with its first row across a page break', async () => {
+  const payload: PayStubPayload = monthlyStatementFixture();
+  const line = payload.monthlyVisitLines![0];
+  line.machineLabel = 'W'.repeat(100);
+  line.agreement.included_visits = 22;
+  line.entries = Array.from({ length: 22 }, (_, index) => {
+    const workDate = `2025-01-${String(index + 1).padStart(2, '0')}`;
+    return { id: `long-${index}`, workDate, actualStartAt: `${workDate}T08:00:00Z`, actualEndAt: `${workDate}T08:20:00Z`, actualMinutes: 20 };
+  });
+  Object.assign(line.evaluation, { actualMinutes: 440, visitUnits: 22, extraActualMinutes: 0, extraEarningsCents: 0, timeEarningsCents: 18000 });
+  Object.assign(payload.current, { actualMinutes: 460, paidShifts: 1, shiftEarningsCents: 2000, visitUnits: 22, extraTimeEarningsCents: 0, totalEarningsCents: 20500 });
+  payload.yearToDate = { ...payload.current };
+  payload.shiftRateLines = [{ machineLabel: 'Another machine', shiftRateCents: 2000, paidShifts: 1, actualDurationMinutes: 20, shiftEarningsCents: 2000 }];
+  const pdf = await PDFDocument.load(await buildPayStubPdf(payload));
+  assertGreater(pdf.getPageCount(), 2);
+  const heading = Array.from(new TextEncoder().encode('Started-hour pay by machine'), b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const content = pdf.getPages().map(page => {
+    const streams = pdf.context.lookup(page.node.Contents(), PDFArray);
+    return Array.from({ length: streams.size() }, (_, i) => new TextDecoder().decode(decodePDFRawStream(streams.lookup(i, PDFRawStream)).decode())).join('');
+  });
+  assertEquals(content[1].includes(heading), false);
+  assertEquals(content[2].includes(heading), true);
 });
 
 export const samplePayStubPayload: PayStubPayload = {

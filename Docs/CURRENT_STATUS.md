@@ -2,6 +2,17 @@
 
 Last compacted: 2026-09-29.
 
+
+## Monthly base compensation — draft only (#1929 / #1930)
+
+The draft integrates effective-dated manager agreements, exact visit time,
+separate base/extra/commission earnings, saved statements/PDFs, following-month
+YTD and source-change protection. Missing/excess visits, partial months and
+fractional extra-hour rules remain unset and block affected publication. No
+production terms, time records, issued statements, payments or access changed.
+See `Docs/MONTHLY_VISIT_COMPENSATION_DRAFT.md` and PR #1930 for scope, synthetic
+verification and release ordering. Keep #1912's separate freshness work unreleased.
+
 ## NC Nayax account preparation
 
 Issue #1913 prepares a private, GET-only account check and additive refund-worker

@@ -1,110 +1,118 @@
-# Monthly base with included visits — draft support
+# Monthly base with included visits — integrated draft
 
-Status: calculation foundation for #1929. Not available in manager settings,
-not connected to payroll, and not approved for release.
+Status: implementation for #1929 in draft PR #1930. Not merged, deployed, or
+activated. No real compensation terms, time records, issued statements,
+regeneration requests, payments, email or access grants are changed.
 
-## Capability assessment
+## Manager workflow
 
-The current manager form supports effective-dated started-hour and commission
-rates. `OperatorCompensationRateType` in `src/lib/operatorPayouts.ts` is limited
-to `shift` and `commission`. Recurring items are bonuses, supply credits and
-expense reimbursements. None expresses a contractual monthly base, an included
-visit allowance, or additional repair time beyond a per-visit threshold.
+At `/admin/payouts`, choose a Technician and **Adjust pay → Monthly base plus
+extra time**. Save the assigned machine, monthly base, included visits, minutes
+per visit, extra hourly rate and effective dates. Reopen an agreement to inspect,
+revise or deactivate it. A stale loaded revision is rejected rather than silently
+overwriting another manager's changes. Existing commission settings stay separate.
 
-Per-machine compensation already reached main through #1276. Open #1273 is
-older work touching the same manager page, report and PDF files; it should not
-be adopted as a separate solution. This draft does not overlap those files,
-#1912's freshness fix, or #1925's Home summaries.
+The server checks account pay authority and machine assignment. Deactivating an
+existing agreement after assignment revocation is allowed only for the same saved
+machine scope. New or retargeted inactive agreements still require valid scope.
+No technician receives compensation-management permission through this feature.
 
-## Calculation implemented in this draft
+One effective monthly agreement may overlap a date for each Technician profile.
+It belongs to one machine. This limited scope prevents multiplying one monthly
+base across machine filters or competing agreements. Ordinary started-hour pay
+for other machines remains separate. Cross-payer changes with monthly agreement
+history require reconciliation before the existing payer-correction operation.
 
-`private.evaluate_monthly_visit_compensation` is pure internal arithmetic.
-It takes the monthly base in cents, included visit count, included minutes per
-visit, extra-hour rate, exact actual minutes for each visit, and verified full-month
-coverage. It reads and writes no records and has no app/worker execution grant.
+## Calculation and unresolved rules
 
-- Preserve the actual duration of every visit. A short visit is still one visit
-  unit; that unit does not turn its actual duration into an hour.
-- Calculate extra actual time separately for every visit:
-  `max(actual minutes - included minutes per visit, 0)`.
-- Pay the base once when a full month has exactly the included visit count.
-- Exact whole extra hours use the configured extra-hour rate.
-- Fewer or excess visits, partial or unknown coverage, and fractional extra
-  hours return specific blockers and null earnings, not an invented rule or zero.
-- Keep unresolved policies explicitly unset even when they do not affect the
-  selected month. Two fractional visits cannot cancel the rounding uncertainty.
-- Commission is outside this function. The existing eligible-sales calculation
-  and effective commission rate remain authoritative.
+The trusted adapter reads persisted agreements, assignment coverage and nonvoided
+time entries. Browser-supplied durations or coverage flags never authorize pay.
+Exact elapsed minutes come from timestamps, including seconds; existing rounded
+minute and shift records are not rewritten. The report, saved statement and PDF
+show actual time separately from contractual visit units.
 
-Synthetic example: a $180 monthly base covering three visits, with $24 per
-extra hour and 60 included minutes per visit. Visits of 35, 55 and 40 minutes
-retain 130 actual minutes and three visit units, yielding $180 time earnings.
-Visits of 120, 30 and 20 minutes retain 170 actual minutes but include one extra
-hour, yielding $204. Short visits do not offset a longer visit's extra time.
+- One unambiguous recorded visit counts as one visit, including a short visit.
+- Extra time is `max(actual minutes - included minutes per visit, 0)`, per visit.
+  A short visit cannot offset extra repair time on another visit.
+- A complete calendar month with exactly the included visits pays the base once.
+- Whole extra hours use the agreed extra-hour rate. Commission retains the existing
+  tax-exclusive eligible-sales calculation.
+- Monthly-covered entries contribute no legacy started-hour earnings or units.
+- Missing/excess visits, partial month/assignment coverage and fractional extra-hour
+  rounding remain explicitly unset. Affected months show an issue, a null payable
+  total and blocked generation. Unaffected complete months can be calculated.
+- Multiple time entries on a visit date, including another machine that day, require
+  explicit visit attribution. This conservative rule can block separate same-day
+  visits; general split/session grouping is not inferred in this draft.
 
-`calculationStatus: ready` means only that this arithmetic case is resolved.
-It is not publication permission, scope verification, an issued statement,
-or proof that all payroll source data is complete.
+The report labels monthly base, extra time, commission and other earnings
+separately. Machine filtering attributes the base only to its agreement machine;
+Technician-level other earnings remain excluded from a machine-filtered view.
 
-## Required integration before manager use
+## Saved statements, YTD and freshness
 
-1. **Effective-dated agreement.** Add a payer/profile/machine-scoped monthly
-   agreement with explicit base, included visits, included minutes, extra-hour
-   rate and nullable policy decisions. Prevent overlapping agreements and
-   ambiguous scope. Record who changed it and before/after terms. Do not replace
-   a prior contract or migrate a worker automatically. Existing commission
-   rules remain separate. Define whether a visit equals one time entry; do not
-   silently infer visit grouping for split entries or multiple machines.
-2. **Manager configuration.** Extend the existing pay settings with a choice
-   between started-hour pay and monthly base plus extra time. Show the monthly
-   fields only for that choice. Leave unresolved rules visibly “Not agreed.”
-   Derive account permission, assignment coverage, eligibility and complete
-   calendar-month scope on the server. A browser-supplied coverage flag or
-   duration list must never authorize payment. Allow review before activation.
-   Derive exact duration from start/end timestamps: existing
-   `time_entries.raw_duration_minutes` already rounds up to a minute. The evaluator
-   preserves fractional minutes and blocks fractional extra hours; it does not
-   silently use the existing minute or started-hour rounding.
-3. **One report calculation.** Integrate into the current outer
-   `private.calculate_technician_pay_report` chain. Preserve all existing sales,
-   tax, assignment, cutoff and commission blockers. Replace only the applicable
-   time-earnings calculation, without double-paying started-hour earnings.
-   Keep actual minutes, legacy started-hour units and contractual visit units
-   distinct. Persist selected entry IDs and agreement revision in the snapshot.
-   Update `scopeTechnicianToMachine` in `Payouts.tsx`, which currently reconstructs
-   filtered totals from started-hour pay and commission alone. Define base
-   attribution once within the agreement scope, never once per filtered row.
-   Voids, late corrections, overlapping terms and multiple machine scopes need
-   explicit regression coverage. Unrelated profiles must produce identical reports.
-4. **Statement and YTD fields.** Add named base and extra-time earnings to the
-   report, payout snapshot, statement payload, PDF and YTD totals. The current
-   generation code in `20260908163758_automatic_contractor_pay_stubs.sql` and
-   `supabase/functions/_shared/pay-stub-pdf.ts` assumes `shiftEarningsCents`.
-   Do not disguise base pay as shifts or a bonus. Version the new payload and
-   retain compatibility with old statements. Keep earlier issued PDFs immutable.
-   Include `publishedPayStub.ts` and `PayStubDetails.tsx` in the display contract.
-5. **Freshness and regeneration.** Agreement revisions must participate in the
-   existing source-revision locking and stale-state checks, including later YTD.
-   A correction must not silently rewrite an issued statement. Keep this work
-   separate from the unmerged timestamp-boundary fix in #1912.
-6. **Verify and release separately.** Use disposable fixtures to verify account
-   and machine permissions, plan changes, time corrections, historical and
-   current months, generation, old/new PDFs and YTD. Render manager settings
-   and reports on desktop/mobile. Obtain the remaining business rules and
-   explicit release direction before activating any real agreement or regenerating
-   any statement. This draft contains no activation, compensation data or release.
+The existing publication workflow is retained. New payloads use
+`operator-pay-stub-v2` plus `earningsSchemaVersion: monthly-visits-v1`. They persist
+the evaluated agreement, source visit IDs/timestamps, separate earnings and exact
+actual minutes. The portal and PDF validate the saved payload; neither recalculates
+published amounts from current settings. Genuine older statement payloads and their
+PDF-download fallback remain supported. Earlier issued statement versions are
+unchanged and only the current issued version contributes to following-month YTD.
 
-## Unresolved business decisions
+Monthly base and extra time have dedicated run/item columns. Existing integer
+minute counters remain compatible; new exact-minute columns and saved payloads
+retain seconds. The following month carries previous base, extra time and actual
+minutes even when its current pay is ordinary started-hour pay.
 
-Treatment of fewer included visits, visits beyond the allowance, partial months,
-and fractional extra-hour rounding remains unset. Decisions should say whether
-rounding is per visit and how monetary cents are rounded. Additional machine
-scope and split-entry visit grouping must also be specified before general rollout.
+Agreement revisions share the existing monotonic time-change sequence. Old and new
+effective windows invalidate affected statements and later YTD. Assignment scope
+fingerprints provide an additional check. Source locks serialize preparation,
+publication, agreement saves and assignment changes. A source change while a PDF
+is being produced rejects completion; it does not replace the earlier issued PDF.
+Zero-visit months with an agreement remain eligible for normal scheduler evaluation
+and surface a missing-visit blocker rather than silently disappearing.
 
-## Local verification
+## Verification and review
 
-Run `npm ci`, `npm run db:validate-migrations`, `npm run build`,
-`npm test --if-present` and `npm run lint --if-present` from the PR worktree.
-The database test is `supabase/tests/monthly_visit_compensation_evaluator.sql`.
-All fixtures are synthetic and roll back. No live database or private worker
-data is required. `/admin/payouts` is unchanged; this draft adds no user-facing flow.
+All data is synthetic and isolated. No live database is needed.
+
+- `npm ci`
+- `npm run build`
+- `npm test --if-present`
+- `npm run lint --if-present`
+- `npx tsc --noEmit`
+- `deno test --no-lock supabase/functions/_shared/pay-stub-pdf.test.ts supabase/functions/_shared/pay-stub-worker.test.ts`
+- `deno check --no-lock supabase/functions/pay-stub-generator/index.ts`
+- `npm run db:validate-migrations` (disposable database; hosted replay is used when
+  local Docker/WSL resources are unavailable)
+- Start local Vite with synthetic Supabase URL/key; run
+  `APP_URL=http://127.0.0.1:8099 node scripts/validate-monthly-visit-compensation-uat.mjs`
+  and `scripts/validate-manager-time-pay-reports-uat.mjs` against that server.
+
+The SQL workflow fixture includes the anonymous four-visit acceptance case:
+45/50/45/45 actual minutes, four units, 20000-cent base, zero extra,
+3103-cent unchanged commission and 23103-cent total with no 8000-cent shift addition.
+It also exercises fractional short visits, whole-hour repair, real preparation,
+following-month YTD, old version preservation, source edits during PDF generation,
+authority, stale saves, assignment gaps and ambiguous/missing visits. A separate
+two-connection regression checks preparation/assignment and save/payer-correction
+serialization. Renderer fixtures use different synthetic terms.
+
+Browser evidence is local under `output/playwright/monthly-visits/`; synthetic PDF
+proof is under `output/pdf/`. Verification results and exact source are recorded
+in the PR after the final replay. This document does not itself claim hosted checks
+have passed.
+
+## Overlaps and eventual release order
+
+Per-machine compensation is already integrated via #1276. Do not replay old #1273.
+This integration touches the same manager page/report/PDF areas as that older PR,
+#1906/#1907 manager recovery, and portions of draft #1912 freshness. #1925 Home
+summary work is adjacent. #1912 remains a separate draft and is not released here.
+Sync from main and rerun checks if those foundations change.
+
+Release requires separate authorization. Deploy a compatible PDF worker before
+any database begins emitting the new earnings payload, then the reviewed migrations
+and UI; verify before enabling a real agreement. Do not regenerate real statements
+until the contract for the affected month is confirmed. The unresolved rules above
+must be agreed before affected months or broader visit grouping are supported.

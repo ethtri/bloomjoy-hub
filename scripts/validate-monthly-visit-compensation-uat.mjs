@@ -91,8 +91,35 @@ try {
   await page.getByRole('button', { name: 'View machine breakdown' }).click();
   await page.screenshot({ animations: 'disabled', path: `${artifactDir}/report-mobile.png`, fullPage: true });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  const current = { actualMinutes: 130.5, paidShifts: 0, shiftEarningsCents: 0, monthlyBaseEarningsCents: 19000,
+    extraTimeEarningsCents: 0, visitUnits: 3, commissionableSalesCents: 10000, commissionEarningsCents: 500,
+    bonusCents: 0, supplyCreditCents: 0, expenseReimbursementCents: 0, totalEarningsCents: 19500 };
+  const saved = { schemaVersion: 'operator-pay-stub-v2', earningsSchemaVersion: 'monthly-visits-v1', id: 'monthly-issued',
+    statementNumber: 'SYNTHETIC-MONTHLY', statementLabel: 'Pay Stub', status: 'issued', version: 1,
+    issuedAt: '2026-10-05T08:00:00Z', statementDate: '2026-10-05', entity: { name: 'Synthetic payer' }, contractor: { displayName: 'Synthetic Technician' },
+    period: { periodStartDate: '2026-09-01', periodEndDate: '2026-09-30' }, current,
+    yearToDate: { ...current, monthlyBaseEarningsCents: 37000, commissionEarningsCents: 1000, visitUnits: 6, totalEarningsCents: 38000 },
+    monthlyVisitLines: payContext.technicians[0].monthlyVisitLines, shiftRateLines: [], machines: [], classificationNotice: 'Synthetic contractor statement.' };
+  await context.route('**/rest/v1/rpc/get_my_operator_timekeeping_context', route => route.fulfill({ json: { profiles: [{ id: PROFILE_ID, status: 'active', assignedMachines: [], currentEntries: [], recentEntries: [] }] } }));
+  await context.route('**/rest/v1/rpc/get_my_operator_pay_statement_context', route => route.fulfill({ json: { profiles: [{ id: PROFILE_ID,
+    accountName: 'Synthetic payer', displayName: 'Synthetic Technician', statements: [{ ...saved, ...saved.period, totalPayoutCents: 999999 }] }] } }));
+  await context.route('**/rest/v1/rpc/get_pay_statement_artifact', route => route.fulfill({ json: { statement: saved,
+    artifact: { format: 'pdf', source: 'private_storage', storageBucket: 'operator-pay-statements', storagePath: 'synthetic.pdf', downloadFileName: 'synthetic.pdf' } } }));
+  const origin = new URL(page.url()).origin;
+  for (const width of [390, 1365]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${origin}/portal/time?profile=${PROFILE_ID}&statement=monthly-issued#pay-stubs`);
+    await page.locator('[data-pay-stub-detail]').waitFor();
+    await page.getByText('Machine and rate details', { exact: true }).click();
+    const text = await page.locator('[data-pay-stub-detail]').innerText();
+    for (const expected of ['Monthly base', '$190.00', '$370.00', '$195.00', '$380.00', '2 hr 10 min 30 sec']) assert(text.includes(expected), expected);
+    assert(!text.includes('$9,999.99'));
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.screenshot({ animations: 'disabled', path: `${artifactDir}/saved-statement-${width}.png`, fullPage: true });
+  }
   assert.equal(errors.length, 0, errors.join('\n'));
-  console.log('Monthly settings save/reload, revision protection, machine filter, exact seconds and desktop/mobile UAT passed (synthetic transport only).');
+  console.log('Monthly settings save/reload, revision protection, machine filter, exact seconds, saved statement/YTD and desktop/mobile UAT passed (synthetic transport only).');
 } catch (error) {
   await page.screenshot({ animations: 'disabled', path: `${artifactDir}/failure.png`, fullPage: true });
   await writeFile(`${artifactDir}/failure.txt`, await page.locator('body').innerText());
