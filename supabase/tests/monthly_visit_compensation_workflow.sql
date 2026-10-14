@@ -127,6 +127,15 @@ select is((select (result#>>'{payload,current,totalEarningsCents}')::integer fro
 select is((select (result#>>'{payload,yearToDate,monthlyBaseEarningsCents}')::integer from extra_prepared),38000,'YTD excludes replaced versions and counts two monthly bases once');
 select is((select (result#>>'{payload,yearToDate,extraTimeEarningsCents}')::integer from extra_prepared),2000,'YTD includes the whole extra hour');
 select lives_ok($$select public.service_complete_pay_stub((result->>'requestId')::uuid,(result->>'statementId')::uuid,result->>'storagePath') from extra_prepared$$,'Repair statement completes');
+-- Isolate assignment freshness from the pre-existing snapshot timestamp boundary
+-- tracked separately in #1912. Preparation refreshes the snapshot with now(), the
+-- same transaction timestamp as statement_generated_at; the old >= comparison
+-- reports that unchanged snapshot as stale. Only backdate this synthetic source
+-- timestamp; never rewrite the issued statement or replace the freshness helper.
+update public.payout_period_machine_revenue_snapshots
+  set regenerated_at=transaction_timestamp()-interval '1 second'
+  where account_id=pg_temp.mid(10) and payout_period_id=pg_temp.mid(82)
+    and reporting_machine_id=pg_temp.mid(30) and status<>'voided';
 select ok(not private.operator_pay_stub_regeneration_required(pg_temp.mid(50),'2025-03-01','2025-03-31'),'Fresh statement starts current before isolated assignment edit');
 update public.operator_machine_assignments set effective_end_date='2025-03-30' where id=pg_temp.mid(60);
 select ok(private.operator_pay_stub_regeneration_required(pg_temp.mid(50),'2025-03-01','2025-03-31'),'Assignment-only edit makes the current statement stale');

@@ -111,6 +111,12 @@ This integration touches the same manager page/report/PDF areas as that older PR
 summary work is adjacent. #1912 remains a separate draft and is not released here.
 Sync from main and rerun checks if those foundations change.
 
+The existing snapshot freshness check treats equal refresh/statement timestamps
+as a later change, so a freshly generated statement can appear stale. That known
+boundary issue remains owned by #1912 and must be resolved before activation.
+The assignment-only regression gives its synthetic snapshot an earlier timestamp
+to isolate the new assignment guard; it does not claim to fix that existing issue.
+
 Release requires separate authorization. Deploy a compatible PDF worker before
 any database begins emitting the new earnings payload, then the reviewed migrations
 and UI; verify before enabling a real agreement. Do not regenerate real statements
