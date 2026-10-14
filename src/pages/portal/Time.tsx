@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Download,
   Edit3,
   FileText,
   Loader2,
@@ -38,6 +37,9 @@ import {
 } from '@/components/ui/select';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { PayStubsPage } from '@/components/portal/PayStubsPage';
+import { PayStubsPanel } from '@/components/portal/PayStubsPanel';
+import { usePublishedPayStubs } from '@/hooks/usePublishedPayStubs';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { TimeEditingDeadline } from '@/components/portal/TimeEditingDeadline';
 import { useTimekeepingClock } from '@/hooks/useTimekeepingClock';
@@ -49,15 +51,10 @@ import { TimeEntryDraftNotice } from '@/components/portal/TimeEntryDraftNotice';
 import { cn } from '@/lib/utils';
 import {
   calculateOperatorPaidShifts,
-  downloadOperatorPayStatementHtml,
-  fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
-  fetchPayStatementArtifact,
-  formatOperatorPayStatementLabel,
   saveCompletedOperatorTimeEntry,
   voidOperatorTimeEntry,
   type OperatorAssignedMachine,
-  type OperatorPayStatementSummary,
   type OperatorTimeEntry,
   type OperatorTimekeepingContext,
   type OperatorTimekeepingProfileContext,
@@ -83,7 +80,6 @@ type FormErrors = Partial<Record<keyof TimeEntryForm | 'form', string>>;
 
 const getContextQueryKey = (monthAnchor: string) =>
   ['operator-timekeeping', monthAnchor] as const;
-const getPayStubsQueryKey = ['operator-pay-statements'] as const;
 const lastMachineStorageKey = (profileId: string) => `bloomjoy-timekeeping-last-machine:${profileId}`;
 
 const isDateValue = (value: string | null): value is string =>
@@ -116,9 +112,6 @@ const formatDuration = (minutes: number) => {
   if (!remainder) return `${hours} hr${hours === 1 ? '' : 's'}`;
   return `${hours} hr ${remainder} min`;
 };
-
-const formatCurrency = (cents: number) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100);
 
 const formatCutoff = (cutoffAt: string) =>
   new Intl.DateTimeFormat(undefined, {
@@ -223,9 +216,7 @@ export default function PortalTimePage() {
   const [recoveryDate, setRecoveryDate] = useState<string | null>(null);
   const [deleteEntry, setDeleteEntry] = useState<OperatorTimeEntry | null>(null);
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
-  const [downloadingPayStubId, setDownloadingPayStubId] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const payHeadingRef = useRef<HTMLHeadingElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const liveFormRef = useRef({ key: '', form, pathname: location.pathname, userId: user?.id });
   const mountedRef = useRef(false);
@@ -237,7 +228,6 @@ export default function PortalTimePage() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    if (showPayStubs) payHeadingRef.current?.focus({ preventScroll: true });
   }, [location.pathname, showPayStubs]);
 
   useEffect(() => {
@@ -441,12 +431,7 @@ export default function PortalTimePage() {
     selectedProfile?.assignedMachines.some((machine) => machineIsEffective(machine, selectedDate)) ??
     false;
 
-  const payStubsQuery = useQuery({
-    queryKey: getPayStubsQueryKey,
-    queryFn: fetchMyOperatorPayStatementContext,
-    staleTime: 30_000,
-    enabled: showPayStubs || (!isFormRoute && profiles.length > 0),
-  });
+  const payStubsQuery = usePublishedPayStubs(!showPayStubs && !isFormRoute && profiles.length > 0);
   const payStubProfile = payStubsQuery.data?.profiles.find(
     (profile) => profile.id === selectedProfile?.id
   );
@@ -606,48 +591,9 @@ export default function PortalTimePage() {
       userId: user.id, pathname: location.pathname, url: `${location.pathname}${location.search}${location.hash}` });
   };
 
-  const downloadPayStub = async (payStub: OperatorPayStatementSummary) => {
-    setDownloadingPayStubId(payStub.id);
-    try {
-      const artifact = await fetchPayStatementArtifact(payStub.id);
-      await downloadOperatorPayStatementHtml(artifact);
-      toast.success('Pay Stub downloaded.');
-    } catch (error) {
-      toast.error(describeTimekeepingError(error));
-    } finally {
-      setDownloadingPayStubId(null);
-    }
-  };
-
   const retryLoad = () => Promise.all(contextQueries.map((query) => query.refetch()));
 
-  if (showPayStubs && !isFormRoute) {
-    const payProfiles = payStubsQuery.data?.profiles ?? [];
-    const selectedPayProfile = payProfiles.find((profile) => profile.id === selectedProfileId) ?? payProfiles[0];
-    return (
-      <PortalLayout>
-        <section className="portal-section">
-          <div className="container-page max-w-5xl space-y-5">
-            <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h1 ref={payHeadingRef} tabIndex={-1} className="font-display text-3xl font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('workday.payStubs')}</h1>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('workday.payDescription')}</p>
-              </div>
-              <Button asChild variant="outline" className="min-h-11"><Link to={`/portal/time${selectedPayProfile ? `?profile=${encodeURIComponent(selectedPayProfile.id)}` : ''}`}><Clock3 className="mr-2 h-4 w-4" aria-hidden="true" />{t('workday.allTime')}</Link></Button>
-            </header>
-            {payProfiles.length > 1 && <div className="max-w-md space-y-2">
-              <label htmlFor="pay-profile" className="block text-sm font-medium">{t('workday.account')}</label>
-              <Select value={selectedPayProfile?.id ?? ''} onValueChange={selectProfile}>
-                <SelectTrigger id="pay-profile" className="min-h-11 bg-card"><SelectValue /></SelectTrigger>
-                <SelectContent>{payProfiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.displayName} · {profile.accountName}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>}
-            <PayStubsPanel payStubs={selectedPayProfile?.statements ?? []} isLoading={payStubsQuery.isLoading} error={payStubsQuery.error} downloadingId={downloadingPayStubId} onDownload={downloadPayStub} onRetry={() => void payStubsQuery.refetch()} expanded />
-          </div>
-        </section>
-      </PortalLayout>
-    );
-  }
+  if (showPayStubs && !isFormRoute) return <PayStubsPage />;
 
   if (isLoading) {
     return (
@@ -1241,11 +1187,9 @@ export default function PortalTimePage() {
           </div>
 
           <PayStubsPanel
-            payStubs={payStubProfile?.statements ?? []}
+            profile={payStubProfile}
             isLoading={payStubsQuery.isLoading}
             error={payStubsQuery.error}
-            downloadingId={downloadingPayStubId}
-            onDownload={downloadPayStub}
             onRetry={() => void payStubsQuery.refetch()}
           />
 
@@ -1293,91 +1237,5 @@ export default function PortalTimePage() {
         </div>
       </section>
     </PortalLayout>
-  );
-}
-
-function PayStubsPanel({
-  payStubs,
-  isLoading,
-  error,
-  downloadingId,
-  onDownload,
-  onRetry,
-  expanded = false,
-}: {
-  payStubs: OperatorPayStatementSummary[];
-  isLoading: boolean;
-  error: unknown;
-  downloadingId: string | null;
-  onDownload: (payStub: OperatorPayStatementSummary) => void;
-  onRetry: () => void;
-  expanded?: boolean;
-}) {
-  const { t } = useLanguage();
-  const content = (
-      <div>
-        {error ? (
-          <div className="p-5" role="alert"><p className="text-sm text-destructive">{t('workday.payUnavailable')}</p><Button variant="outline" onClick={onRetry} className="mt-3 min-h-11"><RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />{t('dashboard.retryStatus')}</Button></div>
-        ) : isLoading ? (
-          <div className="space-y-3 p-5" aria-label="Loading Pay Stubs">
-            <Skeleton className="h-5 w-40" />
-            <Skeleton className="h-11 w-full" />
-          </div>
-        ) : payStubs.length === 0 ? (
-          <p className="p-5 text-sm text-muted-foreground">
-            {t('workday.noPay')}
-          </p>
-        ) : (
-          <div className="divide-y divide-border">
-            {payStubs.map((payStub) => (
-              <article key={payStub.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">
-                    {formatOperatorPayStatementLabel(payStub.statementLabel)}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {formatPlainDate(payStub.periodStartDate, { month: 'short', day: 'numeric' })} to{' '}
-                    {formatPlainDate(payStub.periodEndDate, {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}{' '}
-                    · {formatCurrency(payStub.totalPayoutCents)}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11 w-full sm:w-auto"
-                  disabled={downloadingId === payStub.id}
-                  onClick={() => onDownload(payStub)}
-                >
-                  {downloadingId === payStub.id ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  {t('workday.downloadPay')}
-                </Button>
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-  );
-
-  if (expanded) return <section id="pay-stubs" aria-label={t('workday.payStubs')} className="overflow-hidden rounded-2xl border border-border bg-card">{content}</section>;
-
-  return (
-    <details id="pay-stubs" className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="rounded-lg bg-muted p-2 text-muted-foreground"><FileText className="h-5 w-5" aria-hidden="true" /></span>
-          <span><span className="block font-semibold text-foreground">{t('workday.payStubs')}</span><span className="block text-sm text-muted-foreground">{t('workday.payDescription')}</span></span>
-        </div>
-        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
-      </summary>
-      <div className="border-t border-border">{content}</div>
-    </details>
   );
 }

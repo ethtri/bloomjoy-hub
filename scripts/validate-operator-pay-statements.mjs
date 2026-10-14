@@ -111,10 +111,10 @@ for (const snippet of ['previewStatements', 'issueStatements', 'Revision reason'
   }
 }
 
-const portalTime = readText(files.portalTime);
+const portalTime = [readText(files.portalTime), readText('src/components/portal/PayStubsPanel.tsx'), readText('src/components/portal/PayStubShared.tsx')].join('\n');
 for (const snippet of [
   'PayStubsPanel',
-  'downloadPayStub',
+  'PayStubDownload',
   "t('workday.downloadPay')",
   "t('workday.noPay')",
   'fetchPayStatementArtifact',

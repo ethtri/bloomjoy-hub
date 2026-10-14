@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, BookOpen, ChevronRight, FileText, RefreshCw } from 'lucide-react';
+import { BarChart3, BookOpen, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -9,6 +9,7 @@ import { TimeEditingDeadline } from '@/components/portal/TimeEditingDeadline';
 import { useTimekeepingClock } from '@/hooks/useTimekeepingClock';
 import { getNextTimeEditingWorkDate } from '@/lib/timeEditingDeadline';
 import { getWeekStart } from '@/lib/timekeepingUi';
+import { PayStubHomeCard } from './PayStubHomeCard';
 
 type Props = {
   timekeeping: ReturnType<typeof usePortalTimekeepingAccess>;
@@ -113,13 +114,7 @@ export function TechnicianHome({ timekeeping, canAccessTraining, canAccessReport
             )}
           </section>
 
-          <section aria-labelledby="workday-pay-title" className="rounded-2xl border border-border bg-card p-5 sm:p-6 xl:self-stretch">
-            <div className="flex items-start gap-4 xl:flex-col">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/5 text-primary"><FileText className="h-6 w-6" aria-hidden="true" /></span>
-              <div><h2 id="workday-pay-title" className="text-xl font-semibold">{t('workday.payStubs')}</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{t('workday.payDescription')}</p></div>
-            </div>
-            <div className="mt-5 border-t border-border pt-2"><Link className={linkStyle} to={`/portal/time${profileSearch}#pay-stubs`} data-dashboard-secondary-action>{t('workday.viewPay')}<ChevronRight className="h-4 w-4" aria-hidden="true" /></Link></div>
-          </section>
+          <PayStubHomeCard profileId={profile?.id} />
         </div>
 
         {(canAccessReporting || canAccessTraining) && <section aria-labelledby="workday-tools-title">

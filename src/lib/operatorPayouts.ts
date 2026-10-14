@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import type { PublishedPayStub } from '@/lib/publishedPayStub';
 
 export type OperatorWorkerType =
   | 'contractor_1099'
@@ -186,15 +187,7 @@ export type OperatorPayStatementPayload = {
   };
 };
 
-export type OperatorPayStubPayload = {
-  schemaVersion: 'operator-pay-stub-v2';
-  id: string;
-  statementNumber: string;
-  statementLabel: 'Pay Stub';
-  status: 'issued' | 'revised';
-  version: number;
-  issuedAt: string;
-};
+export type OperatorPayStubPayload = PublishedPayStub;
 
 export type OperatorPayStatementArtifact = {
   statement: OperatorPayStatementPayload | OperatorPayStubPayload;

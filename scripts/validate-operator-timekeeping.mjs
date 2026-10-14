@@ -105,7 +105,7 @@ for (const snippet of [
   'Next week',
   'Pay preview',
   "paid ${",
-  'Pay Stubs',
+  'PayStubsPanel',
   'Save time',
   'No machine assignment for this day',
   'Technician editing is closed for this month',

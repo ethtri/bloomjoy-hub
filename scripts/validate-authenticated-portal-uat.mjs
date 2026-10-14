@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { runPublishedPayScenarios } from './portal-published-pay-uat.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(repoRoot, 'output', 'playwright', 'issue-553');
@@ -17,6 +18,7 @@ const getArg = (name, fallback) => {
 };
 
 const appUrl = getArg('--app-url', 'http://127.0.0.1:8081');
+const publishedPayOnly = process.argv.includes('--published-pay-only');
 const technicianHomeOnly = process.argv.includes('--technician-home-only');
 const expiresAt = Math.floor(Date.now() / 1000) + 3600;
 const debug = process.env.PORTAL_UAT_DEBUG === '1';
@@ -580,6 +582,7 @@ const createPageForPersona = async (
     rpcCalls = [],
     payStatementFailureAttempts = 0,
     payStatementDelayMs = 0,
+    expectedArtifactStatuses = [],
     clockTime = null,
   } = {},
 ) => {
@@ -784,6 +787,8 @@ const createPageForPersona = async (
       payStatementFailureAttempts > 0 &&
       message.type() === 'error' &&
       message.text().includes('503 (Service Unavailable)');
+    const isExpectedPayArtifactFailure = expectedArtifactStatuses.some(status => message.text().includes(`${status} (`))
+      && message.location().url.includes('/rest/v1/rpc/get_pay_statement_artifact');
     const isExpectedEdgeFunctionFailure =
       message.type() === 'error' &&
       Object.values(edgeFunctionResponses).some(
@@ -796,6 +801,7 @@ const createPageForPersona = async (
       !isExpectedDashboardStatusFailure &&
       !isExpectedPlusAccessFailure &&
       !isExpectedPayStatementFailure &&
+      !isExpectedPayArtifactFailure &&
       !isExpectedEdgeFunctionFailure
     ) {
       const errorMessage = `[${persona.email}] console error: ${message.text()}`;
@@ -847,12 +853,16 @@ const createPageForPersona = async (
       response.status() === 503 &&
       requestUrl.pathname.endsWith('/rest/v1/rpc/get_my_operator_pay_statement_context');
 
+    const isExpectedPayArtifactFailure = expectedArtifactStatuses.includes(response.status())
+      && requestUrl.pathname.endsWith('/rest/v1/rpc/get_pay_statement_artifact');
+
     if (
       isExpectedDashboardStatusFailure ||
       isExpectedLanguageSyncFailure ||
       isExpectedEdgeFunctionResponse ||
       isExpectedPlusAccessFailure ||
-      isExpectedPayStatementFailure
+      isExpectedPayStatementFailure ||
+      isExpectedPayArtifactFailure
     ) {
       return;
     }
@@ -1480,7 +1490,7 @@ const runTechnicianHomeScenarios = async (browser) => {
     rpcOverrides, rpcCalls: payCalls, payStatementDelayMs: 1_500,
   });
   await payLoadingPage.goto(`${appUrl}/portal/time?profile=operator-profile-second#pay-stubs`, { waitUntil: 'domcontentloaded' });
-  await payLoadingPage.getByLabel('Loading Pay Stubs').waitFor();
+  await payLoadingPage.locator('#pay-stubs [role="status"]').waitFor();
   await assert(
     (await payLoadingPage.getByText(/No Pay Stubs have been published/).count()) === 0,
     'Loading published pay history must not briefly claim there are no pay stubs.',
@@ -1503,7 +1513,7 @@ const runTechnicianHomeScenarios = async (browser) => {
   await emptyPayPage.context().close();
 
   const failedPayPage = await createPageForPersona(browser, personas.timekeeper, { width: 390, height: 844 }, {
-    rpcOverrides, payStatementFailureAttempts: 4,
+    rpcOverrides, payStatementFailureAttempts: 1,
   });
   await failedPayPage.goto(`${appUrl}/portal/time?profile=operator-profile-second#pay-stubs`, { waitUntil: 'domcontentloaded' });
   await failedPayPage.locator('#pay-stubs [role="alert"]').waitFor({ timeout: 20_000 });
@@ -1575,7 +1585,9 @@ const runTechnicianHomeScenarios = async (browser) => {
 const browser = await chromium.launch();
 
 try {
-  if (technicianHomeOnly) {
+  if (publishedPayOnly) {
+    await runPublishedPayScenarios({ browser, createPageForPersona, personas, makeWorkdayFixture, appUrl, outputDir, assert, assertNoHorizontalOverflow });
+  } else if (technicianHomeOnly) {
     await runTechnicianHomeScenarios(browser);
   } else {
   const adminPage = await createPageForPersona(browser, personas.admin, {
@@ -1824,6 +1836,7 @@ try {
   await timekeeperPage.close();
 
   await runTechnicianHomeScenarios(browser);
+  await runPublishedPayScenarios({ browser, createPageForPersona, personas, makeWorkdayFixture, appUrl, outputDir, assert, assertNoHorizontalOverflow });
 
   const loginDesktopContext = await browser.newContext({
     viewport: { width: 1366, height: 768 },
