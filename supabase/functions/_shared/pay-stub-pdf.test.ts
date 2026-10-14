@@ -1,6 +1,6 @@
-import { assertEquals, assertGreater } from "jsr:@std/assert@1";
+import { assertEquals, assertGreater, assertRejects } from "jsr:@std/assert@1";
 import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
-import { buildPayStubPdf, type PayStubPayload } from "./pay-stub-pdf.ts";
+import { buildPayStubPdf, payStubEarningRows, type PayStubPayload } from "./pay-stub-pdf.ts";
 
 export const samplePayStubPayload: PayStubPayload = {
   schemaVersion: "operator-pay-stub-v2",
@@ -70,7 +70,7 @@ Deno.test("Pay Stub PDF includes a summary and machine pay details", async () =>
   assertGreater(bytes.length, 1_000);
   const pdf = await PDFDocument.load(bytes);
   assertEquals(pdf.getPageCount(), 2);
-  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v3");
+  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v4");
 });
 
 Deno.test("simple Pay Stub stays on one page when no appendix is needed", async () => {

@@ -6,7 +6,14 @@ import {
   StandardFonts,
 } from "https://esm.sh/pdf-lib@1.17.1";
 
-export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v3";
+export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v4";
+
+type MonthlyVisitLine = {
+  machineLabel: string;
+  agreement: { included_visits: number; included_minutes_per_visit: number; extra_hour_rate_cents: number };
+  evaluation: { visitUnits: number; baseEarningsCents: number | null; extraEarningsCents: number | null; blockers: unknown[] };
+  entries: Array<{ workDate: string; actualMinutes: number }>;
+};
 
 export type PayStubMachineSegment = {
   segmentStartDate: string | null;
@@ -43,6 +50,8 @@ export type PayStubShiftRateLine = {
 };
 
 export type PayStubPayload = {
+  earningsSchemaVersion?: 'monthly-visits-v1';
+  monthlyVisitLines?: MonthlyVisitLine[];
   schemaVersion: "operator-pay-stub-v2";
   statementNumber: string;
   statementLabel: string;
@@ -67,6 +76,9 @@ export type PayStubPayload = {
   };
   period: { periodStartDate: string; periodEndDate: string };
   current: {
+    monthlyBaseEarningsCents?: number;
+    extraTimeEarningsCents?: number;
+    visitUnits?: number;
     actualMinutes: number;
     paidShifts: number;
     shiftEarningsCents: number;
@@ -78,6 +90,9 @@ export type PayStubPayload = {
     totalEarningsCents: number;
   };
   yearToDate: {
+    monthlyBaseEarningsCents?: number;
+    extraTimeEarningsCents?: number;
+    visitUnits?: number;
     paidShifts: number;
     shiftEarningsCents: number;
     commissionableSalesCents: number;
@@ -121,12 +136,40 @@ const date = (value: string | null) => {
 
 const period = (start: string | null, end: string | null) => `${date(start)} - ${date(end)}`;
 
+export function payStubEarningRows(payload: PayStubPayload): string[][] {
+  const rows = [
+    ['Paid shifts', String(payload.current.paidShifts), String(payload.yearToDate.paidShifts)],
+    ['Shift pay', money(payload.current.shiftEarningsCents), money(payload.yearToDate.shiftEarningsCents)],
+    ['Commission', money(payload.current.commissionEarningsCents), money(payload.yearToDate.commissionEarningsCents)],
+    ['Bonus', money(payload.current.bonusCents), money(payload.yearToDate.bonusCents)],
+    ['Supply credit', money(payload.current.supplyCreditCents), money(payload.yearToDate.supplyCreditCents)],
+    ['Expense reimbursement', money(payload.current.expenseReimbursementCents), money(payload.yearToDate.expenseReimbursementCents)],
+  ];
+  if (payload.earningsSchemaVersion === 'monthly-visits-v1') {
+    for (const totals of [payload.current, payload.yearToDate]) {
+      if (![totals.monthlyBaseEarningsCents, totals.extraTimeEarningsCents, totals.visitUnits].every(v => Number.isSafeInteger(v) && v! >= 0)
+        || totals.totalEarningsCents !== totals.shiftEarningsCents + totals.monthlyBaseEarningsCents! + totals.extraTimeEarningsCents!
+          + totals.commissionEarningsCents + totals.bonusCents + totals.supplyCreditCents + totals.expenseReimbursementCents) {
+        throw new Error('Monthly compensation statement is incomplete or inconsistent');
+      }
+    }
+    if (!Array.isArray(payload.monthlyVisitLines) || payload.monthlyVisitLines.some(line => line.evaluation.blockers.length
+      || line.evaluation.baseEarningsCents === null || line.evaluation.extraEarningsCents === null)) throw new Error('Monthly compensation statement is blocked');
+    if (payload.monthlyVisitLines.reduce((sum, line) => sum + line.evaluation.baseEarningsCents!, 0) !== payload.current.monthlyBaseEarningsCents
+      || payload.monthlyVisitLines.reduce((sum, line) => sum + line.evaluation.extraEarningsCents!, 0) !== payload.current.extraTimeEarningsCents
+      || payload.monthlyVisitLines.reduce((sum, line) => sum + line.evaluation.visitUnits, 0) !== payload.current.visitUnits) throw new Error('Monthly compensation detail does not match totals');
+    rows.splice(1, 0, ['Included visits completed', String(payload.current.visitUnits), String(payload.yearToDate.visitUnits)]);
+    rows.splice(3, 0, ['Monthly base', money(payload.current.monthlyBaseEarningsCents!), money(payload.yearToDate.monthlyBaseEarningsCents!)],
+      ['Extra time', money(payload.current.extraTimeEarningsCents!), money(payload.yearToDate.extraTimeEarningsCents!)]);
+  }
+  return rows;
+}
+
 const workedDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  if (!hours) return `${remainder} min worked`;
-  if (!remainder) return `${hours} hr${hours === 1 ? "" : "s"} worked`;
-  return `${hours} hr ${remainder} min worked`;
+  const seconds = Math.round(minutes * 60);
+  const hours = Math.floor(seconds / 3600);
+  const remainder = Math.floor(seconds % 3600 / 60);
+  return `${hours ? `${hours} hr ` : ''}${remainder} min${seconds % 60 ? ` ${seconds % 60} sec` : ''} worked`;
 };
 
 const text = (
@@ -201,29 +244,26 @@ const drawSummaryPage = (
   card(page, MARGIN, 492, WIDTH - MARGIN * 2, 84);
   text(page, fonts.regular, "TOTAL EARNINGS", MARGIN + 16, 550, 8, MUTED);
   text(page, fonts.bold, money(payload.current.totalEarningsCents), MARGIN + 16, 518, 25, CORAL);
-  rightText(page, fonts.regular, `${payload.current.paidShifts} paid shifts`, WIDTH - MARGIN - 16, 541, 9, MUTED);
+  rightText(page, fonts.regular, payload.earningsSchemaVersion ? `${payload.current.visitUnits} visits / ${payload.current.paidShifts} started hours` : `${payload.current.paidShifts} paid shifts`, WIDTH - MARGIN - 16, 541, 9, MUTED);
   rightText(page, fonts.regular, workedDuration(payload.current.actualMinutes), WIDTH - MARGIN - 16, 522, 9, MUTED);
 
-  card(page, MARGIN, 264, WIDTH - MARGIN * 2, 206);
+  const monthly = payload.earningsSchemaVersion === 'monthly-visits-v1';
+  card(page, MARGIN, monthly ? 228 : 264, WIDTH - MARGIN * 2, monthly ? 242 : 206);
   text(page, fonts.bold, "Earnings", MARGIN + 16, 443, 13);
   text(page, fonts.bold, "CURRENT", WIDTH - MARGIN - 160, 443, 7.5, MUTED);
   text(page, fonts.bold, "YEAR TO DATE", WIDTH - MARGIN - 92, 443, 7.5, MUTED);
-  row(page, fonts, "Paid shifts", `${payload.current.paidShifts}`, `${payload.yearToDate.paidShifts}`, 414);
-  row(page, fonts, "Shift pay", money(payload.current.shiftEarningsCents), money(payload.yearToDate.shiftEarningsCents), 386, true);
-  row(page, fonts, "Commission", money(payload.current.commissionEarningsCents), money(payload.yearToDate.commissionEarningsCents), 358);
-  row(page, fonts, "Bonus", money(payload.current.bonusCents), money(payload.yearToDate.bonusCents), 330, true);
-  row(page, fonts, "Supply credit", money(payload.current.supplyCreditCents), money(payload.yearToDate.supplyCreditCents), 302);
-  row(page, fonts, "Expense reimbursement", money(payload.current.expenseReimbursementCents), money(payload.yearToDate.expenseReimbursementCents), 276, true);
+  payStubEarningRows(payload).forEach((line, index) => row(page, fonts, line[0], line[1], line[2], 414 - index * (monthly ? 22 : 28), index % 2 === 1));
 
-  card(page, MARGIN, 126, WIDTH - MARGIN * 2, 116);
-  text(page, fonts.bold, hasCommissionDetails ? "How commission was calculated" : "Pay at a glance", MARGIN + 16, 216, 11);
+  const lowerOffset = monthly ? 36 : 0;
+  card(page, MARGIN, 126 - lowerOffset, WIDTH - MARGIN * 2, 116);
+  text(page, fonts.bold, hasCommissionDetails ? "How commission was calculated" : "Pay at a glance", MARGIN + 16, 216 - lowerOffset, 11);
   if (hasCommissionDetails) {
-    text(page, fonts.regular, "Sales - refunds - estimated sales tax = commissionable sales", MARGIN + 16, 192, 9, MUTED);
-    text(page, fonts.regular, `${money(payload.current.commissionableSalesCents)} commissionable sales`, MARGIN + 16, 170, 9);
-    text(page, fonts.regular, hasAppendix ? "See the appendix for the rate and calculation by machine." : "The current-period commission calculation is shown above.", MARGIN + 16, 149, 8.5, MUTED);
+    text(page, fonts.regular, "Sales - refunds - estimated sales tax = commissionable sales", MARGIN + 16, 192 - lowerOffset, 9, MUTED);
+    text(page, fonts.regular, `${money(payload.current.commissionableSalesCents)} commissionable sales`, MARGIN + 16, 170 - lowerOffset, 9);
+    text(page, fonts.regular, hasAppendix ? "See the appendix for the rate and calculation by machine." : "The current-period commission calculation is shown above.", MARGIN + 16, 149 - lowerOffset, 8.5, MUTED);
   } else {
-    text(page, fonts.regular, "No commission was earned for this period.", MARGIN + 16, 192, 9, MUTED);
-    text(page, fonts.regular, hasAppendix ? "See the appendix for machine-specific started-hour pay." : "This page contains all current-period pay details.", MARGIN + 16, 170, 8.5, MUTED);
+    text(page, fonts.regular, "No commission was earned for this period.", MARGIN + 16, 192 - lowerOffset, 9, MUTED);
+    text(page, fonts.regular, hasAppendix ? "See the appendix for time and agreement details." : "This page contains all current-period pay details.", MARGIN + 16, 170 - lowerOffset, 8.5, MUTED);
   }
 
   text(page, fonts.regular, payload.classificationNotice, MARGIN, 70, 7.5, MUTED);
@@ -280,6 +320,25 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload, h
   };
 
   startPage();
+
+  for (const line of payload.monthlyVisitLines ?? []) {
+    ensureSpace(92);
+    text(page, fonts.bold, 'Monthly base and visits', MARGIN, cursor, 10);
+    cursor -= 20;
+    text(page, fonts.bold, line.machineLabel.slice(0, 75), MARGIN, cursor, 8);
+    cursor -= 18;
+    text(page, fonts.regular, `${line.evaluation.visitUnits} of ${line.agreement.included_visits} included visits; ${line.agreement.included_minutes_per_visit} minutes per visit`, MARGIN, cursor, 8);
+    cursor -= 18;
+    text(page, fonts.regular, `Base ${money(line.evaluation.baseEarningsCents!)}; extra time ${money(line.evaluation.extraEarningsCents!)} at ${money(line.agreement.extra_hour_rate_cents)}/hour`, MARGIN, cursor, 8);
+    cursor -= 24;
+    for (const visit of line.entries) {
+      ensureSpace(24);
+      text(page, fonts.regular, date(visit.workDate), MARGIN, cursor, 8);
+      rightText(page, fonts.regular, workedDuration(visit.actualMinutes), WIDTH - MARGIN, cursor, 8);
+      cursor -= 22;
+    }
+    cursor -= 16;
+  }
 
   if (shiftLines.length > 0) {
     text(page, fonts.bold, "Started-hour pay by machine", MARGIN, cursor, 10);
@@ -338,6 +397,7 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload, h
 };
 
 export const buildPayStubPdf = async (payload: PayStubPayload): Promise<Uint8Array> => {
+  payStubEarningRows(payload);
   if (payload.schemaVersion !== "operator-pay-stub-v2") {
     throw new Error("Unsupported Pay Stub payload version");
   }
@@ -352,7 +412,7 @@ export const buildPayStubPdf = async (payload: PayStubPayload): Promise<Uint8Arr
   const hasCommissionDetails = payload.current.commissionEarningsCents !== 0 || payload.machines.some((machine) =>
     machine.commissionSegments.some((segment) => (segment.commissionBasisPoints ?? 0) > 0)
   );
-  const hasAppendix = (payload.shiftRateLines?.length ?? 0) > 1 || payload.machines.length > 1 || hasCommissionDetails;
+  const hasAppendix = Boolean(payload.monthlyVisitLines?.length) || (payload.shiftRateLines?.length ?? 0) > 1 || payload.machines.length > 1 || hasCommissionDetails;
   drawSummaryPage(pdf, fonts, payload, hasAppendix, hasCommissionDetails);
   if (hasAppendix) drawAppendix(pdf, fonts, payload, hasCommissionDetails);
   return pdf.save();

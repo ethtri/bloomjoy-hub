@@ -12,6 +12,8 @@ function SavedEarnings({ statement }: { statement: PublishedPayStub }) {
     [t('payStub.shiftPay'), 'shiftEarningsCents'], [t('payStub.commission'), 'commissionEarningsCents'],
     [t('payStub.bonus'), 'bonusCents'], [t('payStub.supply'), 'supplyCreditCents'], [t('payStub.expense'), 'expenseReimbursementCents'],
   ];
+  if (statement.earningsSchemaVersion === 'monthly-visits-v1') rows.splice(1, 0,
+    [t('payStub.monthlyBase'), 'monthlyBaseEarningsCents'], [t('payStub.extraTime'), 'extraTimeEarningsCents']);
   return <section aria-labelledby="pay-earnings-title" className="border-t border-border pt-5">
     <h2 id="pay-earnings-title" className="text-xl font-semibold">{t('payStub.earnings')} <span className="text-sm font-normal text-muted-foreground">USD</span></h2>
     <dl className="my-5 grid gap-4 sm:grid-cols-2"><div><dt className="text-sm text-muted-foreground">{t('payStub.worked')}</dt><dd className="mt-1 font-medium tabular-nums">{duration(statement.current.actualMinutes)}</dd></div><div><dt className="text-sm text-muted-foreground">{t('payStub.salesBasis')}</dt><dd className="mt-1 font-medium tabular-nums">{money(statement.current.commissionableSalesCents)}</dd></div></dl>
@@ -20,6 +22,7 @@ function SavedEarnings({ statement }: { statement: PublishedPayStub }) {
       <colgroup><col className="w-[40%]" /><col className="w-[30%]" /><col className="w-[30%]" /></colgroup>
       <thead><tr className="border-b border-border"><th scope="col" className="pb-3 text-left font-medium"><span className="sr-only">{t('payStub.earnings')}</span></th><th scope="col" className="break-words pb-3 pl-2 text-right font-medium">{t('payStub.current')}</th><th scope="col" className="break-words pb-3 pl-2 text-right font-medium">{t('payStub.ytd')}</th></tr></thead>
       <tbody>
+        {statement.earningsSchemaVersion === 'monthly-visits-v1' && <tr className="border-b border-border"><th scope="row" className="py-3 pr-2 text-left font-normal">{t('payStub.visits')}</th><td className="py-3 pl-2 text-right tabular-nums">{statement.current.visitUnits}</td><td className="py-3 pl-2 text-right tabular-nums">{statement.yearToDate.visitUnits}</td></tr>}
         <tr className="border-b border-border"><th scope="row" className="py-3 pr-2 text-left align-top font-normal">{t('payStub.shifts')}</th><td className="break-all py-3 pl-2 text-right align-top tabular-nums">{statement.current.paidShifts}</td><td className="break-all py-3 pl-2 text-right align-top tabular-nums">{statement.yearToDate.paidShifts}</td></tr>
         {rows.map(([label, key]) => <tr key={key} className="border-b border-border"><th scope="row" className="py-3 pr-2 text-left align-top font-normal">{label}</th><td className="break-all py-3 pl-2 text-right align-top tabular-nums">{money(statement.current[key])}</td><td className="break-all py-3 pl-2 text-right align-top tabular-nums">{money(statement.yearToDate[key])}</td></tr>)}
         <tr><th scope="row" className="py-4 pr-2 text-left align-top font-semibold">{t('payStub.total')}</th><td className="break-all py-4 pl-2 text-right align-top font-semibold tabular-nums" data-published-pay-amount>{money(statement.current.totalEarningsCents)}</td><td className="break-all py-4 pl-2 text-right align-top font-semibold tabular-nums">{money(statement.yearToDate.totalEarningsCents)}</td></tr>
@@ -45,6 +48,15 @@ function SavedPayDetails({ statement }: { statement: PublishedPayStub }) {
   return <details className="group border-t border-border">
     <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg py-4 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">{t('payStub.details')}<ChevronRight className="h-5 w-5 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" /></summary>
     <div className="space-y-6 pb-5">
+      {(statement.monthlyVisitLines ?? []).map(line => <section key={line.agreement.id} className="space-y-3" aria-label={t('payStub.monthlyBase')}>
+        <h3 className="break-words font-semibold">{line.machineLabel}</h3>
+        <dl className="space-y-2 text-sm">{[
+          [t('payStub.visits'), `${line.evaluation.visitUnits} / ${line.agreement.included_visits}`],
+          [t('payStub.monthlyBase'), money(line.evaluation.baseEarningsCents!)],
+          [t('payStub.extraTime'), money(line.evaluation.extraEarningsCents!)],
+        ].map(([label, value]) => <div key={label} className="grid grid-cols-2 gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="text-right tabular-nums">{value}</dd></div>)}</dl>
+        <ul className="divide-y divide-border text-sm">{line.entries.map(entry => <li key={entry.id} className="flex justify-between gap-3 py-2"><span>{date(entry.workDate)}</span><span className="text-right tabular-nums">{duration(entry.actualMinutes)}</span></li>)}</ul>
+      </section>)}
       {Boolean(statement.shiftRateLines?.length) && <section aria-label={t('payStub.shiftDetails')}><h3 className="font-semibold">{t('payStub.shiftDetails')}</h3><ul className="divide-y divide-border">{statement.shiftRateLines.map((line, index) => <li key={index} className="py-4">
         <p className="break-words text-sm font-medium">{line.machineLabel || t('payStub.allMachines')}</p>
         <dl className="mt-3 space-y-2 text-sm">{[
