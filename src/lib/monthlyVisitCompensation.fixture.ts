@@ -17,7 +17,7 @@ export function monthlyStatementFixture() {
     period: { periodStartDate: '2025-01-01', periodEndDate: '2025-01-31' }, current, yearToDate: { ...current },
     shiftRateLines: [], machines: [{ machineId: 'synthetic-machine', machineLabel: 'Synthetic machine', locationName: 'Synthetic location',
       grossSalesCents: 10000, refundAdjustmentCents: 0, taxCents: 0, commissionableSalesCents: 10000, commissionEarningsCents: 500,
-      commissionSegments: [] }],
+      commissionSegments: [{ segmentStartDate: '2025-01-01', segmentEndDate: '2025-01-31', taxRatePercent: 0, commissionBasisPoints: 500, grossSalesCents: 10000, refundAdjustmentCents: 0, taxCents: 0, commissionableSalesCents: 10000, commissionEarningsCents: 500 }] }],
     monthlyVisitLines: [{ machineId: 'synthetic-machine', machineLabel: 'Synthetic machine',
       agreement: { id: 'synthetic-agreement', operator_profile_id: 'synthetic-profile', reporting_machine_id: 'synthetic-machine',
         effective_start_date: '2025-01-01', effective_end_date: null, monthly_base_cents: 18000, included_visits: 3,

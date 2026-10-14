@@ -7,11 +7,12 @@ const close = (a: number, b: number) => Math.abs(a - b) < 0.000001;
 const components = ['shiftEarningsCents', 'monthlyBaseEarningsCents', 'extraTimeEarningsCents', 'commissionEarningsCents', 'bonusCents', 'supplyCreditCents', 'expenseReimbursementCents'];
 
 export function validMonthlyVisitStatement(value: unknown): boolean {
-  if (!record(value) || !record(value.current) || !record(value.yearToDate)) return false;
+  if (!record(value)) return false;
   if (value.earningsSchemaVersion === undefined) {
-    return value.monthlyVisitLines === undefined && [value.current, value.yearToDate].every(t =>
-      t.monthlyBaseEarningsCents === undefined && t.extraTimeEarningsCents === undefined && t.visitUnits === undefined);
+    return value.monthlyVisitLines === undefined && [value.current, value.yearToDate].every(t => !record(t) || (
+      t.monthlyBaseEarningsCents === undefined && t.extraTimeEarningsCents === undefined && t.visitUnits === undefined));
   }
+  if (!record(value.current) || !record(value.yearToDate)) return false;
   if (value.earningsSchemaVersion !== 'monthly-visits-v1' || !Array.isArray(value.monthlyVisitLines)) return false;
   for (const totals of [value.current, value.yearToDate]) {
     if (!whole(totals.monthlyBaseEarningsCents) || !whole(totals.extraTimeEarningsCents) || !whole(totals.visitUnits)

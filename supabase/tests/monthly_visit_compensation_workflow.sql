@@ -117,6 +117,47 @@ select is((select (result#>>'{payload,current,totalEarningsCents}')::integer fro
 select is((select (result#>>'{payload,current,actualMinutes}')::numeric from four_visit_prepared),185::numeric,'Saved statement retains actual minutes');
 select is((select (result#>>'{payload,current,monthlyBaseEarningsCents}')::integer from four_visit_prepared),20000,'Saved statement labels base');
 select is((select (result#>>'{payload,current,shiftEarningsCents}')::integer from four_visit_prepared),0,'Saved statement has no double shift pay');
+select lives_ok($$select public.service_complete_pay_stub((result->>'requestId')::uuid,(result->>'statementId')::uuid,result->>'storagePath') from four_visit_prepared$$,'Known four-visit statement completes');
+-- Whole-hour extra repair reaches the real statement and YTD, independently of the evaluator.
+update public.time_entries set actual_end_at=actual_start_at+interval '120 minutes',end_time='10:00' where id=pg_temp.mid(95);
+create temp table extra_prepared as select pg_temp.prepare(82) result;
+select is((select result->>'status' from extra_prepared),'prepared','Exact whole-hour repair prepares');
+select is((select (result#>>'{payload,current,extraTimeEarningsCents}')::integer from extra_prepared),2000,'Extra hour is separately paid');
+select is((select (result#>>'{payload,current,totalEarningsCents}')::integer from extra_prepared),25103,'Extra-hour statement total includes unchanged commission');
+select is((select (result#>>'{payload,yearToDate,monthlyBaseEarningsCents}')::integer from extra_prepared),38000,'YTD excludes replaced versions and counts two monthly bases once');
+select is((select (result#>>'{payload,yearToDate,extraTimeEarningsCents}')::integer from extra_prepared),2000,'YTD includes the whole extra hour');
+select lives_ok($$select public.service_complete_pay_stub((result->>'requestId')::uuid,(result->>'statementId')::uuid,result->>'storagePath') from extra_prepared$$,'Repair statement completes');
+select ok(not private.operator_pay_stub_regeneration_required(pg_temp.mid(50),'2025-03-01','2025-03-31'),'Fresh statement starts current before isolated assignment edit');
+update public.operator_machine_assignments set effective_end_date='2025-03-30' where id=pg_temp.mid(60);
+select ok(private.operator_pay_stub_regeneration_required(pg_temp.mid(50),'2025-03-01','2025-03-31'),'Assignment-only edit makes the current statement stale');
+update public.operator_machine_assignments set effective_end_date=null where id=pg_temp.mid(60);
+create temp table time_revision as select pg_temp.prepare(82) result;
+update public.time_entries set actual_end_at=actual_end_at+interval '1 second',end_time=end_time+interval '1 second' where id=pg_temp.mid(95);
+select throws_ok($$select public.service_complete_pay_stub((result->>'requestId')::uuid,(result->>'statementId')::uuid,result->>'storagePath') from time_revision$$,
+ 'P0001','Pay Stub source changed during generation; retry required','Time edit during PDF generation rejects completion');
+update public.pay_stub_generation_requests set status='failed' where id=(select(result->>'requestId')::uuid from time_revision);
+create temp table blocked_prepared as select pg_temp.prepare(82) result;
+select is((select result->>'status' from blocked_prepared),'blocked','Unresolved fractional extra time blocks actual preparation');
+select ok(not exists(select 1 from public.pay_stub_generation_requests r join public.pay_statements s on s.id=r.pay_statement_id where r.id=(select(result->>'requestId')::uuid from blocked_prepared) and s.status='issued'),'Blocked preparation creates no issued statement');
+update public.time_entries set actual_end_at=actual_start_at+interval '120 minutes',end_time='10:00' where id=pg_temp.mid(95);
+-- Two sessions on a visit date cannot double the base or silently become two visits.
+set local session_replication_role=replica;
+insert into public.time_entries(id,account_id,operator_profile_id,reporting_machine_id,reporting_location_id,payout_policy_id,payout_period_id,work_date,start_time,end_time,actual_start_at,actual_end_at,raw_duration_minutes,rounded_paid_minutes,paid_shift_count,status)
+ values(pg_temp.mid(99),pg_temp.mid(10),pg_temp.mid(50),pg_temp.mid(30),pg_temp.mid(20),pg_temp.mid(40),pg_temp.mid(82),'2025-03-05','11:00','11:10','2025-03-05 19:00+00','2025-03-05 19:10+00',10,60,1,'submitted');
+set local session_replication_role=origin;
+select ok(exists(select 1 from jsonb_array_elements(pg_temp.report('2025-03-01')->'blockers') b where b->>'code'='monthly_visit_identity_unresolved'),'Split sessions require visit attribution');
+set local session_replication_role=replica;
+update public.time_entries set reporting_machine_id=pg_temp.mid(31) where id=pg_temp.mid(99);
+set local session_replication_role=origin;
+select ok(exists(select 1 from jsonb_array_elements(pg_temp.report('2025-03-01')->'blockers') b where b->>'code'='monthly_visit_identity_unresolved'),'Same-date multiple-machine sessions do not duplicate monthly base');
+set local session_replication_role=replica;
+update public.time_entries set status='voided' where id between pg_temp.mid(95) and pg_temp.mid(99);
+set local session_replication_role=origin;
+select ok(exists(select 1 from jsonb_array_elements(pg_temp.report('2025-03-01')->'blockers') b where b->>'code'='monthly_base_missing_visits_unresolved'),'Zero-visit month remains visible and blocked');
+select throws_ok($$select public.admin_save_monthly_visit_agreement(null,pg_temp.mid(50),pg_temp.mid(31),'2025-04-01',null,18000,3,60,2400,false,null)$$,
+ 'P0001','Choose a machine assigned to this Technician and payroll account','Inactive new agreement still requires assigned machine scope');
+select throws_ok($$select public.admin_save_monthly_visit_agreement((agreement->>'id')::uuid,pg_temp.mid(50),pg_temp.mid(31),'2025-01-01','2025-01-31',18000,3,60,2400,false,(select revision from private.operator_monthly_visit_agreements where id=(agreement->>'id')::uuid)) from saved$$,
+ 'P0001','Choose a machine assigned to this Technician and payroll account','Inactive edit cannot retarget to an unassigned machine');
 select throws_ok($$select public.admin_save_monthly_visit_agreement((agreement->>'id')::uuid,pg_temp.mid(50),pg_temp.mid(30),'2025-01-01','2025-01-31',18000,3,60,2400,true,(agreement->>'revision')::bigint) from saved$$,
  'P0001','Monthly agreement changed. Reload before saving.','A stale manager form cannot overwrite revised terms');
 select throws_ok($$select private.realign_operator_payroll_profile(pg_temp.mid(50),pg_temp.mid(10))$$,

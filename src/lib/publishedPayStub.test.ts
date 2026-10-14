@@ -28,6 +28,9 @@ Deno.test('incomplete, blocked, duplicated or inconsistent monthly details never
   for (const change of invalid) { const p = monthlyStatementFixture(); change(p); equal(parsePublishedPayStub(p), null); equal(publishedPayAmount(p), null); }
   equal(parsePublishedPayStub({ ...monthlyStatementFixture(), earningsSchemaVersion: 'future' }), null);
   equal(parsePublishedPayStub({ ...monthlyStatementFixture(), earningsSchemaVersion: undefined }), null);
+  equal(publishedPayAmount({ ...monthlyStatementFixture(), earningsSchemaVersion: undefined }), null);
+  equal(publishedPayAmount({ ...fixture(), yearToDate: null }), 14764);
+  equal(publishedPayAmount({ ...fixture(), yearToDate: undefined }), 14764);
 });
 const fixture = () => {
   const totals = { paidShifts: 5, shiftEarningsCents: 12500, commissionableSalesCents: 25455, commissionEarningsCents: 764, bonusCents: 1000, supplyCreditCents: 500, expenseReimbursementCents: 0, totalEarningsCents: 14764 };

@@ -631,6 +631,7 @@ function TechnicianReport({
           {technician.machines.length ? technician.machines.map((machine) => {
             const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
             const machineActualMinutes = machineEntries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0);
+            const machineVisits = technician.monthlyVisitLines?.filter(line => line.machineId === machine.machineId).reduce((sum, line) => sum + line.evaluation.visitUnits, 0) ?? 0;
             const machinePaidShifts = machineEntries.reduce((sum, entry) => sum + entry.paidShifts, 0);
             const hasIncompleteCommissionSegment = machine.commissionSegments.some(
               (segment) => segment.commissionBasisPoints == null
@@ -645,7 +646,7 @@ function TechnicianReport({
                 label={machine.machineLabel}
                 detail={
                   <>
-                    <span>{formatDuration(machineActualMinutes)} worked · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
+                    <span>{formatDuration(machineActualMinutes)} worked · {machineVisits > 0 ? `${machineVisits} visits · ${machinePaidShifts} started hours` : `${machinePaidShifts} paid ${machinePaidShifts === 1 ? 'shift' : 'shifts'}`} </span>
                     {machineSalesUnavailable ? (
                       <span className="mt-1 block">
                         Commissionable Sales unavailable{machine.commissionBasisPoints == null ? '' : ` × ${formatRate(machine.commissionBasisPoints)}`}

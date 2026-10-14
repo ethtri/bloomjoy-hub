@@ -115,11 +115,11 @@ declare profile public.operator_payout_profiles;
   after_row private.operator_monthly_visit_agreements;
   source_revision bigint;
 begin
+  perform private.operator_monthly_visit_lock(p_operator_profile_id);
   select * into profile from public.operator_payout_profiles where id=p_operator_profile_id;
   if auth.uid() is null or profile.id is null or not coalesce(public.can_manage_operator_payout_account(auth.uid(),profile.account_id),false) then
     raise exception 'Technician compensation access required';
   end if;
-  perform private.operator_monthly_visit_lock(profile.id);
   if p_effective_start_date is null or p_effective_end_date < p_effective_start_date
     or p_monthly_base_cents is null or p_monthly_base_cents < 0
     or p_included_visits is null or p_included_visits <= 0
@@ -127,17 +127,18 @@ begin
     or p_extra_hour_rate_cents is null or p_extra_hour_rate_cents < 0 or p_active is null then
     raise exception 'Monthly agreement terms are invalid';
   end if;
-  if p_active and (not private.reporting_company_payroll_machine_matches(profile.account_id,p_machine_id,profile.id)
+  if p_agreement_id is not null then
+    select * into before_row from private.operator_monthly_visit_agreements where id=p_agreement_id and operator_profile_id=profile.id for update;
+    if before_row.id is null then raise exception 'Monthly agreement not found'; end if;
+    if p_expected_revision is distinct from before_row.revision then raise exception 'Monthly agreement changed. Reload before saving.'; end if;
+  end if;
+  if (p_active or before_row.id is null or before_row.reporting_machine_id is distinct from p_machine_id)
+    and (not private.reporting_company_payroll_machine_matches(profile.account_id,p_machine_id,profile.id)
     or not exists(select 1 from public.operator_machine_assignments a where a.operator_profile_id=profile.id
       and a.account_id=profile.account_id and a.reporting_machine_id=p_machine_id and a.status='active'
       and a.effective_start_date <= coalesce(p_effective_end_date,'infinity'::date)
       and coalesce(a.effective_end_date,'infinity'::date)>=p_effective_start_date)) then
     raise exception 'Choose a machine assigned to this Technician and payroll account';
-  end if;
-  if p_agreement_id is not null then
-    select * into before_row from private.operator_monthly_visit_agreements where id=p_agreement_id and operator_profile_id=profile.id for update;
-    if before_row.id is null then raise exception 'Monthly agreement not found'; end if;
-    if p_expected_revision is distinct from before_row.revision then raise exception 'Monthly agreement changed. Reload before saving.'; end if;
   end if;
   if p_active and exists(select 1 from private.operator_monthly_visit_agreements a
     where a.operator_profile_id=profile.id and a.active and a.id is distinct from p_agreement_id
