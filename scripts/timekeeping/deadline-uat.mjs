@@ -7,6 +7,15 @@ export async function verifyTimeDeadlines({ page, state, args, check, profileId 
   await page.clock.install({ time: new Date('2026-10-05T06:59:59Z') });
   await page.goto(`${args.appUrl}/portal/time/new?date=2026-09-30&profile=${profileId}`);
   await page.getByRole('heading', { name: 'Add time', exact: true }).waitFor();
+  // Earlier scenarios intentionally leave unfinished time. When draft recovery is
+  // installed too, explicitly discard that fixture before this cutoff scenario.
+  await page.waitForFunction(() => {
+    const field = document.querySelector('#start-time');
+    return (field && !field.disabled) || document.querySelector('#time-draft-heading');
+  });
+  if (await page.locator('#time-draft-heading').count()) {
+    await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  }
   await page.locator('#start-time').fill('12:00');
   await page.locator('#end-time').fill('13:00');
   const save = page.getByRole('button', { name: 'Save time', exact: true });
