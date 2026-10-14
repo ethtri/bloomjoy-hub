@@ -78,14 +78,15 @@ for (const snippet of [
 
 const helper = readText(files.helper);
 for (const snippet of [
-  'OperatorCompensationRule',
-  'PayoutCalculationContext',
-  'PayoutRun',
-  'fetchPayoutCalculationContext',
-  'upsertOperatorCompensationRuleAdmin',
-  'calculatePayoutRunAdmin',
-  'addPayoutAdjustmentAdmin',
-  'admin_calculate_payout_run',
+  'OperatorCompensationRate',
+  'TechnicianPayReportContext',
+  'PayoutRunStatus',
+  'fetchTechnicianPayReportContext',
+  'supersedeOperatorCompensationRateAdmin',
+  'admin_supersede_operator_compensation_rate',
+  'shiftEarningsCents',
+  'commissionEarningsCents',
+  'currentTotalCents',
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);

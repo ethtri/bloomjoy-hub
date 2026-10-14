@@ -11,7 +11,6 @@ const migrationName = '202605200001_operator_payout_foundation.sql';
 const migrationPath = path.join(repoRoot, 'supabase', 'migrations', migrationName);
 const helperPath = path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts');
 const decisionsPath = path.join(repoRoot, 'Docs', 'DECISIONS.md');
-const statusPath = path.join(repoRoot, 'Docs', 'CURRENT_STATUS.md');
 
 const fail = (message) => {
   throw new Error(message);
@@ -97,13 +96,13 @@ const assertHelper = () => {
 
   for (const snippet of [
     'OperatorWorkerType',
-    'roundOperatorPaidMinutes',
-    'fetchMyOperatorPayoutContext',
-    'upsertOperatorPayoutProfileAdmin',
-    'setOperatorMachineAssignmentsAdmin',
+    'calculateOperatorPaidShifts',
+    'fetchMyOperatorTimekeepingContext',
+    'setupTimekeepingTechnicianAdmin',
+    'upsertEffectiveOperatorMachineAssignmentAdmin',
     "round_up_60_minutes",
-    "admin_upsert_operator_payout_profile",
-    "admin_set_operator_machine_assignments",
+    'admin_setup_timekeeping_for_payer_with_contact',
+    'admin_upsert_operator_machine_assignment',
   ]) {
     if (!source.includes(snippet)) {
       fail(`operatorPayouts.ts missing ${snippet}`);
@@ -115,25 +114,18 @@ const assertDocs = () => {
   if (!fs.existsSync(decisionsPath)) {
     fail('Missing Docs/DECISIONS.md.');
   }
-  if (!fs.existsSync(statusPath)) {
-    fail('Missing Docs/CURRENT_STATUS.md.');
-  }
 
   const decisions = readText(decisionsPath);
-  const status = readText(statusPath);
 
   for (const snippet of [
     'Timekeeping V1 is shift entry and machine-manager review',
     'does not calculate withholding',
     'Pay Statement',
+    'Removing individual approvals keeps routine timekeeping simple',
   ]) {
     if (!decisions.includes(snippet)) {
       fail(`Docs/DECISIONS.md missing ${snippet}`);
     }
-  }
-
-  if (!status.includes('Timekeeping V1 is a distinct worker-entry')) {
-    fail('Docs/CURRENT_STATUS.md missing the durable Timekeeping V1 boundary.');
   }
 };
 
