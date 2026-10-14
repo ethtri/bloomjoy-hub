@@ -33,6 +33,7 @@ import {
   markPortalAccessReady,
 } from '@/lib/portalPerformance';
 import { preloadPortalDashboard } from '@/lib/portalRouteModules';
+import { setTimeEntryDraftUser } from '@/lib/timeEntryDrafts';
 
 type AdminRoleRecord = {
   role: string;
@@ -301,6 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      setTimeEntryDraftUser(nextUserId);
       activeAuthUserIdRef.current = nextUserId;
       queryClient.clear();
     },
@@ -308,6 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const moveToSignedOut = useCallback(() => {
+    setTimeEntryDraftUser(null);
     bootstrapGenerationRef.current += 1;
     hydrationRef.current = null;
     pendingForcedHydrationRef.current = null;

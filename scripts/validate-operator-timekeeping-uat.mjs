@@ -3,6 +3,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright/technician-weekly-time';
@@ -748,7 +749,9 @@ const run = async () => {
   console.log(`Technician weekly Timekeeping UAT passed. Screenshots: ${args.artifactDir}`);
 };
 
-run().catch((error) => {
+export { buildContext, initialEntries, installRoutes, makeEntry, mockSession, mockUser, pageOverflows, PROFILE_ID, ACCOUNT_ID, MACHINE_A, MACHINE_B, FIXED_NOW, jsonResponse };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) run().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
