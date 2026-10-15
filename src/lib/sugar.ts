@@ -112,7 +112,11 @@ export const getSugarColorBreakdown = (items: SugarLineItemLike[]): SugarMix => 
     if (!resolvedSku) {
       return;
     }
-    mix[resolvedSku] += clampKg(item.quantity);
+    // The cart/server allow up to the total checkout limit in a single color.
+    // The smaller configurator input limit must not truncate an order summary.
+    if (Number.isSafeInteger(item.quantity) && item.quantity > 0) {
+      mix[resolvedSku] += item.quantity;
+    }
   });
 
   return mix;

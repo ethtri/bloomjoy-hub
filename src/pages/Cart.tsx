@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trash2, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
+import { Trash2, ArrowRight, ShoppingBag, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
-import { useCart } from '@/lib/cart';
+import { useCart, type CartItem } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
-import { getCheckoutStatus, startStorefrontCheckout } from '@/lib/stripeCheckout';
+import { startStorefrontCheckout } from '@/lib/stripeCheckout';
+import { parseOrderQuantity } from '@/lib/commerceQuantity';
+import { claimPaidCartReturn, rememberCheckoutCart } from '@/lib/checkoutReturn';
+import { useCheckoutReturn } from '@/hooks/useCheckoutReturn';
+import { CheckoutReturnNotice } from '@/components/commerce/CheckoutReturnNotice';
+import sugarProduct from '@/assets/real/sugar-product.jpg';
+import microProduct from '@/assets/real/micro-main.webp';
 import {
   SUGAR_COLOR_OPTIONS,
   getSugarColorBreakdown,
@@ -19,10 +25,34 @@ import { isMicroCheckoutEnabled } from '@/lib/commerceAvailability';
 
 export default function CartPage() {
   const { user } = useAuth();
-  const { items, updateQuantity, removeItem, clearCart } = useCart();
+  const { items, addItem, updateQuantity, removeItem, clearCart } = useCart();
   const hasMemberSupplyPricing = Boolean(user?.hasSupplyDiscount);
   const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
+  const [removedItem, setRemovedItem] = useState<CartItem | null>(null);
+  const [retainedCart, setRetainedCart] = useState(false);
+  const handledReturn = useRef<string | null>(null);
+  const checkoutReturn = useCheckoutReturn('cart', (sessionId) => {
+    if (handledReturn.current === sessionId) return;
+    handledReturn.current = sessionId;
+    try {
+      const action = claimPaidCartReturn(sessionId, items, window.localStorage);
+      if (action === 'clear') clearCart();
+      else {
+        setRetainedCart(items.length > 0 || action === 'retain');
+        void useCart.persist.rehydrate();
+      }
+    } catch {
+      // If browser storage is unavailable, retain the cart rather than risk clearing
+      // a newer order when this verified return is revisited.
+      setRetainedCart(items.length > 0);
+    }
+  });
+  const hasIncompleteQuantity = items.some((item) =>
+    quantityDrafts[item.sku] !== undefined && parseOrderQuantity(quantityDrafts[item.sku]) === null
+  );
+  const hasUnresolvedReturn = checkoutReturn.state.status === 'pending' || checkoutReturn.state.status === 'error';
   const sugarBreakdown = getSugarColorBreakdown(items);
   const hasMicroMachine = items.some((item) => item.sku === 'micro');
   const hasUnavailableMicro = hasMicroMachine && !isMicroCheckoutEnabled;
@@ -34,58 +64,32 @@ export default function CartPage() {
     0
   );
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const checkoutStatus = params.get('checkout');
-    if (!checkoutStatus) return;
+  const handleRemove = (item: CartItem) => {
+    setRemovedItem(item);
+    removeItem(item.sku);
+    setQuantityDrafts((current) => {
+      const next = { ...current };
+      delete next[item.sku];
+      return next;
+    });
+    trackEvent('remove_from_cart', { sku: item.sku, quantity: item.quantity });
+  };
 
-    if (checkoutStatus === 'cancel') {
-      toast.info('Checkout canceled. Your cart has been kept.');
-      window.history.replaceState({}, '', '/cart');
-      return;
-    }
-
-    const sessionId = params.get('session_id');
-    if (checkoutStatus !== 'return' || !sessionId) {
-      toast.error('We could not verify this checkout return. Your cart has been kept.');
-      window.history.replaceState({}, '', '/cart');
-      return;
-    }
-
-    let cancelled = false;
-    void getCheckoutStatus(sessionId)
-      .then((status) => {
-        if (cancelled) return;
-        const isStorefrontOrder = ['sugar', 'micro_machine', 'mixed'].includes(status.orderType);
-        if (status.paymentStatus === 'paid' && isStorefrontOrder) {
-          clearCart();
-          toast.success('Payment confirmed. Your order is ready for fulfillment.');
-          return;
-        }
-        toast.info('Payment is not yet confirmed. Your cart has been kept.');
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        toast.error(
-          error instanceof Error
-            ? `${error.message} Your cart has been kept.`
-            : 'Checkout could not be verified. Your cart has been kept.'
-        );
-      })
-      .finally(() => {
-        if (!cancelled) window.history.replaceState({}, '', '/cart');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [clearCart]);
+  const removalNotice = removedItem && (
+    <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+      <span>Removed {removedItem.name}.</span>
+      <Button variant="outline" onClick={() => { addItem(removedItem, removedItem.quantity); setRemovedItem(null); }}>
+        <Undo2 aria-hidden="true" className="h-4 w-4" /> Undo
+      </Button>
+    </div>
+  );
 
   const handleCheckout = async () => {
+    if (hasIncompleteQuantity || hasUnresolvedReturn) return;
     trackEvent('start_checkout');
 
     if (hasUnavailableMicro) {
-      toast.error('Micro checkout is pending a shipping decision. Remove it to continue.');
+      toast.error('Micro is not available to order yet. Remove it to continue with supplies.');
       return;
     }
 
@@ -102,6 +106,11 @@ export default function CartPage() {
     try {
       setIsCheckingOut(true);
       const checkoutUrl = await startStorefrontCheckout(items, window.location.origin);
+      try {
+        rememberCheckoutCart(checkoutUrl, items, window.localStorage);
+      } catch {
+        // Checkout remains available; an unassociated return will preserve the cart.
+      }
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
@@ -110,11 +119,26 @@ export default function CartPage() {
     }
   };
 
+  if (checkoutReturn.state.status === 'paid' || checkoutReturn.state.status === 'checking') {
+    return (
+      <Layout>
+        <section className="section-padding">
+          <div className="container-page max-w-3xl">
+            <h1 className="mb-6 font-display text-3xl font-bold">Your order</h1>
+            <CheckoutReturnNotice state={checkoutReturn.state} onRetry={checkoutReturn.retry} onDismiss={checkoutReturn.dismiss} hasCart cartRetained={retainedCart} />
+          </div>
+        </section>
+      </Layout>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <Layout>
         <section className="section-padding">
           <div className="container-page">
+            {removalNotice}
+            {checkoutReturn.state.status !== 'none' && <div className="mb-8"><CheckoutReturnNotice state={checkoutReturn.state} onRetry={checkoutReturn.retry} onDismiss={checkoutReturn.dismiss} hasCart /></div>}
             <div className="mx-auto max-w-lg text-center">
               <ShoppingBag className="mx-auto h-16 w-16 text-muted-foreground/50" />
               <h1 className="mt-6 font-display text-2xl font-bold text-foreground">
@@ -144,81 +168,67 @@ export default function CartPage() {
         <div className="container-page">
           <h1 className="font-display text-3xl font-bold text-foreground">Your Cart</h1>
 
+          <div className="mt-5">{removalNotice}</div>
+          {checkoutReturn.state.status !== 'none' && <div className="mt-5"><CheckoutReturnNotice state={checkoutReturn.state} onRetry={checkoutReturn.retry} onDismiss={checkoutReturn.dismiss} hasCart /></div>}
+
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
             {/* Cart Items */}
             <div className="lg:col-span-2">
               {hasUnavailableMicro && (
                 <div className="mb-4 rounded-lg border border-amber/30 bg-amber/5 p-4 text-sm text-muted-foreground">
-                  Micro checkout is pending an executive shipping decision. Remove the Micro
-                  Machine to check out other available items.
+                  Micro is not available to order yet. Remove it to continue with your supplies.
                 </div>
               )}
               <div className="divide-y divide-border rounded-xl border border-border bg-card">
                 {items.map((item) => (
                   <div
                     key={item.sku}
-                    className="grid gap-4 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] sm:items-center"
+                    className="grid grid-cols-[4rem_minmax(0,1fr)] gap-4 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center"
                   >
-                    <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted">
-                      <ShoppingBag className="h-8 w-8 text-muted-foreground/50" />
+                    <div className="h-16 w-16 overflow-hidden rounded-lg bg-muted">
+                      {isSugarSku(item.sku) || item.sku === 'micro'
+                        ? <img src={item.sku === 'micro' ? microProduct : sugarProduct} alt="" width={64} height={64} className="h-full w-full object-contain" />
+                        : <ShoppingBag aria-hidden="true" className="m-4 h-8 w-8 text-muted-foreground" />}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="break-words font-semibold text-foreground">{item.name}</h3>
+                      <h2 className="break-words font-semibold text-foreground">{item.name}</h2>
                       <p className="text-sm text-muted-foreground">
-                        ${getDisplayUnitPrice(item.sku, item.price).toFixed(2)} each
+                        ${getDisplayUnitPrice(item.sku, item.price).toFixed(2)} {isSugarSku(item.sku) ? 'per 1 KG bag' : 'each'}
                       </p>
+                      <Button variant="ghost" size="sm" className="mt-1 h-11 px-0 text-muted-foreground hover:text-destructive" onClick={() => handleRemove(item)} aria-label={`Remove ${item.name} from cart`}>
+                        <Trash2 aria-hidden="true" className="h-4 w-4" /> Remove
+                      </Button>
                     </div>
-                    <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-border p-1 sm:w-auto sm:flex-nowrap">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => updateQuantity(item.sku, item.quantity - 1)}
-                        aria-label={`Decrease quantity for ${item.name}`}
-                      >
-                        <Minus className="h-4 w-4" />
-                      </Button>
-                      <span className="w-8 text-center font-semibold">{item.quantity}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => updateQuantity(item.sku, item.quantity + 1)}
-                        aria-label={`Increase quantity for ${item.name}`}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                    <div className="col-span-2 flex items-end justify-between gap-4 sm:contents">
+                    <div className="min-w-0">
+                      <label htmlFor={`quantity-${item.sku}`} className="mb-1.5 block text-xs text-muted-foreground">{isSugarSku(item.sku) ? 'Quantity (KG)' : 'Quantity'}</label>
                       <Input
+                        id={`quantity-${item.sku}`}
                         aria-label={`Quantity for ${item.name}`}
                         name={`quantity-${item.sku}`}
                         type="number"
                         inputMode="numeric"
-                        min={0}
-                        value={item.quantity}
+                        min={1}
+                        step={1}
+                        value={quantityDrafts[item.sku] ?? item.quantity}
+                        aria-invalid={quantityDrafts[item.sku] !== undefined && parseOrderQuantity(quantityDrafts[item.sku]) === null}
+                        aria-describedby={quantityDrafts[item.sku] !== undefined && parseOrderQuantity(quantityDrafts[item.sku]) === null ? `quantity-${item.sku}-error` : undefined}
                         onChange={(event) => {
-                          const value = Number(event.target.value);
-                          updateQuantity(
-                            item.sku,
-                            Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-                          );
+                          const draft = event.target.value;
+                          setQuantityDrafts((current) => ({ ...current, [item.sku]: draft }));
+                          const value = parseOrderQuantity(draft);
+                          if (value !== null) updateQuantity(item.sku, value);
                         }}
-                        className="h-8 min-w-0 flex-1 text-right sm:w-20 sm:flex-none"
+                        className="h-11 w-24 text-right"
                       />
+                      {quantityDrafts[item.sku] !== undefined && parseOrderQuantity(quantityDrafts[item.sku]) === null && <p id={`quantity-${item.sku}-error`} className="mt-1 max-w-40 text-xs text-destructive">Enter a whole number of 1 or more, or choose Remove.</p>}
                     </div>
                     <p className="text-right font-semibold text-foreground sm:w-20">
                       ${(
                         getDisplayUnitPrice(item.sku, item.price) * item.quantity
                       ).toFixed(2)}
                     </p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-muted-foreground hover:text-destructive"
-                      onClick={() => removeItem(item.sku)}
-                      aria-label={`Remove ${item.name} from cart`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -283,7 +293,7 @@ export default function CartPage() {
                     <span className="text-muted-foreground">Shipping</span>
                     <span className="text-muted-foreground">
                       {hasUnavailableMicro
-                        ? 'Decision pending'
+                        ? 'Not available yet'
                         : hasMicroMachine
                           ? 'Shown at checkout'
                           : 'No charge'}
@@ -291,7 +301,7 @@ export default function CartPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Tax</span>
-                    <span className="text-muted-foreground">Calculated by Stripe</span>
+                    <span className="text-muted-foreground">Shown at checkout</span>
                   </div>
                 </div>
                 <div className="mt-4 border-t border-border pt-4">
@@ -309,11 +319,13 @@ export default function CartPage() {
                   size="lg"
                   className="mt-6 w-full"
                   onClick={handleCheckout}
-                  disabled={isCheckingOut || hasUnavailableMicro}
+                  disabled={isCheckingOut || hasUnavailableMicro || hasIncompleteQuantity || hasUnresolvedReturn}
                 >
                   {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
+                {hasIncompleteQuantity && <p role="status" className="mt-3 text-sm text-destructive">Complete the highlighted quantities to update your order and continue.</p>}
+                {hasUnresolvedReturn && <p className="mt-3 text-sm text-muted-foreground">Check your previous payment above, or choose “Review cart” before starting another checkout.</p>}
                 <p className="mt-3 text-center text-xs text-muted-foreground">
                   Secure checkout powered by Stripe
                 </p>
