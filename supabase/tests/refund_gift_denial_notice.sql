@@ -218,10 +218,12 @@ select is((select gift_card_state from public.refund_cases where public_referenc
 delete from public.refund_case_messages where manual_delivery_intent_id='fd770000-0000-4000-8000-000000000003';
 update public.refund_cases set case_population='internal_test',internal_test_reason='other_internal_test',
  internal_test_classified_at=statement_timestamp(),internal_test_classified_by='fd710000-0000-4000-8000-000000000001',
- internal_test_classification_source='manager',status='closed',automation_state='closed_incomplete',automation_follow_up_due_at=null
+ internal_test_classification_source='manager',gift_card_state='denied',status='closed',automation_state='closed_incomplete',automation_follow_up_due_at=null
  where id='fd760000-0000-4000-8000-000000000003';
 select throws_ok($$select public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000003',false,'Reviewed reason')$$,
  'P4640',null,'Internal/test cases cannot queue a customer denial');
+select is((select count(*) from public.refund_case_messages where refund_case_id='fd760000-0000-4000-8000-000000000003'),
+ 0::bigint,'The valid archived internal fixture never creates a customer notice');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents)
 values('fd760000-0000-4000-8000-000000000004','RF-DENIAL-ORIGINAL-PARITY',
