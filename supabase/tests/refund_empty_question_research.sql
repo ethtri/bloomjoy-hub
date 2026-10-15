@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(23);
+select plan(44);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -93,6 +93,92 @@ select is(public.service_get_refund_clarification_contact_obligation_health(
 select is((select status from public.refund_case_messages
   where id='b9200000-0000-4000-8003-000000000001'),'pending',
   'The health projection does not rewrite the historical parent message');
+
+create temp table obsolete_question_snapshot as
+select to_jsonb(c) case_value,to_jsonb(m) message_value,to_jsonb(cycle) cycle_value,
+  (select count(*) from public.refund_case_events e where e.refund_case_id=c.id) event_count,
+  public.refund_lifecycle_contract(c.id) lifecycle
+from public.refund_cases c
+join public.refund_case_messages m on m.refund_case_id=c.id
+join public.refund_follow_up_cycles cycle on cycle.id=m.follow_up_cycle_id
+where c.id='b9200000-0000-4000-8001-000000000001';
+
+select is((select lifecycle#>>'{nextWork,actionCode}' from obsolete_question_snapshot),
+  'research_purchase','The exact obsolete question names internal purchase research');
+select is((select lifecycle#>>'{nextWork,actor}' from obsolete_question_snapshot),
+  'agent','Internal research remains Agent work');
+select is((select lifecycle#>>'{nextWork,isOpen}' from obsolete_question_snapshot),
+  'true','Obsolete contact never marks unfinished purchase research complete');
+select is((select lifecycle#>>'{nextWork,blocker,code}' from obsolete_question_snapshot),
+  'stable_evidence_dependency','Internal research exposes its evidence dependency');
+select is((select lifecycle#>>'{nextWork,blocker,owner}' from obsolete_question_snapshot),
+  'Agent','The dependency retains the shared blocker owner vocabulary');
+select is((select lifecycle#>'{nextWork,dueAt}' from obsolete_question_snapshot),
+  'null'::jsonb,'No due worker is invented for internal research');
+select is((select lifecycle#>>'{managerQueue,nextAction}' from obsolete_question_snapshot),
+  'research_purchase','The queue no longer offers obsolete delivery recovery');
+select is((select lifecycle#>>'{managerAction,action}' from obsolete_question_snapshot),
+  'none','No new Manager decision or customer question is offered');
+select is((select lifecycle#>>'{operations,failureClass}' from obsolete_question_snapshot),
+  'stable_evidence_dependency','The summary names the current internal dependency');
+select is((select lifecycle->'customerOutreach' from obsolete_question_snapshot),
+  public.refund_customer_outreach_contract('b9200000-0000-4000-8001-000000000001'),
+  'The entire historical outreach contract, including unknown delivery, is preserved');
+select is(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001'),
+  (select lifecycle from obsolete_question_snapshot),'Repeated projection is a no-op');
+select ok((select to_jsonb(c)=snapshot.case_value and to_jsonb(m)=snapshot.message_value
+    and to_jsonb(cycle)=snapshot.cycle_value
+  from public.refund_cases c
+  join public.refund_case_messages m on m.refund_case_id=c.id
+  join public.refund_follow_up_cycles cycle on cycle.id=m.follow_up_cycle_id
+  cross join obsolete_question_snapshot snapshot
+  where c.id='b9200000-0000-4000-8001-000000000001'),
+  'Case, message, contact budget and cycle remain byte-for-byte unchanged');
+select is((select count(*) from public.refund_case_events where refund_case_id=
+    'b9200000-0000-4000-8001-000000000001'),
+  (select event_count from obsolete_question_snapshot),'Projection emits no adoption or send event');
+
+-- Exercise the real case-bound assembly against fail-closed contract edges.
+-- The case, cycle and provider-backed saved message above remain real rows.
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{customerOutreach,requestedFields}','null'::jsonb))
+      #>>'{nextWork,actionCode}',
+  'recover_customer_delivery','NULL canonical fields are not an empty question')
+from obsolete_question_snapshot;
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{customerOutreach,requestedFields}','["amount"]'::jsonb))
+      #>>'{nextWork,actionCode}',
+  'recover_customer_delivery','A real current requested field retains contact recovery')
+from obsolete_question_snapshot;
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{customerOutreach,requestMessageId}',
+      '"00000000-0000-4000-8000-000000000099"'::jsonb))#>>'{nextWork,actionCode}',
+  'recover_customer_delivery','An unrelated saved-message identity cannot become obsolete')
+from obsolete_question_snapshot;
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{customerOutreach,cycleId}','null'::jsonb))#>>'{nextWork,actionCode}',
+  'recover_customer_delivery','Missing current cycle proof retains contact recovery')
+from obsolete_question_snapshot;
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{paymentState}','"outcome_unknown"'::jsonb))#>>'{nextWork,actionCode}',
+  'recover_customer_delivery','Unknown financial state never enters the obsolete-contact exception')
+from obsolete_question_snapshot;
+
+savepoint changed_obsolete_facts;
+update public.refund_cases set payment_amount_cents=150
+where id='b9200000-0000-4000-8001-000000000001';
+select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001')
+    #>>'{nextWork,blocker,code}',
+  'stable_evidence_dependency','Changed case facts cannot use stale obsolete-question proof');
+rollback to savepoint changed_obsolete_facts;
+release savepoint changed_obsolete_facts;
+
+select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id=
+  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'Projection creates no financial attempt');
+select is((select count(*) from public.refund_authoritative_receipts where refund_case_id=
+  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'Projection creates no financial receipt');
 rollback to savepoint obsolete_unknown_question;
 release savepoint obsolete_unknown_question;
 

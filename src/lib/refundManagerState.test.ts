@@ -21,6 +21,8 @@ import type {
   RefundLifecycleContract,
   RefundLifecycleStage,
 } from './refundLifecycle.ts';
+import { isRefundLifecycleContract } from './refundLifecycle.ts';
+import { getRefundManagerQueueBucket, isRefundCaseOpen } from './refundQueue.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (actual !== expected) throw new Error(`${message}: expected ${expected}, received ${actual}`);
@@ -413,6 +415,34 @@ const outreach = (
   reasonCode: state === 'policy_suppressed' ? 'contact_policy_disabled' : null,
   failureCode: ['delivery_failed', 'delivery_unknown'].includes(state) ? 'delivery_transport' : null,
   payloadRedacted: true,
+});
+
+Deno.test('obsolete historical question stays unknown while current research remains an open dependency', () => {
+  const contract = lifecycle('needs_transaction_selection', 20, 'research_purchase');
+  contract.customerOutreach = {
+    ...outreach('delivery_unknown', 'Refund Operations', 'refund_operations'),
+    requestedFields: [], deliveryState: 'unknown', reasonCode: 'request_delivery_unknown',
+  };
+  contract.nextWork = {
+    schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+    actionCode: 'research_purchase',
+    actionLabel: 'Find verified purchase evidence; no current customer question is outstanding.',
+    lastProgressAt: contract.lookup.lastUpdatedAt, dueAt: null,
+    blocker: { code: 'stable_evidence_dependency', owner: 'Agent',
+      nextStep: 'Find new verified purchase evidence or resolve the existing research dependency; do not repeat the obsolete question.' },
+    payloadRedacted: true,
+  };
+  contract.managerAction = { ...contract.managerAction, action: 'none', owner: 'System' };
+  contract.managerQueue = { ...contract.managerQueue, bucket: 'provider_hold',
+    label: 'Purchase evidence needed', nextAction: 'research_purchase' };
+  const current = { ...baseCase, lifecycle: contract };
+  assertEquals(isRefundLifecycleContract(contract), true, 'existing lifecycle parser accepts the exact contract vocabulary');
+  assertEquals(getRefundManagerState(current).label, 'Purchase research pending', 'the canonical current work wins over historical unknown contact');
+  assertEquals(getRefundManagerState(current).explanation.includes('internal dependency'), true, 'the UI does not claim active automatic research');
+  assertEquals(getRefundManagerState(current).nextStep, contract.nextWork.actionLabel, 'the evidence dependency remains explicit');
+  assertEquals(getRefundManagerQueueBucket(current), 'provider_hold', 'internal research stays in the blocked work queue');
+  assertEquals(isRefundCaseOpen(current), true, 'obsolete contact does not complete the case');
+  assertEquals(contract.customerOutreach.state, 'delivery_unknown', 'original transport remains unknown');
 });
 
 Deno.test('durable customer outreach truth takes precedence over lookup and legacy case guesses', () => {
