@@ -58,6 +58,7 @@ export const fetchRefundGiftCardManagerContext = async (caseId: string) => {
 export const decideRefundGiftCard = (caseId: string, approve: boolean, notes: string, affectedAmountCents?: number) =>
   invokeEdgeFunction<{ ok?: boolean; error?: string }>('refund-case-admin-update', {
     action: approve ? 'approveGiftCard' : 'denyGiftCard', caseId, notes, affectedAmountCents,
+    ...(approve ? {} : { customerFacingReasonVersion: 1 }),
   }, { requireUserAuth: true });
 
 export const resendRefundGiftCard = (caseId: string, intentId: string, customerEmail: string) =>

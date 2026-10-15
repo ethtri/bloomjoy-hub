@@ -184,7 +184,19 @@ try {
   }
   assert(!requests.some((r) => /service_issue_refund_gift_card|service_accept_refund_gift_card_offer|refund_cases/.test(r.path)));
   rpcError = null; requests.length = 0;
-  const denial = { action: 'denyGiftCard', caseId, notes: 'Synthetic reason shown to the customer.' };
+  const denial = { action: 'denyGiftCard', caseId, notes: 'Synthetic reason shown to the customer.', customerFacingReasonVersion: 1 };
+  for (const version of [undefined, null, '1', 0, false, 2]) {
+    requests.length = 0;
+    const stale = await post(admin, { ...denial, customerFacingReasonVersion: version }, true);
+    assertEquals(stale.status, 409);
+    assertEquals(stale.data.error, 'Refresh this page to review the customer-facing reason before declining.');
+    assert(!requests.some((r) => r.path.startsWith('/rest/')), 'A stale denial page cannot invoke decision RPC or any database/provider mutation');
+  }
+  requests.length = 0;
+  assertEquals((await post(admin, { action: 'approveGiftCard', caseId, notes: '' }, true)).status, 200);
+  assertEquals(requests.find((r) => r.path.endsWith('/admin_decide_refund_gift_card'))?.body.p_approve, true,
+    'Approval remains available without the denial wording marker');
+  requests.length = 0;
   const saved = await post(admin, denial, true);
   assertEquals(saved.status, 200); assertEquals(saved.data.decision_saved, true);
   assertEquals(saved.data.gift_card.state, 'denied');

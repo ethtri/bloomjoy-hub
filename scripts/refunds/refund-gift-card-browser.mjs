@@ -306,6 +306,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         assert.equal(decisions.length, 1);
         assert.equal(decisions[0].caseId, 'synthetic-case');
         assert.equal(decisions[0].action, mode === 'approve' ? 'approveGiftCard' : 'denyGiftCard');
+        assert.equal(decisions[0].customerFacingReasonVersion, mode === 'approve' ? undefined : 1);
         if (mode.startsWith('deny')) {
           assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
           await page.getByTestId('refund-gift-card-manager').screenshot({ path: `${artifacts}/manager-${mode}-after-save-${width}.png` });
