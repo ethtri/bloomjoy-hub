@@ -1298,6 +1298,7 @@ export const createOrdinarySuccessChecks = ({
       'Successful Gmail reply confirmation names the original thread',
       await page.getByText('Reply sent in the Gmail thread.', { exact: true }).isVisible()
     );
+    await settleRefundPortalPage(page);
     await queueCase(page, 'RF-UAT-ALT-DRAFT').click();
     await page.getByRole('heading', { name: 'RF-UAT-ALT-DRAFT', exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
@@ -1305,6 +1306,7 @@ export const createOrdinarySuccessChecks = ({
       (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0 &&
         functionCalls.filter((name) => name === 'refund-case-message-send').length === 1
     );
+    await settleRefundPortalPage(page);
     await queueCase(page, 'RF-UAT-GMAIL').click();
     await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).waitFor({ timeout: 10000 });
     await settleRefundPortalPage(page);
