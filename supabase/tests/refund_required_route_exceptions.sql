@@ -64,18 +64,42 @@ update public.refund_manager_attention_states set attention_started_at=statement
 select public.service_start_refund_automation_run('scheduled:required-route-test','scheduled',statement_timestamp());
 create function required_route_test.reserve(p_case uuid,p_milestone text default 'escalation')
 returns jsonb language plpgsql as $$
-declare version_value bigint; action_key text; run_id uuid;
+declare version_value bigint; action_key text; run_id uuid; action_claim jsonb;
 begin
  select attention_version into strict version_value from public.refund_manager_attention_states where refund_case_id=p_case;
  action_key:=format('manager_aging:%s:%s:v%s',p_milestone,p_case,version_value);
  select id into strict run_id from public.refund_automation_runs where run_key='scheduled:required-route-test';
- perform public.service_claim_refund_automation_action(run_id,p_case,action_key,
+ action_claim:=public.service_claim_refund_automation_action(run_id,p_case,action_key,
   case when p_milestone='escalation' then 'manager_escalation' else 'manager_reminder' end,
   'needs_review',date_trunc('hour',statement_timestamp()));
+ if action_claim->>'claimed' is distinct from 'true' then
+  return jsonb_build_object('schedulerClaimed',false,'actionId',action_claim->>'actionId','attemptStarted',false);
+ end if;
  return public.service_begin_refund_manager_aging_notice_attempt(p_case,version_value,p_milestone,
   statement_timestamp(),'UTC',2,5,'refund_manager_aging_v1',action_key,
-  array['route-mailbox@example.invalid'],array['route-ops@example.invalid']);
+  array['route-mailbox@example.invalid'],array['route-ops@example.invalid'])||
+  jsonb_build_object('schedulerClaimed',true,'actionId',action_claim->>'actionId');
 exception when others then return jsonb_build_object('qa_error',sqlerrm,'sqlstate',sqlstate);
+end $$;
+create function required_route_test.defer(p_case uuid,p_reserved boolean default false)
+returns boolean language plpgsql as $$
+declare deferred_key text; action_id uuid;
+begin
+ select format('manager_aging:escalation:%s:v%s',p_case,attention_version) into strict deferred_key
+  from public.refund_manager_attention_states where refund_case_id=p_case;
+ select id into strict action_id from public.refund_automation_actions where refund_case_id=p_case
+  and refund_automation_actions.action_key=deferred_key;
+ if p_reserved and public.service_complete_refund_manager_aging_notice(p_case,deferred_key,'operational_deferred') is not true then return false; end if;
+ return public.service_finish_refund_automation_action(action_id,'suppressed','manager_operational_deferred',null);
+end $$;
+create function required_route_test.does_not_complete(p_sql text)
+returns boolean language plpgsql as $$
+declare completed boolean;
+begin
+ execute p_sql into completed;
+ return completed is distinct from true;
+exception when sqlstate '22023' then return true;
+ when others then return false;
 end $$;
 create function required_route_test.revalidate(p_case uuid,p_key text default null)
 returns jsonb language plpgsql as $$
@@ -183,6 +207,14 @@ select ok((select payload#>>'{recipientRoute,routeType}'='operations'
  'The reservation binds only the existing Ops recipient and required-policy contract');
 select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000002')->>'deliveryAllowed','true',
  'A live unresolved reserved exception passes its actual final provider check');
+select ok(required_route_test.does_not_complete(format(
+ 'select public.service_complete_refund_manager_aging_notice(%L,%L,NULL)',
+ 'fb150000-0000-4000-8000-000000000002',
+ (select notice_attempt_key from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000002'))),
+ 'A missing aging outcome is never interpreted as a proven-unsent deferral');
+select ok((select notice_attempt_key is not null and delivery_review_reason='notice_attempt_in_flight'
+ from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000002'),
+ 'Rejected missing outcome preserves the live aging attempt');
 select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000002','manager_aging:wrong-attempt')->>'deliveryAllowed','false',
  'An unrelated attempt key cannot cross the provider boundary');
 select public.service_complete_refund_manager_aging_notice('fb150000-0000-4000-8000-000000000002',
@@ -190,6 +222,9 @@ select public.service_complete_refund_manager_aging_notice('fb150000-0000-4000-8
  'delivery_unknown');
 select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000002')->>'deliveryAllowed','false',
  'An actual unknown settlement preserves its hold despite retaining the same attempt identity');
+select is(public.service_complete_refund_manager_aging_notice('fb150000-0000-4000-8000-000000000002',
+ (select notice_attempt_key from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000002'),
+ 'operational_deferred'),false,'A known-no-send deferral cannot clear an actual unknown attempt');
 select is((select count(*) from public.service_list_due_refund_manager_operational_exceptions(
  statement_timestamp()+interval '14 days','UTC',2,5,'refund_manager_aging_v1',100,array['route-mailbox@example.invalid'])
  where refund_case_id='fb150000-0000-4000-8000-000000000002'),0::bigint,
@@ -206,6 +241,8 @@ select is((select coalesce((payload->>'attemptStarted')::boolean,false) from req
  'The master-disable also prevents direct exception reservation');
 select ok((select notice_attempt_key is null from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000004'),
  'A disabled reservation leaves no delivery hold');
+select ok(required_route_test.defer('fb150000-0000-4000-8000-000000000004'),
+ 'The scheduler records its pre-reservation master deferral without discarding the action row');
 update private.email_alert_delivery_settings set delivery_enabled=true where singleton;
 update public.email_alert_profiles set quiet_enabled=true,
  quiet_start=((statement_timestamp() at time zone 'UTC')-interval '1 hour')::time,
@@ -216,10 +253,20 @@ select is((select coalesce((payload->>'attemptStarted')::boolean,false) from req
  'The actual Ops recipient quiet hours defer direct reservation');
 select ok((select notice_attempt_key is null from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000004'),
  'Quiet deferral consumes no exception delivery hold');
+select ok(required_route_test.defer('fb150000-0000-4000-8000-000000000004'),
+ 'The scheduler records its pre-reservation quiet deferral on the same action');
 update public.email_alert_profiles set quiet_enabled=false where user_id='fb110000-0000-4000-8000-000000000003';
+select is((select count(*) from public.service_list_due_refund_manager_operational_exceptions(
+ statement_timestamp(),'UTC',2,5,'refund_manager_aging_v1',100,array['route-mailbox@example.invalid'])
+ where refund_case_id='fb150000-0000-4000-8000-000000000004'),1::bigint,
+ 'Quiet ending restores scheduler eligibility after a real suppressed automation action');
 insert into required_route_test.results select 'gate_reserve',required_route_test.reserve('fb150000-0000-4000-8000-000000000004');
 select is((select payload->>'attemptStarted' from required_route_test.results where lane='gate_reserve'),'true',
  'The same due exception may reserve once gates permit delivery');
+select ok((select payload->>'schedulerClaimed'='true' and payload->>'actionId'=
+ (select payload->>'actionId' from required_route_test.results where lane='quiet_reserve')
+ from required_route_test.results where lane='gate_reserve'),
+ 'The real scheduler claim re-arms the original action identity instead of bypassing dedupe');
 update private.email_alert_delivery_settings set delivery_enabled=false where singleton;
 select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000004')->>'deliveryAllowed','false',
  'Master-disable after reservation blocks actual provider access');
@@ -227,7 +274,43 @@ update private.email_alert_delivery_settings set delivery_enabled=true where sin
 update public.email_alert_profiles set quiet_enabled=true where user_id='fb110000-0000-4000-8000-000000000003';
 select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000004')->>'deliveryAllowed','false',
  'Ops quiet hours changed after reservation are rechecked at provider access');
+select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000004')->>'deferred','true',
+ 'A proven pre-provider quiet interruption is distinguished from delivery uncertainty');
+select ok(required_route_test.defer('fb150000-0000-4000-8000-000000000004',true),
+ 'The actual scheduler releases a proven-unsent reserved attempt as operational deferral');
+select ok((select escalation_resolved_at is null and notice_attempt_key is null and delivery_review_required_at is null
+ from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000004'),
+ 'Post-reservation quiet deferral does not falsely resolve or indefinitely hold the only Ops milestone');
 update public.email_alert_profiles set quiet_enabled=false where user_id='fb110000-0000-4000-8000-000000000003';
+insert into required_route_test.results select 'quiet_resumed',required_route_test.reserve('fb150000-0000-4000-8000-000000000004');
+select ok((select payload->>'schedulerClaimed'='true' and payload->>'attemptStarted'='true'
+ and payload->>'actionId'=(select payload->>'actionId' from required_route_test.results where lane='gate_reserve')
+ from required_route_test.results where lane='quiet_resumed'),
+ 'Quiet ending after reservation permits a real claim and reservation using the same audit identity');
+select is(required_route_test.revalidate('fb150000-0000-4000-8000-000000000004')->>'deliveryAllowed','true',
+ 'The deferred Ops notice reaches its final provider check when quiet hours end');
+select is((select count(*) from public.refund_automation_actions where refund_case_id='fb150000-0000-4000-8000-000000000004'
+ and action_type='manager_escalation'),1::bigint,'Pre/post-reservation quiet deferrals never create extra automation identities');
+select ok((select count(*)>0 from public.refund_case_events where refund_case_id='fb150000-0000-4000-8000-000000000004'
+ and event_type='refund_manager_aging_notice_not_sent'),'A proven-unsent reservation retains its existing audit evidence');
+select ok(public.service_complete_refund_manager_aging_notice('fb150000-0000-4000-8000-000000000004',
+ (select notice_attempt_key from public.refund_manager_attention_states where refund_case_id='fb150000-0000-4000-8000-000000000004'),
+ 'operations_exception'),'The resumed Ops attempt may settle its one existing milestone');
+select public.service_finish_refund_automation_action((payload->>'actionId')::uuid,'completed','manager_routing_exception_sent',null)
+ from required_route_test.results where lane='quiet_resumed';
+select is((select count(*) from public.service_list_due_refund_manager_operational_exceptions(
+ statement_timestamp(),'UTC',2,5,'refund_manager_aging_v1',100,array['route-mailbox@example.invalid'])
+ where refund_case_id='fb150000-0000-4000-8000-000000000004'),0::bigint,
+ 'A successfully settled exception is not re-armed as another Ops notice');
+create temporary table required_ordinary_claim as select public.service_claim_refund_automation_action(
+ (select id from public.refund_automation_runs where run_key='scheduled:required-route-test'),
+ 'fb150000-0000-4000-8000-000000000004','ordinary:required-route:unchanged','ops_alert','needs_review',date_trunc('hour',statement_timestamp())) p;
+select public.service_finish_refund_automation_action((p->>'actionId')::uuid,'suppressed','manager_operational_deferred',null)
+ from required_ordinary_claim;
+select is(public.service_claim_refund_automation_action(
+ (select id from public.refund_automation_runs where run_key='scheduled:required-route-test'),
+ 'fb150000-0000-4000-8000-000000000004','ordinary:required-route:unchanged','ops_alert','needs_review',date_trunc('hour',statement_timestamp()))->>'claimed',
+ 'false','The narrow Ops deferral reason cannot re-arm an unrelated automation action');
 
 -- Failed customer contact with no usable Manager gets one existing Ops notice,
 -- independent of the old business-decision aging clock. There is no reminder.
@@ -259,6 +342,16 @@ select ok((select payload->>'claimKind'='customer_contact_owner_needed' and payl
  'The claim has a distinct owner-routing purpose and only existing Ops recipients');
 select is((select public.service_mark_refund_manager_notification_provider_started((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid)
  from required_route_test.results where lane='owner_first'),false,'An old generic consumer cannot send the new contact-owner purpose');
+select ok((select required_route_test.does_not_complete(format(
+ 'select public.service_complete_refund_manager_notification(%L,%L,NULL,NULL)',payload->>'actionId',payload->>'claimToken'))
+ from required_route_test.results where lane='owner_first'),
+ 'A missing contact-owner outcome is never treated as a proven-unsent deferral');
+select ok((select delivery_state='reserved' and provider_attempt_started_at is null from public.refund_manager_notification_actions
+ where id=(select (payload->>'actionId')::uuid from required_route_test.results where lane='owner_first')),
+ 'Rejected missing outcome preserves the exact contact-owner reservation');
+select is((select public.service_complete_refund_manager_notification((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid,
+ 'sent','unearned-owner-receipt') from required_route_test.results where lane='owner_first'),false,
+ 'A contact-owner sent receipt cannot be invented before provider start');
 select is(required_route_test.owner_start('owner_first',array['tampered-ops@example.invalid']),false,
  'A changed actual transport recipient cannot reuse a valid contact-owner fingerprint');
 update private.email_alert_delivery_settings set delivery_enabled=false where singleton;
@@ -267,12 +360,41 @@ update private.email_alert_delivery_settings set delivery_enabled=true where sin
 update public.email_alert_profiles set quiet_enabled=true where user_id='fb110000-0000-4000-8000-000000000003';
 select is(required_route_test.owner_start('owner_first'),false,'Current Ops quiet hours are checked again after claim');
 update public.email_alert_profiles set quiet_enabled=false where user_id='fb110000-0000-4000-8000-000000000003';
+do $$ declare previous_claim jsonb; next_claim jsonb;
+begin
+ select payload into strict previous_claim from required_route_test.results where lane='owner_first';
+ for interruption in 1..4 loop
+  update public.email_alert_profiles set quiet_enabled=true where user_id='fb110000-0000-4000-8000-000000000003';
+  if required_route_test.owner_start('owner_first') is not false then raise exception 'Quiet owner boundary unexpectedly allowed'; end if;
+  if public.service_complete_refund_manager_notification((previous_claim->>'actionId')::uuid,(previous_claim->>'claimToken')::uuid,
+    'operational_deferred',null) is not true then raise exception 'Owner deferral was not recorded'; end if;
+  update public.email_alert_profiles set quiet_enabled=false where user_id='fb110000-0000-4000-8000-000000000003';
+  next_claim:=required_route_test.owner_claim();
+  if next_claim->>'claimed' is distinct from 'true' or next_claim->>'actionId' is distinct from previous_claim->>'actionId' then
+   raise exception 'Quiet owner deferral lost the sole notice identity'; end if;
+  update required_route_test.results set payload=next_claim where lane='owner_first';
+  previous_claim:=next_claim;
+ end loop;
+end $$;
+select ok((select attempt_count<3 and provider_attempt_started_at is null from public.refund_manager_notification_actions
+ where id=(select (payload->>'actionId')::uuid from required_route_test.results where lane='owner_first')),
+ 'Four actual quiet deferral/reclaim cycles do not exhaust the only initial Ops notice');
 select ok(required_route_test.owner_start('owner_first'),'A supported current unowned contact crosses the protected provider boundary once');
 select public.service_complete_refund_manager_notification((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid,'delivery_unknown',null)
  from required_route_test.results where lane='owner_first';
 select is(required_route_test.owner_claim(statement_timestamp()+interval '14 days')->>'claimed','false',
  'Uncertain Ops contact delivery remains held without a new initial or reminder');
 select is(required_route_test.owner_start('owner_first'),false,'An uncertain contact-owner attempt cannot re-enter the provider');
+select is((select public.service_complete_refund_manager_notification((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid,
+ 'operational_deferred',null) from required_route_test.results where lane='owner_first'),false,
+ 'Operational deferral cannot clear a post-provider contact-owner unknown hold');
+select is((select public.service_complete_refund_manager_notification((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid,
+ 'known_not_sent',null) from required_route_test.results where lane='owner_first'),false,
+ 'Known-not-sent cannot overwrite a provider-started contact-owner attempt');
+select ok((select delivery_state='delivery_unknown' and provider_attempt_started_at is not null
+ from public.refund_manager_notification_actions where id=(select (payload->>'actionId')::uuid
+ from required_route_test.results where lane='owner_first')),
+ 'Rejected pre-provider outcomes preserve the actual unknown receipt authority');
 select public.service_complete_refund_manager_notification((payload->>'actionId')::uuid,(payload->>'claimToken')::uuid,'sent','synthetic-contact-owner-receipt')
  from required_route_test.results where lane='owner_first';
 select is(required_route_test.owner_claim(statement_timestamp()+interval '14 days')->>'claimed','false',
@@ -292,6 +414,46 @@ select public.service_complete_refund_manager_notification((payload->>'actionId'
  from required_route_test.results where lane='owner_retry';
 select is(required_route_test.owner_claim(statement_timestamp()+interval '14 days')->>'claimed','false',
  'A queued latest retry does not create another contact-owner action');
+-- Exercise the same narrow proven-unsent settlement on a real owned initial
+-- notice. Repeated quiet interruptions must not consume its retry budget.
+select public.service_enqueue_refund_manager_ready_notices('fb150000-0000-4000-8000-000000000007',statement_timestamp());
+insert into required_route_test.results select 'owned_initial',public.service_claim_next_refund_manager_ready_notice(
+ 'fb150000-0000-4000-8000-000000000007',statement_timestamp());
+select is((select payload->>'claimed' from required_route_test.results where lane='owned_initial'),'true',
+ 'A real owned decision reserves its required initial notice before a quiet interruption');
+do $$ declare previous_claim jsonb; next_claim jsonb;
+begin
+ select payload into strict previous_claim from required_route_test.results where lane='owned_initial';
+ for interruption in 1..4 loop
+  update public.email_alert_profiles set quiet_enabled=true,
+   quiet_start=((statement_timestamp() at time zone 'UTC')-interval '1 hour')::time,
+   quiet_end=((statement_timestamp() at time zone 'UTC')+interval '1 hour')::time
+   where user_id='fb110000-0000-4000-8000-000000000001';
+  if public.service_mark_refund_manager_ready_notice_provider_started((previous_claim->>'intentId')::uuid,
+    (previous_claim->>'claimToken')::uuid,previous_claim->>'routeFingerprint',previous_claim->>'recipient') is not false then
+   raise exception 'Quiet Manager boundary unexpectedly allowed'; end if;
+  if public.service_complete_refund_manager_notification((previous_claim->>'intentId')::uuid,
+    (previous_claim->>'claimToken')::uuid,'operational_deferred',null) is not true then
+   raise exception 'Manager deferral was not recorded'; end if;
+  update public.email_alert_profiles set quiet_enabled=false where user_id='fb110000-0000-4000-8000-000000000001';
+  next_claim:=public.service_claim_next_refund_manager_ready_notice('fb150000-0000-4000-8000-000000000007',
+   statement_timestamp()+interruption*interval '2 minutes');
+  if next_claim->>'claimed' is distinct from 'true' or next_claim->>'intentId' is distinct from previous_claim->>'intentId' then
+   raise exception 'Quiet Manager deferral lost the sole initial identity'; end if;
+  update required_route_test.results set payload=next_claim where lane='owned_initial';
+  previous_claim:=next_claim;
+ end loop;
+end $$;
+select ok((select attempt_count<3 and provider_attempt_started_at is null from public.refund_manager_notification_actions
+ where id=(select (payload->>'intentId')::uuid from required_route_test.results where lane='owned_initial')),
+ 'Four actual Manager quiet deferrals retain the initial notice and its transport retry budget');
+select ok((select public.service_mark_refund_manager_ready_notice_provider_started((payload->>'intentId')::uuid,
+ (payload->>'claimToken')::uuid,payload->>'routeFingerprint',payload->>'recipient')
+ from required_route_test.results where lane='owned_initial'),
+ 'The preserved Manager initial may cross its actual provider boundary once quiet ends');
+select ok((select public.service_complete_refund_manager_ready_notice((payload->>'intentId')::uuid,
+ (payload->>'claimToken')::uuid,'sent','synthetic-required-route-owned-initial')
+ from required_route_test.results where lane='owned_initial'),'The resumed owned initial settles through its supported receipt RPC');
 insert into required_route_test.results select 'denial_owned',required_route_test.deny_contact('fb150000-0000-4000-8000-000000000007',true,
  'fb110000-0000-4000-8000-000000000001');
 select is(required_route_test.owner_claim()->>'claimed','false','A valid current Manager owns supported recovery despite a stale invalid mapping email');
@@ -354,6 +516,11 @@ delete from public.refund_manager_notification_recipients where action_id in
   (select id from public.refund_cases where public_reference like 'RF-REQUIRED-ROUTE-%'));
 delete from public.refund_manager_notification_actions where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-REQUIRED-ROUTE-%');
+-- Receipt events restrict message deletion. Remove only this fixture's bound
+-- events first so committed synthetic hashes/state cannot leak into later suites.
+delete from public.refund_transactional_delivery_events where matched_refund_case_message_id in
+ (select id from public.refund_case_messages where refund_case_id in
+  (select id from public.refund_cases where public_reference like 'RF-REQUIRED-ROUTE-%'));
 delete from public.refund_case_messages where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-REQUIRED-ROUTE-%') and gift_denial_source_message_id is not null;
 delete from public.refund_case_messages where refund_case_id in
