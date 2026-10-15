@@ -180,5 +180,43 @@ select is(pg_temp.health()->>'decisionClockBasis','recorded_attention_clock',
  'Decision age uses its recorded clock instead of inferring age from intake or a heartbeat');
 select is((select count(*) from public.refund_gift_card_issuances where refund_case_id='14310000-0000-4000-8000-000000000031'),
  0::bigint,'Health never issues a gift card or records a Manager decision');
+
+-- An actual delivered current question is a valid wait; its future single
+-- reminder is not a missed opportunity. Closing the case removes the source.
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,card_last4,status)
+ values('14310000-0000-4000-8000-000000000050','RF-DUE-WAIT',
+ '14310000-0000-4000-8000-000000000003','14310000-0000-4000-8000-000000000002',
+ 'wait-fixture@example.invalid','Synthetic question',now(),'card',700,'4242','waiting_on_customer');
+insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,
+ requested_fields,template_version,case_fact_version,reminder_delay_hours,status)
+ select '14310000-0000-4000-8000-000000000051',id,1,repeat('1',64),'missing_information',
+ array['incident_time'],'refund_follow_up_v1',deterministic_fact_version,168,'claimed'
+ from public.refund_cases where id='14310000-0000-4000-8000-000000000050';
+insert into public.refund_case_messages(id,refund_case_id,follow_up_cycle_id,message_type,status,
+ recipient_email,subject,body,template_version,reason_code,requested_fields,sent_at,delivery_state,
+ delivery_transport,provider_message_id,content_source,delivery_kind)
+ values('14310000-0000-4000-8000-000000000052','14310000-0000-4000-8000-000000000050',
+ '14310000-0000-4000-8000-000000000051','more_info','sent','wait-fixture@example.invalid',
+ 'Synthetic question','Synthetic question','refund_follow_up_v1','missing_information',array['incident_time'],
+ now(),'delivered','resend','synthetic-delivery-health','deterministic_template','automatic');
+update public.refund_follow_up_cycles set status='waiting',request_message_id='14310000-0000-4000-8000-000000000052',
+ request_created_at=now(),request_sent_at=now(),reminder_due_at=now()+interval '7 days'
+ where id='14310000-0000-4000-8000-000000000051';
+select is(pg_temp.health()->>'futureRetryCount','1','Future existing follow-up remains a wait');
+select is(pg_temp.health()->>'overdueCount','25','A future reminder adds no overdue processing work');
+update public.refund_cases set status='closed' where id='14310000-0000-4000-8000-000000000050';
+select is(pg_temp.health()->>'futureRetryCount','0','Closing the real current cycle source stops its due/wait observation');
+
+insert into auth.users(id,email) values('14310000-0000-4000-8000-000000000060','synthetic-author@example.invalid');
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
+ created_by,content_source,delivery_kind,manual_delivery_intent_id,manual_delivery_state,
+ manual_delivery_expected_case_version,manual_delivery_provider_attempted_at,manual_delivery_attempt_count)
+ select '14310000-0000-4000-8000-000000000061',id,'more_info','failed',customer_email,'Synthetic unknown','Synthetic unknown',
+ '14310000-0000-4000-8000-000000000060','manager_authored','manual',
+ '14310000-0000-4000-8000-000000000062','delivery_unknown',official_action_version,now(),1
+ from public.refund_cases where id='14310000-0000-4000-8000-000000000050';
+select is(pg_temp.health()->>'unknownHoldCount','1','Actual provider-started unknown intent remains a hold, not eligible resend');
+select is(pg_temp.health()->>'overdueCount','25','Unknown contact does not accrue a missed-send opportunity');
 select * from finish();
 rollback;

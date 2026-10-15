@@ -24,6 +24,8 @@ declare c public.refund_cases; lifecycle jsonb; work jsonb; item record;
  agent_work integer:=0; unsupported integer:=0; closed_count integer:=0; evidence_dependencies integer:=0;
  oldest_decision timestamptz; decision_since timestamptz; result_state text; decision_clock_unavailable integer:=0;
  scope_count integer:=0; technical jsonb:='[]';
+ projected_work jsonb:='[]'; recognized_work jsonb:='{}'; source_lane text; work_key text;
+ manual_recovery_count integer:=0;
 begin
  if p_observed_at is null then raise exception 'Observation time required' using errcode='22023'; end if;
  if auth.uid() is not null then
@@ -35,7 +37,9 @@ begin
   where candidate.case_population='customer' and candidate.duplicate_of_refund_case_id is null
    and (candidate.status not in ('completed','denied','closed')
     or exists(select 1 from public.refund_case_messages m where m.refund_case_id=candidate.id
-      and m.manual_delivery_state in ('queued','claimed','delivery_unknown')))
+      and m.manual_delivery_state in ('queued','claimed','delivery_unknown'))
+    or (candidate.resolution_method='gift_card' and candidate.gift_card_state='denied'
+      and private.refund_denial_owner_recovery_root(candidate.id) is not null))
   order by candidate.created_at,candidate.id limit 501
  loop
   scope_count:=scope_count+1;
@@ -47,6 +51,11 @@ begin
   if lifecycle is null or lifecycle->>'payloadRedacted' is distinct from 'true'
    or work->>'payloadRedacted' is distinct from 'true' then
    raise exception 'Current lifecycle observation unavailable' using errcode='P4652';
+  end if;
+  if c.resolution_method='gift_card' and c.gift_card_state='denied'
+   and private.refund_denial_owner_recovery_root(c.id) is not null then
+   manual_recovery_count:=manual_recovery_count+1;
+   recognized_work:=recognized_work||jsonb_build_object(c.id::text||'|recover_customer_delivery',true);
   end if;
   if work->>'isOpen'='false' then closed_count:=closed_count+1;
   elsif work->>'actor'='manager' then
@@ -74,11 +83,10 @@ begin
     nullif(work->>'lastProgressAt','')::timestamptz,'blocked',work#>>'{blocker,code}'));
   end if;
   -- An unrecognized System action remains unavailable rather than healthy zero.
-  if work->>'isOpen'='true' and ((work->>'actor'='system'
-   and coalesce(work->>'actionCode','') not in ('none','run_lookup','continue_refund',
-    'deliver_customer_question','recover_customer_delivery'))
-   or (work->>'actor'='agent' and work->>'actionCode' in
-    ('review_customer_reply','prepare_manager_decision'))) then unsupported:=unsupported+1; end if;
+  if work->>'isOpen'='true' and (work->>'actor'='system'
+   or (work->>'actor'='agent' and work->>'actionCode' in ('review_customer_reply','prepare_manager_decision'))) then
+   projected_work:=projected_work||jsonb_build_array(c.id::text||'|'||coalesce(work->>'actionCode',''));
+  end if;
  end loop;
 
  -- Reuse this lane's existing pure selector; never invoke its claimant.
@@ -104,6 +112,7 @@ begin
     where later.refund_case_id=a.refund_case_id and (later.created_at,later.id)>(a.created_at,a.id))
    and not exists(select 1 from public.refund_authoritative_receipts receipt where receipt.refund_case_id=c.id)
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.refund_case_id::text||'|continue_refund',true);
   items:=items||jsonb_build_array(private.refund_work_item(item.id::text||':reconciliation',
    'approved_refund','reconcile_existing_provider_attempt',item.refund_operations_due_at,
    item.provider_outcome_recorded_at,'unknown_hold'));
@@ -116,6 +125,10 @@ begin
   where c.case_population='customer' and c.duplicate_of_refund_case_id is null
    and m.manual_delivery_state in ('queued','claimed','delivery_unknown')
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.refund_case_id::text||'|deliver_customer_question',true,
+   item.refund_case_id::text||'|recover_customer_delivery',true);
+  source_lane:=case when item.delivery_kind='automatic' and item.template_version is distinct from 'refund_gift_card_v1'
+   then 'automatic_customer_outbox' else 'customer_outbox' end;
   result_state:=case
    when item.manual_delivery_state='delivery_unknown' or
     (item.manual_delivery_state='claimed' and item.manual_delivery_provider_attempted_at is not null)
@@ -126,7 +139,7 @@ begin
    else 'due' end;
   items:=items||jsonb_build_array(private.refund_work_item(
    item.id::text||':'||item.manual_delivery_expected_case_version::text,
-   'customer_outbox','deliver_customer_notice',
+   source_lane,'deliver_customer_notice',
    case when item.manual_delivery_state='claimed' then item.manual_delivery_claimed_at+interval '10 minutes'
     else item.created_at end,item.manual_delivery_claimed_at,result_state,
    case when result_state='blocked' then 'outbox_current_version_mismatch' else null end));
@@ -148,6 +161,7 @@ begin
    and c.reporting_adjustment_id is null and a.actor_user_id is null
    and a.status in ('created','in_progress')
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.refund_case_id::text||'|continue_refund',true);
   result_state:=case
    when item.reconciliation_required then 'unknown_hold'
    when item.status='in_progress' and item.provider_claim_expires_at>p_observed_at then 'active_claim'
@@ -203,6 +217,8 @@ begin
    and not exists(select 1 from public.refund_authoritative_receipts r where r.refund_case_id=candidate.id)
    and not exists(select 1 from public.refund_case_nayax_refund_attempts a where a.refund_case_id=candidate.id)
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.id::text||'|run_lookup',true,
+   item.id::text||'|prepare_manager_decision',true);
   decision_since:=case when item.nayax_lookup_status='not_started'
    then coalesce(item.deterministic_facts_updated_at,item.created_at)
    else item.nayax_lookup_finished_at+interval '2 minutes' end;
@@ -217,6 +233,8 @@ begin
   and c.resolution_method='original_payment' and c.duplicate_of_refund_case_id is null
   and c.decision is null and c.nayax_lookup_status='checking'
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.id::text||'|run_lookup',true,
+   item.id::text||'|prepare_manager_decision',true);
   items:=items||jsonb_build_array(private.refund_work_item(
    item.id::text||':'||item.deterministic_fact_version::text||':'||item.nayax_lookup_generation::text||':claim',
    'purchase_lookup','recover_interrupted_lookup',item.nayax_lookup_started_at+interval '90 seconds',
@@ -236,6 +254,7 @@ begin
    and request.delivery_state not in ('failed','bounced','complained')
   where c.case_population='customer' and c.duplicate_of_refund_case_id is null
    and c.resolution_method='original_payment' and c.decision is null
+   and c.status in ('submitted','needs_review','waiting_on_customer','correlated')
    and cycle.status='waiting' and cycle.request_sent_at is not null
    and cycle.case_fact_version=c.deterministic_fact_version
    and cycle.reminder_due_at is not null and cycle.reminder_message_id is null
@@ -267,6 +286,7 @@ begin
      and a.source_snapshot_key=public.refund_current_sunze_cash_source_key(
       c.reporting_machine_id,c.incident_at,p_observed_at))
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.id::text||'|prepare_manager_decision',true);
   items:=items||jsonb_build_array(private.refund_work_item(
    item.id::text||':'||item.deterministic_fact_version::text||':'||coalesce(item.source_key,''),
    'cash_preparation','prepare_purchase_evidence',coalesce(item.deterministic_facts_updated_at,item.created_at),null));
@@ -280,6 +300,8 @@ begin
    and request.refund_case_id=c.id and request.requested_fields_satisfied_by_gmail_message_id is null
   where c.case_population='customer' and c.duplicate_of_refund_case_id is null
    and c.resolution_method='original_payment' and c.payment_method='cash'
+   and c.status not in ('completed','denied','closed') and c.refund_completed_at is null
+   and c.reporting_adjustment_id is null
    and nullif(btrim(c.zelle_payment_contact),'') is null
    and f.status in ('waiting','reminder_claimed','reminder_sent')
    and not exists(select 1 from public.refund_gmail_threads t where t.refund_case_id=c.id
@@ -308,6 +330,7 @@ begin
   where c.case_population='customer' and c.duplicate_of_refund_case_id is null
    and c.resolution_method='gift_card' and c.gift_card_state='pending_inventory'
  loop
+  recognized_work:=recognized_work||jsonb_build_object(item.id::text||'|none',true);
   items:=items||jsonb_build_array(private.refund_work_item(
    item.id::text||':'||item.official_action_version::text||':'||coalesce(item.gift_card_pool_id::text,''),
    'gift_inventory','resume_existing_gift_request',item.created_at,null,
@@ -315,13 +338,17 @@ begin
     else 'external_wait' end));
  end loop;
 
+ for work_key in select value from jsonb_array_elements_text(projected_work) loop
+  if not recognized_work ? work_key then unsupported:=unsupported+1; end if;
+ end loop;
  return jsonb_build_object('schemaVersion','refund_current_work_v1','status','available',
   'items',items||technical,'sourceCoverage',jsonb_build_array('customer_outbox','approved_refund',
-   'purchase_lookup','cash_preparation','customer_follow_up','payout_follow_up','gift_inventory'),
+   'automatic_customer_outbox','purchase_lookup','cash_preparation','customer_follow_up','payout_follow_up','gift_inventory',
+   'supported_denial_contact_recovery'),
   'unsupportedActionCount',unsupported,'decisionCount',decisions,'oldestDecisionAt',oldest_decision,
   'decisionClockBasis','recorded_attention_clock','decisionClockUnavailableCount',decision_clock_unavailable,
   'customerWaitCount',customer_waits,'agentWorkCount',agent_work,
-  'evidenceDependencyCount',evidence_dependencies,'payloadRedacted',true);
+  'evidenceDependencyCount',evidence_dependencies,'manualContactRecoveryCount',manual_recovery_count,'payloadRedacted',true);
 end;
 $$;
 revoke all on function private.refund_current_work(timestamptz) from public,anon,authenticated,service_role;
@@ -376,6 +403,8 @@ returns boolean language sql immutable set search_path='' as $$
   when 'gift_inventory' then true
   when 'approved_refund' then (p_runtime->>'paymentExecutor')::boolean
   when 'customer_outbox' then (p_runtime->>'manualOutbox')::boolean
+  when 'automatic_customer_outbox' then (p_runtime->>'manualOutbox')::boolean
+   and (p_runtime->>'automation')::boolean and (p_runtime->>'contact')::boolean
   when 'customer_follow_up' then (p_runtime->>'automation')::boolean
    and (p_runtime->>'contact')::boolean and (p_runtime->>'policyWindow')::boolean
   when 'payout_follow_up' then (p_runtime->>'automation')::boolean
@@ -476,6 +505,7 @@ begin
   'policyWaitCount',policy_waits,'externalWaitCount',external_waits,
   'customerWaitCount',current_work->'customerWaitCount','agentWorkCount',current_work->'agentWorkCount',
   'evidenceDependencyCount',current_work->'evidenceDependencyCount',
+  'manualContactRecoveryCount',current_work->'manualContactRecoveryCount',
   'awaitingDecisionCount',current_work->'decisionCount','oldestDecisionAt',current_work->'oldestDecisionAt',
   'decisionClockBasis',current_work->'decisionClockBasis',
   'decisionClockUnavailableCount',current_work->'decisionClockUnavailableCount',
