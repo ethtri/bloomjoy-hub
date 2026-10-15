@@ -45,8 +45,8 @@ const miniFitNotes = [
 
 const miniPlanningNotes = [
   'Mini is coming soon and is not currently available to order.',
-  'Payment-first online ordering will open after the final price and shipping policy are ready.',
-  'No quote or unpaid order request is accepted while Mini remains unavailable.',
+  'Final pricing and delivery details will be published when ordering opens.',
+  'For a machine available by quote today, compare the Commercial Machine.',
 ];
 
 const specHighlights = [
@@ -92,6 +92,24 @@ const proofClips = [
     poster: '/media/mini/mini-compact-operation-closeup-poster.jpg',
   },
 ];
+
+function MiniOperationClip({ clip }: { clip: (typeof proofClips)[number] }) {
+  return (
+    <figure className="mx-auto w-full max-w-[280px] overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+      <div className="mx-auto aspect-[9/16] max-h-[400px] bg-muted">
+        <video className="h-full w-full object-contain" aria-label={clip.title} controls playsInline preload="none" poster={clip.poster}>
+          <source src={clip.src} type="video/mp4" />
+        </video>
+      </div>
+      <figcaption className="p-4">
+        <div className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+          <Video className="h-5 w-5 text-primary" />{clip.title}
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{clip.description}</p>
+      </figcaption>
+    </figure>
+  );
+}
 
 const throughputNotes = [
   'Plan from roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity.',
@@ -211,7 +229,7 @@ const operationalFit = [
 
 const reliabilityNotes = [
   'Mini sits in the same core operating and support family as the Commercial Machine, packaged into a smaller cabinet and manual-stick service model.',
-  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed when payment-first ordering launches and during handoff.',
+  'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed when online ordering launches and during handoff.',
   'Manufacturer support provides 24/7 first-line remote technical support via WeChat for diagnostics, troubleshooting, warranty service, and replacement-part workflow.',
   'Manufacturer remote response timing depends on channel availability, time zone, and issue context; Bloomjoy concierge support helps triage, translate, escalate, and coordinate parts during US business hours.',
   'Common operator checks include dry sugar feed, sugar fill level and cap seal, paper-stick position, output path debris, sugar pickup or sensor areas, and burner/spinner residue.',
@@ -241,52 +259,51 @@ export default function MiniPage() {
         </div>
       </div>
 
-      <section className="section-padding">
+      <section className="py-6 sm:py-10 lg:py-12">
         <div className="container-page">
-          <div className="grid gap-12 lg:grid-cols-2">
-            <div>
-              <ProductImageGallery images={miniImages} />
-            </div>
+          <div className="grid gap-6 lg:grid-cols-2 lg:gap-x-12">
 
-            <div>
+            <div className="order-1 min-w-0 lg:order-2">
               <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
                 Coming Soon
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets {MACHINE_NAMES.mini}
+                {MACHINE_NAMES.mini}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 $4,000
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Expected baseline price; final payment-first launch details are still being prepared.
+                Expected price. Not yet available to order.
               </p>
 
-              <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-                Portable robotic cotton candy machine at 1/5 the size of our commercial unit.
-                Mini is being prepared for operators who want Bloomjoy pattern capability in a
-                smaller footprint. Ordering will open only when the complete payment-first flow is
-                ready.
+              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+                A smaller machine for staffed events and compact venues. Manual stick feeding,
+                18 patterns, and a 430 × 555 mm footprint. Plan for an 83.9 kg cabinet.
               </p>
 
-              <div className="mt-6 rounded-lg border border-sage/20 bg-sage-light/40 p-4">
-                <p className="font-semibold text-foreground">Performance planning guidance</p>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Owner-provided operating guidance is roughly one candy every 90 seconds, or about
-                  40 candies per hour of machine-cycle capacity before staff pace, manual stick
-                  feeding, guest/payment flow, and setup conditions are factored in.
-                </p>
-              </div>
+              <p className="mt-3 text-sm text-muted-foreground">About 90 seconds per candy before stick handling and guest service.</p>
 
-              <div className="mt-8 space-y-4">
+              <div className="mt-5 space-y-3">
                 <Button variant="hero" size="xl" className="w-full" disabled>
                   Coming Soon
                 </Button>
                 <p className="text-center text-sm text-muted-foreground">
-                  Mini orders will use online payment when the product launches.
+                  Ordering will open here when Mini launches. A launch date is not yet confirmed.
                 </p>
+                <Button asChild variant="hero-outline" size="lg" className="w-full">
+                  <Link to="/machines">Compare machines</Link>
+                </Button>
               </div>
 
+            </div>
+
+            <div className="order-2 min-w-0 lg:order-1 lg:row-span-2">
+              <ProductImageGallery images={miniImages} className="mx-auto max-w-sm lg:max-w-none" />
+            </div>
+
+            <details className="order-3 min-w-0 rounded-xl border border-border bg-background p-5 lg:col-start-2">
+              <summary className="cursor-pointer font-display text-lg font-semibold text-foreground">Fit, features, and planning guides</summary>
               <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <div className="flex items-start gap-3">
                   <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -401,7 +418,34 @@ export default function MiniPage() {
                   </span>
                 </div>
               </div>
-            </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="max-w-3xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
+              Real-world preview
+            </p>
+            <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
+              See Mini in operation
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Use these short clips to evaluate service rhythm, manual stick handling, cabinet
+              access, and guest-facing motion before ordering opens.
+            </p>
+          </div>
+
+          <div className="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-start">
+            <MiniOperationClip clip={proofClips[0]} />
+            <details className="rounded-xl border border-border bg-background p-5">
+              <summary className="cursor-pointer font-display text-lg font-semibold text-foreground">More views: stick handling and cabinet access</summary>
+              <div className="mt-5 grid gap-6">
+                {proofClips.slice(1).map((clip) => <MiniOperationClip key={clip.src} clip={clip} />)}
+              </div>
+            </details>
           </div>
         </div>
       </section>
@@ -446,6 +490,9 @@ export default function MiniPage() {
 
       <section className="border-t border-border bg-background py-10 sm:py-12 lg:py-16">
         <div className="container-page">
+          <details>
+            <summary className="cursor-pointer font-display text-2xl font-bold text-foreground">Specifications and throughput</summary>
+            <div className="mt-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
@@ -560,58 +607,16 @@ export default function MiniPage() {
               </table>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="border-t border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
-        <div className="container-page">
-          <div className="max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
-              Real-world preview
-            </p>
-            <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
-              Public Mini proof clips
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Use these short clips to evaluate service rhythm, manual stick handling, cabinet
-              access, and guest-facing motion before payment-first ordering launches.
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-5 lg:grid-cols-3">
-            {proofClips.map((clip) => (
-              <figure
-                key={clip.title}
-                className="mx-auto w-full max-w-[340px] overflow-hidden rounded-xl border border-border bg-background shadow-sm"
-              >
-                <div className="mx-auto aspect-[9/16] max-h-[560px] bg-muted lg:max-h-[500px]">
-                  <video
-                    className="h-full w-full object-contain"
-                    controls
-                    playsInline
-                    preload="none"
-                    poster={clip.poster}
-                  >
-                    <source src={clip.src} type="video/mp4" />
-                  </video>
-                </div>
-                <figcaption className="p-4">
-                  <div className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
-                    <Video className="h-5 w-5 text-primary" />
-                    {clip.title}
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {clip.description}
-                  </p>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+            </div>
+          </details>
         </div>
       </section>
 
       <section className="border-t border-border bg-background py-10 sm:py-12 lg:py-16">
         <div className="container-page">
+          <details>
+            <summary className="cursor-pointer font-display text-2xl font-bold text-foreground">Venue fit and operating costs</summary>
+            <div className="mt-6">
           <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
             <section className="min-w-0 rounded-xl border border-border bg-background p-6 shadow-sm lg:p-8">
               <h2 className="font-display text-2xl font-bold text-foreground">
@@ -707,11 +712,16 @@ export default function MiniPage() {
               </div>
             </section>
           </div>
+            </div>
+          </details>
         </div>
       </section>
 
       <section className="border-t border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
+          <details>
+            <summary className="cursor-pointer font-display text-2xl font-bold text-foreground">Daily operation and support</summary>
+            <div className="mt-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="min-w-0">
               <h2 className="font-display text-2xl font-bold text-foreground">
@@ -752,7 +762,7 @@ export default function MiniPage() {
                     Reliability and Support
                   </h2>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    Component, warranty, and support details will be confirmed when payment-first
+                    Component, warranty, and support details will be confirmed when online
                     ordering launches, but the public support posture is aligned with the Commercial Machine.
                   </p>
                 </div>
@@ -782,6 +792,8 @@ export default function MiniPage() {
               </div>
             </section>
           </div>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -793,13 +805,12 @@ export default function MiniPage() {
             </h2>
             <Accordion
               type="multiple"
-              defaultValue={miniMachineFaqs.map((_, index) => `mini-faq-${index}`)}
               className="mt-6"
             >
               {miniMachineFaqs.map((faq, index) => (
-                <AccordionItem key={faq.q} value={`mini-faq-${index}`}>
+                <AccordionItem key={faq.q} value={`mini-faq-${index}`} className="[&_[role=region][data-state=closed]]:hidden">
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                  <AccordionContent className="text-muted-foreground">
+                  <AccordionContent forceMount className="text-muted-foreground">
                     {faq.a}
                   </AccordionContent>
                 </AccordionItem>

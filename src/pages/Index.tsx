@@ -19,13 +19,13 @@ const productCards = [
     price: 'Request a quote',
     description: 'Full-size commercial unit with automatic stick dispensing, complex patterns, and Commercial-only custom wrap via quote.',
     href: '/machines/commercial-robotic-machine',
-    badge: 'Most Popular',
+    badge: 'Available by quote',
     image: commercialMain,
   },
   {
     title: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
+    description: 'Portable at 1/5 the size, with manual stick feeding. Coming soon.',
     href: '/machines/mini',
     badge: 'Coming Soon',
     image: miniMain,
@@ -35,7 +35,7 @@ const productCards = [
     price: '$2,200',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
-    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
+    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Not yet available',
     image: microMain,
   },
 ];
@@ -66,13 +66,11 @@ export default function HomePage() {
                 Commercial-grade robotic cotton candy machines and premium supplies. Built for operators who demand consistency, throughput, and reliable support.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
-                <Link to="/contact?type=quote&interest=commercial&source=%2F">
-                  <Button variant="hero" size="xl">
+                <Button asChild variant="hero" size="xl"><Link to="/contact?type=quote&interest=commercial&source=%2F">
                     Request Commercial Quote
                     <ArrowRight className="ml-1 h-5 w-5" />
-                  </Button>
-                </Link>
-                <Link
+                  </Link></Button>
+                <Button asChild variant="hero-outline" size="xl"><Link
                   to={plannerPath}
                   onClick={() =>
                     trackBuyerFlowPlaybookLinkClick({
@@ -83,11 +81,9 @@ export default function HomePage() {
                     })
                   }
                 >
-                  <Button variant="hero-outline" size="xl">
                     Find Your Machine Path
                     <Compass className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
+                </Link></Button>
               </div>
             </div>
             <div className="relative">
@@ -156,7 +152,7 @@ export default function HomePage() {
                     {product.description}
                   </p>
                   <div className="mt-6 flex items-center text-sm font-semibold text-primary">
-                    Learn more
+                    View machine details
                     <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </div>
                 </div>
@@ -178,12 +174,10 @@ export default function HomePage() {
                 Optimized granularity. Dust-free formula. Quality controlled for our robotic machines. Public pricing starts at $10/kg, and Bloomjoy Plus members pay $8/kg.
               </p>
             </div>
-            <Link to="/supplies">
-              <Button size="lg">
+            <Button asChild size="lg"><Link to="/supplies">
                 Shop Supplies
                 <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
+              </Link></Button>
           </div>
         </div>
       </section>
@@ -203,12 +197,10 @@ export default function HomePage() {
                 <p className="mt-4 text-lg text-muted">
                   Get up and running faster with guided onboarding, training resources, and concierge support from the Bloomjoy team.
                 </p>
-                <Link to="/plus" className="mt-6 inline-block">
-                  <Button variant="hero" size="lg">
+                <Button asChild variant="hero" size="lg"><Link to="/plus" className="mt-6 inline-block">
                     Learn About Plus
                     <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
+                  </Link></Button>
               </div>
               <div className="space-y-4">
                 {[
@@ -263,16 +255,12 @@ export default function HomePage() {
             Whether you're exploring options or ready to purchase, we're here to help.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <Link to="/contact?type=quote&interest=commercial&source=%2F">
-              <Button variant="hero" size="xl">
+            <Button asChild variant="hero" size="xl"><Link to="/contact?type=quote&interest=commercial&source=%2F">
                 Request Commercial Quote
-              </Button>
-            </Link>
-            <Link to="/resources">
-              <Button variant="hero-outline" size="xl">
-                Learn More
-              </Button>
-            </Link>
+              </Link></Button>
+            <Button asChild variant="hero-outline" size="xl"><Link to="/resources">
+                Explore guides and FAQs
+              </Link></Button>
           </div>
         </div>
       </section>

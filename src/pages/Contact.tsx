@@ -5,12 +5,8 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
-  Clock3,
   Mail,
-  MapPin,
   ShieldCheck,
-  Sparkles,
-  Truck,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -141,7 +137,7 @@ const FieldError = ({ id, message }: { id: string; message?: string }) =>
   ) : null;
 
 const selectClassName =
-  'mt-1.5 min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+  'mt-1.5 min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-base text-foreground shadow-sm sm:text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
 export default function ContactPage() {
   const [searchParams] = useSearchParams();
@@ -228,7 +224,10 @@ export default function ContactPage() {
 
   useEffect(() => {
     if (!success) return;
-    successRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    successRef.current?.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
     successRef.current?.focus({ preventScroll: true });
   }, [success]);
 
@@ -392,7 +391,7 @@ export default function ContactPage() {
     setFormData(createInitialFormData(initialType, initialInterest, initialVenueUse));
     startTrackedRef.current = false;
     submissionIdRef.current = null;
-    requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('input')?.focus());
+    requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('#contact-name')?.focus());
   };
 
   const postSubmitPlaybookLinks = success
@@ -402,45 +401,22 @@ export default function ContactPage() {
 
   return (
     <Layout>
-      <section className="relative overflow-hidden border-b border-border/70 bg-gradient-to-b from-cream via-cream/60 to-background py-12 sm:py-16 lg:py-20">
-        <div className="pointer-events-none absolute -right-24 top-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
-        <div className="container-page relative">
-          <div className="mx-auto max-w-4xl text-center">
-            {isQuote && (
-              <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/80 px-3.5 py-2 text-sm font-semibold text-primary shadow-sm backdrop-blur">
-                <Sparkles aria-hidden="true" className="h-4 w-4" />
-                Commercial Machine quote request
-              </div>
-            )}
-            <h1 className="font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-              {isQuote ? 'Tell us where the Commercial Machine needs to work.' : 'Contact Bloomjoy'}
+      <section className="border-b border-border/70 bg-gradient-to-b from-cream to-background py-8 sm:py-10">
+        <div className="container-page">
+          <div className="mx-auto max-w-5xl">
+            <h1 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              {isQuote ? 'Request a Commercial Machine quote' : 'Contact Bloomjoy'}
             </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+            <p className="mt-3 max-w-2xl leading-relaxed text-muted-foreground">
               {isQuote
-                ? 'Share the setting, service region, and timing you have in mind. We’ll review Commercial Machine fit and follow up with the next useful questions—without making you build a full business plan first.'
-                : 'Questions about machines, supplies, procurement, or Bloomjoy Plus? Send us the details and we’ll route your message to the right place.'}
+                ? 'Tell us where and when you plan to operate. We’ll review your needs and follow up by email.'
+                : 'Ask about machines, supplies, procurement, or Bloomjoy Plus. We’ll follow up by email.'}
             </p>
           </div>
-
-          {isQuote && (
-            <div className="mx-auto mt-9 grid max-w-4xl gap-3 text-left sm:grid-cols-3">
-              {[
-                { icon: MapPin, title: 'Share the setting', body: 'Venue type, region, and timing.' },
-                { icon: ShieldCheck, title: 'We review the fit', body: 'No earnings or availability promises.' },
-                { icon: Mail, title: 'Continue by email', body: 'We’ll follow up with useful next questions.' },
-              ].map(({ icon: Icon, title, body }) => (
-                <div key={title} className="rounded-2xl border border-border/70 bg-background/80 p-4 shadow-sm backdrop-blur">
-                  <Icon aria-hidden="true" className="h-5 w-5 text-primary" />
-                  <p className="mt-3 font-semibold text-foreground">{title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{body}</p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
-      <section className="py-10 sm:py-14 lg:py-16">
+      <section className="py-6 sm:py-10">
         <div className="container-page">
           {success ? (
             <div
@@ -531,162 +507,8 @@ export default function ContactPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto grid max-w-5xl grid-cols-1 gap-7 lg:grid-cols-[0.72fr_1.28fr] lg:gap-10">
-              <aside className="min-w-0 lg:pt-5">
-                <p className="text-sm font-bold uppercase tracking-[0.15em] text-primary">
-                  {isQuote ? 'A useful Commercial conversation' : 'Send us a note'}
-                </p>
-                <h2 className="mt-3 font-display text-3xl font-bold text-foreground">
-                  {isQuote ? 'The details that shape Commercial fit.' : 'We’ll route your question.'}
-                </h2>
-                <p className="mt-4 leading-relaxed text-muted-foreground">
-                  {isQuote
-                    ? 'The Commercial Machine can be a strong fit in one operating model and the wrong fit in another. These questions give us enough context to start responsibly.'
-                    : 'Use the inquiry selector to help us understand whether this is a general, demo, procurement, or quote question.'}
-                </p>
-                <div className="mt-6 space-y-4">
-                  <div className="flex gap-3">
-                    <Clock3 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      We don’t publish a guaranteed response time; volume and question complexity vary.
-                    </p>
-                  </div>
-                  <div className="flex gap-3">
-                    <ShieldCheck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      Your form details support this conversation and are never placed in the page URL or analytics.
-                    </p>
-                  </div>
-                </div>
-              </aside>
-
-              <div className="min-w-0 rounded-3xl border border-border bg-card p-5 shadow-elevated sm:p-8">
-                {isQuote && redirectedMachineInterest && (
-                  <div className="mb-6 rounded-2xl border border-amber-300/70 bg-amber-50/80 p-4 text-left shadow-sm">
-                    <p className="text-sm font-semibold text-amber-950">Purchase path preserved</p>
-                    <p className="mt-1 text-sm leading-relaxed text-amber-950/75">
-                      {redirectedMachineInterest} is not quoted through this form. Mini and Micro
-                      keep their payment-first product paths, while this request stays focused on
-                      the configurable Commercial Machine.
-                    </p>
-                    <Link
-                      to={redirectedMachinePath}
-                      className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-amber-950 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
-                    >
-                      View the {redirectedMachineInterest} purchase path
-                      <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                    </Link>
-                  </div>
-                )}
-
-                {isQuote && (initialInterest || initialVenueUse || sourceLabel) && (
-                  <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
-                    <p className="text-sm font-semibold text-primary">Context received</p>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      Commercial Machine quote request
-                      {sourceLabel ? ` from the ${sourceLabel}` : ''}. The machine remains fixed so
-                      Mini and Micro purchase flows cannot be bypassed.
-                    </p>
-                    {initialVenueUse && (
-                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                        We preselected “{initialVenueUse}” from the approved mobile-use context. You can change the setting below.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {isQuote && plannerContextLabels && (
-                  <div className="mb-6 rounded-2xl border border-sage/30 bg-sage-light/45 p-4 text-left">
-                    <div className="flex items-start gap-3">
-                      <Sparkles aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-sage" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground">Planner summary received</p>
-                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                          These are categorical planning signals only. No dollar amount, revenue,
-                          margin, or other exact financial input was transferred.
-                        </p>
-                        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                          <div>
-                            <dt className="font-semibold text-foreground">Machine signal</dt>
-                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.machineSignal}</dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Intended path</dt>
-                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.intendedPath}</dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Budget completeness</dt>
-                            <dd className="mt-0.5 text-muted-foreground">{plannerContextLabels.budgetBand}</dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Open question categories</dt>
-                            <dd className="mt-0.5 text-muted-foreground">
-                              {plannerContextLabels.openQuestions.join(', ') || 'None recorded'}
-                            </dd>
-                          </div>
-                        </dl>
-                        {plannerContext.machineSignal !== 'commercial' && (
-                          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                            The planner signal is context, not quote interest. This form remains
-                            fixed to the configurable Commercial Machine; Mini and Micro stay on
-                            their payment-first product paths.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {isQuote && mobileFitContextLabels && (
-                  <div className="mb-6 rounded-2xl border border-primary/20 bg-[#fff8f2] p-4 text-left">
-                    <div className="flex items-start gap-3">
-                      <Truck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground">
-                          Mobile setup fit-checker summary received
-                        </p>
-                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                          These are allowlisted categorical signals only. No free-form setup note,
-                          exact dimension, electrical value, customer data, or financial input was
-                          transferred.
-                        </p>
-                        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                          <div>
-                            <dt className="font-semibold text-foreground">Result band</dt>
-                            <dd className="mt-0.5 text-muted-foreground">
-                              {mobileFitContextLabels.resultBand}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Machine signal</dt>
-                            <dd className="mt-0.5 text-muted-foreground">
-                              {mobileFitContextLabels.machineSignal}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Placement</dt>
-                            <dd className="mt-0.5 text-muted-foreground">
-                              {mobileFitContextLabels.placement}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="font-semibold text-foreground">Open question categories</dt>
-                            <dd className="mt-0.5 text-muted-foreground">
-                              {mobileFitContextLabels.openQuestions.join(', ') || 'None recorded'}
-                            </dd>
-                          </div>
-                        </dl>
-                        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                          The checker signal is context, not quote interest or approval. This form
-                          remains fixed to the configurable Commercial Machine; Mini and Micro stay
-                          on their payment-first product paths. Manufacturer, professional, venue,
-                          insurer, and local decisions remain outside Bloomjoy quote review.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
+            <div className="mx-auto grid max-w-5xl grid-cols-1 items-start gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:gap-10">
+              <div className="min-w-0 rounded-2xl border border-border bg-card p-5 shadow-elevated sm:p-8">
                 {(errorCount > 0 || serverError) && (
                   <Alert
                     ref={errorSummaryRef}
@@ -698,6 +520,25 @@ export default function ContactPage() {
                     <AlertTitle>{serverError ? 'We couldn’t send the form' : 'Check the highlighted fields'}</AlertTitle>
                     <AlertDescription>
                       {serverError || `${errorCount} ${errorCount === 1 ? 'field needs' : 'fields need'} your attention. Your other entries are still here.`}
+                      {errorCount > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {Object.entries(fieldErrors).map(([field, message]) => (
+                            <li key={field}>
+                              <a
+                                href={`#contact-${field === 'venueUse' ? 'venue' : field === 'serviceRegion' ? 'region' : field}`}
+                                className="underline underline-offset-4"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  const fieldId = field === 'venueUse' ? 'venue' : field === 'serviceRegion' ? 'region' : field;
+                                  formRef.current?.querySelector<HTMLElement>(`#contact-${fieldId}`)?.focus();
+                                }}
+                              >
+                                {message}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -747,13 +588,14 @@ export default function ContactPage() {
                         <Label htmlFor="contact-name">Name <span className="text-destructive">(required)</span></Label>
                         <Input
                           id="contact-name"
+                          required
                           name="name"
                           value={formData.name}
                           onChange={(event) => updateField('name', event.target.value)}
                           autoComplete="name"
                           aria-invalid={Boolean(fieldErrors.name)}
                           aria-describedby={fieldErrors.name ? 'contact-name-error' : undefined}
-                          className="mt-1.5 min-h-11"
+                          className="mt-1.5 min-h-11 text-base sm:text-sm"
                         />
                         <FieldError id="contact-name-error" message={fieldErrors.name} />
                       </div>
@@ -761,6 +603,7 @@ export default function ContactPage() {
                         <Label htmlFor="contact-email">Email <span className="text-destructive">(required)</span></Label>
                         <Input
                           id="contact-email"
+                          required
                           name="email"
                           type="email"
                           inputMode="email"
@@ -770,12 +613,52 @@ export default function ContactPage() {
                           spellCheck={false}
                           aria-invalid={Boolean(fieldErrors.email)}
                           aria-describedby={fieldErrors.email ? 'contact-email-error' : undefined}
-                          className="mt-1.5 min-h-11"
+                          className="mt-1.5 min-h-11 text-base sm:text-sm"
                         />
                         <FieldError id="contact-email-error" message={fieldErrors.email} />
                       </div>
                     </div>
                   </fieldset>
+
+                  {isQuote && (redirectedMachineInterest || sourceLabel || initialVenueUse || plannerContextLabels || mobileFitContextLabels) && (
+                    <div className="space-y-3 border-t border-border pt-5 text-sm leading-relaxed text-muted-foreground">
+                      {redirectedMachineInterest && (
+                        <p>
+                          This form is for Commercial Machine quotes. For {redirectedMachineInterest} pricing and availability,{' '}
+                          <Link to={redirectedMachinePath} className="font-semibold text-primary underline underline-offset-4">
+                            view the {redirectedMachineInterest}
+                          </Link>.
+                        </p>
+                      )}
+                      {sourceLabel && <p>Continuing from the {sourceLabel}.</p>}
+                      {initialVenueUse && <p>We’ve selected “{initialVenueUse}” below. You can change it.</p>}
+                      {(plannerContextLabels || mobileFitContextLabels) && (
+                        <details className="rounded-lg border border-border p-3">
+                          <summary className="cursor-pointer font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            Review your planning summary
+                          </summary>
+                          <p className="mt-3">Only the categories below are included. Your exact financial figures and free-text notes have not been transferred.</p>
+                          {plannerContextLabels && (
+                            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <div><dt className="font-semibold text-foreground">Machine considered</dt><dd>{plannerContextLabels.machineSignal}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Intended use</dt><dd>{plannerContextLabels.intendedPath}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Budget completeness</dt><dd>{plannerContextLabels.budgetBand}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Open questions</dt><dd>{plannerContextLabels.openQuestions.join(', ') || 'None recorded'}</dd></div>
+                            </dl>
+                          )}
+                          {mobileFitContextLabels && (
+                            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <div><dt className="font-semibold text-foreground">Setup check result</dt><dd>{mobileFitContextLabels.resultBand}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Machine considered</dt><dd>{mobileFitContextLabels.machineSignal}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Placement</dt><dd>{mobileFitContextLabels.placement}</dd></div>
+                              <div><dt className="font-semibold text-foreground">Open questions</dt><dd>{mobileFitContextLabels.openQuestions.join(', ') || 'None recorded'}</dd></div>
+                            </dl>
+                          )}
+                          <p className="mt-3">This request is for the Commercial Machine, even if you explored another model. A planning result does not confirm suitability or replace manufacturer, professional, venue, insurer, or local approval.</p>
+                        </details>
+                      )}
+                    </div>
+                  )}
 
                   {isQuote ? (
                     <fieldset className="space-y-5 border-t border-border pt-6">
@@ -790,7 +673,7 @@ export default function ContactPage() {
                           value={formData.organization}
                           onChange={(event) => updateField('organization', event.target.value)}
                           autoComplete="organization"
-                          className="mt-1.5 min-h-11"
+                          className="mt-1.5 min-h-11 text-base sm:text-sm"
                           placeholder="Business name, concept, or organization"
                         />
                       </div>
@@ -798,6 +681,7 @@ export default function ContactPage() {
                         <Label htmlFor="contact-venue">Intended setting or use <span className="text-destructive">(required)</span></Label>
                         <select
                           id="contact-venue"
+                          required
                           name="venueUse"
                           value={formData.venueUse}
                           onChange={(event) => updateField('venueUse', event.target.value)}
@@ -815,13 +699,14 @@ export default function ContactPage() {
                           <Label htmlFor="contact-region">City/state or service region <span className="text-destructive">(required)</span></Label>
                           <Input
                             id="contact-region"
+                            required
                             name="serviceRegion"
                             value={formData.serviceRegion}
                             onChange={(event) => updateField('serviceRegion', event.target.value)}
                             autoComplete="address-level1"
                             aria-invalid={Boolean(fieldErrors.serviceRegion)}
                             aria-describedby={fieldErrors.serviceRegion ? 'contact-region-error' : 'contact-region-help'}
-                            className="mt-1.5 min-h-11"
+                            className="mt-1.5 min-h-11 text-base sm:text-sm"
                             placeholder="Example: Sacramento, CA"
                           />
                           <p id="contact-region-help" className="mt-1.5 text-xs text-muted-foreground">A general service area is enough; no street address needed.</p>
@@ -832,7 +717,7 @@ export default function ContactPage() {
                           <div className="mt-1.5 min-h-11 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
                             <p className="text-sm font-semibold text-foreground">{MACHINE_NAMES.commercial}</p>
                             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                              Mini and Micro stay on their payment-first product paths.
+                              Configuration and delivery are confirmed during the quote conversation.
                             </p>
                           </div>
                           <input type="hidden" name="interest" value={MACHINE_NAMES.commercial} />
@@ -843,6 +728,7 @@ export default function ContactPage() {
                           <Label htmlFor="contact-timeline">Purchase timeline <span className="text-destructive">(required)</span></Label>
                           <select
                             id="contact-timeline"
+                            required
                             name="timeline"
                             value={formData.timeline}
                             onChange={(event) => updateField('timeline', event.target.value)}
@@ -877,7 +763,7 @@ export default function ContactPage() {
                           value={formData.message}
                           onChange={(event) => updateField('message', event.target.value)}
                           rows={4}
-                          className="mt-1.5"
+                          className="mt-1.5 text-base sm:text-sm"
                           placeholder="Power, mobility, venue, staffing, procurement, or other context"
                         />
                       </div>
@@ -891,9 +777,10 @@ export default function ContactPage() {
                         value={formData.message}
                         onChange={(event) => updateField('message', event.target.value)}
                         rows={6}
+                        required
                         aria-invalid={Boolean(fieldErrors.message)}
                         aria-describedby={fieldErrors.message ? 'contact-message-error' : undefined}
-                        className="mt-1.5"
+                        className="mt-1.5 text-base sm:text-sm"
                         placeholder="How can we help?"
                       />
                       <FieldError id="contact-message-error" message={fieldErrors.message} />
@@ -920,10 +807,35 @@ export default function ContactPage() {
                     {!submitting && <ArrowRight aria-hidden="true" className="ml-1 h-4 w-4" />}
                   </Button>
                   <p className="text-center text-xs leading-relaxed text-muted-foreground">
-                    Submitting this form does not reserve inventory, establish pricing, or guarantee a response time or business outcome.
+                    We’ll use your details to respond to your inquiry. Read our{' '}
+                    <Link to="/privacy" className="underline underline-offset-4 hover:text-foreground">Privacy Policy</Link>.
+                    {isQuote && ' Sending a request does not reserve a machine or confirm a price.'}
                   </p>
                 </form>
               </div>
+              <aside className="min-w-0 space-y-6 lg:pt-3" aria-label="What happens next">
+                <div>
+                  <h2 className="font-display text-xl font-bold text-foreground">What happens next</h2>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {isQuote
+                      ? 'We’ll review your setting, location, and timing, then email you about fit, configuration, and delivery. We may ask for more details before preparing a quote.'
+                      : 'We’ll review your message and email you about the next step.'}
+                  </p>
+                </div>
+                <div className="flex gap-3 border-t border-border pt-5">
+                  <ShieldCheck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Your contact details and message stay out of page links and analytics.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <Mail aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Prefer email?{' '}
+                    <a href="mailto:info@bloomjoyusa.com" className="break-words font-semibold text-primary underline underline-offset-4">info@bloomjoyusa.com</a>
+                  </p>
+                </div>
+              </aside>
             </div>
           )}
         </div>

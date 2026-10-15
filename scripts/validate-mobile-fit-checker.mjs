@@ -172,7 +172,7 @@ try {
     'results expose unresolved checks while unsupported results suppress quote handoff and retain decision boundaries'
   );
   assert(
-    contact.includes("searchParams.get('mobile_fit')") && contact.includes("searchParams.get('mobile_open')") && contact.includes('Mobile setup fit-checker summary received') && contact.includes('This form') && contact.includes('Commercial Machine'),
+    contact.includes("searchParams.get('mobile_fit')") && contact.includes("searchParams.get('mobile_open')") && contact.includes('Review your planning summary') && ['resultBand', 'machineSignal', 'placement', 'openQuestions'].every((key) => contact.includes(`mobileFitContextLabels.${key}`)) && contact.includes('This request is for the Commercial Machine, even if you explored another model.'),
     'Contact visibly confirms allowlisted checker context and Commercial-only policy'
   );
   assert(

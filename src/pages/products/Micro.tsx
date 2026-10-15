@@ -35,10 +35,10 @@ const microFitNotes = [
 const microPlanningNotes = [
   isMicroCheckoutEnabled
     ? 'The $2,200 Micro Machine purchase price is collected securely through Stripe checkout.'
-    : 'Online checkout will open after Bloomjoy approves the shipping policy and completes payment setup.',
+    : 'Micro is not yet available to order. Pricing and delivery details will be confirmed when checkout opens.',
   isMicroCheckoutEnabled
     ? 'Bloomjoy follows up after payment to coordinate delivery and operator expectations.'
-    : 'No quote or unpaid request is collected while checkout is unavailable.',
+    : 'For a machine available by quote today, compare the Commercial Machine.',
   'Operators should plan for sugar and paper-stick supplies through the Bloomjoy supplies flow.',
 ];
 
@@ -76,28 +76,23 @@ export default function MicroPage() {
         </div>
       </div>
 
-      <section className="section-padding">
+      <section className="py-6 sm:py-10 lg:py-12">
         <div className="container-page">
-          <div className="grid gap-12 lg:grid-cols-2">
-            {/* Image */}
-            <div>
-              <ProductImageGallery images={microImages} />
-            </div>
-
+          <div className="grid gap-6 lg:grid-cols-2 lg:gap-x-12">
             {/* Details */}
-            <div>
+            <div className="order-1 min-w-0 lg:order-2">
               <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets {MACHINE_NAMES.micro}
+                {MACHINE_NAMES.micro}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 $2,200
               </p>
 
-              <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-                Entry-level robotic cotton candy machine for basic shapes. Perfect for home use or low-volume applications.
+              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+                A compact starting point for low-volume use. Makes basic shapes; choose Mini or Commercial if you need complex patterns.
               </p>
 
-              <div className="mt-8 space-y-4">
+              <div className="mt-5 space-y-3">
                 <Button
                   type="button"
                   variant="hero"
@@ -106,22 +101,29 @@ export default function MicroPage() {
                   onClick={handleBuyMicro}
                   disabled={!isMicroCheckoutEnabled}
                 >
-                    {isMicroCheckoutEnabled ? 'Buy Micro Machine' : 'Checkout Pending'}
+                    {isMicroCheckoutEnabled ? 'Buy Micro Machine' : 'Not yet available'}
                     {isMicroCheckoutEnabled && <ArrowRight className="ml-2 h-5 w-5" />}
                 </Button>
                 {!isMicroCheckoutEnabled && (
                   <p className="text-center text-sm text-muted-foreground">
-                    The $2,200 price remains visible for planning. Checkout will open after the
-                    shipping decision is approved; no request form is used.
+                    Use $2,200 as a planning price. Ordering and delivery details will be published here when available.
                   </p>
                 )}
                 <Button asChild variant="hero-outline" size="lg" className="w-full">
-                  <Link to="/supplies">
-                    Shop Supplies
+                  <Link to="/machines">
+                    Compare machines
                   </Link>
                 </Button>
               </div>
 
+            </div>
+
+            <div className="order-2 min-w-0 lg:order-1 lg:row-span-2">
+              <ProductImageGallery images={microImages} className="mx-auto max-w-sm lg:max-w-none" />
+            </div>
+
+            <details className="order-3 min-w-0 rounded-xl border border-border bg-background p-5 lg:col-start-2">
+              <summary className="cursor-pointer font-display text-lg font-semibold text-foreground">Fit, features, and planning guides</summary>
               <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <div className="flex items-start gap-3">
                   <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -222,7 +224,7 @@ export default function MicroPage() {
                   </span>
                 </div>
               </div>
-            </div>
+            </details>
           </div>
         </div>
       </section>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -90,6 +90,12 @@ const getMachineHref = (machine: PlannerMachineId) =>
     ? "/machines/commercial-robotic-machine"
     : `/machines/${machine}`;
 
+const availabilityFor = (machine: PlannerMachineId) => {
+  if (machine === "commercial") return "Available by quote";
+  if (machine === "mini") return "Coming soon - not yet available to order";
+  return isMicroCheckoutEnabled ? "Available to buy online" : "Not yet available to order";
+};
+
 const unansweredQuestionKeys: Record<PlannerQuestionId, PlannerOpenQuestionKey> = {
   path: "operating-path",
   setting: "setting",
@@ -100,6 +106,7 @@ const unansweredQuestionKeys: Record<PlannerQuestionId, PlannerOpenQuestionKey> 
 
 export default function BusinessPlaybookPlannerPage() {
   const [answers, setAnswers] = useState(getInitialAnswers);
+  const [lastAnsweredQuestion, setLastAnsweredQuestion] = useState<string | null>(null);
   const [budgetMachine, setBudgetMachine] = useState<PlannerMachineId | null>(null);
   const [budget, setBudget] = useState<PlannerBudget>(
     plannerMachineProfiles.mini.defaultBudget
@@ -259,6 +266,7 @@ export default function BusinessPlaybookPlannerPage() {
   ]);
 
   const handleAnswerChange = (questionId: string, choiceId: string) => {
+    setLastAnsweredQuestion(questionId);
     const nextAnswers = { ...answers, [questionId]: choiceId };
     const nextScores = getMachineScores(nextAnswers);
     const nextRankedMachines = (Object.entries(nextScores) as Array<[PlannerMachineId, number]>)
@@ -312,7 +320,7 @@ export default function BusinessPlaybookPlannerPage() {
 
   return (
     <Layout>
-      <section className="border-b border-border bg-gradient-to-b from-cream to-background py-10 sm:py-12 lg:py-16">
+      <section className="border-b border-border bg-gradient-to-b from-cream to-background py-6 sm:py-10 lg:py-12">
         <div className="container-page">
           <Link
             to="/resources/business-playbook"
@@ -322,17 +330,16 @@ export default function BusinessPlaybookPlannerPage() {
             Back to Business Playbook
           </Link>
 
-          <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
                 Interactive planning tool
               </p>
-              <h1 className="mt-4 max-w-4xl font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl">
+              <h1 className="mt-3 max-w-4xl font-display text-3xl font-bold leading-tight text-foreground sm:text-5xl">
                 Machine Fit + Startup Budget Planner
               </h1>
               <p className="mt-5 max-w-3xl text-lg leading-relaxed text-muted-foreground">
-                Answer a few operator-style questions, compare Commercial, Mini, and Micro fit,
-                and sketch a practical launch budget before you pick a path or spend real money.
+                Get an early machine fit after two answers, then refine your options and startup budget. No contact details needed.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Button asChild size="lg">
@@ -358,8 +365,9 @@ export default function BusinessPlaybookPlannerPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-background p-5 shadow-sm">
-              <div className="flex items-center gap-3">
+            <details className="rounded-xl border border-border bg-background p-5 shadow-sm">
+              <summary className="cursor-pointer font-semibold text-foreground">How to use this planner</summary>
+              <div className="mt-4 flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Lightbulb className="h-5 w-5" />
                 </span>
@@ -381,7 +389,7 @@ export default function BusinessPlaybookPlannerPage() {
                   Not legal, tax, insurance, permit, ROI, or profit advice.
                 </li>
               </ul>
-            </div>
+            </details>
           </div>
         </div>
       </section>
@@ -407,8 +415,8 @@ export default function BusinessPlaybookPlannerPage() {
               </div>
 
               {plannerQuestions.map((question, questionIndex) => (
+                <Fragment key={question.id}>
                 <fieldset
-                  key={question.id}
                   className="rounded-xl border border-border bg-background p-5 shadow-sm"
                 >
                   <legend className="font-display text-xl font-bold text-foreground">
@@ -459,10 +467,25 @@ export default function BusinessPlaybookPlannerPage() {
                     })}
                   </div>
                 </fieldset>
+                {hasEnoughAnswers && lastAnsweredQuestion === question.id && (
+                  <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                    <p role="status" aria-live="polite" className="text-sm text-foreground">
+                      <span className="font-semibold">{answeredCount} of {plannerQuestions.length} answered.</span>{" "}
+                      {recommendedMachine
+                        ? `Early fit: ${recommendedMachine.shortLabel}. ${availabilityFor(recommendedMachine.id)}.`
+                        : "Your answers are a close call. Compare the current fit or keep answering."}
+                    </p>
+                    <a href="#machine-fit-result" className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">
+                      See your current result <ArrowRight className="h-4 w-4" />
+                    </a>
+                    <p className="mt-1 text-xs text-muted-foreground">Keep answering to refine the fit. This is a direction to investigate.</p>
+                  </div>
+                )}
+                </Fragment>
               ))}
             </div>
 
-            <aside className="space-y-5 xl:sticky xl:top-24 xl:self-start">
+            <aside id="machine-fit-result" tabIndex={-1} aria-label="Your machine fit result" className="scroll-mt-24 space-y-5 xl:sticky xl:top-24 xl:self-start">
               <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
                   Best machine to investigate first
@@ -472,6 +495,7 @@ export default function BusinessPlaybookPlannerPage() {
                     <h2 className="mt-2 font-display text-2xl font-bold text-foreground">
                       {recommendedMachine.label}
                     </h2>
+                    <p className="mt-2 text-sm font-semibold text-foreground">{availabilityFor(recommendedMachine.id)}</p>
                     <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                       {recommendedMachine.bestFor}
                     </p>
@@ -480,6 +504,9 @@ export default function BusinessPlaybookPlannerPage() {
                       {recommendedMachine.watchOut}
                     </p>
                     <div className="mt-5 grid gap-2">
+                      <Button asChild variant="outline">
+                        <Link to={getMachineHref(recommendedMachine.id)}>View machine and availability <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                      </Button>
                       <Button asChild>
                         <Link
                           to={recommendedMachine.articleHref}
@@ -523,6 +550,9 @@ export default function BusinessPlaybookPlannerPage() {
                       {tiedMachines.map((machine) => machine.shortLabel).join(" and ")}.
                       That is useful: compare the operating model before choosing a machine.
                     </p>
+                    <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {tiedMachines.map((machine) => <li key={machine.id}><span className="font-semibold text-foreground">{machine.shortLabel}:</span> {availabilityFor(machine.id)}</li>)}
+                    </ul>
                     <div className="mt-5 grid gap-2">
                       <Button asChild>
                         <Link to="/resources/business-playbook/commercial-vending-vs-event-catering">
@@ -837,7 +867,7 @@ export default function BusinessPlaybookPlannerPage() {
                 </p>
                 <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
                   No exact budget, revenue, margin, volume, ROI, or payback input enters the URL or
-                  analytics. Mini and Micro remain on their payment-first product paths.
+                  analytics. Check the Mini and Micro pages for current ordering availability.
                 </p>
               </div>
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row lg:flex-col">
