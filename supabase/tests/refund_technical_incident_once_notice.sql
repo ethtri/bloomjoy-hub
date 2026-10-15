@@ -146,6 +146,13 @@ select is((select count(*) from public.internal_notification_dispatches where so
  1::bigint,'Actual competing producers commit exactly one durable dispatch');
 select is((select payload#>'{payload,to}' from technical_once_test.results where lane='initial'),
  '["etrifari@bloomjoysweets.com","ian@bloomjoysweets.com"]'::jsonb,'Recipients are exactly Ethan and Ian, without Manager/Ops expansion');
+select is((select split_part(payload#>>'{payload,text}',E'\n\n',2) from technical_once_test.results where lane='initial'),
+ 'Some required refund work or customer updates need internal attention.',
+ 'The frozen first sentence remains true when the coalesced incident cause changes');
+select is((select cardinality(string_to_array(payload#>>'{payload,text}','https://app.bloomjoyusa.com/refunds'))-1
+ from technical_once_test.results where lane='initial'),1,'The actual handoff contains one existing Refunds link');
+select ok((select (payload#>>'{payload,text}') !~* '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+ from technical_once_test.results where lane='initial'),'Internal incident identity stays out of the human email body');
 select is((select payload#>>'{payload,idempotencyKey}' from technical_once_test.results where lane='initial'),
  'refund_technical_incident_14320000-0000-4000-8002-000000000001','Provider identity is per incident, not run, day or reminder');
 select is(technical_once_test.settle('initial','accepted','synthetic-technical-accepted'),false,
