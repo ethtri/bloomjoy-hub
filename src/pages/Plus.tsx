@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight, BookOpen } from 'lucide-react';
+import { Check, ArrowRight, BookOpen, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
-import { PlusToolsPreview } from '@/components/resources/PlusToolsPreview';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { businessPlaybookPlusTools } from '@/data/businessPlaybookPlusTools';
 import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import { getCheckoutStatus, startPlusCheckout } from '@/lib/stripeCheckout';
@@ -13,32 +14,36 @@ import { useAuth } from '@/contexts/auth-context';
 const benefits = [
   {
     title: 'Onboarding Checklist',
-    description: 'Step-by-step guidance to get your machine operational, including WeChat setup with manufacturer support.',
+    description: 'Setup steps and help connecting with manufacturer support on WeChat.',
   },
   {
     title: 'Training Library',
-    description: 'Task-first videos, setup guides, maintenance checklists, and troubleshooting references hosted in the member portal.',
+    description: 'Videos, working sheets, and job aids for setup, daily operation, cleaning, and troubleshooting.',
   },
   {
     title: 'Operator Certificate',
-    description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
+    description: 'A Bloomjoy completion certificate after the Operator Essentials training path.',
   },
   {
     title: 'Connected Reporting',
-    description: 'Review assigned-machine sales, trends, and exports when reporting has been enabled for your account.',
+    description: 'Assigned-machine sales, trends, and exports when reporting is enabled for your account.',
   },
   {
     title: 'Concierge Support',
-    description: 'Triage assistance, best-practice guidance, and translation/escalation with manufacturer support.',
+    description: 'Operating guidance, issue triage, and translation or escalation to the manufacturer.',
   },
 ];
 
 const PLUS_MONTHLY_PRICE = 100;
+const launchChecklistPreview = businessPlaybookPlusTools.find((tool) => tool.id === 'launch-checklist');
+
+type CheckoutNotice = { title: string; description: string; state: 'checking' | 'confirmed' | 'pending' | 'error' | 'cancelled' };
 
 export default function PlusPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [checkoutNotice, setCheckoutNotice] = useState<CheckoutNotice | null>(null);
 
   useEffect(() => {
     trackEvent('view_plus_pricing');
@@ -50,31 +55,32 @@ export default function PlusPage() {
     if (!checkoutStatus) return;
 
     if (checkoutStatus === 'cancel') {
-      toast.info('Checkout canceled. No subscription payment was collected.');
+      setCheckoutNotice({ state: 'cancelled', title: 'Checkout canceled', description: 'You can start again when you’re ready. If you expected a payment to complete, check your account first.' });
       window.history.replaceState({}, '', '/plus');
       return;
     }
 
     const sessionId = params.get('session_id');
     if (checkoutStatus !== 'return' || !sessionId) {
-      toast.error('We could not verify this Plus checkout return.');
+      setCheckoutNotice({ state: 'error', title: 'We couldn’t verify this checkout', description: 'Check your account for membership status before trying again, or contact us for help.' });
       window.history.replaceState({}, '', '/plus');
       return;
     }
 
     let cancelled = false;
+    setCheckoutNotice({ state: 'checking', title: 'Checking your payment', description: 'Please wait while we confirm your Plus checkout.' });
     void getCheckoutStatus(sessionId)
       .then((status) => {
         if (cancelled) return;
         if (status.paymentStatus === 'paid' && status.orderType === 'plus_subscription') {
-          toast.success('Payment confirmed. Welcome to Bloomjoy Plus!');
+          setCheckoutNotice({ state: 'confirmed', title: 'Payment confirmed. Welcome to Bloomjoy Plus!', description: 'Your subscription payment is confirmed. Open your account to check membership access and billing.' });
           return;
         }
-        toast.info('Subscription payment is not yet confirmed.');
+        setCheckoutNotice({ state: 'pending', title: 'Payment is not yet confirmed', description: 'Your Plus subscription is not confirmed yet. Check your account before starting another checkout.' });
       })
-      .catch((error) => {
+      .catch(() => {
         if (cancelled) return;
-        toast.error(error instanceof Error ? error.message : 'Checkout could not be verified.');
+        setCheckoutNotice({ state: 'error', title: 'We couldn’t verify your payment', description: 'Check your account before trying again. If you need help, contact us with your checkout email.' });
       })
       .finally(() => {
         if (!cancelled) window.history.replaceState({}, '', '/plus');
@@ -110,225 +116,135 @@ export default function PlusPage() {
 
   return (
     <Layout>
-      {/* Hero */}
-      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
+      <section className="bg-gradient-to-b from-cream to-background py-8 sm:py-12">
         <div className="container-page">
-          <div className="mx-auto max-w-3xl text-center">
-            <span className="rounded-full bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary">
-              Bloomjoy Plus
-            </span>
-            <h1 className="mt-6 font-display text-4xl font-bold text-foreground sm:text-5xl">
-              Onboarding + Playbooks + Concierge
-            </h1>
-            <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-              Get up and running faster with guided onboarding, task-based training, operator job aids, and concierge support from the Bloomjoy team.
+          <div className="mx-auto max-w-5xl">
+            {checkoutNotice && (
+              <Alert variant={checkoutNotice.state === 'error' ? 'destructive' : 'default'} className="mb-8" role="status" aria-live="polite">
+                {checkoutNotice.state === 'confirmed' ? <CheckCircle2 aria-hidden="true" className="h-4 w-4" /> : <AlertCircle aria-hidden="true" className="h-4 w-4" />}
+                <AlertTitle>{checkoutNotice.title}</AlertTitle>
+                <AlertDescription>
+                  <p>{checkoutNotice.description}</p>
+                  {checkoutNotice.state !== 'checking' && checkoutNotice.state !== 'cancelled' && (
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                      <Link to="/portal/account" className="font-semibold underline underline-offset-4">Open your account</Link>
+                      <Link to="/contact?type=general&source=%2Fplus" className="font-semibold underline underline-offset-4">Contact Bloomjoy</Link>
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">Bloomjoy Plus</h1>
+            <p className="mt-3 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+              Training, practical tools, and concierge guidance for running your machine.
             </p>
-          </div>
-        </div>
-      </section>
 
-      {/* Pricing Card */}
-      <section className="py-10 sm:py-12 lg:py-16">
-        <div className="container-page">
-          <div className="mx-auto max-w-2xl">
-            <div className="card-elevated overflow-hidden">
-              <div className="bg-foreground p-8 text-center text-background">
-                <h2 className="font-display text-2xl font-bold">Plus Basic</h2>
-                <div className="mt-4 flex items-baseline justify-center gap-1">
-                  <span className="font-display text-5xl font-bold">$100</span>
-                  <span className="text-muted">/month</span>
-                </div>
-                <p className="mt-2 text-sm text-muted">
-                  Flat monthly membership for your Bloomjoy account. Cancel anytime.
-                </p>
-              </div>
-              <div className="p-8">
-                <div className="rounded-xl border border-border bg-muted/30 p-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    One simple account price
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Plus is billed at <span className="font-semibold text-foreground">$100/month</span>{' '}
-                    for the customer account, separate from the number of machines tracked for operations.
-                  </p>
-                </div>
-                <ul className="mt-8 space-y-4">
+            <div className="mt-7 grid items-start gap-8 lg:mt-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-12">
+              <div className="order-2 lg:order-1">
+                <h2 className="font-display text-2xl font-bold text-foreground">What’s included</h2>
+                <ul className="mt-5 space-y-5">
                   {benefits.map((benefit) => (
-                    <li key={benefit.title} className="flex items-start gap-4">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sage-light">
-                        <Check className="h-4 w-4 text-sage" />
-                      </div>
+                    <li key={benefit.title} className="flex items-start gap-3">
+                      <Check aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-primary" />
                       <div>
-                        <p className="font-semibold text-foreground">{benefit.title}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{benefit.description}</p>
+                        <h3 className="font-semibold text-foreground">{benefit.title}</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{benefit.description}</p>
                       </div>
                     </li>
                   ))}
                 </ul>
-                <Button
-                  variant="hero"
-                  size="xl"
-                  className="mt-8 w-full"
-                  onClick={handleStartMembership}
-                  disabled={isStartingCheckout}
-                >
-                  {isStartingCheckout
-                    ? 'Redirecting...'
-                    : user
-                      ? 'Start Membership'
-                      : 'Log In to Start Membership'}
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-                <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Membership is optional and separate from machine purchase. By continuing, you
-                  agree to our{' '}
-                  <Link to="/terms" className="underline hover:text-foreground">
-                    Terms
-                  </Link>{' '}
-                  and{' '}
-                  <Link to="/billing-cancellation" className="underline hover:text-foreground">
-                    Billing & Cancellation
-                  </Link>{' '}
-                  policies.
-                </p>
+              </div>
+              <div className="order-1 overflow-hidden rounded-2xl border border-border bg-card shadow-elevated lg:order-2">
+                <div className="bg-foreground p-6 text-background sm:p-7">
+                  <h2 className="font-display text-xl font-bold">One membership for your account</h2>
+                  <p className="mt-3 flex items-baseline gap-1.5">
+                    <span className="font-display text-5xl font-bold">${PLUS_MONTHLY_PRICE}</span>
+                    <span className="text-background/80">/month</span>
+                  </p>
+                  <p className="mt-3 text-sm leading-relaxed text-background/80">
+                    Flat monthly price, regardless of machine count. Cancel anytime.
+                  </p>
+                </div>
+                <div className="p-6 sm:p-7">
+                  <p className="text-sm leading-relaxed text-muted-foreground">Optional membership, billed separately from your machine purchase.</p>
+                  <Button
+                    variant="hero"
+                    size="lg"
+                    className="mt-5 min-h-12 w-full"
+                    onClick={handleStartMembership}
+                    disabled={isStartingCheckout || (checkoutNotice !== null && checkoutNotice.state !== 'cancelled')}
+                  >
+                    {isStartingCheckout ? 'Opening checkout…' : user ? 'Start membership' : 'Log in to join Plus'}
+                    <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
+                  </Button>
+                  <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                    By continuing, you agree to our{' '}
+                    <Link to="/terms" className="underline underline-offset-4 hover:text-foreground">Terms</Link> and{' '}
+                    <Link to="/billing-cancellation" className="underline underline-offset-4 hover:text-foreground">Billing & Cancellation</Link> policies.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
+      <section className="border-y border-border bg-muted/30 py-8 sm:py-10">
         <div className="container-page">
-          <PlusToolsPreview
-            surface="plus_page"
-            introLabel="Operator tool library"
-            heading="Working sheets for the operator side"
-            description="Plus is where the public Playbook turns into member-access operating tools: budget worksheets, pitch scripts, launch checklists, daily job aids, venue scorecards, connected reporting where enabled, and training references."
-            showCtas={false}
-          />
+          <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 md:gap-12">
+            <div>
+              <h2 className="font-display text-2xl font-bold text-foreground">How support works</h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                Bloomjoy concierge helps with onboarding, operating questions, and manufacturer communication during US business hours: Monday–Friday, 9am–5pm EST. Response times vary.
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                Manufacturer technical support is available to all machine owners via WeChat, including diagnostics, troubleshooting, and warranty service. Plus is not required for that support.
+              </p>
+            </div>
+            <div>
+              <h2 className="font-display text-2xl font-bold text-foreground">What’s separate</h2>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
+                <li>Machine purchases and supplies are ordered separately.</li>
+                <li>Manufacturer technical and warranty service stays with the manufacturer.</li>
+                <li>Bloomjoy concierge is not a 24/7 service.</li>
+                <li>Connected reporting requires account access to be enabled.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="border-y border-border bg-background py-8">
+      <section className="py-8 sm:py-12">
         <div className="container-page">
-          <div className="mx-auto flex max-w-4xl flex-col gap-4 rounded-xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 md:gap-12">
+            {launchChecklistPreview && (
               <div>
-                <h2 className="font-display text-xl font-bold text-foreground">
-                  Planning before you join Plus?
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  The public Business Playbook covers startup budgeting, locations, pitches,
-                  and business setup. Plus adds the operator training layer after launch.
-                </p>
+                <h2 className="font-display text-2xl font-bold text-foreground">A look inside the tools</h2>
+                <h3 className="mt-4 font-semibold text-foreground">{launchChecklistPreview.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{launchChecklistPreview.description}</p>
+                <blockquote className="mt-4 border-l-2 border-primary pl-4 text-sm leading-relaxed text-foreground">
+                  {launchChecklistPreview.samplePreview}
+                </blockquote>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Public sample. Member tools and training are accessed in the portal.</p>
               </div>
-            </div>
-            <Link
-              to="/resources/business-playbook"
-              onClick={() =>
-                trackBusinessPlaybookCtaClick({
-                  surface: 'plus_page',
-                  cta: 'open_playbook',
-                  href: '/resources/business-playbook',
-                })
-              }
-              className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
-            >
-              Open Playbook
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Support Boundaries */}
-      <section className="bg-muted/50 py-10 sm:py-12 lg:py-16">
-        <div className="container-page">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="text-center font-display text-2xl font-bold text-foreground">
-              Support Boundaries
-            </h2>
-            <p className="mt-4 text-center text-muted-foreground">
-              Clear expectations for what's included.
-            </p>
-            <div className="mt-6 rounded-xl border border-border bg-background p-5 text-sm text-muted-foreground">
-              Plus training now focuses on operator outcomes: quick-start setup, software and payment settings,
-              daily operation, cleaning and hygiene, reporting access where available, troubleshooting,
-              and a lightweight completion certificate path.
-            </div>
-            <div className="mt-10 grid gap-6 md:grid-cols-2">
-              <div className="rounded-xl border border-border bg-background p-6">
-                <h3 className="font-display text-lg font-semibold text-foreground">
-                  Bloomjoy Concierge
-                </h3>
-                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Onboarding assistance
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Best-practice guidance
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Translation/escalation support
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    US business hours (Mon-Fri, 9am-5pm EST)
-                  </li>
-                </ul>
-                <p className="mt-4 rounded-lg bg-amber/10 p-3 text-xs text-amber">
-                  Not a 24/7 service. Response times may vary.
-                </p>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-6">
-                <h3 className="font-display text-lg font-semibold text-foreground">
-                  Manufacturer Technical Support
-                </h3>
-                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    24/7 first-line technical support
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Direct manufacturer access via WeChat
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Machine diagnostics & troubleshooting
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    Warranty service
-                  </li>
-                </ul>
-                <p className="mt-4 rounded-lg bg-sage-light p-3 text-xs text-sage">
-                  Available to all machine owners, not just Plus members.
-                </p>
-              </div>
+            )}
+            <div>
+              <BookOpen aria-hidden="true" className="h-6 w-6 text-primary" />
+              <h2 className="mt-3 font-display text-2xl font-bold text-foreground">Still planning your business?</h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Our free Business Playbook covers startup budgets, location selection, and launch planning.</p>
+              <Link
+                to="/resources/business-playbook"
+                onClick={() => trackBusinessPlaybookCtaClick({ surface: 'plus_page', cta: 'open_playbook', href: '/resources/business-playbook' })}
+                className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Open the free Playbook <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </Link>
+              <p className="mt-5 border-t border-border pt-5 text-sm text-muted-foreground">
+                Questions about membership?{' '}
+                <Link to="/contact?type=general&source=%2Fplus" className="font-semibold text-primary underline underline-offset-4">Contact Bloomjoy</Link>.
+              </p>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-10 sm:py-12 lg:py-16">
-        <div className="container-page text-center">
-          <h2 className="font-display text-2xl font-bold text-foreground">
-            Questions about Plus?
-          </h2>
-          <p className="mt-2 text-muted-foreground">
-            We're happy to walk you through what's included.
-          </p>
-          <Link to="/contact" className="mt-6 inline-block">
-            <Button variant="outline" size="lg">
-              Contact Us
-            </Button>
-          </Link>
         </div>
       </section>
     </Layout>
