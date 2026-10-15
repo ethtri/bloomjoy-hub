@@ -2129,8 +2129,10 @@ export const createOrdinarySuccessChecks = ({
             recorder.assert(`Obsolete research queue remains readable at ${width}px`,
               await row.isVisible() &&
                 await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
-            await page.screenshot({ path: path.join(artifactDir,
-              `refund-obsolete-question-queue-${width}.png`), fullPage: true, animations: 'disabled' });
+            // The canonical 1440px desktop image already shows queue + detail.
+            // Mobile needs a distinct queue view after returning from the detail.
+            if (width === 375) await page.screenshot({ path: path.join(artifactDir,
+              'refund-obsolete-question-queue-375.png'), fullPage: true, animations: 'disabled' });
           }
         }
         await closeRefundPortalContext(context);

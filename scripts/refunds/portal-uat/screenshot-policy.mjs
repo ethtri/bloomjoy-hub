@@ -12,7 +12,6 @@ export const REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS = [
   'refund-obsolete-question-desktop.png',
   'refund-obsolete-question-mobile.png',
   'refund-obsolete-question-queue-375.png',
-  'refund-obsolete-question-queue-1440.png',
 ];
 
 const humanReviewScreenshotSet = new Set(REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS);
