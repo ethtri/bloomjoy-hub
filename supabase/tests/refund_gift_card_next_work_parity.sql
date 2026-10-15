@@ -66,7 +66,7 @@ select lives_ok($$select public.admin_decide_refund_gift_card(
  'Existing supported Manager decision declines the repeat');
 select * from pg_temp.gift_parity('ad760000-0000-4000-8000-000000000002','Declined');
 select is(public.get_refund_lifecycle_for_manager('ad760000-0000-4000-8000-000000000002')
- #>>'{nextWork,isOpen}','false','Declined gift closes gift work');
+ #>>'{nextWork,isOpen}','true','Saved decline retains System-owned queued customer contact');
 
 -- Seed only the existing synthetic outbox's observed transport state. No send occurs.
 update public.refund_case_messages set status='sent',manual_delivery_state='sent',

@@ -787,7 +787,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    if (body?.action === "resendGiftCard") {
+    if (["resendGiftCard", "retryGiftCardDenialNotice"].includes(body?.action)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!anonKey || user.is_anonymous || !isUuid(sanitizeText(body.caseId, 80)) || !isUuid(sanitizeText(body.intentId, 80))) {
         return jsonResponse({ error: "Current assigned Manager and delivery request are required." }, 403);
@@ -796,11 +796,18 @@ serve(async (req) => {
         auth: { persistSession: false, autoRefreshToken: false },
         global: { headers: { Authorization: `Bearer ${accessToken}` } },
       });
-      const { data, error } = await actorClient.rpc("admin_resend_refund_gift_card", {
+      const { data, error } = await actorClient.rpc(body.action === "retryGiftCardDenialNotice"
+        ? "admin_retry_refund_gift_denial_notice" : "admin_resend_refund_gift_card", {
         p_case_id: body.caseId, p_intent_id: body.intentId,
         p_email: sanitizeText(body.customerEmail, 320) || null,
       });
-      if (error) return jsonResponse({ error: "Delivery needs review before this gift card can be resent.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
+      if (error) return jsonResponse({ error: error.code === "P4683"
+        ? "The existing customer notice must finish or be reconciled before another delivery attempt. The decision is saved."
+        : error.code === "P4672"
+        ? "The existing email send is still being verified. Refresh this review after the provider result is reconciled; the same gift card is saved."
+        : error.code === "42501" ? "Current assigned Manager access is required."
+        : "This gift card cannot be resent yet. Refresh the review to check its delivery and expiry.",
+        errorCode: error.code }, error.code === "42501" ? 403 : 409);
       return jsonResponse({ gift_card: data });
     }
     if (["approveGiftCard", "denyGiftCard"].includes(body?.action)) {
@@ -818,11 +825,11 @@ serve(async (req) => {
         p_affected_amount_cents: body.affectedAmountCents ?? null,
       });
       if (error) return jsonResponse({ error: "The gift-card decision could not be saved.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
-      if (body.action === "denyGiftCard") {
-        const deniedCase = await getRefundCase(body.caseId);
-        if (deniedCase) await sendAndLogCustomerMessage(deniedCase, "denied", []);
-      }
-      return jsonResponse({ gift_card: data });
+      // The decision and its notice commit together. The scheduled outbox owns
+      // delivery even if this response is lost; replay never sends inline.
+      return jsonResponse({ gift_card: data, decision_saved: true,
+        customer_message: body.action === "denyGiftCard" && data?.state === "denied"
+          ? { status: data.delivery_state ?? "not_queued" } : null });
     }
     if (isOwnerNonrefundAdoptionMode(body?.mode)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");

@@ -32,8 +32,9 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
     if (name === 'record_public_intake_rate_limit_event') return json(1);
     if (name === 'service_accept_refund_gift_card_offer') return json(reviewException ? { ...gift, state: 'manager_review', issued_at: null, value: 9000 } : gift);
     if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });
-    if (name === 'admin_resend_refund_gift_card' || name === 'admin_decide_refund_gift_card') {
+    if (['admin_resend_refund_gift_card', 'admin_decide_refund_gift_card', 'admin_retry_refund_gift_denial_notice'].includes(name ?? '')) {
       if (rpcError) return json({ code: rpcError, message: 'Synthetic denied or unresolved delivery' }, 403);
+      if (name === 'admin_decide_refund_gift_card' && body.p_approve === false) return json({ ...gift, state: 'denied', delivery_state: 'queued' });
       return json(gift);
     }
   }
@@ -172,9 +173,30 @@ try {
   assert(resend); assertEquals(resend.authorization, 'Bearer synthetic-manager-token');
   assertEquals(resend.body, { p_case_id: caseId, p_intent_id: recovery.intentId, p_email: 'corrected@example.invalid' });
   for (const [code, status] of [['42501', 403], ['P4672', 409]] as const) {
-    rpcError = code; assertEquals((await post(admin, recovery, true)).status, status);
+    rpcError = code;
+    const held = await post(admin, recovery, true);
+    assertEquals(held.status, status);
+    if (code === 'P4672') assert(String(held.data.error).includes('existing email send is still being verified'));
   }
   assert(!requests.some((r) => /service_issue_refund_gift_card|service_accept_refund_gift_card_offer|refund_cases/.test(r.path)));
+  rpcError = null; requests.length = 0;
+  const denial = { action: 'denyGiftCard', caseId, notes: 'Synthetic reason shown to the customer.' };
+  const saved = await post(admin, denial, true);
+  assertEquals(saved.status, 200); assertEquals(saved.data.decision_saved, true);
+  assertEquals(saved.data.gift_card.state, 'denied');
+  assertEquals(saved.data.customer_message, { status: 'queued' });
+  assertEquals((await post(admin, denial, true)).status, 200, 'Response-loss replay uses the same atomic RPC');
+  assertEquals(requests.filter((r) => r.path.endsWith('/admin_decide_refund_gift_card')).length, 2);
+  assert(requests.filter((r) => r.path.endsWith('/admin_decide_refund_gift_card')).every((r) =>
+    r.authorization === 'Bearer synthetic-manager-token' && r.body.p_approve === false && r.body.p_notes === denial.notes));
+  assert(!requests.some((r) => /refund_case_messages|refund_case_events|refund_cases|service_issue_refund_gift_card/.test(r.path)),
+    'Saved denial never performs an inline send or separate message insert after the transaction');
+  requests.length = 0;
+  const noticeRecovery = { action: 'retryGiftCardDenialNotice', caseId, intentId: crypto.randomUUID(), customerEmail: 'corrected@example.invalid' };
+  assertEquals((await post(admin, noticeRecovery, true)).status, 200);
+  assertEquals(requests.find((r) => r.path.endsWith('/admin_retry_refund_gift_denial_notice'))?.body,
+    { p_case_id: caseId, p_intent_id: noticeRecovery.intentId, p_email: 'corrected@example.invalid' });
+  assert(!requests.some((r) => r.path.endsWith('/admin_decide_refund_gift_card')), 'Delivery recovery never repeats the saved decision');
   assertEquals(unexpected, []);
   console.log('Gift-card actual intake/admin HTTP contracts passed with synthetic PostgREST/Auth.');
 } finally {

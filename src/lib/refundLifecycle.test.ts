@@ -20,9 +20,10 @@ Deno.test('canonical gift work parses across fulfillment states without monetary
     customerAction: { ...observedGiftLifecycle.customerAction, action: 'none' } };
   for (const [state, delivery] of [
     ['pending_inventory', 'not_queued'], ['manager_review', 'not_queued'],
-    ['issued', 'claimed'], ['issued', 'accepted'], ['issued', 'sent'], ['issued', 'delivered'], ['denied', 'not_queued'],
+    ['issued', 'claimed'], ['issued', 'accepted'], ['issued', 'sent'], ['issued', 'delivered'],
+    ['denied', 'queued'], ['denied', 'failed'], ['denied', 'delivery_unknown'], ['denied', 'sent'],
   ]) {
-    const terminal = state === 'denied' || (state === 'issued' && ['sent', 'delivered'].includes(delivery));
+    const terminal = ['issued', 'denied'].includes(state) && ['sent', 'delivered'].includes(delivery);
     const review = state === 'manager_review';
     const lifecycle = { ...repaired,
       gift_card: { ...repaired.gift_card, state, delivery_state: delivery,
@@ -30,7 +31,9 @@ Deno.test('canonical gift work parses across fulfillment states without monetary
       paymentWorkComplete: state === 'issued', terminal, refreshAfterSeconds: terminal ? null : 5,
       stage: state === 'denied' ? 'denied' : terminal ? 'customer_notified' : 'matching',
       nextWork: { ...repaired.nextWork, actor: review ? 'manager' : 'system', isOpen: !terminal,
-        actionCode: review ? 'approve_or_deny_request' : 'none' },
+        actionCode: review ? 'approve_or_deny_request' : state === 'denied' && !terminal ? 'recover_customer_delivery' : 'none',
+        blocker: state === 'denied' && !terminal ? { code: 'gift_denial_delivery_unresolved', owner: 'Agent',
+          nextStep: 'Recover or reconcile the existing customer notice without another decision.' } : null },
       managerQueue: { ...repaired.managerQueue,
         bucket: terminal ? 'closed' : review ? 'decision_needed' : 'system_processing',
         nextAction: review ? 'approve_or_deny' : 'none' },
