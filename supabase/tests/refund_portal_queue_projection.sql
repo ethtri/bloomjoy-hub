@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(10);
+select plan(11);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -73,6 +73,10 @@ select ok((select value->'items'->0->>'publicReference'='RF-QUEUE-0001'
     and not (value->'items'->0 ? 'customerName')
   from queue_projection),
   'queue items contain current work copy without customer PII');
+select is((select value->'items'->0->'nextWorkBlockerCode' from queue_projection),
+  (select coalesce(public.refund_lifecycle_contract('aa455000-0000-4000-8000-000000000001')
+    #>'{nextWork,blocker,code}','null'::jsonb)),
+  'The compact queue carries the exact canonical redacted blocker without another lookup');
 select ok((select (value->'counts'->>'allOpen')::integer
       +(value->'counts'->>'completed')::integer=1
     and value->>'refundOperationsAccess'='false'

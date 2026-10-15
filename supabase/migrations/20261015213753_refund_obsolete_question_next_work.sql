@@ -86,4 +86,21 @@ begin
 end;
 $obsolete_question_next_work$;
 
+-- Carry only the existing redacted blocker code into the compact queue item.
+-- Preserve its role/scope checks, limits, single lifecycle read and ACLs.
+do $obsolete_question_queue_copy$
+declare
+  definition text;
+  anchor text := $anchor$      'nextWorkActionCode', next_work ->> 'actionCode',$anchor$;
+begin
+  definition:=replace(pg_get_functiondef(
+    'public.get_refund_portal_queue_projection(timestamptz)'::regprocedure),E'\r\n',E'\n');
+  if cardinality(string_to_array(definition,anchor))<>2 then
+    raise exception 'Unexpected compact refund queue work projection';
+  end if;
+  execute replace(definition,anchor,anchor||E'\n' ||
+    $field$      'nextWorkBlockerCode', next_work #>> '{blocker,code}',$field$);
+end;
+$obsolete_question_queue_copy$;
+
 select pg_notify('pgrst','reload schema');

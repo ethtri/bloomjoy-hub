@@ -3953,6 +3953,7 @@ const installMockSupabaseRoutes = async (
           currencyCode: 'USD', machineLabel: row.machineLabel, locationName: row.locationName, createdAt: row.createdAt,
           accountId: row.accountId, accountName: row.accountName, view, isOpen: ['all_open','decisions','waiting_on_customer'].includes(view),
           decisionReady: view === 'decisions', nextWorkActor: work?.actor ?? 'agent', nextWorkActionCode: work?.actionCode ?? 'research_purchase',
+          nextWorkBlockerCode: work?.blocker?.code ?? null,
           nextWorkActionLabel: work?.actionLabel || 'Review case', payloadRedacted: true };
       });
       return route.fulfill(jsonResponse({ schemaVersion: 'refund_portal_queue_v1', observedAt: now.toISOString(), items,

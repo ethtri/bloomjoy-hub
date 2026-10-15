@@ -9,6 +9,10 @@ export const REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS = [
   'refund-payment-result-review-desktop.png',
   'refund-provider-success.png',
   'refund-provider-unknown.png',
+  'refund-obsolete-question-desktop.png',
+  'refund-obsolete-question-mobile.png',
+  'refund-obsolete-question-queue-375.png',
+  'refund-obsolete-question-queue-1440.png',
 ];
 
 const humanReviewScreenshotSet = new Set(REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS);

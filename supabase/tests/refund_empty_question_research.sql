@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(50);
+select plan(54);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -94,6 +94,58 @@ select is((select status from public.refund_case_messages
   where id='b9200000-0000-4000-8003-000000000001'),'pending',
   'The health projection does not rewrite the historical parent message');
 
+select is(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001')
+    #>>'{nextWork,actionCode}',
+  'recover_customer_delivery','The missing-payout cash case stays outside the purchase-research exception');
+
+-- A separate card fixture matches the actual current purchase-research case.
+-- Preserve the earlier cash/payout fixture and its existing policy assertions.
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,status,intake_source,incident_at,incident_local_datetime,
+  incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,
+  payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,
+  correlation_status,correlation_source,nayax_lookup_status,nayax_recommendation_state,
+  nayax_lookup_generation,nayax_lookup_started_at,nayax_lookup_finished_at,nayax_recommendation_evaluated_at)
+select 'b9200000-0000-4000-8001-000000000010','RF-EMPTY-CARD',
+  c.reporting_machine_id,c.reporting_location_id,'empty-card@example.invalid',c.issue_summary,
+  c.status,c.intake_source,c.incident_at,c.incident_local_datetime,c.incident_timezone,
+  c.incident_time_resolution,c.incident_time_confidence,'card','tap_card',100,'4242','physical_card',
+  'multiple_candidates','nayax','multiple_matches','ambiguous',1,
+  statement_timestamp()-interval '5 minutes',statement_timestamp(),statement_timestamp()
+from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000001';
+insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
+  reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours)
+select 'b9200000-0000-4000-8002-000000000010',c.id,1,repeat('c',64),
+  'no_safe_match','{}'::text[],settings.template_version,c.deterministic_fact_version,
+  settings.reminder_delay_hours
+from public.refund_cases c cross join public.refund_customer_contact_settings settings
+where c.id='b9200000-0000-4000-8001-000000000010' and settings.singleton;
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,
+  recipient_email,subject,body,content_source,delivery_kind,reason_code,
+  template_version,follow_up_cycle_id,requested_fields)
+select 'b9200000-0000-4000-8003-000000000010',c.id,'no_safe_match','pending',
+  c.customer_email,'Historical card detail request','Fixture empty card question body',
+  'deterministic_template','automatic','no_safe_match',cycle.template_version,
+  cycle.id,'{}'::text[]
+from public.refund_cases c join public.refund_follow_up_cycles cycle on cycle.refund_case_id=c.id
+where c.id='b9200000-0000-4000-8001-000000000010';
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt('b9200000-0000-4000-8003-000000000010');
+select public.service_bind_refund_transactional_delivery('b9200000-0000-4000-8003-000000000010',
+  'obsolete-card-provider',statement_timestamp());
+select public.service_record_refund_transactional_delivery_event(
+  repeat('f',64),'obsolete-card-provider','deferred',statement_timestamp());
+reset role;
+select is(public.refund_purchase_correction_request_fields('b9200000-0000-4000-8001-000000000010'),
+  '{}'::text[],'The representative current card case has no customer-correctable field');
+select ok(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000010')->>'stage'
+  in ('matching','needs_transaction_selection'),
+  'The actual card lifecycle is purchase research rather than a payout or financial hold');
+select is(public.refund_customer_outreach_contract('b9200000-0000-4000-8001-000000000010')->>'state',
+  'delivery_unknown','The representative card request has actual bound unknown delivery');
+select diag('Representative card lifecycle: '||public.refund_lifecycle_contract(
+  'b9200000-0000-4000-8001-000000000010')::text);
+
 create temp table obsolete_question_snapshot as
 select to_jsonb(c) case_value,to_jsonb(m) message_value,to_jsonb(cycle) cycle_value,
   (select count(*) from public.refund_case_events e where e.refund_case_id=c.id) event_count,
@@ -101,7 +153,7 @@ select to_jsonb(c) case_value,to_jsonb(m) message_value,to_jsonb(cycle) cycle_va
 from public.refund_cases c
 join public.refund_case_messages m on m.refund_case_id=c.id
 join public.refund_follow_up_cycles cycle on cycle.id=m.follow_up_cycle_id
-where c.id='b9200000-0000-4000-8001-000000000001';
+where c.id='b9200000-0000-4000-8001-000000000010';
 
 select is((select lifecycle#>>'{nextWork,actionCode}' from obsolete_question_snapshot),
   'research_purchase','The exact obsolete question names internal purchase research');
@@ -122,9 +174,9 @@ select is((select lifecycle#>>'{managerAction,action}' from obsolete_question_sn
 select is((select lifecycle#>>'{operations,failureClass}' from obsolete_question_snapshot),
   'stable_evidence_dependency','The summary names the current internal dependency');
 select is((select lifecycle->'customerOutreach' from obsolete_question_snapshot),
-  public.refund_customer_outreach_contract('b9200000-0000-4000-8001-000000000001'),
+  public.refund_customer_outreach_contract('b9200000-0000-4000-8001-000000000010'),
   'The entire historical outreach contract, including unknown delivery, is preserved');
-select is(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001'),
+select is(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000010'),
   (select lifecycle from obsolete_question_snapshot),'Repeated projection is a no-op');
 select ok((select to_jsonb(c)=snapshot.case_value and to_jsonb(m)=snapshot.message_value
     and to_jsonb(cycle)=snapshot.cycle_value
@@ -132,38 +184,38 @@ select ok((select to_jsonb(c)=snapshot.case_value and to_jsonb(m)=snapshot.messa
   join public.refund_case_messages m on m.refund_case_id=c.id
   join public.refund_follow_up_cycles cycle on cycle.id=m.follow_up_cycle_id
   cross join obsolete_question_snapshot snapshot
-  where c.id='b9200000-0000-4000-8001-000000000001'),
+  where c.id='b9200000-0000-4000-8001-000000000010'),
   'Case, message, contact budget and cycle remain byte-for-byte unchanged');
 select is((select count(*) from public.refund_case_events where refund_case_id=
-    'b9200000-0000-4000-8001-000000000001'),
+    'b9200000-0000-4000-8001-000000000010'),
   (select event_count from obsolete_question_snapshot),'Projection emits no adoption or send event');
 
 -- Exercise the real case-bound assembly against fail-closed contract edges.
 -- The case, cycle and provider-backed saved message above remain real rows.
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{customerOutreach,requestedFields}','null'::jsonb))
       #>>'{nextWork,actionCode}',
   'recover_customer_delivery','NULL canonical fields are not an empty question')
 from obsolete_question_snapshot;
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{customerOutreach,requestedFields}','["amount"]'::jsonb))
       #>>'{nextWork,actionCode}',
   'recover_customer_delivery','A real current requested field retains contact recovery')
 from obsolete_question_snapshot;
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{customerOutreach,requestMessageId}',
       '"00000000-0000-4000-8000-000000000099"'::jsonb))#>>'{nextWork,actionCode}',
   'recover_customer_delivery','An unrelated saved-message identity cannot become obsolete')
 from obsolete_question_snapshot;
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{customerOutreach,cycleId}','null'::jsonb))#>>'{nextWork,actionCode}',
   'recover_customer_delivery','Missing current cycle proof retains contact recovery')
 from obsolete_question_snapshot;
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{paymentState}','"outcome_unknown"'::jsonb))#>>'{nextWork,actionCode}',
   'recover_customer_delivery','Unknown financial state never enters the obsolete-contact exception')
 from obsolete_question_snapshot;
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     jsonb_set(lifecycle,'{customerOutreach,caseFactVersion}','999999'::jsonb))
       #>>'{nextWork,actionCode}',
   'recover_customer_delivery','A mismatched canonical current fact version stays unresolved')
@@ -179,7 +231,7 @@ select 'b9200000-0000-4000-8001-000000000099','RF-EMPTY-OTHER',
   c.reporting_machine_id,c.reporting_location_id,'other-question@example.invalid',
   c.issue_summary,c.status,c.intake_source,c.incident_at,c.payment_method,
   c.payment_interaction,c.payment_amount_cents,c.correlation_status
-from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000001';
+from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000010';
 select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000099',
     lifecycle)#>>'{nextWork,actionCode}',
   'recover_customer_delivery','Another real case cannot adopt this obsolete-question proof')
@@ -191,22 +243,22 @@ savepoint prior_financial_attempt;
 insert into public.refund_case_nayax_refund_attempts(id,refund_case_id,
   execution_mode,status,idempotency_key,amount_cents)
 values('b9200000-0000-4000-8004-000000000001',
-  'b9200000-0000-4000-8001-000000000001','preflight','preflight_blocked',
+  'b9200000-0000-4000-8001-000000000010','preflight','preflight_blocked',
   'obsolete-question-existing-financial-attempt',100);
-select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000010',
     lifecycle)#>>'{nextWork,actionCode}',
   'recover_customer_delivery','An existing financial attempt prevents the contact exception')
 from obsolete_question_snapshot;
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id=
-  'b9200000-0000-4000-8001-000000000001'),1::bigint,
+  'b9200000-0000-4000-8001-000000000010'),1::bigint,
   'The existing financial attempt is neither replaced nor duplicated');
 rollback to savepoint prior_financial_attempt;
 release savepoint prior_financial_attempt;
 
 savepoint changed_obsolete_facts;
 update public.refund_cases set payment_amount_cents=150
-where id='b9200000-0000-4000-8001-000000000001';
-select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001')
+where id='b9200000-0000-4000-8001-000000000010';
+select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000010')
     #>>'{nextWork,blocker,code}',
   'stable_evidence_dependency','Changed case facts cannot use stale obsolete-question proof');
 rollback to savepoint changed_obsolete_facts;
@@ -214,18 +266,18 @@ release savepoint changed_obsolete_facts;
 
 savepoint current_missing_fact;
 update public.refund_cases set payment_amount_cents=null
-where id='b9200000-0000-4000-8001-000000000001';
-select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001')
+where id='b9200000-0000-4000-8001-000000000010';
+select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000010')
     #>>'{nextWork,blocker,code}',
   'stable_evidence_dependency','A newly missing customer fact cannot reuse the empty-question exception');
 rollback to savepoint current_missing_fact;
 release savepoint current_missing_fact;
 
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id=
-  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'b9200000-0000-4000-8001-000000000010'),0::bigint,
   'Projection creates no financial attempt');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id=
-  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'b9200000-0000-4000-8001-000000000010'),0::bigint,
   'Projection creates no financial receipt');
 rollback to savepoint obsolete_unknown_question;
 release savepoint obsolete_unknown_question;

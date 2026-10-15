@@ -1875,6 +1875,8 @@ export const createOrdinarySuccessChecks = ({
 
   const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
     const scenarios = [
+      { state: 'delivery_unknown', owner: 'Refund Operations', nextAction: 'refund_operations',
+        label: 'Purchase evidence needed', obsoleteQuestion: true },
       { state: 'preparing', owner: 'System', nextAction: 'wait_for_queue', label: 'Finding the purchase', returnedCandidates: 'customer_correctable' },
       { state: 'queued', owner: 'System', nextAction: 'wait_for_delivery', label: 'Finding the purchase' },
       { state: 'sent_unconfirmed', owner: 'System', nextAction: 'wait_for_delivery', label: 'Finding the purchase' },
@@ -1978,6 +1980,31 @@ export const createOrdinarySuccessChecks = ({
               failureClass: operationsOwned ? scenario.failureCode ?? scenario.reasonCode ?? 'customer_outreach_exception' : null,
               nextStep: operationsOwned ? 'Review the customer outreach exception without resending blindly.' : null,
             };
+            if (scenario.obsoleteQuestion) {
+              lifecycle.stage = 'needs_transaction_selection';
+              lifecycle.stageRank = 20;
+              lifecycle.reasonCode = 'candidate_review_required';
+              lifecycle.paymentState = 'not_requested';
+              lifecycle.customerOutreach = { ...lifecycle.customerOutreach,
+                requestedFields: [], deliveryState: 'unknown', reasonCode: 'request_delivery_unknown' };
+              lifecycle.nextWork = {
+                schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+                actionCode: 'research_purchase',
+                actionLabel: 'Find verified purchase evidence; no current customer question is outstanding.',
+                lastProgressAt: null, dueAt: null,
+                blocker: { code: 'stable_evidence_dependency', owner: 'Agent',
+                  nextStep: 'Find new verified purchase evidence or resolve the existing research dependency; do not repeat the obsolete question.' },
+                payloadRedacted: true,
+              };
+              lifecycle.managerAction = { ...lifecycle.managerAction, action: 'none', owner: 'System' };
+              lifecycle.managerNextAction = 'research_purchase';
+              lifecycle.managerQueue = { ...lifecycle.managerQueue,
+                bucket: 'provider_hold', label: 'Purchase evidence needed',
+                nextAction: 'research_purchase', customerActionFields: [] };
+              lifecycle.operations = { ...lifecycle.operations, dueAt: null,
+                failureClass: 'stable_evidence_dependency',
+                nextStep: 'Find verified purchase evidence; do not repeat the obsolete customer question.' };
+            }
             overview.customerOutreachContractVersion = 'refund_customer_outreach_v1';
             overview.refundOperationsAccess = elevated;
             overview.cases = [{
@@ -1987,6 +2014,14 @@ export const createOrdinarySuccessChecks = ({
               status: scenario.state === 'waiting_for_customer' ? 'waiting_on_customer' : 'needs_review',
               correlationStatus: scenario.returnedCandidates ? 'multiple_candidates' : 'needs_nayax',
               missingInformation: true,
+              ...(scenario.obsoleteQuestion ? {
+                missingInformation: false, customerCorrectionFields: [],
+                messages: [{ id: lifecycle.customerOutreach.requestMessageId,
+                  messageType: 'no_safe_match', status: 'sent', recipientEmail: 'customer-pending@example.test',
+                  subject: 'Synthetic historical question', body: 'Synthetic empty historical question.',
+                  sentAt: lifecycle.customerOutreach.requestSentAt, createdAt: lifecycle.customerOutreach.requestCreatedAt,
+                  deliveryTransport: 'resend', deliveryState: 'unknown', requestedFields: [] }],
+              } : {}),
               ...(scenario.manualFallbackEligible
                 ? { customerCorrectionFields: ['incident_time'] }
                 : {}),
@@ -2016,6 +2051,22 @@ export const createOrdinarySuccessChecks = ({
           );
         }
         const statePanelText = await page.getByTestId('refund-primary-action').innerText();
+        if (scenario.obsoleteQuestion) {
+          recorder.assert('Obsolete unknown question names an open internal evidence dependency',
+            statePanelText.includes('Purchase evidence needed') &&
+              statePanelText.includes('Find verified purchase evidence') &&
+              !statePanelText.includes('Finding the purchase') &&
+              !statePanelText.includes('Waiting for customer') &&
+              !statePanelText.includes('Bloomjoy is checking') &&
+              statePanelText.includes('No Manager action or customer response is due') &&
+              await page.getByTestId('nayax-candidate-option').count() === 0 &&
+              await page.getByTestId('refund-approve-reviewed-purchase').count() === 0,
+            statePanelText);
+          recorder.assert('Obsolete research does not claim an unverified repair worker',
+            !(await page.locator('body').innerText()).includes('Bloomjoy is resolving'));
+          await page.screenshot({ path: path.join(artifactDir, 'refund-obsolete-question-desktop.png'),
+            fullPage: true, animations: 'disabled' });
+        }
         recorder.assert(
           `${scenario.state}${elevated ? ' elevated' : ''} renders durable outreach truth`,
           statePanelText.includes(scenario.label) &&
@@ -2061,6 +2112,26 @@ export const createOrdinarySuccessChecks = ({
                 (element) => element.scrollWidth <= element.clientWidth,
               ),
           );
+        }
+        if (scenario.obsoleteQuestion) {
+          await page.setViewportSize({ width: 375, height: 844 });
+          await page.screenshot({ path: path.join(artifactDir, 'refund-obsolete-question-mobile.png'),
+            fullPage: true, animations: 'disabled' });
+          await settleRefundPortalPage(page);
+          await page.getByTestId('refund-detail-back-to-queue').click();
+          await page.getByRole('button', { name: /^All active/i }).click();
+          const row = queueCase(page, 'RF-UAT-OUTREACH-DELIVERY-UNKNOWN');
+          recorder.assert('Obsolete question stays open in the queue without an active-work or customer-wait claim',
+            await row.isVisible() && (await row.innerText()).includes('Purchase evidence needed') &&
+              !(await row.innerText()).includes('Finding the purchase'), await row.innerText());
+          for (const width of [375, 1440]) {
+            await page.setViewportSize({ width, height: 1000 });
+            recorder.assert(`Obsolete research queue remains readable at ${width}px`,
+              await row.isVisible() &&
+                await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+            await page.screenshot({ path: path.join(artifactDir,
+              `refund-obsolete-question-queue-${width}.png`), fullPage: true, animations: 'disabled' });
+          }
         }
         await closeRefundPortalContext(context);
       }
