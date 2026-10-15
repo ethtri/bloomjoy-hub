@@ -202,9 +202,7 @@ const getClaimedMessage = async (
   supabase: SupabaseClient,
   reference: RefundManualMessageClaimReference,
 ) => {
-  const { data, error } = await supabase
-    .from("refund_case_messages")
-    .select(`
+  const columns = `
       id,
       refund_case_id,
       message_type,
@@ -231,12 +229,20 @@ const getClaimedMessage = async (
       synthetic_gmail_proof_authorization_id,
       manual_delivery_triage_suggestion_id,
       created_by
-    `)
-    .eq("id", reference.messageId)
-    .eq("manual_delivery_claim_token", reference.claimToken)
-    .maybeSingle();
+    `;
+  const read = (selectedColumns: string) => supabase.from("refund_case_messages")
+    .select(selectedColumns).eq("id", reference.messageId)
+    .eq("manual_delivery_claim_token", reference.claimToken).maybeSingle();
+  let { data, error } = await read(columns);
+  // Worker-first rolling deployment must keep the old outbox usable before
+  // the nullable source link exists. Retry only this exact missing-column
+  // contract; all other schema, permission and transport failures stay closed.
+  if (error?.code === "42703" && /column .*refund_case_messages\.gift_denial_source_message_id does not exist/.test(error.message)) {
+    ({ data, error } = await read(columns.replace("      gift_denial_source_message_id,\n", "")));
+  }
   if (error) throw error;
-  const message = data as RefundManualMessageRow | null;
+  const message = data as unknown as RefundManualMessageRow | null;
+  if (message && message.gift_denial_source_message_id === undefined) message.gift_denial_source_message_id = null;
   const systemGiftCompletion = message?.created_by === null &&
     message.delivery_kind === "automatic" && message.message_type === "completed" &&
     message.template_version === "refund_gift_card_v1" &&

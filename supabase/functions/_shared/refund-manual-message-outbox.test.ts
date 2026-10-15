@@ -93,6 +93,54 @@ const singleRowQuery = (data: unknown) => {
   return query;
 };
 
+Deno.test('worker-first rollout retries only actual missing denial-link column and keeps old receipt reconciliation', async () => {
+  const selections: string[] = [], calls: string[] = [];
+  const message = claimedMessage('2026-10-01T00:00:00Z', {
+    template_version: 'refund_receipt_completion_v1', delivery_transport: 'resend',
+    provider_message_id: 'synthetic-legacy-receipt', delivery_state: 'accepted', delivery_state_updated_at: '2026-10-01T00:01:00Z',
+  });
+  const supabase = {
+    from: (table: string) => {
+      if (table === 'refund_cases') return singleRowQuery(currentCase);
+      if (table !== 'refund_case_messages') throw new Error(`Unexpected rollout table ${table}`);
+      const query = { select: (columns: string) => { selections.push(columns); return query; },
+        eq: () => query, maybeSingle: () => Promise.resolve(selections.length === 1
+          ? { data: null, error: { code: '42703', message: 'column refund_case_messages.gift_denial_source_message_id does not exist' } }
+          : { data: message, error: null }) };
+      return query;
+    },
+    rpc: (name: string) => { calls.push(name); return Promise.resolve({ data: {
+      marked: true, finished: true, payloadRedacted: true,
+    }, error: null }); },
+  };
+  const result = await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } });
+  assertEquals(result.outcome, 'sent'); assertEquals(selections.length, 2);
+  assertEquals(selections[0].includes('gift_denial_source_message_id'), true);
+  assertEquals(selections[1].includes('gift_denial_source_message_id'), false);
+  assertEquals(calls, ['service_mark_refund_manual_message_provider_attempt', 'service_finish_refund_manual_message_delivery']);
+});
+
+Deno.test('schema-cache lag, unrelated columns and permission errors never treat a corrected denial child as legacy', async () => {
+  for (const error of [
+    { code: 'PGRST204', message: "Could not find the gift_denial_source_message_id column of refund_case_messages in the schema cache" },
+    { code: '42703', message: 'column refund_case_messages.other_evidence does not exist' },
+    { code: '42501', message: 'column refund_case_messages.gift_denial_source_message_id does not exist' },
+  ]) {
+    let reads = 0, providerCalls = 0, rejected = false;
+    const supabase = {
+      from: (table: string) => {
+        assertEquals(table, 'refund_case_messages'); reads++;
+        const query = { select: () => query, eq: () => query, maybeSingle: () => Promise.resolve({ data: null, error }) };
+        return query;
+      },
+      rpc: () => { providerCalls++; throw new Error('Rollout failure reached provider boundary'); },
+    };
+    try { await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } }); }
+    catch (caught) { rejected = true; assertEquals(caught, error); }
+    assertEquals(rejected, true); assertEquals(reads, 1); assertEquals(providerCalls, 0);
+  }
+});
+
 Deno.test('linked corrected denial uses one fresh transactional key and preserves saved notice content', async () => {
   const settings = { RESEND_API_KEY: 'synthetic-resend-key', REFUND_CUSTOMER_FROM_EMAIL: 'refunds@bloomjoysweets.com',
     INTERNAL_NOTIFICATION_FROM_EMAIL: 'info@bloomjoysweets.com', GMAIL_SUPPORT_MAILBOX: 'info@bloomjoysweets.com' };

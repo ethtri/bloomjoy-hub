@@ -85,7 +85,7 @@ begin
       md5('gift-card-denial:'||c.id::text)::uuid,auth.uid(),'denied',c.customer_email,
       subject,body,'refund_denied_editable_v1','manager_authored',null,'{}'::text[],null,true,null);
   end if;
-  return public.get_refund_gift_card_case(c.id);
+  return public.get_refund_gift_card_case(c.id)||jsonb_build_object('denial_notice_outbox_version',1);
 end $$;
 revoke all on function public.admin_decide_refund_gift_card(uuid,boolean,text,integer) from public,anon,service_role;
 grant execute on function public.admin_decide_refund_gift_card(uuid,boolean,text,integer) to authenticated;

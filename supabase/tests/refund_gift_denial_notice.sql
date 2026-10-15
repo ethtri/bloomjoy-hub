@@ -69,6 +69,8 @@ select is((select manual_delivery_state from public.refund_case_messages where r
  'delivery_unknown','Interrupted provider access is held for reconciliation');
 select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000001')->>'terminal',
  'false','Unknown customer contact cannot close the case');
+select is(public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000001',false,'Response replay')->>'denial_notice_outbox_version',
+ '1','The durable-notice capability remains explicit during unknown delivery and response replay');
 select public.service_bind_refund_transactional_delivery(
  (select id from public.refund_case_messages where refund_case_id='fd760000-0000-4000-8000-000000000001'),
  'synthetic-denial-accepted',statement_timestamp());
@@ -86,6 +88,8 @@ select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000001
  'false','A later bounce returns customer contact to visible recovery without changing denial');
 select is(public.get_refund_gift_card_case('fd760000-0000-4000-8000-000000000001')->>'can_retry_denial',
  'true','Confirmed bounced notice has a supported recovery action');
+select is(public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000001',false,'Response replay')->>'denial_notice_outbox_version',
+ '1','Confirmed delivery failure cannot remove the durable-notice capability or authorize legacy inline send');
 select lives_ok($$select public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000001',
  'fd780000-0000-4000-8000-000000000001','corrected-denial@example.invalid')$$,
  'An authorized correction queues a linked fresh attempt for the same saved notice');
@@ -212,7 +216,10 @@ select throws_ok($$select public.admin_decide_refund_gift_card('fd760000-0000-40
 select is((select gift_card_state from public.refund_cases where public_reference='RF-GIFT-DENIAL-3'),
  'manager_review','There is never a committed denial without its required durable notice');
 delete from public.refund_case_messages where manual_delivery_intent_id='fd770000-0000-4000-8000-000000000003';
-update public.refund_cases set case_population='internal_test' where id='fd760000-0000-4000-8000-000000000003';
+update public.refund_cases set case_population='internal_test',internal_test_reason='other_internal_test',
+ internal_test_classified_at=statement_timestamp(),internal_test_classified_by='fd710000-0000-4000-8000-000000000001',
+ internal_test_classification_source='manager',status='closed',automation_state='closed_incomplete',automation_follow_up_due_at=null
+ where id='fd760000-0000-4000-8000-000000000003';
 select throws_ok($$select public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000003',false,'Reviewed reason')$$,
  'P4640',null,'Internal/test cases cannot queue a customer denial');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
