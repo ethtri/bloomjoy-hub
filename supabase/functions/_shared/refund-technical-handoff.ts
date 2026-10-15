@@ -17,7 +17,8 @@ export async function deliverRefundTechnicalHandoff({
   runId: string; sender: string | null; refundsUrl: string; runtime: TechnicalHandoffRuntime;
   mailboxIdentities: string[]; providerTimeoutMs?: number; sendEmail: (input: TransactionalEmailInput) => Promise<TransactionalEmailReceipt>;
 }): Promise<TechnicalHandoffOutcome> {
-  if (health.technicalIncidentHandoffVersion !== 1) return "legacy";
+  if (!Object.prototype.hasOwnProperty.call(health, "technicalIncidentHandoffVersion")) return "legacy";
+  if (health.technicalIncidentHandoffVersion !== 1) return "unavailable";
   // Missing sender configuration is known pre-provider unavailability. It never
   // claims/consumes the one notice; a later ordinary health tick can try safely.
   if (!sender?.trim()) return "unavailable";

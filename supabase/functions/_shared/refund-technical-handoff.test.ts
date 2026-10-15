@@ -14,10 +14,12 @@ function fixture({capability=1 as unknown,claimValue=claim as unknown,marker=tru
   runId:token,sender:"Changed <changed@example.invalid>",refundsUrl:"https://app.bloomjoyusa.com/refunds",runtime,mailboxIdentities:[],providerTimeoutMs:5,
   sendEmail:(message)=>{sent.push(message);if(sendError) return Promise.reject(sendError);return timeout?new Promise(()=>{}):Promise.resolve(receipt);}})};
 }
-Deno.test("only exact new capability may call new handoff RPCs",async()=>{
- for(const capability of [null,0,"1",2]) {const f=fixture({capability});assertEquals(await f.run(),"legacy");assertEquals(f.calls,[]);assertEquals(f.sent,[]);}
+Deno.test("absent capability alone is legacy; present unsupported capability is unavailable",async()=>{
+ for(const capability of [null,0,"1",2]) {const f=fixture({capability});assertEquals(await f.run(),"unavailable");assertEquals(f.calls,[]);assertEquals(f.sent,[]);}
  assertEquals(await deliverRefundTechnicalHandoff({client:{rpc:()=>{throw new Error("Must not call old backend");}},health:{},
   runId:token,sender:payload.senderEmail,refundsUrl:"https://app.bloomjoyusa.com/refunds",runtime,mailboxIdentities:[],sendEmail:()=>Promise.resolve(receipt)}),"legacy");
+ assertEquals(await deliverRefundTechnicalHandoff({client:{rpc:()=>{throw new Error("Must not call unsupported backend");}},health:{technicalIncidentHandoffVersion:undefined},
+  runId:token,sender:payload.senderEmail,refundsUrl:"https://app.bloomjoyusa.com/refunds",runtime,mailboxIdentities:[],sendEmail:()=>Promise.resolve(receipt)}),"unavailable");
 });
 Deno.test("one frozen exact-recipient payload is sent and accepted without implying delivered or repaired",async()=>{
  const f=fixture();assertEquals(await f.run(),"accepted");assertEquals(f.sent,[payload]);

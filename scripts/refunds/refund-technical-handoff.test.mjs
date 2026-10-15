@@ -23,5 +23,5 @@ test('actual health handler drains existing open human handoff before legacy non
  const {result,calls}=await exercise();assert.equal(result.humanHandoff,'accepted');assert.deepEqual(calls,['handoff','technical_handoff_accepted','finish']);
 });
 test('human handoff outage does not abandon or falsely complete the existing health run',async()=>{
- const {result,calls}=await exercise(true);assert.equal(result.humanHandoff,'unavailable');assert.equal(result.alertStatus,'suppressed');assert.equal(calls.at(-1),'finish');
+ const {result,calls}=await exercise(true);assert.equal(result.humanHandoff,'unavailable');assert.equal(result.health.status,'failing');assert.equal(result.alertStatus,'suppressed');assert.equal(calls.at(-1),'finish');
 });
