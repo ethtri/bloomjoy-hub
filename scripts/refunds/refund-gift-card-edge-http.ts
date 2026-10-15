@@ -165,7 +165,7 @@ try {
   rpcError = 'P4684';
   const complained = await post(admin, noticeRecovery, true);
   assertEquals(complained.status, 409);
-  assertEquals(complained.data.error, 'Email delivery to this address requires Refund Operations review. The decision is saved.');
+  assertEquals(complained.data.error, 'Email delivery to this address requires manual review. The decision is saved.');
   rpcError = null;
   assertEquals(unexpected, []);
   console.log('Gift-card actual intake/admin HTTP contracts passed with synthetic PostgREST/Auth.');
