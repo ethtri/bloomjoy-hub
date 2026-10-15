@@ -29,6 +29,7 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
     if (name === 'service_get_refund_gift_card_offer') return json(quoteAvailable ? offer : null);
     if (name === 'service_materialize_refund_gift_card_offer') return json({ ...offer, pool_id: derivedPoolId });
     if (name === 'service_refund_machine_is_public') return json(true);
+    if (name === 'refund_intake_timezone') return json(body.p_location_timezone);
     if (name === 'record_public_intake_rate_limit_event') return json(1);
     if (name === 'service_accept_refund_gift_card_offer') return json(reviewException ? { ...gift, state: 'manager_review', issued_at: null, value: 9000 } : gift);
     if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });

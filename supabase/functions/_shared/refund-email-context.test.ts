@@ -4,9 +4,37 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   RefundEmailContextUnavailableError,
+  RefundPurchaseTimeAfterRequestError,
+  refundEmailCaseCreationError,
   requireLinkedRefundEmailCase,
   requireLinkedRefundEmailThreadId,
 } from "./refund-email-context.ts";
+
+Deno.test("only the exact purchase receipt boundary error becomes customer date validation", () => {
+  const error = refundEmailCaseCreationError({
+    code: "P4625",
+    message: "The reported purchase time cannot be after Bloomjoy received the request",
+  });
+  assertEquals(error instanceof RefundPurchaseTimeAfterRequestError, true);
+  assertEquals((error as RefundPurchaseTimeAfterRequestError).code, "refund_purchase_time_after_request");
+  assertEquals(error.message.includes("If they are correct"), true);
+});
+
+Deno.test("other database failures never masquerade as unavailable private links", () => {
+  for (const error of [
+    { code: "P4625", message: "The original customer request receipt is immutable" },
+    { code: "P4625", message: "Invalid customer request time evidence" },
+    { code: "23505", message: "Private constraint detail" },
+    { code: "PGRST202", message: "Internal function name" },
+    { code: "XX000", message: "The reported purchase time cannot be after Bloomjoy received the request" },
+  ]) {
+    const mapped = refundEmailCaseCreationError(error);
+    assertEquals(mapped instanceof RefundEmailContextUnavailableError, false);
+    assertEquals(mapped instanceof RefundPurchaseTimeAfterRequestError, false);
+    assertEquals(mapped.message, "Unable to create the email-linked refund request.");
+    assertEquals(mapped.message.includes(error.message), false);
+  }
+});
 
 Deno.test("email-linked intake returns the original case", () => {
   const refundCase = { id: "synthetic-original-case" };

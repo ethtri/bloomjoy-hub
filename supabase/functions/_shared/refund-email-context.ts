@@ -9,6 +9,31 @@ export class RefundEmailContextUnavailableError extends Error {
   }
 }
 
+export class RefundPurchaseTimeAfterRequestError extends Error {
+  readonly code = "refund_purchase_time_after_request";
+
+  constructor() {
+    super(
+      "The purchase date and time are later than your original email request. Check the purchase date and approximate local time. If they are correct, reply in the same email conversation so we can help.",
+    );
+    this.name = "RefundPurchaseTimeAfterRequestError";
+  }
+}
+
+// P4625 also protects immutable receipts and other evidence. Match this exact
+// validation condition, never the SQLSTATE alone, and never expose raw DB text.
+export const refundEmailCaseCreationError = (
+  error: { code?: unknown; message?: unknown },
+): Error => {
+  if (
+    error.code === "P4625" &&
+    error.message === "The reported purchase time cannot be after Bloomjoy received the request"
+  ) {
+    return new RefundPurchaseTimeAfterRequestError();
+  }
+  return new Error("Unable to create the email-linked refund request.");
+};
+
 export const requireLinkedRefundEmailCase = <T>(
   emailContextToken: string,
   linkedRefundCase: T | null | undefined,
