@@ -91,10 +91,17 @@ $obsolete_question_next_work$;
 do $obsolete_question_queue_copy$
 declare
   definition text;
+  public_definition text;
   anchor text := $anchor$      'nextWorkActionCode', next_work ->> 'actionCode',$anchor$;
 begin
+  public_definition:=pg_get_functiondef(
+    'public.get_refund_portal_queue_projection(timestamptz)'::regprocedure);
+  if cardinality(string_to_array(public_definition,
+    'public.get_refund_portal_queue_projection_pre_company_v1(p_observed_at)'))<>2 then
+    raise exception 'Unexpected compact queue company-wrapper lineage';
+  end if;
   definition:=replace(pg_get_functiondef(
-    'public.get_refund_portal_queue_projection(timestamptz)'::regprocedure),E'\r\n',E'\n');
+    'public.get_refund_portal_queue_projection_pre_company_v1(timestamptz)'::regprocedure),E'\r\n',E'\n');
   if cardinality(string_to_array(definition,anchor))<>2 then
     raise exception 'Unexpected compact refund queue work projection';
   end if;
