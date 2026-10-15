@@ -808,9 +808,9 @@ export default function MiniPage() {
               className="mt-6"
             >
               {miniMachineFaqs.map((faq, index) => (
-                <AccordionItem key={faq.q} value={`mini-faq-${index}`}>
+                <AccordionItem key={faq.q} value={`mini-faq-${index}`} className="[&_[role=region][data-state=closed]]:hidden">
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                  <AccordionContent forceMount className="text-muted-foreground data-[state=closed]:hidden">
+                  <AccordionContent forceMount className="text-muted-foreground">
                     {faq.a}
                   </AccordionContent>
                 </AccordionItem>
