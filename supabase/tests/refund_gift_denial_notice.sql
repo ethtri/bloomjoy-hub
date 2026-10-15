@@ -153,6 +153,51 @@ select is((select count(*) from public.service_claim_refund_manual_message_deliv
  1::bigint,'The current linked child is the sole candidate while an earlier failure still has retry budget');
 select is((select manual_delivery_state from public.refund_case_messages where refund_case_id='fd760000-0000-4000-8000-000000000002'
  and gift_denial_source_message_id is null),'failed','An older failed original never requeues alongside its child');
+select set_config('request.jwt.claims','{"role":"authenticated","sub":"fd710000-0000-4000-8000-000000000002"}',true);
+select throws_ok($$select public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000002',
+ 'fd780000-0000-4000-8000-000000000098')$$,'42501',null,'An unassigned actor cannot recover customer delivery');
+select set_config('request.jwt.claims','{"role":"authenticated","sub":"fd710000-0000-4000-8000-000000000001"}',true);
+select public.service_bind_refund_transactional_delivery((select id from public.refund_case_messages
+ where refund_case_id='fd760000-0000-4000-8000-000000000002' and gift_denial_source_message_id is null),
+ 'synthetic-late-denial-complaint',statement_timestamp());
+select public.service_record_refund_transactional_delivery_event(repeat('f',64),'synthetic-late-denial-complaint','complained',statement_timestamp());
+select is(public.get_refund_gift_card_case('fd760000-0000-4000-8000-000000000002')->>'denial_delivery_recovery_state',
+ 'complaint_review','An older same-recipient complaint overrides a newer queued or failed notice');
+select throws_ok($$select public.service_mark_refund_manual_message_provider_attempt(id,manual_delivery_claim_token)
+ from public.refund_case_messages where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000002'$$,
+ 'P4684',null,'A late complaint blocks an already-claimed child at the actual provider boundary');
+select ok((select manual_delivery_provider_attempted_at is null from public.refund_case_messages
+ where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000002'),'Complaint rejection occurs before any provider marker');
+select public.service_finish_refund_manual_message_delivery(id,manual_delivery_claim_token,'failed',null,'gift_denial_recipient_complaint',0,null)
+ from public.refund_case_messages where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000002';
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000002'),1)),
+ 0::bigint,'Same-recipient complaint prevents automatic pre-provider retry');
+select throws_ok($$select public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000002',
+ 'fd780000-0000-4000-8000-000000000098')$$,'P4684',null,'Same-recipient complaint requires Operations review instead of self-service resend');
+select lives_ok($$select public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000002',
+ 'fd780000-0000-4000-8000-000000000002')$$,'Stable response replay after a complaint never enqueues another notice');
+select is((select count(*) from public.refund_case_messages where refund_case_id='fd760000-0000-4000-8000-000000000002'),
+ 2::bigint,'Complaint and response replay preserve original and one linked attempt');
+select public.service_record_refund_transactional_delivery_event(repeat('c',64),'synthetic-denial-accepted','complained',statement_timestamp());
+select ok(private.refund_gift_denial_recipient_complained('fd760000-0000-4000-8000-000000000001','gift-denial-1@example.invalid'),
+ 'Complaint remains associated with the original recipient');
+select ok(not private.refund_gift_denial_recipient_complained('fd760000-0000-4000-8000-000000000001','corrected-denial@example.invalid'),
+ 'An original typo recipient complaint does not suppress the corrected different recipient');
+select public.service_bind_refund_transactional_delivery((select id from public.refund_case_messages
+ where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000001'),'synthetic-denial-corrected',statement_timestamp());
+select public.service_claim_refund_manual_message_deliveries((select id from public.refund_case_messages
+ where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000001'),1);
+select public.service_record_refund_transactional_delivery_event(repeat('a',64),'synthetic-denial-corrected','bounced',statement_timestamp());
+select is(public.get_refund_gift_card_case('fd760000-0000-4000-8000-000000000001')->>'denial_delivery_recovery_state',
+ 'ready','A complaint to the older typo address does not block recovery of a different current recipient');
+select throws_ok($$select public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000001',
+ 'fd780000-0000-4000-8000-000000000097','gift-denial-1@example.invalid')$$,'P4684',null,
+ 'A proposed correction back to a complained recipient is rejected before enqueue');
+select is((select customer_email from public.refund_cases where id='fd760000-0000-4000-8000-000000000001'),
+ 'corrected-denial@example.invalid','Rejected complained recipient never changes the saved customer email');
+select is((select count(*) from public.refund_case_messages where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000097'),
+ 0::bigint,'A complained proposed recipient creates no transport intent');
 select is((select count(*) from public.refund_gift_card_issuances where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-GIFT-DENIAL-%')),0::bigint,'Denial and recovery create no codes, allowance use or goodwill');
 select is((select count(*) from public.refund_authoritative_receipts where refund_case_id in
@@ -180,5 +225,40 @@ select ok(not (public.refund_lifecycle_pre_gift_card('fd760000-0000-4000-8000-00
 select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000004'),
  public.refund_lifecycle_pre_gift_card('fd760000-0000-4000-8000-000000000004'),
  'Complete ordinary original-payment contract is unchanged when resolutionMethod is absent');
+-- All three attempts below are created inside one outer SQL statement, where
+-- statement_timestamp() and transaction now() cannot order repeated attempts.
+create function pg_temp.same_statement_notice_chain() returns jsonb language plpgsql as $$
+declare result jsonb;
+begin
+  insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+    customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+    resolution_method,gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state,issue_category)
+  select 'fd760000-0000-4000-8000-000000000005','RF-DENIAL-ORDERING',
+    'fd740000-0000-4000-8000-000000000001','fd730000-0000-4000-8000-000000000001',
+    'ordering@example.invalid','Synthetic same-statement notice ordering',now(),'cash',1100,1100,
+    'gift_card',id,1500,expires_at,'manager_review','partial_items' from public.refund_gift_card_pools
+    where id='fd750000-0000-4000-8000-000000000001';
+  perform public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000005',false,'Saved reviewed reason.');
+  update public.refund_case_messages set status='failed',manual_delivery_state='failed',manual_delivery_attempt_count=3
+    where refund_case_id='fd760000-0000-4000-8000-000000000005';
+  perform public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000005','fd780000-0000-4000-8000-000000000031');
+  update public.refund_case_messages set status='failed',manual_delivery_state='failed',manual_delivery_attempt_count=3
+    where manual_delivery_intent_id='fd780000-0000-4000-8000-000000000031';
+  perform public.admin_retry_refund_gift_denial_notice('fd760000-0000-4000-8000-000000000005','fd780000-0000-4000-8000-000000000032');
+  select jsonb_build_object('ordered',original.created_at<first_child.created_at and first_child.created_at<second_child.created_at,
+    'current',second_child.manual_delivery_state='queued','original',original.manual_delivery_state='failed') into result
+    from public.refund_case_messages original
+    join public.refund_case_messages first_child on first_child.gift_denial_source_message_id=original.id
+    join public.refund_case_messages second_child on second_child.gift_denial_source_message_id=original.id
+    where original.refund_case_id='fd760000-0000-4000-8000-000000000005'
+      and first_child.manual_delivery_intent_id='fd780000-0000-4000-8000-000000000031'
+      and second_child.manual_delivery_intent_id='fd780000-0000-4000-8000-000000000032';
+  return result;
+end $$;
+create temp table notice_ordering_result as select pg_temp.same_statement_notice_chain() result;
+select is((select result->>'ordered' from notice_ordering_result),'true',
+ 'Root and successive children have strict logical ordering even within one outer statement');
+select is((select result->>'current' from notice_ordering_result),'true','Only the newest linked attempt is current');
+select is((select result->>'original' from notice_ordering_result),'true','Ordering never erases original failure evidence');
 select * from finish();
 rollback;

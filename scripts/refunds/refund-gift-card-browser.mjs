@@ -226,7 +226,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
 <RefundGiftCardManagerPanel refundCase={{id:'synthetic-case',publicReference:'RF-SYNTHETIC',customerName:'Synthetic Friend',customerEmail:'synthetic@example.test',issueSummary:'The machine did not make a treat.',paymentAmountCents:1100,locationName:'Bloomjoy Test Mall',paymentMethod:'card',resolutionMethod:'gift_card'}} /></main>
 </QueryClientProvider>);`);
   for (const width of [1280, 375, 320]) {
-    for (const mode of ['approve', 'deny', 'deny-unknown', 'read-only', 'resend', 'resend-held', 'resend-read-only']) {
+    for (const mode of ['approve', 'deny', 'deny-unknown', 'deny-complaint', 'read-only', 'resend', 'resend-held', 'resend-read-only']) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       await context.addInitScript(() => localStorage.setItem('sb-127-auth-token', JSON.stringify({
         access_token: 'synthetic-access-token', refresh_token: 'synthetic-refresh-token', token_type: 'bearer', expires_at: 4102444800,
@@ -243,7 +243,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
           ...status, state: mode.startsWith('resend') ? 'issued' : decided ? mode.startsWith('deny') ? 'denied' : 'issued' : 'manager_review',
           delivery_state: noticeRecovered ? 'queued' : mode === 'resend-held' ? 'delivery_unknown' : mode.startsWith('deny') && decided ? mode === 'deny-unknown' ? 'delivery_unknown' : 'failed' : 'sent',
           can_retry_denial: mode === 'deny' && decided && !noticeRecovered,
-          denial_delivery_recovery_state: mode === 'deny-unknown' ? 'reconciliation_required' : noticeRecovered ? 'queued' : 'ready',
+          denial_delivery_recovery_state: mode === 'deny-complaint' ? 'complaint_review' : mode === 'deny-unknown' ? 'reconciliation_required' : noticeRecovered ? 'queued' : 'ready',
           can_decide: !decided && !mode.startsWith('resend') && mode !== 'read-only',
           can_resend: mode === 'resend', delivery_recovery_state: mode === 'resend-held' ? 'reconciliation_required' : 'ready',
           customer_email: 'synthetic@example.test', prior_issued_count: 1, latest_issued_at: '2026-08-01T12:00:00Z',
@@ -298,7 +298,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
           await page.getByRole('button', { name: 'Deny request', exact: true }).click();
         } else await page.getByRole('button', { name: 'Approve $15.00 gift card', exact: true }).click();
         await page.getByText(mode.startsWith('deny')
-          ? mode === 'deny-unknown' ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
+          ? mode === 'deny-complaint' ? 'Decision saved. Email delivery to this address requires Refund Operations review.'
+            : mode === 'deny-unknown' ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
             : 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
           : 'We have sent your gift card email. Check your inbox or spam folder. Reply to your Bloomjoy email if you need a hand.', { exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: 'Deny request', exact: true }).count(), 0);

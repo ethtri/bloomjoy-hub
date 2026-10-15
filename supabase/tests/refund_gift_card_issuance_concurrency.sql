@@ -207,7 +207,9 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  values('fb760000-0000-4000-8000-000000000005','RF-GIFT-RACE-5',
  'fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001',
  'gift-race-5@example.invalid','Synthetic competing partial-order decision',now(),'cash',1100,1100,
- 'gift_card','fb750000-0000-4000-8000-000000000001',1500,now()+interval '30 days','manager_review','partial_items');
+ 'gift_card','fb750000-0000-4000-8000-000000000001',1500,
+ (select expires_at from public.refund_gift_card_pools where id='fb750000-0000-4000-8000-000000000001'),
+ 'manager_review','partial_items');
 select is((select gift_card_state from public.refund_cases where public_reference='RF-GIFT-RACE-5'),
  'manager_review','Reverse-race fixture requires the same single Manager decision');
 select dblink_exec('gift_race_a','begin');
