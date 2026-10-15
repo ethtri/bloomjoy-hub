@@ -27,7 +27,12 @@ export async function deliverRefundTechnicalHandoff({
   });
   if (claimed.error || !claimed.data || typeof claimed.data !== "object") return "unavailable";
   const c = claimed.data as Record<string, unknown>;
-  if (c.claimed === false) return c.state === "delivery_unknown" ? "delivery_unknown" : "not_needed";
+  if (c.claimed === false) {
+    if (c.state === "delivery_unknown") return "delivery_unknown";
+    if (c.reason === "handoff_route_deferred") return "deferred";
+    if (c.reason === "handoff_transport_unavailable") return "unavailable";
+    return "not_needed";
+  }
   if (c.claimed !== true || c.payloadRedacted !== true || typeof c.incidentId !== "string" || !uuid.test(c.incidentId) ||
     typeof c.claimToken !== "string" || !uuid.test(c.claimToken) || !c.payload || typeof c.payload !== "object") return "unavailable";
   const p = c.payload as Record<string, unknown>;

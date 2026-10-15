@@ -53,3 +53,9 @@ Deno.test("present capability RPC errors are unavailable rather than old-backend
  refundsUrl:"https://app.bloomjoyusa.com/refunds",runtime,mailboxIdentities:[],sendEmail:()=>{sends++;return Promise.resolve(receipt);}});
  assertEquals(result,"unavailable");assertEquals(sends,0);
 });
+
+Deno.test("pre-claim quiet/master deferral and transport unavailability keep truthful status",async()=>{
+ for(const [reason,expected] of [["handoff_route_deferred","deferred"],["handoff_transport_unavailable","unavailable"]]) {
+  const f=fixture({claimValue:{claimed:false,reason}});assertEquals(await f.run(),expected);assertEquals(f.sent,[]);
+ }
+});

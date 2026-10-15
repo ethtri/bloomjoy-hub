@@ -60,9 +60,9 @@ begin
     or (dispatch.meta->>'claimedAt')::timestamptz>now_at-interval '5 minutes'))) then
   return jsonb_build_object('claimed',false,'state',dispatch.meta->>'state','incidentId',incident.id,'payloadRedacted',true); end if;
  if dispatch.event_key is null then
-  explanation:=case incident.incident_kind when 'stale' then 'The refund processing schedule has not checked in on time.'
-   when 'repeated_failure' then 'Refund processing has failed repeatedly.'
-   else 'Some required refund work or customer updates need internal attention.' end;
+  -- Causes can change within one coalesced incident while quiet hours defer
+  -- this frozen intent. Keep the approved body true across those changes.
+  explanation:='Some required refund work or customer updates need internal attention.';
   payload:=jsonb_build_object('to',jsonb_build_array('etrifari@bloomjoysweets.com','ian@bloomjoysweets.com'),
    'senderEmail',btrim(p_sender),'subject','Refund processing needs attention',
    'text','Ethan and Ian,'||E'\n\n'||explanation||E'\n\nPlease arrange help to resolve the issue. Machine managers have no additional steps from this alert.'
