@@ -1,4 +1,5 @@
 import { withRequestTimeout } from './requestTimeout';
+import { parseRefundDueWorkHealth, parseRefundTechnicalHandoffHealth, type RefundDueWorkHealth, type RefundTechnicalHandoffHealth } from './refundDueWorkHealth';
 import { requireRefundGiftCardStatus, type RefundGiftCardStatus, type RefundResolutionMethod } from './refundGiftCard';
 import { RefundCaseAccessError } from './refundPortalReads';
 export { RefundCaseAccessError, fetchRefundPortalQueueProjection } from './refundPortalReads';
@@ -1117,6 +1118,8 @@ export type RefundAutomationHealth = {
   workflowStatus?: 'healthy' | 'degraded' | 'instrumentation_unavailable';
   deliveryStatus?: 'healthy' | 'degraded' | 'instrumentation_unavailable';
   blockedReasons?: string[];
+  dueWork?: RefundDueWorkHealth;
+  technicalIncidentHandoff?: RefundTechnicalHandoffHealth;
   lastRunAt: string | null;
   lastSuccessAt: string | null;
   lastRunStatus: 'running' | 'succeeded' | 'failed' | 'suppressed' | null;
@@ -3261,6 +3264,8 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
     blockedReasons: Array.isArray(health.blockedReasons)
       ? health.blockedReasons.filter((value): value is string => typeof value === 'string')
       : [],
+    dueWork: parseRefundDueWorkHealth(health.dueWork),
+    technicalIncidentHandoff: parseRefundTechnicalHandoffHealth(health.technicalIncidentHandoff, health.technicalIncidentHandoffVersion),
     lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
     lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
     lastRunStatus:

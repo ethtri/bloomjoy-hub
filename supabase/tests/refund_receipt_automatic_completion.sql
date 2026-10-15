@@ -207,6 +207,31 @@ select is((select payload->>'suppressed' from receipt_auto_batch),'0',
   'A review-required case does not consume the bounded candidate window');
 reset role;
 
+-- Observe the actual authority-bound automatic receipt row without borrowing
+-- a human reviewer context for global workflow health.
+savepoint due_work_receipt_observation;
+select set_config('request.jwt.claim.sub','',true);
+select set_config('request.jwt.claims','{}',true);
+create temp table due_receipt_observation as select private.refund_current_work(statement_timestamp()) snapshot;
+select is((select count(*)::integer from due_receipt_observation,
+ jsonb_array_elements(snapshot->'items') item where item->>'lane'='automatic_customer_outbox'),1,
+ 'A real automatic receipt intent has its distinct gated observation lane');
+select ok((select bool_and(private.refund_work_lane_available(item->>'lane',
+ '{"manualOutbox":true,"automation":true,"contact":false,"paymentExecutor":true,"policyWindow":true}') is false)
+ from due_receipt_observation,jsonb_array_elements(snapshot->'items') item
+ where item->>'lane'='automatic_customer_outbox'),
+ 'Manual outbox enabled cannot fabricate an eligible automatic contact opportunity');
+select ok((select (snapshot->>'unsupportedActionCount')::integer>0 from due_receipt_observation),
+ 'Canonical missing completion intents remain uncovered rather than healthy empty work');
+select is(pg_temp.capture_error($$update public.refund_cases set status='completed'
+ where id='ce400000-0000-4000-8000-000000000003'$$),'P4663',
+ 'Existing accounting review forbids fabricating completed case state around a missing receipt intent');
+select is(public.refund_lifecycle_contract('ce400000-0000-4000-8000-000000000003')#>>'{nextWork,isOpen}','true',
+ 'A financially terminal required receipt without its contact intent remains canonically open');
+select ok((private.refund_current_work(statement_timestamp())->>'unsupportedActionCount')::integer>0,
+ 'Financially terminal required contact is not erased by the active-case prefilter');
+rollback to savepoint due_work_receipt_observation;
+release savepoint due_work_receipt_observation;
 set local role service_role;
 create temp table receipt_auto_first as select pg_temp.ensure(1) payload;
 select is((select payload->>'status' from receipt_auto_first),'canonical_message',

@@ -479,11 +479,17 @@ expanding email parsing. Form-first acceptance above governs new work.
   changed preparation before provider start sends nothing. A legacy wallet
   notice with uncertain overlap stays in review, and an unknown provider send
   is never retried blindly. The lane remains off until the release review.
-- [ ] Refund workflow health shows the scheduler and delivery obligations
-  separately. A successful scheduled run with an open Manager queue and a
-  disabled digest, or a missed 08:00 local digest without a settled batch,
-  remains degraded. Unknown sends remain visible; unavailable per-case due
-  evidence is labelled unavailable rather than counted as healthy progress.
+- [ ] The existing refund health API separates scheduler, delivery and current
+  due-work evidence. The same current work surviving two complete normal
+  scheduler-dispatched opportunities is degraded even when both runs succeeded.
+  Manual runs, heartbeats, partial observations and stale versions cannot prove
+  progress. Missing evidence is unavailable. Required disabled lanes remain
+  explicit; optional summaries follow their actual adopted subscriptions.
+  Manager decision age, customer waits, future/policy retries, inventory waits
+  and unknown holds remain separate from automatic processing failures. The
+  current technical incident route names its owner dependency without claiming
+  an active repair consumer. There is no new health screen or queue-loading
+  dependency; use the service snapshot and existing incident evidence.
 - [ ] Customer and Manager views work at 390px and desktop widths, with readable
   evidence, keyboard access, no horizontal overflow, and no private provider or
   payment identifiers.
@@ -1536,3 +1542,12 @@ unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile eviden
 - Run the gift HTTP/browser checks and disposable SQL suite for atomic notice
   save, failure/response loss, opposite/concurrent decisions and unknown-send
   holds. Use synthetic data; do not send customer mail or change live cases.
+
+- Refund technical handoff (#1430): in the disposable database, an existing open
+  aggregate incident gets one durable notice to exactly Ethan and Ian through an
+  actual scheduled health dispatch. Replays/concurrency/deploys cannot duplicate
+  accepted or provider-unknown mail; current account, quiet/master and recovered
+  state changes stop provider access. Pre-provider deferral preserves the same
+  frozen intent. Existing health API reports acceptance/unknown separately from
+  repair activity; there is no new dashboard. Do not send live test emails or
+  force a production health tick.
