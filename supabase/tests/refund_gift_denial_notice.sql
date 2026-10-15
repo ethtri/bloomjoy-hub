@@ -44,6 +44,8 @@ select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000001
  'true','Decision is final while queued customer contact remains open');
 select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000001')#>>'{nextWork,actor}',
  'system','No second Manager decision is requested for delivery');
+select is(public.refund_lifecycle_contract('fd760000-0000-4000-8000-000000000001')#>>'{nextWork,blocker,owner}',
+ 'Agent','Internal delivery recovery preserves the existing frontend blocker vocabulary');
 select lives_ok($$select public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000001',false,'A retry must not rewrite the explanation')$$,
  'Lost response safely replays the original decision');
 select lives_ok($$select public.admin_decide_refund_gift_card('fd760000-0000-4000-8000-000000000001',true)$$,

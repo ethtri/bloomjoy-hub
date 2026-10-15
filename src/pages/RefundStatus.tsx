@@ -177,7 +177,7 @@ export default function RefundStatusPage() {
                 </h1>
                 <p className="mt-3 text-base leading-7 text-foreground">{giftCopy ? giftCard?.state === 'issued' && locale === 'es' ? `Su tarjeta de regalo Bloomjoy de ${giftCardAmount(giftCard.value, giftCard.currency)} está lista.` : t(giftCopy.detail) : copy.detail}</p>
 
-                {giftCard && giftCard.state !== 'denied' ? (
+                {giftCard ? giftCard.state !== 'denied' && (
                   <div className="mt-6 space-y-3 border-t border-border pt-5">
                     {giftCard.state === 'manager_review' && <p className="text-sm leading-6">{t('Proposed gift card. A manager will review the amount before it is issued.')}</p>}
                     <RefundGiftCardTerms offer={giftCard} locale={locale} hideValue={giftCard.state === 'manager_review'} />

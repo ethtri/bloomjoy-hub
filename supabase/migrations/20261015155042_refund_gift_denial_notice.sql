@@ -196,7 +196,7 @@ begin
     'nextWork',(base->'nextWork')||jsonb_build_object('actor','system','isOpen',not resolved,
       'actionCode',case when resolved then 'none' else 'recover_customer_delivery' end,'actionLabel',label,
       'blocker',case when resolved then null else jsonb_build_object('code','gift_denial_delivery_unresolved',
-        'owner','System','nextStep','Recover or reconcile the existing customer notice without another decision.') end),
+        'owner','Agent','nextStep','Recover or reconcile the existing customer notice without another decision.') end),
     'managerQueue',(base->'managerQueue')||jsonb_build_object(
       'bucket',case when resolved then 'closed' else 'system_processing' end,
       'label',label,'nextAction','none','safeRetryEligible',false));

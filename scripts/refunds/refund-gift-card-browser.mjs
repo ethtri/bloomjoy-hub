@@ -109,6 +109,7 @@ try {
           { state: 'pending_inventory', delivery: 'none', heading: 'We’re preparing your gift card' },
           { state: 'issued', delivery: 'failed', heading: 'A little sweetness is on its way' },
           { state: 'denied', delivery: 'queued', heading: 'Your review is complete' },
+          { state: 'denied', delivery: 'failed', heading: 'Your review is complete' },
           { state: 'denied', delivery: 'delivery_unknown', heading: 'Your review is complete' },
           { state: 'denied', delivery: 'sent', heading: 'Your review is complete' }]) {
           state = scenario.state; delivery = scenario.delivery;
@@ -119,9 +120,11 @@ try {
             assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0, 'Denied status cannot present an unissued code as redeemable');
             const expected = delivery === 'queued' ? /We are sending the review outcome/ : delivery === 'sent' ? /We have sent the review outcome/ : /email delivery needs attention/;
             assert.match(await page.locator('main').innerText(), expected);
+            await page.screenshot({ path: `${artifacts}/status-denied-${delivery}-en-${width}.png`, fullPage: true });
             await page.getByRole('button', { name: 'Español', exact: true }).click();
             assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
             assert.match(await page.locator('main').innerText(), delivery === 'queued' ? /Estamos enviando el resultado/ : delivery === 'sent' ? /Enviamos el resultado/ : /hubo un problema con el correo/);
+            await page.screenshot({ path: `${artifacts}/status-denied-${delivery}-es-${width}.png`, fullPage: true });
             await page.getByRole('button', { name: 'English', exact: true }).click();
           }
         }
@@ -297,7 +300,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         assert.equal(decisions[0].action, mode === 'approve' ? 'approveGiftCard' : 'denyGiftCard');
         if (mode.startsWith('deny')) {
           assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
-          await page.screenshot({ path: `${artifacts}/manager-${mode}-after-save-${width}.png`, fullPage: true });
+          await page.getByTestId('refund-gift-card-manager').screenshot({ path: `${artifacts}/manager-${mode}-after-save-${width}.png` });
         }
       }
       assert.deepEqual(errors, []);
