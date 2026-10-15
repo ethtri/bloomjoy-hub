@@ -62,7 +62,13 @@ try {
     assert(await page.getByRole('checkbox', { name: 'Receive Cash sales unexpectedly quiet' }).isDisabled());
     assert(await page.getByText('Complete cash comparison source is not verified').isVisible());
     assert(await page.getByText(/Card activity is not included/).isVisible());
+    assert(await page.getByText(/Daily briefs show period sales and new requests/).isVisible());
+    assert.equal(await page.getByText(/Ready decisions also appear in your daily brief|daily brief also includes open refund work/).count(), 0,
+      'Preferences must not promise outstanding decisions in the period digest');
     await overflow(page); await snap(page, 'preferences-desktop');
+    await page.setViewportSize({ width: 390, height: 960 });
+    await overflow(page); await snap(page, 'preferences-manager-mobile');
+    await page.setViewportSize({ width: 1440, height: 960 });
   });
   await check('Manager decision-ready is an explicit opt-in for selected machines', async () => {
     await page.getByRole('checkbox', { name: 'Receive Refund decision ready', exact: true }).check();
