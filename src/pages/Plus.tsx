@@ -55,7 +55,7 @@ export default function PlusPage() {
     if (!checkoutStatus) return;
 
     if (checkoutStatus === 'cancel') {
-      setCheckoutNotice({ state: 'cancelled', title: 'Checkout canceled', description: 'No subscription payment was collected. You can start again when you’re ready.' });
+      setCheckoutNotice({ state: 'cancelled', title: 'Checkout canceled', description: 'You can start again when you’re ready. If you expected a payment to complete, check your account first.' });
       window.history.replaceState({}, '', '/plus');
       return;
     }
@@ -172,7 +172,7 @@ export default function PlusPage() {
                     size="lg"
                     className="mt-5 min-h-12 w-full"
                     onClick={handleStartMembership}
-                    disabled={isStartingCheckout || checkoutNotice?.state === 'checking' || checkoutNotice?.state === 'confirmed' || checkoutNotice?.state === 'pending'}
+                    disabled={isStartingCheckout || (checkoutNotice !== null && checkoutNotice.state !== 'cancelled')}
                   >
                     {isStartingCheckout ? 'Opening checkout…' : user ? 'Start membership' : 'Log in to join Plus'}
                     <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
