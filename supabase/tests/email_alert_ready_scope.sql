@@ -60,10 +60,20 @@ insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,m
  values('ef710000-0000-4000-8000-000000000001','decision-ready',true,'selected',array['ef740000-0000-4000-8000-000000000001'::uuid]);
 -- Saving an opt-in through a service/import does not necessarily create a
 -- profile. Effective UI defaults still defer producer, claim and provider start.
+create function pg_temp.ready_policy_checks(p_observed_at timestamptz)
+returns jsonb language sql stable as $$
+ select jsonb_build_array(exists(select 1 from private.email_alert_current_ready_scope(p_observed_at)
+  where user_id='ef710000-0000-4000-8000-000000000001'
+   and machine_id='ef740000-0000-4000-8000-000000000001'),
+  private.email_alert_ready_allowed('ef710000-0000-4000-8000-000000000001',
+   'ef740000-0000-4000-8000-000000000001',p_observed_at));
+$$;
 select is((select count(*)::integer from public.email_alert_profiles
  where user_id='ef710000-0000-4000-8000-000000000001'),0,'Opted-in fixture has no saved delivery profile');
 select is((private.email_alert_context('ef710000-0000-4000-8000-000000000001')#>>'{settings,quietStart}'),
  '20:00','Preferences display the default quiet start without a profile');
+select is(pg_temp.ready_policy_checks('2026-10-04T02:59Z'),'[true,true]'::jsonb,
+ 'Producer and provider boundary remain eligible at 19:59 Pacific without a profile');
 select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-10-04T03:00Z')),0,
  'Default Pacific quiet hours exclude ready work at 20:00 without a profile');
 select is(private.email_alert_ready_allowed('ef710000-0000-4000-8000-000000000001',
@@ -74,6 +84,8 @@ select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-04T0
 select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-04T03:00Z')->>'reason',
  'no_current_subscriptions','Default quiet hours defer existing durable ready actions');
 select is((select count(*)::integer from ready_snapshot_probes),0,'Default quiet deferral never traverses case snapshots');
+select is(pg_temp.ready_policy_checks('2026-10-04T13:59Z'),'[false,false]'::jsonb,
+ 'Producer and provider boundary remain deferred at 06:59 Pacific without a profile');
 select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-10-04T14:00Z')),1,
  'Default quiet hours release the selected scope at exactly 07:00 Pacific');
 select is(private.email_alert_ready_allowed('ef710000-0000-4000-8000-000000000001',
@@ -83,6 +95,17 @@ select is((select count(*)::integer from private.email_alert_current_ready_scope
  'First repeated Pacific 01:30 during fall DST remains quiet');
 select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-11-01T09:30Z')),0,
  'Second repeated Pacific 01:30 during fall DST remains quiet');
+insert into public.email_alert_profiles(user_id,timezone,quiet_enabled,quiet_start,quiet_end)
+ values('ef710000-0000-4000-8000-000000000001','Asia/Tokyo',true,'12:00','13:00');
+select is(pg_temp.ready_policy_checks('2026-10-04T02:59Z'),'[true,true]'::jsonb,
+ 'Saved Tokyo daytime window permits 11:59 at both boundaries');
+select is(pg_temp.ready_policy_checks('2026-10-04T03:00Z'),'[false,false]'::jsonb,
+ 'Saved Tokyo daytime quiet window starts at exactly 12:00 at both boundaries');
+select is(pg_temp.ready_policy_checks('2026-10-04T03:59Z'),'[false,false]'::jsonb,
+ 'Saved Tokyo daytime quiet window still defers at 12:59 at both boundaries');
+select is(pg_temp.ready_policy_checks('2026-10-04T04:00Z'),'[true,true]'::jsonb,
+ 'Saved Tokyo daytime quiet window ends at exactly 13:00 at both boundaries');
+delete from public.email_alert_profiles where user_id='ef710000-0000-4000-8000-000000000001';
 create temporary table ready_scan_results(n integer,p jsonb);
 insert into ready_scan_results values(1,public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:00Z'));
 insert into ready_scan_results values(2,public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:05Z'));
