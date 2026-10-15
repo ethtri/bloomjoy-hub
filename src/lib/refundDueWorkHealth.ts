@@ -41,3 +41,18 @@ export function parseRefundDueWorkHealth(value: unknown): RefundDueWorkHealth {
     technicalOwner: { ...unavailable.technicalOwner, required: owner.required === true },
   };
 }
+
+export type RefundTechnicalHandoffHealth = {
+  state: 'unavailable' | 'not_required' | 'not_prepared' | 'reserved' | 'accepted' | 'delivery_unknown' | 'known_not_sent' | 'deferred' | 'cancelled';
+  incidentId: string | null; recipientCount: number | null; acceptedAt: string | null; repairActivity: null;
+};
+export function parseRefundTechnicalHandoffHealth(value: unknown, version: unknown): RefundTechnicalHandoffHealth {
+  const unavailable: RefundTechnicalHandoffHealth = {state: 'unavailable', incidentId: null, recipientCount: null, acceptedAt: null, repairActivity: null};
+  if (version !== 1 || !value || typeof value !== 'object' || Array.isArray(value)) return unavailable;
+  const d = value as Record<string, unknown>;
+  if (d.payloadRedacted !== true || !['not_required','not_prepared','reserved','accepted','delivery_unknown','known_not_sent','deferred','cancelled'].includes(String(d.state)) ||
+    ![0,2].includes(Number(d.recipientCount)) || typeof d.recipientCount !== 'number' ||
+    (d.state === 'accepted' && (typeof d.acceptedAt !== 'string' || !Number.isFinite(Date.parse(d.acceptedAt))))) return unavailable;
+  return {state: d.state as RefundTechnicalHandoffHealth['state'], incidentId: typeof d.incidentId === 'string' ? d.incidentId : null,
+    recipientCount: d.recipientCount, acceptedAt: typeof d.acceptedAt === 'string' ? d.acceptedAt : null, repairActivity: null};
+}

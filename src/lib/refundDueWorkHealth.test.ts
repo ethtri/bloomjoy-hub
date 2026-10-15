@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { parseRefundDueWorkHealth } from './refundDueWorkHealth.ts';
+import { parseRefundDueWorkHealth, parseRefundTechnicalHandoffHealth } from './refundDueWorkHealth.ts';
 
 const health = { schemaVersion: 'refund_due_work_health_v1', payloadRedacted: true,
   status: 'healthy', observationsComplete: true, sourceCoverage: ['purchase_lookup'],
@@ -29,4 +29,12 @@ Deno.test('degraded result does not infer an active repair consumer', () => {
     assertEquals(result.technicalOwner.required, true);
     assertEquals(result.technicalOwner.availability, 'unverified');
     assertEquals(result.technicalOwner.activity, null);
+});
+
+Deno.test('human email acceptance never becomes delivered or active repair',()=>{
+ const accepted=parseRefundTechnicalHandoffHealth({state:'accepted',incidentId:'synthetic',recipientCount:2,
+  acceptedAt:'2026-10-15T22:00:00Z',repairActivity:'working',payloadRedacted:true},1);
+ assertEquals(accepted.state,'accepted');assertEquals(accepted.repairActivity,null);
+ assertEquals(parseRefundTechnicalHandoffHealth({state:'accepted',recipientCount:2,payloadRedacted:true},1).state,'unavailable');
+ assertEquals(parseRefundTechnicalHandoffHealth({state:'accepted',recipientCount:2,payloadRedacted:true},'1').state,'unavailable');
 });

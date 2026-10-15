@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { runRefundGiftCardSupply } from "../_shared/refund-gift-card-supply.ts";
+import { deliverRefundTechnicalHandoff } from "../_shared/refund-technical-handoff.ts";
 import { recordRefundWorkObservation, refundHealthNotificationStatus, type RefundWorkRuntime } from "../_shared/refund-work-observation.ts";
 import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
@@ -356,6 +357,7 @@ type ClaimedAction = {
 };
 
 type RefundAutomationHealth = {
+  technicalIncidentHandoffVersion?: unknown;
   status?: string;
   schedulerStatus?: string;
   workflowStatus?: "healthy" | "degraded" | "instrumentation_unavailable";
@@ -4383,6 +4385,21 @@ const runHealthCheck = async (
     refundHealthNotificationStatus(health),
   );
 
+  // Human handoff is independent of legacy Agent-route claim sequences. This
+  // also covers an already-open incident whose old initial action was recorded.
+  let humanHandoff = "unavailable";
+  try {
+    humanHandoff = await deliverRefundTechnicalHandoff({
+      client: supabase!, health, runId,
+      sender: Deno.env.get("RESEND_API_KEY") ? Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL") ?? null : null,
+      refundsUrl: getRefundManagerQueueUrl(),
+      runtime: { automation: automationEnabled, customerContact: automaticCustomerContactEnabled,
+        manualOutbox: refundManualMessageOutboxEnabled(), managerDigest: managerDigestEnabled, managerReady: managerReadyNoticesEnabled },
+      mailboxIdentities: getRefundGmailMailboxIdentities(), sendEmail: sendTransactionalEmail,
+    });
+  } catch { /* Handoff failure cannot stop independent refund processing. */ }
+  addReason(counters, `technical_handoff_${humanHandoff}`);
+
   if (
     notification.notificationType === "none" ||
     !notification.alertKind ||
@@ -4392,7 +4409,7 @@ const runHealthCheck = async (
       ? "suppressed"
       : "not_needed";
     await finishRun(runId, "succeeded", counters, null, alertStatus);
-    return { health, alertStatus, notificationType: "none" };
+    return { health, alertStatus, notificationType: "none", humanHandoff };
   }
 
   const action = await claimAction(
@@ -4428,6 +4445,7 @@ const runHealthCheck = async (
       health,
       alertStatus,
       notificationType: notification.notificationType,
+      humanHandoff,
     };
   } catch (error) {
     console.error("refund-case-automation-sweep health alert failed", {
@@ -4440,6 +4458,7 @@ const runHealthCheck = async (
       health,
       alertStatus: "failed",
       notificationType: notification.notificationType,
+      humanHandoff,
     };
   }
 };
@@ -4910,6 +4929,7 @@ serve(async (req) => {
         lastSuccessAt: result.health.lastSuccessAt ?? null,
         alertStatus: result.alertStatus,
         notificationType: result.notificationType,
+        technicalHandoffStatus: result.humanHandoff ?? "unavailable",
         ...redactedSummary(counters),
       }, result.alertStatus === "failed" ? 502 : 200);
     }

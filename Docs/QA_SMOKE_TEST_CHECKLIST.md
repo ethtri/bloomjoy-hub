@@ -1542,3 +1542,12 @@ unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile eviden
 - Run the gift HTTP/browser checks and disposable SQL suite for atomic notice
   save, failure/response loss, opposite/concurrent decisions and unknown-send
   holds. Use synthetic data; do not send customer mail or change live cases.
+
+- Refund technical handoff (#1430): in the disposable database, an existing open
+  aggregate incident gets one durable notice to exactly Ethan and Ian through an
+  actual scheduled health dispatch. Replays/concurrency/deploys cannot duplicate
+  accepted or provider-unknown mail; current account, quiet/master and recovered
+  state changes stop provider access. Pre-provider deferral preserves the same
+  frozen intent. Existing health API reports acceptance/unknown separately from
+  repair activity; there is no new dashboard. Do not send live test emails or
+  force a production health tick.

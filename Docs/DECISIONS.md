@@ -1359,3 +1359,30 @@ separate-tax source amounts, preserving publisher authority and deduplication.
 Known component subtotals and unknown component counts survive an unavailable
 aggregate row. This changes neither net/refund/payroll formulas nor issued
 snapshots, and imported records do not prove complete provider coverage or zero.
+
+
+## 2026-10-15 — One human handoff per unresolved refund technical incident (#1430)
+
+The owner explicitly approved one email to Ethan Trifari and Ian Guo for each
+unresolved aggregate refund technical incident, including an already-open
+incident. Use their two existing approved addresses only; configured notification
+extras, machine Managers and other administrators are outside this authority.
+The existing aggregate workflow incident includes completion-contact health, so
+its separate completion-outbox ledger does not generate another human email.
+
+Reuse the durable internal dispatch identity per incident, freezing sender,
+recipients, subject, body and provider idempotency key. Ordinary scheduled health
+runs may retry proven pre-provider deferrals at most once per actual run, with
+the existing five-minute reservation lease. Quiet hours, master disablement,
+missing configuration or changed account authority delay the same notice rather
+than consume it. Provider-started uncertainty is held durably without blind
+resend, even after provider idempotency expires; confirmed acceptance ends email
+attempts. No repeating reminder, material-change or recovery emails are added.
+
+The recipients arrange technical follow-through; machine Managers receive no
+technical troubleshooting task. Email acceptance is separate from delivery,
+incident resolution and repair activity. The existing technical-agent route
+remains registered with unverified continuous executor activity until actual
+evidence establishes otherwise. No dashboard, recurring worker or financial
+permission is introduced. Broader recovery issues close only on their own
+outcome evidence, not an email receipt.
