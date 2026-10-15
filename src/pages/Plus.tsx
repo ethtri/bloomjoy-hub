@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, ArrowRight, BookOpen, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
@@ -8,6 +8,7 @@ import { businessPlaybookPlusTools } from '@/data/businessPlaybookPlusTools';
 import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import { getCheckoutStatus, startPlusCheckout } from '@/lib/stripeCheckout';
+import { getPlusPaymentState } from '@/lib/plusCheckoutStatus';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -42,6 +43,7 @@ type CheckoutNotice = { title: string; description: string; state: 'checking' | 
 export default function PlusPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { search } = useLocation();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [checkoutNotice, setCheckoutNotice] = useState<CheckoutNotice | null>(null);
 
@@ -50,20 +52,21 @@ export default function PlusPage() {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const checkoutStatus = params.get('checkout');
-    if (!checkoutStatus) return;
+    if (!checkoutStatus) {
+      setCheckoutNotice(null);
+      return;
+    }
 
     if (checkoutStatus === 'cancel') {
       setCheckoutNotice({ state: 'cancelled', title: 'Checkout canceled', description: 'You can start again when you’re ready. If you expected a payment to complete, check your account first.' });
-      window.history.replaceState({}, '', '/plus');
       return;
     }
 
     const sessionId = params.get('session_id');
     if (checkoutStatus !== 'return' || !sessionId) {
       setCheckoutNotice({ state: 'error', title: 'We couldn’t verify this checkout', description: 'Check your account for membership status before trying again, or contact us for help.' });
-      window.history.replaceState({}, '', '/plus');
       return;
     }
 
@@ -72,8 +75,13 @@ export default function PlusPage() {
     void getCheckoutStatus(sessionId)
       .then((status) => {
         if (cancelled) return;
-        if (status.paymentStatus === 'paid' && status.orderType === 'plus_subscription') {
+        const paymentState = getPlusPaymentState(status);
+        if (paymentState === 'confirmed') {
           setCheckoutNotice({ state: 'confirmed', title: 'Payment confirmed. Welcome to Bloomjoy Plus!', description: 'Your subscription payment is confirmed. Open your account to check membership access and billing.' });
+          return;
+        }
+        if (paymentState === 'error') {
+          setCheckoutNotice({ state: 'error', title: 'This checkout does not confirm a Plus membership', description: 'The checkout result is for a different order. Check your account for membership status or contact us for help.' });
           return;
         }
         setCheckoutNotice({ state: 'pending', title: 'Payment is not yet confirmed', description: 'Your Plus subscription is not confirmed yet. Check your account before starting another checkout.' });
@@ -81,15 +89,12 @@ export default function PlusPage() {
       .catch(() => {
         if (cancelled) return;
         setCheckoutNotice({ state: 'error', title: 'We couldn’t verify your payment', description: 'Check your account before trying again. If you need help, contact us with your checkout email.' });
-      })
-      .finally(() => {
-        if (!cancelled) window.history.replaceState({}, '', '/plus');
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [search]);
 
   const handleStartMembership = async () => {
     if (!user?.id || !user.email) {
