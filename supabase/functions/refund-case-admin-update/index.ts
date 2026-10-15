@@ -787,7 +787,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    if (body?.action === "resendGiftCard") {
+    if (["resendGiftCard", "retryGiftCardDenialNotice"].includes(body?.action)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!anonKey || user.is_anonymous || !isUuid(sanitizeText(body.caseId, 80)) || !isUuid(sanitizeText(body.intentId, 80))) {
         return jsonResponse({ error: "Current assigned Manager and delivery request are required." }, 403);
@@ -796,11 +796,14 @@ serve(async (req) => {
         auth: { persistSession: false, autoRefreshToken: false },
         global: { headers: { Authorization: `Bearer ${accessToken}` } },
       });
-      const { data, error } = await actorClient.rpc("admin_resend_refund_gift_card", {
+      const { data, error } = await actorClient.rpc(body.action === "retryGiftCardDenialNotice"
+        ? "admin_retry_refund_gift_denial_notice" : "admin_resend_refund_gift_card", {
         p_case_id: body.caseId, p_intent_id: body.intentId,
         p_email: sanitizeText(body.customerEmail, 320) || null,
       });
-      if (error) return jsonResponse({ error: error.code === "P4672"
+      if (error) return jsonResponse({ error: error.code === "P4683"
+        ? "The existing customer notice must finish or be reconciled before another delivery attempt. The decision is saved."
+        : error.code === "P4672"
         ? "The existing email send is still being verified. Refresh this review after the provider result is reconciled; the same gift card is saved."
         : error.code === "42501" ? "Current assigned Manager access is required."
         : "This gift card cannot be resent yet. Refresh the review to check its delivery and expiry.",

@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { RefundGiftCardTerms } from './RefundGiftCardTerms';
-import { fetchRefundGiftCardManagerContext, decideRefundGiftCard, resendRefundGiftCard } from '@/lib/refundGiftCardApi';
+import { fetchRefundGiftCardManagerContext, decideRefundGiftCard, resendRefundGiftCard, retryRefundGiftDenialNotice } from '@/lib/refundGiftCardApi';
 import { giftCardAmount, giftCardExpiry, giftCardStatusCopy } from '@/lib/refundGiftCard';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { parseManagerRefundAmount, roundedManagerGiftAmount } from '@/lib/refundManagerAmount';
@@ -39,6 +39,19 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to resend this gift card.'); }
     finally { setPending(false); onActionPendingChange?.(false); }
   };
+  const retryDenial = async () => {
+    if (pending || query.data?.can_retry_denial !== true) return;
+    const email = (recipient ?? query.data.customer_email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid customer email.'); return; }
+    setPending(true); onActionPendingChange?.(true); setError('');
+    try {
+      await retryRefundGiftDenialNotice(refundCase.id, resendIntent, email);
+      setResendIntent(crypto.randomUUID());
+      void queryClient.invalidateQueries({ queryKey: ['refund-gift-card-manager', refundCase.id] });
+      void queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to queue the customer notice. The decision remains saved.'); }
+    finally { setPending(false); onActionPendingChange?.(false); }
+  };
   const decide = async (approve: boolean) => {
     if (pending || decided || query.data?.can_decide !== true || (approve && !affectedAmountCents)) return;
     setPending(true); onActionPendingChange?.(true); setError('');
@@ -51,6 +64,12 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
     finally { setPending(false); onActionPendingChange?.(false); }
   };
   const card = query.data;
+  const denialNoticeCopy = card?.denial_delivery_recovery_state === 'reconciliation_required'
+    ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
+    : card?.can_retry_denial ? 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
+    : card && ['queued', 'claimed', 'pending'].includes(card.delivery_state) ? 'Decision saved. The System is sending the customer notice.'
+    : card && ['sent', 'accepted', 'deferred', 'delivered'].includes(card.delivery_state) ? 'Decision saved. Customer notice sent.'
+    : 'Decision saved. Customer notice delivery needs Refund Operations review. Do not record another decision.';
   return <section data-testid="refund-gift-card-manager" className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5">
     <h3 className="text-xl font-semibold">{card?.state === 'manager_review' ? 'Review gift card request' : 'Gift card request'}</h3>
     <div>
@@ -91,7 +110,14 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
           <Button className="min-h-11" disabled={pending || !proposedValue} onClick={() => void decide(true)}>{pending ? 'Saving decision…' : proposedValue ? `Approve ${giftCardAmount(proposedValue, card.currency)} gift card` : 'Enter a valid gift amount'}</Button>
           <Button variant="outline" className="min-h-11" disabled={pending || !notes.trim()} onClick={() => void decide(false)}>Deny request</Button>
         </div>
-      </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided && card.can_decide ? 'Decision saved. Refreshing customer contact status…' : card.state === 'denied' ? `Decision saved. ${giftCardStatusCopy(card).next}` : card.delivery_recovery_state === 'reconciliation_required' ? 'The assigned gift card is saved. Delivery verification is still in progress.' : giftCardStatusCopy(card).next}</p>}
+      </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided && card.can_decide ? 'Decision saved. Refreshing customer contact status…' : card.state === 'denied' ? denialNoticeCopy : card.delivery_recovery_state === 'reconciliation_required' ? 'The assigned gift card is saved. Delivery verification is still in progress.' : giftCardStatusCopy(card).next}</p>}
+      {card.state === 'denied' && card.can_retry_denial && <div className="space-y-3 border-t border-border pt-4">
+        <Label htmlFor="gift-denial-recipient">Customer email</Label>
+        <Input id="gift-denial-recipient" type="email" disabled={pending} value={recipient ?? card.customer_email}
+          onChange={(event) => { setRecipient(event.target.value); setResendIntent(crypto.randomUUID()); }} />
+        <p className="text-sm leading-6 text-muted-foreground">Retry the saved review outcome, or correct a bounced email address. This preserves the decision and original notice.</p>
+        <Button variant="outline" className="min-h-11" disabled={pending} onClick={() => void retryDenial()}>{pending ? 'Queuing notice…' : 'Retry customer notice'}</Button>
+      </div>}
       {card.state === 'issued' && <div className="space-y-3 border-t border-border pt-4">
         {card.delivery_recovery_state === 'reconciliation_required' ? <div role="status" className="space-y-2 text-sm leading-6">
           <p className="font-semibold">Delivery verification needed</p>

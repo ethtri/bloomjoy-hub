@@ -32,7 +32,7 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
     if (name === 'record_public_intake_rate_limit_event') return json(1);
     if (name === 'service_accept_refund_gift_card_offer') return json(reviewException ? { ...gift, state: 'manager_review', issued_at: null, value: 9000 } : gift);
     if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });
-    if (name === 'admin_resend_refund_gift_card' || name === 'admin_decide_refund_gift_card') {
+    if (['admin_resend_refund_gift_card', 'admin_decide_refund_gift_card', 'admin_retry_refund_gift_denial_notice'].includes(name ?? '')) {
       if (rpcError) return json({ code: rpcError, message: 'Synthetic denied or unresolved delivery' }, 403);
       if (name === 'admin_decide_refund_gift_card' && body.p_approve === false) return json({ ...gift, state: 'denied', delivery_state: 'queued' });
       return json(gift);
@@ -156,6 +156,12 @@ try {
     r.authorization === 'Bearer synthetic-manager-token' && r.body.p_approve === false && r.body.p_notes === denial.notes));
   assert(!requests.some((r) => /refund_case_messages|refund_case_events|refund_cases|service_issue_refund_gift_card/.test(r.path)),
     'Saved denial never performs an inline send or separate message insert after the transaction');
+  requests.length = 0;
+  const noticeRecovery = { action: 'retryGiftCardDenialNotice', caseId, intentId: crypto.randomUUID(), customerEmail: 'corrected@example.invalid' };
+  assertEquals((await post(admin, noticeRecovery, true)).status, 200);
+  assertEquals(requests.find((r) => r.path.endsWith('/admin_retry_refund_gift_denial_notice'))?.body,
+    { p_case_id: caseId, p_intent_id: noticeRecovery.intentId, p_email: 'corrected@example.invalid' });
+  assert(!requests.some((r) => r.path.endsWith('/admin_decide_refund_gift_card')), 'Delivery recovery never repeats the saved decision');
   assertEquals(unexpected, []);
   console.log('Gift-card actual intake/admin HTTP contracts passed with synthetic PostgREST/Auth.');
 } finally {

@@ -21,6 +21,8 @@ export type RefundGiftCardManagerContext = RefundGiftCardStatus & {
   can_decide: boolean;
   can_resend: boolean;
   delivery_recovery_state: 'ready' | 'queued' | 'reconciliation_required' | 'code_unavailable' | 'not_issued';
+  can_retry_denial: boolean;
+  denial_delivery_recovery_state: 'ready' | 'queued' | 'reconciliation_required' | 'unavailable' | 'not_denied';
   customer_email: string;
   prior_issued_count: number;
   latest_issued_at: string | null;
@@ -37,7 +39,12 @@ export const fetchRefundGiftCardManagerContext = async (caseId: string) => {
   if (data.delivery_recovery_state != null && !['ready', 'queued', 'reconciliation_required', 'code_unavailable', 'not_issued'].includes(data.delivery_recovery_state)) {
     throw new Error('Gift card delivery status is temporarily unavailable. Refresh the review.');
   }
+  if (data.denial_delivery_recovery_state != null && !['ready', 'queued', 'reconciliation_required', 'unavailable', 'not_denied'].includes(data.denial_delivery_recovery_state)) {
+    throw new Error('Customer notice delivery status is temporarily unavailable. Refresh the review.');
+  }
   return { ...status, can_decide: data.can_decide, can_resend: data.can_resend === true,
+    can_retry_denial: data.can_retry_denial === true,
+    denial_delivery_recovery_state: data.denial_delivery_recovery_state ?? 'unavailable',
     delivery_recovery_state: data.delivery_recovery_state ?? (data.can_resend ? 'ready' : 'not_issued'),
     customer_email: typeof data.customer_email === 'string' ? data.customer_email : '', prior_issued_count: data.prior_issued_count,
     affected_amount: data.affected_amount ?? data.purchase_amount ?? data.value,
@@ -56,4 +63,9 @@ export const decideRefundGiftCard = (caseId: string, approve: boolean, notes: st
 export const resendRefundGiftCard = (caseId: string, intentId: string, customerEmail: string) =>
   invokeEdgeFunction<{ gift_card?: unknown; error?: string }>('refund-case-admin-update', {
     action: 'resendGiftCard', caseId, intentId, customerEmail,
+  }, { requireUserAuth: true });
+
+export const retryRefundGiftDenialNotice = (caseId: string, intentId: string, customerEmail: string) =>
+  invokeEdgeFunction<{ gift_card?: unknown; error?: string }>('refund-case-admin-update', {
+    action: 'retryGiftCardDenialNotice', caseId, intentId, customerEmail,
   }, { requireUserAuth: true });

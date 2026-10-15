@@ -67,6 +67,7 @@ type RefundManualMessageRow = {
   message_type: string;
   template_version: string | null;
   gift_card_issuance_id: string | null;
+  gift_denial_source_message_id: string | null;
   status: string;
   recipient_email: string;
   subject: string;
@@ -209,6 +210,7 @@ const getClaimedMessage = async (
       message_type,
       template_version,
       gift_card_issuance_id,
+      gift_denial_source_message_id,
       status,
       recipient_email,
       subject,
@@ -460,6 +462,14 @@ export const deliverRefundManualMessageClaim = async ({
   let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
+  let giftDenialRecipientCorrected = false;
+  if (message.gift_denial_source_message_id) {
+    if (message.message_type !== 'denied' || message.delivery_kind !== 'manual') throw new Error('Saved denial notice binding is invalid.');
+    const { data: source, error: sourceError } = await supabase.from('refund_case_messages')
+      .select('refund_case_id,recipient_email').eq('id', message.gift_denial_source_message_id).single();
+    if (sourceError || source?.refund_case_id !== message.refund_case_id) throw new Error('Saved denial notice is unavailable.');
+    giftDenialRecipientCorrected = String(source.recipient_email).trim().toLowerCase() !== message.recipient_email.trim().toLowerCase();
+  }
   if (message.template_version === "refund_gift_card_v1" && !transactionalRecovery) {
     const { data: issuance, error: issuanceError } = await supabase
       .from("refund_gift_card_issuances")
@@ -558,6 +568,7 @@ export const deliverRefundManualMessageClaim = async ({
       email,
       deliveryKind: message.delivery_kind,
       managerCopyPolicy,
+      giftDenialRecipientCorrected,
       gmailThreadId: receiptThreadId,
       syntheticProofAuthorizationId:
         message.synthetic_gmail_proof_authorization_id,

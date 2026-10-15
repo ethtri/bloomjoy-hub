@@ -235,13 +235,15 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       const page = await context.newPage();
       const decisions = [], errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
-      let decided = false;
+      let decided = false, noticeRecovered = false;
       await page.route('**/*', async (route) => {
         const url = route.request().url();
         if (new URL(url).origin === new URL(base).origin) return route.continue();
         if (url.includes('/rest/v1/rpc/get_refund_gift_card_case')) return route.fulfill({ json: {
           ...status, state: mode.startsWith('resend') ? 'issued' : decided ? mode.startsWith('deny') ? 'denied' : 'issued' : 'manager_review',
-          delivery_state: mode === 'resend-held' ? 'delivery_unknown' : mode.startsWith('deny') && decided ? mode === 'deny-unknown' ? 'delivery_unknown' : 'failed' : 'sent',
+          delivery_state: noticeRecovered ? 'queued' : mode === 'resend-held' ? 'delivery_unknown' : mode.startsWith('deny') && decided ? mode === 'deny-unknown' ? 'delivery_unknown' : 'failed' : 'sent',
+          can_retry_denial: mode === 'deny' && decided && !noticeRecovered,
+          denial_delivery_recovery_state: mode === 'deny-unknown' ? 'reconciliation_required' : noticeRecovered ? 'queued' : 'ready',
           can_decide: !decided && !mode.startsWith('resend') && mode !== 'read-only',
           can_resend: mode === 'resend', delivery_recovery_state: mode === 'resend-held' ? 'reconciliation_required' : 'ready',
           customer_email: 'synthetic@example.test', prior_issued_count: 1, latest_issued_at: '2026-08-01T12:00:00Z',
@@ -250,6 +252,10 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         if (url.includes('/functions/v1/refund-case-admin-update')) {
           assert.equal(route.request().headers()['x-supabase-auth-token'], 'synthetic-access-token');
           decisions.push(route.request().postDataJSON()); decided = true;
+          if (decisions.at(-1).action === 'retryGiftCardDenialNotice') {
+            if (decisions.filter(d => d.action === 'retryGiftCardDenialNotice').length === 1) return route.fulfill({ status: 503, json: { error: 'Synthetic response loss' } });
+            noticeRecovered = true;
+          }
           if (mode === 'resend' && decisions.length === 1) return route.fulfill({ status: 503, json: { error: 'Synthetic retry failure' } });
           return route.fulfill({ json: { ok: true } });
         }
@@ -292,7 +298,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
           await page.getByRole('button', { name: 'Deny request', exact: true }).click();
         } else await page.getByRole('button', { name: 'Approve $15.00 gift card', exact: true }).click();
         await page.getByText(mode.startsWith('deny')
-          ? 'Decision saved. Your review is saved, but its email delivery needs attention. Our team is working on it. You do not need to submit again.'
+          ? mode === 'deny-unknown' ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
+            : 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
           : 'We have sent your gift card email. Check your inbox or spam folder. Reply to your Bloomjoy email if you need a hand.', { exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: 'Deny request', exact: true }).count(), 0);
         assert.equal(decisions.length, 1);
@@ -301,6 +308,18 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         if (mode.startsWith('deny')) {
           assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
           await page.getByTestId('refund-gift-card-manager').screenshot({ path: `${artifacts}/manager-${mode}-after-save-${width}.png` });
+          if (mode === 'deny') {
+            await page.getByLabel('Customer email', { exact: true }).fill('corrected-denial@example.test');
+            await page.getByRole('button', { name: 'Retry customer notice', exact: true }).click();
+            await page.getByRole('alert').waitFor();
+            await page.getByRole('button', { name: 'Retry customer notice', exact: true }).click();
+            await page.getByText('Decision saved. The System is sending the customer notice.', { exact: true }).waitFor();
+            assert.equal(decisions.length, 3);
+            assert.equal(decisions[1].intentId, decisions[2].intentId);
+            assert.equal(decisions[2].customerEmail, 'corrected-denial@example.test');
+            assert.equal(decisions.filter(d => d.action === 'denyGiftCard').length, 1);
+            await page.getByTestId('refund-gift-card-manager').screenshot({ path: `${artifacts}/manager-deny-retry-queued-${width}.png` });
+          } else assert.equal(await page.getByRole('button', { name: 'Retry customer notice', exact: true }).count(), 0);
         }
       }
       assert.deepEqual(errors, []);

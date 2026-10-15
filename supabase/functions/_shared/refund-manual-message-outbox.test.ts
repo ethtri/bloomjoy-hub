@@ -93,6 +93,51 @@ const singleRowQuery = (data: unknown) => {
   return query;
 };
 
+Deno.test('linked corrected denial uses one fresh transactional key and preserves saved notice content', async () => {
+  const settings = { RESEND_API_KEY: 'synthetic-resend-key', REFUND_CUSTOMER_FROM_EMAIL: 'refunds@bloomjoysweets.com',
+    INTERNAL_NOTIFICATION_FROM_EMAIL: 'info@bloomjoysweets.com', GMAIL_SUPPORT_MAILBOX: 'info@bloomjoysweets.com' };
+  const before = new Map(Object.keys(settings).map(name => [name, Deno.env.get(name)]));
+  for (const [name, value] of Object.entries(settings)) Deno.env.set(name, value);
+  const originalFetch = globalThis.fetch; let sends = 0, messageReads = 0; const calls: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    assertEquals(String(url), 'https://api.resend.com/emails'); sends++;
+    const payload = JSON.parse(String(init?.body));
+    assertEquals(payload.to, ['customer@example.invalid']);
+    assertEquals(payload.cc, ['manager@example.invalid']);
+    assertEquals(new Headers(init?.headers).get('Idempotency-Key'), `refund-message-${messageId}`);
+    assertEquals(payload.text.includes('Saved reviewed explanation.'), true);
+    return Response.json({ id: 'synthetic-denial-new-key' });
+  }) as typeof fetch;
+  try {
+    const supabase = {
+      from: (table: string) => {
+        if (table === 'refund_case_messages') return singleRowQuery(++messageReads === 1
+          ? claimedMessage(null, { message_type: 'denied', delivery_kind: 'manual', content_source: 'manager_authored',
+            body: 'Saved reviewed explanation.', gift_denial_source_message_id: secondMessageId })
+          : { refund_case_id: 'b2200000-0000-4000-8000-000000000001', recipient_email: 'old-typo@example.invalid' });
+        if (table === 'refund_cases') return singleRowQuery(currentCase);
+        throw new Error(`Unexpected corrected-denial table ${table}`);
+      },
+      rpc: async (name: string) => {
+        calls.push(name);
+        if (name === 'service_verify_refund_synthetic_gmail_proof_transport') return { data: { required: false, allowed: true }, error: null };
+        if (name === 'service_authorize_refund_customer_outbound') return { data: { allowed: true, recipientResolutionStatus: 'resolved',
+          managerCcEmails: ['manager@example.invalid'], managerRecipientOverlap: false, managerRecipientCount: 1 }, error: null };
+        if (name.includes('mark_refund_')) return { data: { marked: true, payloadRedacted: true }, error: null };
+        if (name === 'service_bind_refund_transactional_delivery') return { data: { bound: true, payloadRedacted: true }, error: null };
+        if (name === 'service_finish_refund_manual_message_delivery') return { data: { finished: true, payloadRedacted: true }, error: null };
+        throw new Error(`Unexpected corrected-denial RPC ${name}`);
+      },
+    };
+    const result = await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } });
+    assertEquals(result.outcome, 'sent'); assertEquals(sends, 1);
+    assertEquals(calls.includes('service_claim_refund_gmail_outbound_v3'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of before) { if (value === undefined) Deno.env.delete(name); else Deno.env.set(name, value); }
+  }
+});
+
 Deno.test("System gift author requires exact existing automatic completion authority before transport", async () => {
   const variants = [
     { overrides: { delivery_kind: "manual" }, proof: true, queries: 0 },
