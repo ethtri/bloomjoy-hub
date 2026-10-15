@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(44);
+select plan(50);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -163,6 +163,45 @@ select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001
     jsonb_set(lifecycle,'{paymentState}','"outcome_unknown"'::jsonb))#>>'{nextWork,actionCode}',
   'recover_customer_delivery','Unknown financial state never enters the obsolete-contact exception')
 from obsolete_question_snapshot;
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    jsonb_set(lifecycle,'{customerOutreach,caseFactVersion}','999999'::jsonb))
+      #>>'{nextWork,actionCode}',
+  'recover_customer_delivery','A mismatched canonical current fact version stays unresolved')
+from obsolete_question_snapshot;
+select col_not_null('public','refund_case_messages','requested_fields',
+  'A NULL saved field list is rejected by the existing message schema');
+
+savepoint other_case_identity;
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,status,intake_source,incident_at,payment_method,
+  payment_interaction,payment_amount_cents,correlation_status)
+select 'b9200000-0000-4000-8001-000000000099','RF-EMPTY-OTHER',
+  c.reporting_machine_id,c.reporting_location_id,'other-question@example.invalid',
+  c.issue_summary,c.status,c.intake_source,c.incident_at,c.payment_method,
+  c.payment_interaction,c.payment_amount_cents,c.correlation_status
+from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000001';
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000099',
+    lifecycle)#>>'{nextWork,actionCode}',
+  'recover_customer_delivery','Another real case cannot adopt this obsolete-question proof')
+from obsolete_question_snapshot;
+rollback to savepoint other_case_identity;
+release savepoint other_case_identity;
+
+savepoint prior_financial_attempt;
+insert into public.refund_case_nayax_refund_attempts(id,refund_case_id,
+  execution_mode,status,idempotency_key,amount_cents)
+values('b9200000-0000-4000-8004-000000000001',
+  'b9200000-0000-4000-8001-000000000001','preflight','preflight_blocked',
+  'obsolete-question-existing-financial-attempt',100);
+select is(public.refund_next_work_for_case('b9200000-0000-4000-8001-000000000001',
+    lifecycle)#>>'{nextWork,actionCode}',
+  'recover_customer_delivery','An existing financial attempt prevents the contact exception')
+from obsolete_question_snapshot;
+select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id=
+  'b9200000-0000-4000-8001-000000000001'),1::bigint,
+  'The existing financial attempt is neither replaced nor duplicated');
+rollback to savepoint prior_financial_attempt;
+release savepoint prior_financial_attempt;
 
 savepoint changed_obsolete_facts;
 update public.refund_cases set payment_amount_cents=150
@@ -172,6 +211,15 @@ select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-0000000000
   'stable_evidence_dependency','Changed case facts cannot use stale obsolete-question proof');
 rollback to savepoint changed_obsolete_facts;
 release savepoint changed_obsolete_facts;
+
+savepoint current_missing_fact;
+update public.refund_cases set payment_amount_cents=null
+where id='b9200000-0000-4000-8001-000000000001';
+select isnt(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001')
+    #>>'{nextWork,blocker,code}',
+  'stable_evidence_dependency','A newly missing customer fact cannot reuse the empty-question exception');
+rollback to savepoint current_missing_fact;
+release savepoint current_missing_fact;
 
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id=
   'b9200000-0000-4000-8001-000000000001'),0::bigint,
