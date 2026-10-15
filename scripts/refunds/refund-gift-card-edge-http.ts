@@ -16,6 +16,7 @@ const unexpected: string[] = [];
 let activationError: string | null = null;
 let enabled = true, quoteAvailable = true, templateValue = 1500, rpcError: string | null = null;
 let reviewException = false;
+let denialOutboxVersion: unknown = 1, denialDeliveryState = 'queued', denialState = 'denied';
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, async (req) => {
   const path = new URL(req.url).pathname;
@@ -34,7 +35,9 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
     if (name === 'service_issue_refund_status_capability') return json({ issued: true, payloadRedacted: true, capabilityId: caseId, expiresAt: '2030-01-01T00:00:00Z' });
     if (['admin_resend_refund_gift_card', 'admin_decide_refund_gift_card', 'admin_retry_refund_gift_denial_notice'].includes(name ?? '')) {
       if (rpcError) return json({ code: rpcError, message: 'Synthetic denied or unresolved delivery' }, 403);
-      if (name === 'admin_decide_refund_gift_card' && body.p_approve === false) return json({ ...gift, state: 'denied', delivery_state: 'queued' });
+      if (name === 'admin_decide_refund_gift_card' && body.p_approve === false) return json({ ...gift,
+        state: denialState, delivery_state: denialDeliveryState,
+        ...(denialOutboxVersion === undefined ? {} : { denial_notice_outbox_version: denialOutboxVersion }) });
       return json(gift);
     }
   }
@@ -44,10 +47,11 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
   if (path === '/rest/v1/refund_qr_claim_contexts') return json({ id: caseId, opened_at: new Date().toISOString(), expires_at: '2030-01-01T00:00:00Z' });
   if (path === '/rest/v1/refund_gift_card_pools') return json({ ...offer, id: poolId, face_value_cents: templateValue });
   if (path === '/rest/v1/refund_customer_contact_settings') return json({ automatic_customer_contact_enabled: false });
-  if (path === '/rest/v1/refund_case_messages') return json(req.method === 'POST' ? { id: caseId } : null);
+  if (path === '/rest/v1/refund_case_messages') return json(req.method === 'POST' ? { id: caseId } : { id: caseId, status: 'pending' });
   if (path === '/rest/v1/refund_case_events') return json(null);
   if (path === '/rest/v1/reporting_machine_refund_managers') return json([]);
-  if (path === '/rest/v1/refund_cases') return json({ id: caseId, public_reference: 'RF-EDGE-SYNTHETIC', status: 'needs_review', correlation_status: 'not_started' });
+  if (path === '/rest/v1/refund_cases') return json({ id: caseId, customer_email: 'customer@example.invalid',
+    public_reference: 'RF-EDGE-SYNTHETIC', status: 'needs_review', correlation_status: 'not_started' });
   unexpected.push(`${req.method} ${path}`);
   return json({ message: 'Unexpected synthetic fixture request' }, 500);
 });
@@ -156,6 +160,32 @@ try {
     r.authorization === 'Bearer synthetic-manager-token' && r.body.p_approve === false && r.body.p_notes === denial.notes));
   assert(!requests.some((r) => /refund_case_messages|refund_case_events|refund_cases|service_issue_refund_gift_card/.test(r.path)),
     'Saved denial never performs an inline send or separate message insert after the transaction');
+  for (const state of ['queued', 'failed', 'delivery_unknown', 'accepted', 'sent', 'delivered']) {
+    denialDeliveryState = state; requests.length = 0;
+    const durable = await post(admin, denial, true);
+    assertEquals(durable.status, 200); assertEquals(durable.data.customer_message.status, state);
+    assert(!requests.some((r) => /refund_case_messages|refund_case_events|refund_cases/.test(r.path)),
+      `Durable ${state} never falls back to legacy inline delivery`);
+  }
+  for (const version of [null, 0, '1', 2]) {
+    denialOutboxVersion = version; requests.length = 0;
+    assertEquals((await post(admin, denial, true)).data.customer_message.status, 'delivery_unknown');
+    assert(!requests.some((r) => /refund_case_messages|refund_cases/.test(r.path)),
+      'A present unsupported capability version holds without legacy delivery');
+  }
+  denialOutboxVersion = undefined; requests.length = 0;
+  const oldDatabase = await post(admin, denial, true);
+  assertEquals(oldDatabase.status, 200); assertEquals(oldDatabase.data.customer_message.status, 'skipped');
+  assert(requests.some((r) => r.path === '/rest/v1/refund_cases'));
+  assert(requests.some((r) => r.path === '/rest/v1/refund_case_messages'),
+    'Worker/handler-first rollout on old DB retains the existing tracked legacy send helper and its pending-message dedupe');
+  for (const version of [undefined, 1]) {
+    denialOutboxVersion = version; denialState = 'issued'; requests.length = 0;
+    assertEquals((await post(admin, denial, true)).data.customer_message, null);
+    assert(!requests.some((r) => /refund_case_messages|refund_cases/.test(r.path)),
+      'A losing denial replay never sends a denial on either database contract');
+  }
+  denialOutboxVersion = 1; denialState = 'denied'; denialDeliveryState = 'queued';
   requests.length = 0;
   const noticeRecovery = { action: 'retryGiftCardDenialNotice', caseId, intentId: crypto.randomUUID(), customerEmail: 'corrected@example.invalid' };
   assertEquals((await post(admin, noticeRecovery, true)).status, 200);

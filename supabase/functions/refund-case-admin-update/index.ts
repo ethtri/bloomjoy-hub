@@ -827,11 +827,19 @@ serve(async (req) => {
         p_affected_amount_cents: body.affectedAmountCents ?? null,
       });
       if (error) return jsonResponse({ error: "The gift-card decision could not be saved.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
-      // The decision and its notice commit together. The scheduled outbox owns
-      // delivery even if this response is lost; replay never sends inline.
-      return jsonResponse({ gift_card: data, decision_saved: true,
-        customer_message: body.action === "denyGiftCard" && data?.state === "denied"
-          ? { status: data.delivery_state ?? "not_queued" } : null });
+      let customerMessage: { status: string } | null = null;
+      if (body.action === "denyGiftCard" && data?.state === "denied") {
+        // Deploy this bridge before the database migration. Only an old RPC
+        // without the capability field uses the existing legacy helper. A
+        // durable notice never sends inline, including failed/unknown/replayed
+        // notices; an unsupported present version also fails closed.
+        if (!Object.prototype.hasOwnProperty.call(data, "denial_notice_outbox_version")) {
+          const deniedCase = await getRefundCase(body.caseId);
+          if (deniedCase) customerMessage = await sendAndLogCustomerMessage(deniedCase, "denied", []);
+        } else customerMessage = { status: data.denial_notice_outbox_version === 1
+          ? data.delivery_state ?? "not_queued" : "delivery_unknown" };
+      }
+      return jsonResponse({ gift_card: data, decision_saved: true, customer_message: customerMessage });
     }
     if (isOwnerNonrefundAdoptionMode(body?.mode)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
