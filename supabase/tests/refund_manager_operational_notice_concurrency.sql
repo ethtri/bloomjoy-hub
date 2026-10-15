@@ -117,6 +117,22 @@ select ok((select public.service_complete_refund_manager_ready_notice((payload->
  from operational_notice_race_test.results where lane='initial_claim'),'Initial accepted receipt is settled through the real RPC');
 create temporary table operational_initial_anchor as select settled_at from public.refund_manager_notification_actions
  where id=(select (payload->>'intentId')::uuid from operational_notice_race_test.results where lane='initial_claim');
+-- Derive the next local weekday at the real successful send's wall-clock time.
+-- Explicit UTC matches this recipient's saved timezone, independent of runner TZ.
+create temporary table operational_initial_deadline as
+ select min(((settled_at at time zone 'UTC')+make_interval(days=>n)) at time zone 'UTC') due_at
+ from operational_initial_anchor cross join generate_series(1,3) n
+ where extract(isodow from (settled_at at time zone 'UTC')+make_interval(days=>n)) between 1 and 5;
+select is((select public.service_refund_business_days_elapsed(settled_at,due_at-interval '1 microsecond','UTC')
+ from operational_initial_anchor cross join operational_initial_deadline),0,
+ 'The real initial-send clock has not reached one business day just before its next-weekday anniversary');
+select is((select public.service_refund_business_days_elapsed(settled_at,due_at,'UTC')
+ from operational_initial_anchor cross join operational_initial_deadline),1,
+ 'The real initial-send clock reaches one business day exactly at its next-weekday anniversary');
+select is(public.service_refund_business_days_elapsed('2026-10-16T10:00Z','2026-10-19T09:59:59.999999Z','UTC'),0,
+ 'Friday initial send does not mature during the weekend or before the Monday anniversary');
+select is(public.service_refund_business_days_elapsed('2026-10-16T10:00Z','2026-10-19T10:00Z','UTC'),1,
+ 'Friday initial send matures on Monday at the same local time');
 select is((select public.service_complete_refund_manager_ready_notice((payload->>'intentId')::uuid,(payload->>'claimToken')::uuid,
  'sent','synthetic-operational-replay') from operational_notice_race_test.results where lane='initial_claim'),
  false,'A repeated successful settlement cannot restart an already-sent initial notice');
@@ -153,6 +169,14 @@ insert into operational_notice_race_test.results select 'reminder_competing_clai
 select is((select payload->>'noticeStage' from operational_notice_race_test.results where lane='reminder_claim'),'reminder','The due claim preserves its reminder identity');
 select is((select payload->>'claimed' from operational_notice_race_test.results where lane='reminder_competing_claim'),'false','A second worker cannot reserve that reminder concurrently');
 select dblink_exec('operational_notice_a','commit');
+select is((select private.refund_ready_stage_allowed((payload->>'intentId')::uuid,
+ (select due_at-interval '1 microsecond' from operational_initial_deadline))
+ from operational_notice_race_test.results where lane='reminder_claim'),false,
+ 'A reserved reminder is blocked just before the actual next-business-day deadline');
+select ok((select private.refund_ready_stage_allowed((payload->>'intentId')::uuid,
+ (select due_at from operational_initial_deadline))
+ from operational_notice_race_test.results where lane='reminder_claim'),
+ 'The same reserved reminder becomes eligible exactly at the next-business-day deadline');
 select ok((select private.refund_ready_stage_allowed((payload->>'intentId')::uuid,
  (select settled_at+interval '7 days' from operational_initial_anchor))
  from operational_notice_race_test.results where lane='reminder_claim'),
