@@ -87,6 +87,38 @@ Deno.test("empty payload stays empty while unproved delayed records remain visib
   assertEquals(outside.candidates[0].selectionAllowed, false);
 });
 
+Deno.test("an exact wallet suffix outside the first ten of 200 sales remains reviewable", () => {
+  const sale = (index: number, cardLast4: string, amount: number, time: string, brand: string | null = "Visa") => ({
+    TransactionID: `fixture-${index}`, MachineID: "938197833", SiteID: 4,
+    MachineAuthorizationTime: time, AuthorizationDateTimeGMT: `${time}Z`,
+    AuthorizationValue: amount, CurrencyCode: "USD",
+    CardNumber: `************${cardLast4}`, PaymentStatus: "Approved",
+    RecognitionMethod: "Wallet", CardBrand: brand,
+  });
+  const payload = Array.from({ length: 199 }, (_, index) =>
+    sale(index, "9999", 10, `2026-09-05T17:${String(index % 10).padStart(2, "0")}:00`));
+  payload.push(sale(199, "2776", 10.60, "2026-09-05T21:03:00", null));
+  const recommendation = buildNayaxRecommendation({
+    payload, incidentAt: "2026-09-05T17:03:00Z", expectedMachineId: "938197833",
+    locationTimezone: "America/New_York", requestAmountCents: 1000,
+    requestCardLast4: "2776", requestCardLast4Source: "wallet_device",
+    requestCardLast4Provenance: "wallet_device_token", requestCardNetwork: "visa",
+    cardWalletUsed: true,
+    incidentTimeResolution: "exact", incidentTimeConfidence: "rough",
+    providerContract: "nayax_machine_last_sales_v1",
+  });
+  const exactSuffix = recommendation.candidates.find((candidate) =>
+    candidate.transactionId === "fixture-199");
+  assertEquals(recommendation.providerParseableRecordCount, 200);
+  assertEquals(Boolean(exactSuffix), true, "the display cap cannot hide an exact-suffix sale");
+  assertEquals((exactSuffix?.recommendationRank ?? 0) > 10, true,
+    "the exact-suffix sale started outside the amount-first top ten");
+  assertEquals(exactSuffix?.selectionAllowed, true,
+    "rough customer time is not a manager-selection veto for a hard-safe exact suffix");
+  assertEquals(exactSuffix?.oneClickEligible, false,
+    "retaining the sale does not authorize a one-click refund");
+});
+
 Deno.test("actual persistence emits bounded v3 clock and request contexts without changing the customer window or retrying", async () => {
   const contexts = [{ reportingMachineId: "fc440000-0000-4000-8000-000000000001",
     timezone: "America/Los_Angeles", source: "native_machine_configuration",
