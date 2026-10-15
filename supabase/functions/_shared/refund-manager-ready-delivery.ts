@@ -43,7 +43,12 @@ export const deliverRefundManagerReadyClaim = async ({ client, claim, sendEmail,
       p_route_fingerprint: routeFingerprint, p_recipient: recipient,
     });
     if (started.error) throw started.error;
-    if (started.data !== true) return "stale";
+    if (started.data !== true) {
+      if (value.requiredRefundActionsVersion === 1) await client.rpc('service_complete_refund_manager_notification', {
+        p_action_id: intentId, p_claim_token: token, p_outcome: 'operational_deferred', p_provider_message_id: null,
+      });
+      return "stale";
+    }
     providerStarted = true;
     const receipt = await sendEmail({
       to: [recipient], subject: message.subject, text: message.text, html: message.html,

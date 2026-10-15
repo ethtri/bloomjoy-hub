@@ -143,6 +143,8 @@ Machine Managers, replacing the October 2 decision-ready opt-in. These notices
 honor each recipient's saved or default quiet hours and do not depend on daily,
 weekly or former decision-ready subscriptions. Informational summaries remain
 optional. There is no new enrollment, acknowledgment or approval step.
+Quiet-hour or master-switch deferral preserves the same pending identity and
+does not spend its delivery retry budget. Unknown outcomes never rearm.
 
 Send one notice for the current semantic action and, if it is still outstanding,
 one reminder on the next business-day anniversary of the first successful notice,

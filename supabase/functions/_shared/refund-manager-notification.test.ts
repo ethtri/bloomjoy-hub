@@ -1,6 +1,7 @@
 import {
   REFUND_MANAGER_NOTIFICATION_POLICY,
   RefundManagerNoticeRouteChangedError,
+  RefundManagerNoticeDeferredError,
   type RefundManagerNotificationReason,
   sendRefundManagerActionNotice,
   bindRefundManagerNoticeReservationRouting,
@@ -145,7 +146,7 @@ Deno.test('adopted routing exception reaches existing Ops transport only after t
       recipientCount: inputs.opsFallbackRecipients.length, resolutionStatus: 'no_active_managers', mappingFingerprint: 'a'.repeat(64),
     } },
   });
-  for (const allowed of [true, false]) {
+  for (const [allowed, deferred] of [[true, false], [false, false], [false, true]]) {
     let sends = 0; const calls: string[] = [];
     const client = { rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push(name);
@@ -153,20 +154,21 @@ Deno.test('adopted routing exception reaches existing Ops transport only after t
       if (name === 'service_revalidate_refund_manager_operational_aging') {
         assertEquals(args.p_action_key, key, 'Existing durable aging attempt is bound to the final check');
         assertEquals(args.p_ops_fallback_recipients, inputs.opsFallbackRecipients, 'Configured safe Ops route is reused');
-        return { data: { status: 'no_active_managers', managerCcEmails: [], managerCcCount: 0, deliveryAllowed: allowed }, error: null };
+        return { data: { status: 'no_active_managers', managerCcEmails: [], managerCcCount: 0, deliveryAllowed: allowed, deferred }, error: null };
       }
       throw new Error(`Unexpected RPC ${name}`);
     } };
-    let held = false;
+    let held = false; let deferredError = false;
     try {
       await sendRefundManagerActionNotice({ ...noticeInput, noticeReason: 'manager_escalation', resolvedRouting: routing,
         supabase: client as never, sendEmail: async message => {
           sends++; assertEquals(message.to, inputs.opsFallbackRecipients, 'Only existing Ops recipients receive the exception');
           return { provider: 'resend' as const, providerMessageId: 'synthetic-ops-receipt', acceptedAt: new Date().toISOString() };
         } });
-    } catch (error) { held = error instanceof RefundManagerNoticeRouteChangedError; }
+    } catch (error) { held = error instanceof RefundManagerNoticeRouteChangedError; deferredError = error instanceof RefundManagerNoticeDeferredError; }
     assertEquals(sends, allowed ? 1 : 0, 'Final authority/master/quiet result controls actual provider calls');
     assertEquals(held, !allowed, 'A resolved or deferred exception is a proven non-send');
+    assertEquals(deferredError, deferred, 'Quiet/master deferral remains distinguishable from a resolved route');
     assertEquals(calls, ['service_get_refund_manager_action_email_context_v2', 'service_revalidate_refund_manager_operational_aging'], 'No legacy Manager resolver or duplicate notification claim is used');
   }
 });

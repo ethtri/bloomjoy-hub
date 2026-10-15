@@ -7,7 +7,7 @@ const claim = () => ({ claimed: true, claimKind: 'customer_contact_owner_needed'
 
 Deno.test('owner exception sends one purpose-specific message only after current route and quiet authorization', async () => {
   for (const allowed of [true, false]) {
-    const calls: string[] = []; let sends = 0;
+    const calls: string[] = []; const outcomes: unknown[] = []; let sends = 0;
     const result = await deliverRefundContactOwnerClaim({ claim: claim(), caseUrl: id => `https://app.example.invalid/refunds?case=${id}`,
       client: { rpc: (name, args) => {
         calls.push(name);
@@ -15,6 +15,7 @@ Deno.test('owner exception sends one purpose-specific message only after current
           assert(JSON.stringify(args.p_recipients) === JSON.stringify(claim().recipients), 'Actual recipients are bound at provider boundary');
           return Promise.resolve({ data: allowed, error: null });
         }
+        if (name === 'service_complete_refund_manager_notification') outcomes.push(args.p_outcome);
         return Promise.resolve({ data: true, error: null });
       } }, sendEmail: async message => {
         sends++;
@@ -26,6 +27,7 @@ Deno.test('owner exception sends one purpose-specific message only after current
         return { providerMessageId: 'synthetic-owner-notice' };
       } });
     assert(result === (allowed ? 'sent' : 'stale') && sends === (allowed ? 1 : 0), 'Stale route or quiet hours cannot send');
+    assert(outcomes.join() === (allowed ? 'sent' : 'operational_deferred'), 'A rejected pre-provider claim preserves its transport budget');
   }
 });
 

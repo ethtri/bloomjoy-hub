@@ -302,7 +302,7 @@ revoke all on function private.refund_ops_notice_delivery_allowed(text[],timesta
 create function public.service_revalidate_refund_manager_operational_aging(
  p_refund_case_id uuid,p_customer_email text,p_mailbox_identities text[],p_ops_fallback_recipients text[],p_action_key text)
 returns jsonb language plpgsql volatile security definer set search_path='' as $$
-declare c public.refund_cases; a public.refund_manager_attention_states; route jsonb;
+declare c public.refund_cases; a public.refund_manager_attention_states; route jsonb; eligible boolean; allowed boolean;
 begin
  select * into c from public.refund_cases where id=p_refund_case_id for update;
  if c.id is null then return jsonb_build_object('deliveryAllowed',false); end if;
@@ -312,7 +312,7 @@ begin
   order by id for share;
  select * into a from public.refund_manager_attention_states where refund_case_id=c.id;
  route:=private.refund_manager_operational_route(c.id,p_customer_email,p_mailbox_identities);
- return route||jsonb_build_object('deliveryAllowed',coalesce(
+ eligible:=coalesce(
   a.notice_attempt_key=p_action_key and a.notice_attempt_expected_outcome='operations_exception'
   and a.delivery_review_reason='notice_attempt_in_flight' and a.notice_attempt_started_at is not null
   and a.notice_attempt_milestone='escalation' and a.delivery_review_required_at is not null
@@ -320,8 +320,9 @@ begin
   and a.correlation_status=c.correlation_status and a.decision is not distinct from c.decision
   and a.deterministic_fact_version=c.deterministic_fact_version
   and public.refund_case_requires_manager_attention(c.status) and c.status not in('draft','waiting_on_customer','denied','completed','closed')
-  and route->>'status'<>'resolved'
-  and private.refund_ops_notice_delivery_allowed(p_ops_fallback_recipients,statement_timestamp()),false));
+  and route->>'status'<>'resolved',false);
+ allowed:=coalesce(private.refund_ops_notice_delivery_allowed(p_ops_fallback_recipients,statement_timestamp()),false);
+ return route||jsonb_build_object('deliveryAllowed',eligible and allowed,'deferred',eligible and not allowed);
 end $$;
 revoke all on function public.service_revalidate_refund_manager_operational_aging(uuid,text,text[],text[],text) from public,anon,authenticated;
 grant execute on function public.service_revalidate_refund_manager_operational_aging(uuid,text,text[],text[],text) to service_role;
@@ -354,6 +355,9 @@ do $$ declare d text; anchor text; begin
       and age.business_day_age>=p_escalation_business_days
       and coalesce(refund_case.case_population,'customer')='customer' and refund_case.duplicate_of_refund_case_id is null
       and private.refund_manager_operational_route(refund_case.id,refund_case.customer_email,p_mailbox_identities)->>'status'<>'resolved'$patch$);
+ anchor:='where automation_action.action_key = format(';
+ if strpos(d,anchor)=0 then raise exception 'Aging automation dedupe changed'; end if;
+ d:=replace(d,anchor,'where not (automation_action.status=''suppressed'' and automation_action.reason_category is not distinct from ''manager_operational_deferred'') and automation_action.action_key = format(');
  execute d;
  d:=pg_get_functiondef('public.service_list_due_refund_manager_aging_notices(timestamptz,text,integer,integer,text,integer)'::regprocedure);
  anchor:=E'begin\r\n';
@@ -374,9 +378,11 @@ do $$ declare d text; anchor text; begin
  anchor:='  recipient_count := cardinality(route_recipients);';
  if strpos(d,anchor)=0 then raise exception 'Legacy aging route admission changed'; end if;
  d:=replace(d,anchor,$patch$  if (select activated_at is not null from private.email_alert_delivery_settings where singleton)
-   and (p_milestone<>'escalation' or route_type<>'operations'
-    or not private.refund_ops_notice_delivery_allowed(route_recipients,p_observed_at)) then
+   and (p_milestone<>'escalation' or route_type<>'operations' or resolution_status='resolved') then
    return jsonb_build_object('authorized',false,'reason','operational_exception_not_due'); end if;
+  if (select activated_at is not null from private.email_alert_delivery_settings where singleton)
+   and not private.refund_ops_notice_delivery_allowed(route_recipients,p_observed_at) then
+   return jsonb_build_object('authorized',false,'reason','operational_exception_deferred'); end if;
 $patch$||anchor);
  anchor:='    ''attemptStarted'', true,';
  if strpos(d,anchor)=0 then raise exception 'Legacy aging response changed'; end if;
@@ -394,6 +400,50 @@ $patch$||anchor);
  anchor:='  for alert in select * from jsonb_array_elements(p_preferences->''alerts'') loop';
  if strpos(d,anchor)=0 then raise exception 'Preference category loop changed'; end if;
  execute replace(d,anchor,anchor||E'\n    if alert->>''id''=''decision-ready'' and (select activated_at is not null from private.email_alert_delivery_settings where singleton) then continue; end if;');
+end $$;
+
+-- Quiet/master deferral is a proven pre-provider non-send, not consumption of
+-- the one existing Ops escalation. Reuse its action row/key and attention age.
+alter function public.service_complete_refund_manager_aging_notice(uuid,text,text)
+ rename to service_complete_refund_aging_pre_operational_deferral;
+revoke all on function public.service_complete_refund_aging_pre_operational_deferral(uuid,text,text) from public,anon,authenticated,service_role;
+create function public.service_complete_refund_manager_aging_notice(p_refund_case_id uuid,p_action_key text,p_outcome text)
+returns boolean language plpgsql volatile security definer set search_path='' as $$
+declare a public.refund_manager_attention_states; completed boolean;
+begin
+ if p_outcome is null then raise exception 'Notice outcome required' using errcode='22023'; end if;
+ if p_outcome is distinct from 'operational_deferred' then return public.service_complete_refund_aging_pre_operational_deferral(p_refund_case_id,p_action_key,p_outcome); end if;
+ perform 1 from public.refund_cases where id=p_refund_case_id for update;
+ select * into a from public.refund_manager_attention_states where refund_case_id=p_refund_case_id for update;
+ if not(select activated_at is not null from private.email_alert_delivery_settings where singleton)
+  or a.notice_attempt_key is distinct from p_action_key or a.notice_attempt_expected_outcome is distinct from 'operations_exception'
+  or a.delivery_review_reason is distinct from 'notice_attempt_in_flight' or a.notice_attempt_milestone is distinct from 'escalation'
+  or a.notice_attempt_attention_version is distinct from a.attention_version then return false; end if;
+ completed:=public.service_complete_refund_aging_pre_operational_deferral(p_refund_case_id,p_action_key,'known_not_sent');
+ if completed then update public.refund_manager_attention_states set escalation_resolved_at=null
+  where refund_case_id=p_refund_case_id and attention_version=a.attention_version and last_notice_outcome='known_not_sent'; end if;
+ return completed;
+end $$;
+revoke all on function public.service_complete_refund_manager_aging_notice(uuid,text,text) from public,anon,authenticated;
+grant execute on function public.service_complete_refund_manager_aging_notice(uuid,text,text) to service_role;
+
+do $$ declare d text; anchor text:='  insert into public.refund_automation_actions ('; begin
+ d:=pg_get_functiondef('public.service_claim_refund_automation_action(uuid,uuid,text,text,text,timestamptz)'::regprocedure);
+ if strpos(d,anchor)=0 then raise exception 'Automation claim admission changed'; end if;
+ execute replace(d,anchor,$patch$  if p_action_type='manager_escalation'
+   and (select activated_at is not null from private.email_alert_delivery_settings where singleton)
+   and exists(select 1 from public.refund_manager_attention_states a join public.refund_cases c on c.id=a.refund_case_id
+    where a.refund_case_id=p_refund_case_id and a.notice_attempt_key is null and a.delivery_review_required_at is null
+     and a.escalation_resolved_at is null and a.case_status=c.status and a.correlation_status=c.correlation_status
+     and a.decision is not distinct from c.decision and a.deterministic_fact_version=c.deterministic_fact_version
+     and public.refund_case_requires_manager_attention(c.status) and c.status not in('draft','waiting_on_customer','denied','completed','closed')
+     and p_action_key=format('manager_aging:escalation:%s:v%s',c.id,a.attention_version)) then
+   update public.refund_automation_actions set run_id=p_run_id,status='claimed',completed_at=null,updated_at=statement_timestamp()
+    where action_key=p_action_key and refund_case_id=p_refund_case_id and action_type='manager_escalation'
+     and status='suppressed' and reason_category='manager_operational_deferred' returning * into action_row;
+   if found then return jsonb_build_object('actionId',action_row.id,'claimed',true,'status',action_row.status,'reasonCategory',action_row.reason_category); end if;
+  end if;
+$patch$||anchor);
 end $$;
 
 revoke all on function public.service_list_due_refund_manager_operational_exceptions(timestamptz,text,integer,integer,text,integer,text[]) from public,anon,authenticated;
@@ -536,5 +586,33 @@ do $$ declare d text; anchor text:='  if action_row.notice_reason=''wallet_match
  if strpos(d,anchor)=0 then raise exception 'Generic provider marker changed'; end if;
  execute replace(d,anchor,'  if action_row.notice_reason=''customer_contact_owner_needed'' then return false; end if;'||E'\n'||anchor);
 end $$;
+
+-- A validated claim rejected before provider start has spent no transport
+-- attempt. Keep its identity and audit, without exhausting the bounded retry
+-- budget as quiet/master changes repeatedly defer it. Parser/transport failures
+-- retain the original bounded outcomes; provider-started unknowns cannot rearm.
+alter function public.service_complete_refund_manager_notification(uuid,uuid,text,text)
+ rename to service_complete_refund_notice_pre_operational_deferral;
+revoke all on function public.service_complete_refund_notice_pre_operational_deferral(uuid,uuid,text,text) from public,anon,authenticated,service_role;
+create function public.service_complete_refund_manager_notification(p_action_id uuid,p_claim_token uuid,p_outcome text,p_provider_message_id text default null)
+returns boolean language plpgsql volatile security definer set search_path='' as $$
+declare a public.refund_manager_notification_actions;
+begin
+ if p_outcome is null then raise exception 'Notice outcome required' using errcode='22023'; end if;
+ select * into a from public.refund_manager_notification_actions where id=p_action_id for update;
+ if a.notice_reason='customer_contact_owner_needed' and (
+   (p_outcome='known_not_sent' and a.provider_attempt_started_at is not null)
+   or (p_outcome in('sent','delivery_unknown') and a.provider_attempt_started_at is null)) then return false; end if;
+ if p_outcome is distinct from 'operational_deferred' then return public.service_complete_refund_notice_pre_operational_deferral(p_action_id,p_claim_token,p_outcome,p_provider_message_id); end if;
+ if a.id is null or a.claim_token is distinct from p_claim_token or a.delivery_state<>'reserved'
+  or a.provider_attempt_started_at is not null or a.notice_reason not in('decision_ready','customer_contact_owner_needed')
+  or not(select activated_at is not null from private.email_alert_delivery_settings where singleton) then return false; end if;
+ update public.refund_manager_notification_actions set delivery_state='known_not_sent',attempt_count=greatest(1,attempt_count-1),
+  settled_at=statement_timestamp(),updated_at=statement_timestamp() where id=a.id;
+ update public.refund_manager_notification_recipients set delivery_state='known_not_sent',updated_at=statement_timestamp() where action_id=a.id;
+ return true;
+end $$;
+revoke all on function public.service_complete_refund_manager_notification(uuid,uuid,text,text) from public,anon,authenticated;
+grant execute on function public.service_complete_refund_manager_notification(uuid,uuid,text,text) to service_role;
 
 select pg_notify('pgrst','reload schema');

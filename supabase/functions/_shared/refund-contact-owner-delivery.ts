@@ -39,7 +39,7 @@ export async function deliverRefundContactOwnerClaim({ client, claim, sendEmail,
     });
     if (started.error) throw started.error;
     if (started.data !== true) {
-      await client.rpc('service_complete_refund_manager_notification', { p_action_id: c.actionId, p_claim_token: c.claimToken, p_outcome: 'known_not_sent', p_provider_message_id: null });
+      await client.rpc('service_complete_refund_manager_notification', { p_action_id: c.actionId, p_claim_token: c.claimToken, p_outcome: 'operational_deferred', p_provider_message_id: null });
       return 'stale';
     }
     providerStarted = true;

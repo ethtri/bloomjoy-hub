@@ -192,7 +192,9 @@
   queued retry between claim and provider cancels it; unknown delivery cannot
   be resent. The old five-day escalation selects only genuine unresolved-route
   Ops exceptions after adoption, with its existing gate/cadence, never another
-  Manager ping. Old consumers cannot claim or mislabel the new Ops purpose.
+  Manager ping. Repeated proven pre-send quiet deferrals preserve the same action
+  and budget, then resume after quiet hours; unknown outcomes never rearm.
+  Old consumers cannot claim or mislabel the new Ops purpose.
 - Verify the machine panel changes only its current machine, last-machine removal
   turns that category off, and enabling it never revives an old selection. Reports
   setup carries selected machines into review without changing other alerts.

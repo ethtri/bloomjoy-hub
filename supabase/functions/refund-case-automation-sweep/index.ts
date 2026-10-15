@@ -14,6 +14,7 @@ import {
   getRefundManagerNoticeReservationRouteInputs,
   getRefundManagerQueueUrl,
   RefundManagerNoticeRouteChangedError,
+  RefundManagerNoticeDeferredError,
   sendRefundManagerActionNotice,
 } from "../_shared/refund-manager-notification.ts";
 import {
@@ -4109,7 +4110,7 @@ const runEnabledManagerAgingSweep = async (
         await finishAction(
           action,
           "suppressed",
-          `manager_notice_${textValue(attemptResult.reason) || "stale"}`,
+          attemptResult.reason === 'operational_exception_deferred' ? 'manager_operational_deferred' : `manager_notice_${textValue(attemptResult.reason) || "stale"}`,
           null,
           counters,
         );
@@ -4166,6 +4167,7 @@ const runEnabledManagerAgingSweep = async (
       counters.managerNoticesFailed += 1;
       if (milestone === "escalation") counters.escalationsFailed += 1;
       const routeNotSent = error instanceof RefundManagerNoticeRouteChangedError;
+      const deferred = error instanceof RefundManagerNoticeDeferredError;
       if (attemptReserved) {
         try {
           const { error: deliveryReviewError } = await supabase.rpc(
@@ -4173,7 +4175,7 @@ const runEnabledManagerAgingSweep = async (
             {
               p_refund_case_id: refundCase.id,
               p_action_key: actionKey,
-              p_outcome: routeNotSent ? "known_not_sent" : "delivery_unknown",
+              p_outcome: deferred ? 'operational_deferred' : routeNotSent ? "known_not_sent" : "delivery_unknown",
             },
           );
           if (deliveryReviewError) throw deliveryReviewError;
@@ -4188,8 +4190,8 @@ const runEnabledManagerAgingSweep = async (
       });
       await finishAction(
         action,
-        "failed",
-        routeNotSent
+        deferred ? 'suppressed' : "failed",
+        deferred ? 'manager_operational_deferred' : routeNotSent
           ? "manager_notice_route_changed_before_send"
           : attemptReserved
           ? "manager_notice_delivery_unknown"

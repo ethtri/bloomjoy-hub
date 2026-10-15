@@ -282,7 +282,10 @@ export const resolveRefundManagerActionNoticeRouting = async ({
   const resolution = data && typeof data === "object"
     ? data as Record<string, unknown>
     : {};
-  if (operationalAgingKey && resolution.deliveryAllowed !== true) throw new RefundManagerNoticeRouteChangedError();
+  if (operationalAgingKey && resolution.deliveryAllowed !== true) {
+    if (resolution.deferred === true) throw new RefundManagerNoticeDeferredError();
+    throw new RefundManagerNoticeRouteChangedError();
+  }
   const resolutionStatus = typeof resolution.status === "string"
     ? resolution.status.slice(0, 80)
     : "resolution_failed";
@@ -474,7 +477,8 @@ export const sendRefundManagerActionNotice = async ({
       ) {
         throw new Error("Refund manager notice route changed.");
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof RefundManagerNoticeDeferredError) throw error;
       throw new RefundManagerNoticeRouteChangedError();
     }
     if (actionId && claimToken) {
@@ -561,3 +565,6 @@ export class RefundManagerNoticeRouteChangedError extends Error {
     this.name = "RefundManagerNoticeRouteChangedError";
   }
 }
+
+/** A live Ops exception remains due while quiet hours or the master switch defer it. */
+export class RefundManagerNoticeDeferredError extends RefundManagerNoticeRouteChangedError {}

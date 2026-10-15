@@ -32,6 +32,19 @@ const claim = {
 };
 const caseUrl = (caseId: string) => `https://portal.example/refunds?case=${caseId}`;
 
+Deno.test('required ready deferral preserves the existing notice budget without sending new outcomes to an old database', async () => {
+  for (const version of [undefined, 1, 2]) {
+    const outcomes: unknown[] = []; let sends = 0;
+    const result = await deliverRefundManagerReadyClaim({ claim: { ...claim, requiredRefundActionsVersion: version }, caseUrl,
+      client: { rpc: async (name, args) => {
+        if (name === 'service_mark_refund_manager_ready_notice_provider_started') return { data: false, error: null };
+        outcomes.push(args.p_outcome); return { data: true, error: null };
+      } }, sendEmail: async () => { sends++; return { providerMessageId: 'must-not-send' }; } });
+    assert(result === 'stale' && sends === 0, 'No provider access after rejected boundary');
+    assert(outcomes.join() === (version === 1 ? 'operational_deferred' : ''), 'Only exact new policy claims use the budget-preserving outcome');
+  }
+});
+
 Deno.test("required reminder preserves the same final route check and durable attempt key", async () => {
   let starts = 0;
   const result = await deliverRefundManagerReadyClaim({ claim: { ...claim, noticeStage: "reminder" }, caseUrl,
