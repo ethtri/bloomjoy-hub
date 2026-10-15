@@ -185,6 +185,12 @@ select is(technical_once_test.mark('unknown')->>'allowed','true','A different ge
 select ok(technical_once_test.settle('unknown','delivery_unknown'),'An ambiguous provider outcome is retained durably');
 select is(technical_once_test.settle('unknown','known_not_sent'),false,'Unknown provider effect cannot be reopened as a pre-provider failure');
 select is(technical_once_test.claim(5)->>'claimed','false','Later health runs cannot retry unknown provider effect');
+-- Synthetic passage of time only: preserve the state, token, payload and
+-- non-NULL provider marker while moving its timestamps beyond provider TTL.
+update public.internal_notification_dispatches set meta=meta||jsonb_build_object(
+ 'providerStartedAt',statement_timestamp()-interval '2 days','claimedAt',statement_timestamp()-interval '2 days')
+ where source_id='14320000-0000-4000-8002-000000000002';
+select is(technical_once_test.claim(5)->>'claimed','false','Provider uncertainty remains held after a synthetically expired two-day provider key');
 select is((select meta->>'state' from public.internal_notification_dispatches where source_id='14320000-0000-4000-8002-000000000002'),
  'delivery_unknown','Unknown effect remains held without a lifetime lease or provider-key expiry shortcut');
 
