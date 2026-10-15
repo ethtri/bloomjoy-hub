@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { runRefundGiftCardSupply } from "../_shared/refund-gift-card-supply.ts";
-import { recordRefundWorkObservation, type RefundWorkRuntime } from "../_shared/refund-work-observation.ts";
+import { recordRefundWorkObservation, refundHealthNotificationStatus, type RefundWorkRuntime } from "../_shared/refund-work-observation.ts";
 import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
@@ -4379,22 +4379,8 @@ const runHealthCheck = async (
   policyWindowStart: string,
 ) => {
   const health = await getAutomationHealth();
-  const notificationHealthStatus = health.status === "failing" &&
-      health.workflowStatus !== "degraded" &&
-      (health.consecutiveFailures ?? 0) < 2
-    ? "waiting"
-    : health.status ?? "waiting";
   const notification = await claimAutomationHealthNotification(
-    notificationHealthStatus === "failing" && health.schedulerStatus === "healthy" &&
-        health.workflowStatus === "degraded"
-      ? "workflow_degraded"
-      : health.schedulerStatus === "healthy" &&
-          health.workflowStatus === "instrumentation_unavailable" &&
-          health.deliveryStatus === "healthy" &&
-          health.dueWork?.schemaVersion !== "refund_due_work_health_v1" &&
-          (health.blockedReasons?.length ?? 0) === 0
-      ? "healthy"
-      : notificationHealthStatus,
+    refundHealthNotificationStatus(health),
   );
 
   if (
@@ -4960,8 +4946,10 @@ serve(async (req) => {
           }),
         policyWindow: policyWindowIsOpen(scheduledAt),
       };
-      workObservationRuns.set(runId, runtime);
       const observation = await recordRefundWorkObservation(supabase, runId, "before", runtime);
+      // Never overlap another expensive observation after a failed/timed-out
+      // initial request. Its server outcome may still be uncertain.
+      if (observation === "recorded") workObservationRuns.set(runId, runtime);
       if (observation === "unavailable") addReason(counters, "work_observation_unavailable");
     }
 

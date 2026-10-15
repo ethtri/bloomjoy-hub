@@ -19,13 +19,14 @@ revoke all on function private.refund_work_item(text,text,text,timestamptz,times
 -- This is an observation, never an authorization to claim, contact or pay.
 create function private.refund_current_work(p_observed_at timestamptz)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
-declare c public.refund_cases; lifecycle jsonb; work jsonb; item record;
+declare case_row public.refund_cases; lifecycle jsonb; work jsonb; item record;
  items jsonb:='[]'; decisions integer:=0; customer_waits integer:=0;
  agent_work integer:=0; unsupported integer:=0; closed_count integer:=0; evidence_dependencies integer:=0;
  oldest_decision timestamptz; decision_since timestamptz; result_state text; decision_clock_unavailable integer:=0;
  scope_count integer:=0; technical jsonb:='[]';
  projected_work jsonb:='[]'; recognized_work jsonb:='{}'; source_lane text; work_key text;
  manual_recovery_count integer:=0;
+ unavailable_work jsonb:='[]';
 begin
  if p_observed_at is null then raise exception 'Observation time required' using errcode='22023'; end if;
  if auth.uid() is not null then
@@ -33,11 +34,19 @@ begin
  end if;
  -- Filter historical/internal/duplicate cases before invoking the canonical
  -- projection. Bound the observation explicitly; truncation is unavailable.
- for c in select candidate.* from public.refund_cases candidate
+ for case_row in select candidate.* from public.refund_cases candidate
   where candidate.case_population='customer' and candidate.duplicate_of_refund_case_id is null
    and (candidate.status not in ('completed','denied','closed')
     or exists(select 1 from public.refund_case_messages m where m.refund_case_id=candidate.id
       and m.manual_delivery_state in ('queued','claimed','delivery_unknown'))
+    or exists(select 1 from public.refund_case_messages m where m.refund_case_id=candidate.id
+      and m.message_type in ('completed','denied')
+      and (m.status in ('pending','failed') or m.delivery_state in ('unknown','failed','bounced','complained'))
+      and not exists(select 1 from public.refund_case_messages later where later.refund_case_id=candidate.id
+        and later.message_type=m.message_type and (later.created_at,later.id)>(m.created_at,m.id)))
+    or exists(select 1 from public.refund_receipt_completion_automation_authorities a
+      where a.refund_case_id=candidate.id and not exists(select 1 from public.refund_receipt_completion_intents i
+        where i.automation_authority_id=a.id))
     or (candidate.resolution_method='gift_card' and candidate.gift_card_state='denied'
       and private.refund_denial_owner_recovery_root(candidate.id) is not null))
   order by candidate.created_at,candidate.id limit 501
@@ -47,24 +56,24 @@ begin
    return jsonb_build_object('status','instrumentation_unavailable','reason','current_work_scope_limit',
     'payloadRedacted',true);
   end if;
-  lifecycle:=public.refund_lifecycle_contract(c.id); work:=lifecycle->'nextWork';
+  lifecycle:=public.refund_lifecycle_contract(case_row.id); work:=lifecycle->'nextWork';
   if lifecycle is null or lifecycle->>'payloadRedacted' is distinct from 'true'
    or work->>'payloadRedacted' is distinct from 'true' then
    raise exception 'Current lifecycle observation unavailable' using errcode='P4652';
   end if;
-  if c.resolution_method='gift_card' and c.gift_card_state='denied'
-   and private.refund_denial_owner_recovery_root(c.id) is not null then
+  if case_row.resolution_method='gift_card' and case_row.gift_card_state='denied'
+   and private.refund_denial_owner_recovery_root(case_row.id) is not null then
    manual_recovery_count:=manual_recovery_count+1;
-   recognized_work:=recognized_work||jsonb_build_object(c.id::text||'|recover_customer_delivery',true);
+   recognized_work:=recognized_work||jsonb_build_object(case_row.id::text||'|recover_customer_delivery',true);
   end if;
   if work->>'isOpen'='false' then closed_count:=closed_count+1;
   elsif work->>'actor'='manager' then
    decisions:=decisions+1;
    -- Prefer the semantic decision's current attention clock, not age of intake.
    select a.attention_started_at into decision_since from public.refund_manager_attention_states a
-    where a.refund_case_id=c.id and a.deterministic_fact_version=c.deterministic_fact_version
-     and a.case_status=c.status and a.correlation_status=c.correlation_status
-     and a.decision is not distinct from c.decision;
+    where a.refund_case_id=case_row.id and a.deterministic_fact_version=case_row.deterministic_fact_version
+     and a.case_status=case_row.status and a.correlation_status=case_row.correlation_status
+     and a.decision is not distinct from case_row.decision;
    if decision_since is null then decision_clock_unavailable:=decision_clock_unavailable+1; end if;
    oldest_decision:=least(oldest_decision,decision_since);
   elsif work->>'actor'='customer' then customer_waits:=customer_waits+1;
@@ -75,17 +84,18 @@ begin
   if work#>>'{blocker,code}' in ('provider_mapping_required','manager_assignment_unavailable',
     'payment_record_mismatch','lookup_failed','lookup_timed_out','lookup_response_limited')
    and not (work#>>'{blocker,code}' in ('lookup_failed','lookup_timed_out','lookup_response_limited')
-    and c.nayax_lookup_safe_retry_eligible) then
+    and case_row.nayax_lookup_safe_retry_eligible) then
    technical:=technical||jsonb_build_array(private.refund_work_item(
-    c.id::text||':'||c.deterministic_fact_version::text||':'||coalesce(work#>>'{blocker,code}',''),
+    case_row.id::text||':'||case_row.deterministic_fact_version::text||':'||coalesce(work#>>'{blocker,code}',''),
     'technical_recovery',coalesce(work->>'actionCode','inspect_current_work'),
-    coalesce(nullif(work->>'lastProgressAt','')::timestamptz,c.created_at),
+    coalesce(nullif(work->>'lastProgressAt','')::timestamptz,case_row.created_at),
     nullif(work->>'lastProgressAt','')::timestamptz,'blocked',work#>>'{blocker,code}'));
   end if;
   -- An unrecognized System action remains unavailable rather than healthy zero.
   if work->>'isOpen'='true' and (work->>'actor'='system'
-   or (work->>'actor'='agent' and work->>'actionCode' in ('review_customer_reply','prepare_manager_decision'))) then
-   projected_work:=projected_work||jsonb_build_array(c.id::text||'|'||coalesce(work->>'actionCode',''));
+   or (work->>'actor'='agent' and work->>'actionCode' in
+    ('review_customer_reply','prepare_manager_decision','recover_customer_delivery','continue_refund'))) then
+   projected_work:=projected_work||jsonb_build_array(case_row.id::text||'|'||coalesce(work->>'actionCode',''));
   end if;
  end loop;
 
@@ -339,7 +349,11 @@ begin
  end loop;
 
  for work_key in select value from jsonb_array_elements_text(projected_work) loop
-  if not recognized_work ? work_key then unsupported:=unsupported+1; end if;
+  if not recognized_work ? work_key then
+   unsupported:=unsupported+1;
+   unavailable_work:=unavailable_work||jsonb_build_array(jsonb_build_object(
+    'action',split_part(work_key,'|',2),'owner','Agent','reason','current_source_observation_unavailable'));
+  end if;
  end loop;
  return jsonb_build_object('schemaVersion','refund_current_work_v1','status','available',
   'items',items||technical,'sourceCoverage',jsonb_build_array('customer_outbox','approved_refund',
@@ -348,7 +362,8 @@ begin
   'unsupportedActionCount',unsupported,'decisionCount',decisions,'oldestDecisionAt',oldest_decision,
   'decisionClockBasis','recorded_attention_clock','decisionClockUnavailableCount',decision_clock_unavailable,
   'customerWaitCount',customer_waits,'agentWorkCount',agent_work,
-  'evidenceDependencyCount',evidence_dependencies,'manualContactRecoveryCount',manual_recovery_count,'payloadRedacted',true);
+  'evidenceDependencyCount',evidence_dependencies,'manualContactRecoveryCount',manual_recovery_count,
+  'unavailableWork',unavailable_work,'payloadRedacted',true);
 end;
 $$;
 revoke all on function private.refund_current_work(timestamptz) from public,anon,authenticated,service_role;
@@ -510,8 +525,10 @@ begin
   'decisionClockBasis',current_work->'decisionClockBasis',
   'decisionClockUnavailableCount',current_work->'decisionClockUnavailableCount',
   'unsupportedActionCount',current_work->'unsupportedActionCount','blockedWork',groups,
+  'unavailableWork',current_work->'unavailableWork',
   'technicalOwner',jsonb_build_object('route','bloomjoy-technical-incident-repair',
-    'required',overdue+disabled_count+blocked_count>0 or incident_id is not null,'incidentId',incident_id,
+    'required',overdue+disabled_count+blocked_count>0 or (current_work->>'unsupportedActionCount')::integer>0
+      or incident_id is not null,'incidentId',incident_id,
     'availability','unverified','activity',null,'dependencyIssue',1430,
     'reason','routing_event_is_not_executor_activity'),
   'payloadRedacted',true);

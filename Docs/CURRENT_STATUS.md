@@ -797,9 +797,11 @@ Issue #1813 corrects Manage to one State selector (Setup, Live, Inactive), with 
   copies. Migration `20260929134500` recognizes only that case-bound, redacted,
   terminal resolution evidence and leaves every other failed or unknown notice
   visible. Refund workflow, completion-outbox, and Sunze sync technical incidents
-  now stay on their existing durable records for the active GPT technical
-  consumer instead of emailing executives; their action result is recorded as
-  `routed_for_agent`, never as delivered email. Manager decision alerts, Manager
+  now stay on their existing durable records for the registered GPT technical
+  route instead of emailing executives; their action result is recorded as
+  `routed_for_agent`, never as delivered email. As of October 15, continuous
+  executor activity for that route is unverified; #1430 remains open for
+  accountable ownership and consumer evidence. Manager decision alerts, Manager
   digests, Sunze mapping alerts, and customer messages keep their existing routes.
 - The first production health check after that routing release failed closed on
   an actual cash-case projection mismatch and sent no technical email. A saved

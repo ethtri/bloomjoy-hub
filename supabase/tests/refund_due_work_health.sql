@@ -3,6 +3,8 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select no_plan();
+alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
+alter table public.refund_case_messages disable trigger refund_gift_denial_postcommit_wakeup;
 delete from public.refund_automation_scheduler_dispatches;
 delete from public.refund_automation_actions;
 delete from public.refund_automation_runs;
@@ -205,6 +207,13 @@ update public.refund_follow_up_cycles set status='waiting',request_message_id='1
  where id='14310000-0000-4000-8000-000000000051';
 select is(pg_temp.health()->>'futureRetryCount','1','Future existing follow-up remains a wait');
 select is(pg_temp.health()->>'overdueCount','25','A future reminder adds no overdue processing work');
+update public.refund_follow_up_cycles set reminder_due_at=now()-interval '1 hour'
+ where id='14310000-0000-4000-8000-000000000051';
+select pg_temp.observe_slot(12,pg_temp.runtime()||'{"policyWindow":false}');
+select pg_temp.observe_slot(13,pg_temp.runtime()||'{"policyWindow":false}');
+select is(pg_temp.health()->>'policyWaitCount','1','An actual due question reminder outside its contact window is a policy wait');
+select is(pg_temp.health()->>'disabledWorkerCount','0','The legitimate policy wait does not imply a disabled contact worker');
+select is(pg_temp.health()->>'overdueCount','25','Two outside-window opportunities cannot age the question reminder into stalled work');
 update public.refund_cases set status='closed' where id='14310000-0000-4000-8000-000000000050';
 select is(pg_temp.health()->>'futureRetryCount','0','Closing the real current cycle source stops its due/wait observation');
 
@@ -218,5 +227,82 @@ insert into public.refund_case_messages(id,refund_case_id,message_type,status,re
  from public.refund_cases where id='14310000-0000-4000-8000-000000000050';
 select is(pg_temp.health()->>'unknownHoldCount','1','Actual provider-started unknown intent remains a hold, not eligible resend');
 select is(pg_temp.health()->>'overdueCount','25','Unknown contact does not accrue a missed-send opportunity');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,card_last4,status,
+ nayax_lookup_status,nayax_lookup_generation,nayax_lookup_started_at)
+ values('14310000-0000-4000-8000-000000000070','RF-DUE-CLAIM',
+ '14310000-0000-4000-8000-000000000003','14310000-0000-4000-8000-000000000002',
+ 'claim-fixture@example.invalid','Synthetic interrupted read',now(),'card',700,'4242','needs_review','checking',1,null);
+select is((select item->>'state' from jsonb_array_elements(private.refund_current_work(now())->'items') item
+ where item->>'action'='recover_interrupted_lookup'),'blocked','A NULL lookup claim clock is not an indefinitely active worker');
+update public.refund_cases set nayax_lookup_started_at=now() where id='14310000-0000-4000-8000-000000000070';
+select is((select item->>'state' from jsonb_array_elements(private.refund_current_work(now())->'items') item
+ where item->>'action'='recover_interrupted_lookup'),'active_claim','A real unexpired lookup lease remains a wait');
+update public.refund_cases set nayax_lookup_started_at=now()-interval '3 minutes' where id='14310000-0000-4000-8000-000000000070';
+select is((select item->>'state' from jsonb_array_elements(private.refund_current_work(now())->'items') item
+ where item->>'action'='recover_interrupted_lookup'),'due','Existing90-second interrupted read recovery is due without attempting a provider request');
+
+-- A real known-failed denial stays open even though the decision is final.
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+ values('14310000-0000-4000-8000-000000000003','14310000-0000-4000-8000-000000000060',
+ 'synthetic-author@example.invalid','Synthetic due-work review');
+select set_config('request.jwt.claim.sub','14310000-0000-4000-8000-000000000060',true);
+select public.admin_decide_refund_gift_card('14310000-0000-4000-8000-000000000031',false,'Synthetic reviewed explanation.');
+select set_config('request.jwt.claim.sub','',true);
+do $$ declare notice uuid; claim record; begin
+ select id into strict notice from public.refund_case_messages
+  where refund_case_id='14310000-0000-4000-8000-000000000031' and gift_denial_source_message_id is null;
+ for attempt in 1..3 loop
+  select * into strict claim from public.service_claim_refund_manual_message_deliveries(notice,1);
+  perform public.service_finish_refund_manual_message_delivery(claim.refund_case_message_id,claim.claim_token,
+   'failed',null,'synthetic_preprovider_failure',0,null);
+ end loop;
+end $$;
+select is(public.refund_lifecycle_contract('14310000-0000-4000-8000-000000000031')#>>'{nextWork,isOpen}','true',
+ 'The actual exhausted failed denial remains canonically open after its final decision');
+select is(public.service_get_refund_due_work_health(now())->>'manualContactRecoveryCount','1',
+ 'Supported failed-denial human recovery is visible independently from fresh automatic work');
+select set_config('request.jwt.claim.sub','14310000-0000-4000-8000-000000000060',true);
+select public.admin_retry_refund_gift_denial_notice('14310000-0000-4000-8000-000000000031',
+ '14310000-0000-4000-8000-000000000080');
+select set_config('request.jwt.claim.sub','',true);
+select is(public.service_get_refund_due_work_health(now())->>'manualContactRecoveryCount','0',
+ 'A recognized current child queued for recovery stops the old human-recovery classification');
+select public.service_bind_refund_transactional_delivery((select id from public.refund_case_messages
+ where manual_delivery_intent_id='14310000-0000-4000-8000-000000000080'),'synthetic-due-child-accepted',now());
+select count(*) from public.service_claim_refund_manual_message_deliveries((select id from public.refund_case_messages
+ where manual_delivery_intent_id='14310000-0000-4000-8000-000000000080'),1);
+select is(public.refund_lifecycle_contract('14310000-0000-4000-8000-000000000031')#>>'{nextWork,isOpen}','false',
+ 'Known accepted current child resolves contact without repeating the saved decision');
+select is(public.service_get_refund_due_work_health(now())->>'manualContactRecoveryCount','0',
+ 'A settled latest child cannot revive the older failed denial as pending recovery');
+
+-- Candidate-heavy source enrichment, fixture setup only. Observe full snapshot
+-- overhead before/after200 current candidates; do not infer production SLA.
+do $$ declare started timestamptz:=clock_timestamp(); snapshot jsonb; begin
+ snapshot:=private.refund_current_work(statement_timestamp());
+ raise notice 'due-work full snapshot baseline: % ms, % items',
+  round(extract(epoch from (clock_timestamp()-started))*1000,2),jsonb_array_length(snapshot->'items');
+end $$;
+set local session_replication_role=replica;
+update public.refund_cases set nayax_lookup_generation=1,nayax_lookup_status='multiple_matches',
+ nayax_lookup_started_at=now()-interval '2 hours',nayax_lookup_finished_at=now()-interval '1 hour',
+ nayax_lookup_correlation_digest=repeat('a',64),nayax_recommendation_policy_version='synthetic-health-benchmark-v1',
+ nayax_recommendation_state='ambiguous',correlation_status='manual_review'
+ where id='14310000-0000-4000-8000-000000000010';
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,reporting_machine_id,lookup_generation,
+ provider_transaction_id,machine_authorization_time,amount_cents,card_last4,currency_code,expires_at)
+ select gen_random_uuid(),'14310000-0000-4000-8000-000000000010','14310000-0000-4000-8000-000000000003',1,
+ 'SYNTHETIC-HEALTH-CANDIDATE-'||n,now()-interval '1 day',700,'5252','USD',now()+interval '1 day'
+ from generate_series(1,200)n;
+set local session_replication_role=origin;
+select is((select count(*) from public.refund_nayax_lookup_candidates
+ where refund_case_id='14310000-0000-4000-8000-000000000010' and lookup_generation=1),200::bigint,
+ 'Performance observation actually includes200 current synthetic candidates');
+do $$ declare started timestamptz:=clock_timestamp(); snapshot jsonb; begin
+ snapshot:=private.refund_current_work(statement_timestamp());
+ raise notice 'due-work full snapshot with200 current candidates: % ms, % items, status %',
+  round(extract(epoch from (clock_timestamp()-started))*1000,2),jsonb_array_length(snapshot->'items'),snapshot->>'status';
+end $$;
 select * from finish();
 rollback;
