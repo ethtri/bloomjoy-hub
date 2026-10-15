@@ -55,7 +55,7 @@ export function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav aria-label="Main navigation" className="container-page flex h-16 items-center justify-between gap-2">
         {/* Logo */}
-        <Link to="/" aria-label="Bloomjoy Sweets home" className="flex shrink-0 items-center gap-2">
+        <Link to="/" aria-label="Bloomjoy Sweets home" className="flex min-w-0 items-center gap-2">
           <img
             src={logo}
             alt=""
@@ -64,7 +64,7 @@ export function Navbar() {
             decoding="async"
             className="h-11 w-11 shrink-0"
           />
-          <span className="whitespace-nowrap font-display text-base font-bold text-foreground sm:text-xl">
+          <span className="min-w-0 font-display text-base font-bold leading-tight text-foreground sm:text-xl">
             Bloomjoy Sweets
           </span>
         </Link>

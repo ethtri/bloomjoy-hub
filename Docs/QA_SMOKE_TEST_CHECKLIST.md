@@ -8,7 +8,7 @@
 
 ## Public customer experience (#1931, #1932, #1933, #624)
 
-- Use synthetic/local data at 320, 390, 768 and 1440px. The header fits without overflow; cart and menu controls are at least 44px. Tab reaches Skip to content; the mobile menu closes with Escape and returns focus to its toggle. Current navigation is announced.
+- Use synthetic/local data at 320, 390, 768 and 1440px, including when web fonts are unavailable. The brand can wrap and the header fits without overflow; cart and menu controls are at least 44px. Tab reaches Skip to content; the mobile menu closes with Escape and returns focus to its toggle. Current navigation is announced.
 - Scroll to a public-page footer and follow a product link, including a previously visited route. The destination starts at its heading. Back/Forward restores the prior scroll position. Resources topic links, FAQ and Machine support anchors remain below the sticky header and receive focus.
 - Check default, hover, active and keyboard-focus public actions. Run `node scripts/validate-public-color-contrast.mjs`; public action text and links meet 4.5:1 in light and dark themes. Authenticated palette remains scoped separately.
 - Resources opens with choosing, operating and help shortcuts. Purchase help opens `/refunds/request`. Detailed operator/tool sections expand by keyboard; public guides remain accessible without login. Follow a link from an expanded guide group and use Back: the group stays open and the same content is at the restored position.
