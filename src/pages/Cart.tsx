@@ -38,6 +38,10 @@ export default function CartPage() {
     handledReturn.current = sessionId;
     try {
       const action = claimPaidCartReturn(sessionId, items, window.localStorage);
+      // A confirmed return starts a fresh cart view. Rehydration may replace
+      // quantities changed in another tab, so old drafts and Undo must not win.
+      setQuantityDrafts({});
+      setRemovedItem(null);
       if (action === 'clear') clearCart();
       else {
         setRetainedCart(items.length > 0 || action === 'retain');
