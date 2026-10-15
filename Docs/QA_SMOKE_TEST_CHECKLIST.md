@@ -173,10 +173,18 @@
   a technician without Account Settings access. Profile/Settings, Reports and
   machine-detail links reach the same personal preferences. Unassigned users
   receive assignment guidance rather than another user's machines.
-- With no saved preferences, only Daily operations brief is on, at 08:00 Pacific.
+- With no saved preferences, only the optional Daily operations brief is on, at 08:00 Pacific.
   Save a daily opt-out and change assignments: the opt-out persists. Save distinct
   daily/weekly scopes and schedules, reload and confirm both. A stale-tab save or
   revoked machine keeps the draft and explains the failed save.
+- Required refund actions notify current responsible Managers automatically,
+  including saved legacy decision-alert opt-outs. There is no enrollment checkbox.
+  Initial delivery and the single next-business-day reminder honor effective
+  quiet hours; the reminder clock starts at the first successful initial send.
+  Resolve/reassign the action between claim and send: old recipients cannot send.
+  Known exhausted denial-contact failure uses a saved-notice recovery message;
+  queued, sent, unknown and complaint states cannot become another decision or
+  an unsupported retry alert. Repeated ticks and day five add no third notice.
 - Verify the machine panel changes only its current machine, last-machine removal
   turns that category off, and enabling it never revives an old selection. Reports
   setup carries selected machines into review without changing other alerts.
