@@ -12,7 +12,10 @@ import sticksProduct from '@/assets/real/sticks-product.jpg';
 import { useAuth } from '@/contexts/auth-context';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
-import { getCheckoutStatus, startBlankSticksCheckout } from '@/lib/stripeCheckout';
+import { startBlankSticksCheckout } from '@/lib/stripeCheckout';
+import { parseOrderQuantity } from '@/lib/commerceQuantity';
+import { useCheckoutReturn } from '@/hooks/useCheckoutReturn';
+import { CheckoutReturnNotice } from '@/components/commerce/CheckoutReturnNotice';
 import {
   BLANK_STICKS_ADDRESS_TYPE_OPTIONS,
   CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE,
@@ -30,6 +33,7 @@ import {
   BULK_SUGAR_PRESETS_KG,
   DEFAULT_BULK_SUGAR_KG,
   MAX_SUGAR_KG_TOTAL,
+  MAX_SUGAR_KG_PER_COLOR,
   NON_MEMBER_SUGAR_PRICE_PER_KG,
   PLUS_MEMBER_SUGAR_PRICE_PER_KG,
   SUGAR_COLOR_OPTIONS,
@@ -86,15 +90,15 @@ const orderOptions: Array<{
   {
     value: 'sugar',
     title: 'Sugar',
-    eyebrow: 'Cart checkout',
-    summary: 'Start from a 400 KG equal split and adjust only if needed.',
+    eyebrow: 'Choose your mix',
+    summary: 'Choose a shipment size and sugar colors, then add to your cart.',
     image: sugarProduct,
     imageAlt: 'Premium Cotton Candy Sugar bags',
   },
   {
     value: 'sticks',
     title: 'Bloomjoy Branded Sticks',
-    eyebrow: 'Direct checkout',
+    eyebrow: 'Order online',
     summary: 'Order standard branded sticks by machine size and box count.',
     image: sticksProduct,
     imageAlt: 'Bloomjoy branded cotton candy sticks',
@@ -103,7 +107,7 @@ const orderOptions: Array<{
     value: 'custom',
     title: 'Custom Sticks',
     eyebrow: 'Coming soon',
-    summary: 'Payment-first custom artwork checkout is in preparation.',
+    summary: 'Custom artwork orders are not available yet.',
     image: sticksProduct,
     imageAlt: 'Custom cotton candy sticks artwork reference',
   },
@@ -113,10 +117,10 @@ export default function SuppliesPage() {
   const { user, loading: isAuthLoading } = useAuth();
   const { addItem, items } = useCart();
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedOrderMode = resolveSupplyOrderMode(searchParams.get('order'));
   const hasMemberSupplyPricing = Boolean(user?.hasSupplyDiscount);
   const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
-  const [targetTotalKg, setTargetTotalKg] = useState(DEFAULT_BULK_SUGAR_KG);
+  const [targetKgDraft, setTargetKgDraft] = useState<string | null>(null);
+  const [colorDrafts, setColorDrafts] = useState<Partial<Record<SugarSku, string>>>({});
   const [sticksBoxCount, setSticksBoxCount] = useState(1);
   const [stickSize, setStickSize] = useState<SelectedStickSize>('');
   const [blankAddressType, setBlankAddressType] = useState<SelectedBlankAddressType>('');
@@ -125,6 +129,11 @@ export default function SuppliesPage() {
   const [sugarMix, setSugarMix] = useState<SugarMix>(() =>
     buildEqualSugarSplit(DEFAULT_BULK_SUGAR_KG)
   );
+  const checkoutReturn = useCheckoutReturn('sticks');
+  const hasUnresolvedReturn = checkoutReturn.state.status === 'pending' || checkoutReturn.state.status === 'error';
+  const selectedOrderMode = checkoutReturn.state.status !== 'none'
+    ? 'sticks'
+    : resolveSupplyOrderMode(searchParams.get('order'));
 
   useEffect(() => {
     trackEvent('view_supplies');
@@ -139,57 +148,9 @@ export default function SuppliesPage() {
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  useEffect(() => {
-    const sticksCheckoutStatus = searchParams.get('sticksCheckout');
-    if (!sticksCheckoutStatus) return;
-
-    if (sticksCheckoutStatus === 'cancel') {
-      toast.info('Bloomjoy branded sticks checkout canceled. No payment was collected.');
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete('sticksCheckout');
-      nextParams.delete('session_id');
-      nextParams.set('order', 'sticks');
-      setSearchParams(nextParams, { replace: true });
-      return;
-    }
-
-    const sessionId = searchParams.get('session_id');
-    if (sticksCheckoutStatus !== 'return' || !sessionId) {
-      toast.error('We could not verify this sticks checkout return.');
-      return;
-    }
-
-    let cancelled = false;
-    void getCheckoutStatus(sessionId)
-      .then((status) => {
-        if (cancelled) return;
-        if (status.paymentStatus === 'paid' && status.orderType === 'blank_sticks') {
-          toast.success(
-            'Payment confirmed. Your Bloomjoy branded stick order is ready for fulfillment.'
-          );
-          return;
-        }
-        toast.info('Payment is not yet confirmed. Bloomjoy has not started fulfillment.');
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        toast.error(error instanceof Error ? error.message : 'Checkout could not be verified.');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        const nextParams = new URLSearchParams(searchParams);
-        nextParams.delete('sticksCheckout');
-        nextParams.delete('session_id');
-        nextParams.set('order', 'sticks');
-        setSearchParams(nextParams, { replace: true });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [searchParams, setSearchParams]);
-
   const mixTotalKg = getSugarMixTotalKg(sugarMix);
+  const hasIncompleteMix = (targetKgDraft !== null && parseOrderQuantity(targetKgDraft, 0, MAX_SUGAR_KG_TOTAL) === null)
+    || Object.values(colorDrafts).some((value) => parseOrderQuantity(value, 0, MAX_SUGAR_KG_PER_COLOR) === null);
   const mixTotalCost = mixTotalKg * sugarPricePerKg;
   const cartSugarBreakdown = getSugarColorBreakdown(items);
   const cartSugarTotalKg = getSugarMixTotalKg(cartSugarBreakdown);
@@ -200,12 +161,16 @@ export default function SuppliesPage() {
     setSearchParams(nextParams);
   };
 
-  const updateColorQuantity = (sku: SugarSku, rawValue: number) => {
-    setSugarMix((currentMix) => updateSugarMixQuantity(currentMix, sku, rawValue));
+  const updateColorQuantity = (sku: SugarSku, rawValue: string) => {
+    setColorDrafts((current) => ({ ...current, [sku]: rawValue }));
+    setTargetKgDraft(null);
+    const quantity = parseOrderQuantity(rawValue, 0, MAX_SUGAR_KG_PER_COLOR);
+    if (quantity !== null) setSugarMix((currentMix) => updateSugarMixQuantity(currentMix, sku, quantity));
   };
 
   const handlePreset = (presetKg: number) => {
-    setTargetTotalKg(presetKg);
+    setTargetKgDraft(null);
+    setColorDrafts({});
     setSugarMix(buildEqualSugarSplit(presetKg));
   };
 
@@ -214,6 +179,7 @@ export default function SuppliesPage() {
   };
 
   const handleAddSugarMixToCart = () => {
+    if (hasIncompleteMix) return;
     if (mixTotalKg <= 0) {
       toast.error('Set sugar quantities before adding to cart.');
       return;
@@ -243,6 +209,7 @@ export default function SuppliesPage() {
   };
 
   const handleStartBlankCheckout = async () => {
+    if (hasUnresolvedReturn) return;
     if (!hasStickSize(stickSize)) {
       toast.error('Select the machine size before starting Bloomjoy branded sticks checkout.');
       return;
@@ -268,8 +235,30 @@ export default function SuppliesPage() {
     }
   };
 
+  const dismissSticksReturn = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete('sticksCheckout');
+    params.delete('session_id');
+    params.set('order', 'sticks');
+    setSearchParams(params, { replace: true });
+  };
+
+  if (checkoutReturn.state.status === 'paid' || checkoutReturn.state.status === 'checking') {
+    return (
+      <Layout>
+        <section className="section-padding">
+          <div className="container-page max-w-3xl">
+            <h1 className="mb-6 font-display text-3xl font-bold">Your order</h1>
+            <CheckoutReturnNotice state={checkoutReturn.state} onRetry={checkoutReturn.retry} onDismiss={dismissSticksReturn} />
+          </div>
+        </section>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
+      {checkoutReturn.state.status !== 'none' && <div className="container-page py-6"><CheckoutReturnNotice state={checkoutReturn.state} onRetry={checkoutReturn.retry} onDismiss={dismissSticksReturn} /></div>}
       <section className="border-b border-border bg-background py-8 sm:py-10">
         <div className="container-page">
           <div className="mx-auto max-w-3xl text-center">
@@ -277,8 +266,8 @@ export default function SuppliesPage() {
               Cotton Candy Machine Sugar and Paper Sticks
             </h1>
             <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              Order Bloomjoy cotton candy sugar and branded paper sticks, or preview the upcoming
-              payment-first custom sticks flow.
+              Choose sugar for your next refill or paper sticks that fit your machine.
+              Custom sticks are coming soon.
             </p>
           </div>
 
@@ -342,8 +331,8 @@ export default function SuppliesPage() {
                         Build a bulk sugar mix
                       </h2>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                        Start with a shipment size, keep the equal split, or open the color mix
-                        only when you need a different breakdown.
+                        Choose your total in kilograms. We split it evenly across four colors;
+                        you can adjust each color below. Sugar ships free, with tax shown at checkout.
                       </p>
                     </div>
                     <div className="text-left sm:text-right" aria-live="polite">
@@ -378,7 +367,7 @@ export default function SuppliesPage() {
                           htmlFor="sugar-total-target"
                           className="text-xs uppercase tracking-[0.12em] text-muted-foreground"
                         >
-                          Total Target (KG)
+                          Total sugar (KG)
                         </Label>
                         <div className="flex gap-2">
                           <Input
@@ -388,24 +377,21 @@ export default function SuppliesPage() {
                             inputMode="numeric"
                             min={0}
                             max={MAX_SUGAR_KG_TOTAL}
-                            value={targetTotalKg}
+                            value={targetKgDraft ?? mixTotalKg}
+                            step={1}
+                            aria-invalid={targetKgDraft !== null && parseOrderQuantity(targetKgDraft, 0, MAX_SUGAR_KG_TOTAL) === null}
+                            aria-describedby={hasIncompleteMix ? 'sugar-quantity-error' : undefined}
                             onChange={(event) => {
-                              const value = Number(event.target.value);
-                              setTargetTotalKg(
-                                Number.isFinite(value)
-                                  ? Math.min(MAX_SUGAR_KG_TOTAL, Math.max(0, Math.floor(value)))
-                                  : 0
-                              );
+                              const draft = event.target.value;
+                              setTargetKgDraft(draft);
+                              const value = parseOrderQuantity(draft, 0, MAX_SUGAR_KG_TOTAL);
+                              if (value !== null) {
+                                setColorDrafts({});
+                                setSugarMix(buildEqualSugarSplit(value));
+                              }
                             }}
-                            className="h-10 w-32 text-right"
+                            className="h-11 w-32 text-right"
                           />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setSugarMix(buildEqualSugarSplit(targetTotalKg))}
-                          >
-                            Apply Split
-                          </Button>
                         </div>
                       </div>
                     </div>
@@ -415,7 +401,7 @@ export default function SuppliesPage() {
                         <Button
                           key={presetKg}
                           type="button"
-                          variant={targetTotalKg === presetKg ? 'default' : 'outline'}
+                          variant={!hasIncompleteMix && mixTotalKg === presetKg ? 'default' : 'outline'}
                           onClick={() => handlePreset(presetKg)}
                         >
                           {presetKg} KG
@@ -453,12 +439,12 @@ export default function SuppliesPage() {
                     <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                       <Button
                         type="button"
-                        className="w-full sm:w-auto"
                         onClick={handleAddSugarMixToCart}
-                        disabled={mixTotalKg <= 0}
+                        disabled={mixTotalKg <= 0 || hasIncompleteMix}
+                        className="h-auto min-h-11 w-full whitespace-normal py-3 sm:w-auto"
                       >
                         <ShoppingCart className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Add Sugar Mix to Cart
+                        {hasIncompleteMix ? 'Complete your sugar quantity' : `Add ${formatNumber(mixTotalKg)} KG to cart · ${formatCurrency(mixTotalCost)}`}
                       </Button>
                       <Button asChild variant="outline" className="w-full sm:w-auto">
                         <Link to="/cart">
@@ -467,6 +453,8 @@ export default function SuppliesPage() {
                         </Link>
                       </Button>
                     </div>
+
+                    {hasIncompleteMix && <p id="sugar-quantity-error" role="status" className="mt-3 text-sm text-destructive">Enter a whole number from 0 to {formatNumber(MAX_SUGAR_KG_PER_COLOR)} for each color, or up to {formatNumber(MAX_SUGAR_KG_TOTAL)} KG total. Your mix has not been added.</p>}
 
                     {cartSugarTotalKg > 0 && (
                       <p className="mt-3 text-sm text-muted-foreground">
@@ -499,7 +487,7 @@ export default function SuppliesPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setSugarMix(buildEqualSugarSplit(targetTotalKg))}
+                            onClick={() => handlePreset(mixTotalKg)}
                           >
                             Equal Split
                           </Button>
@@ -507,7 +495,7 @@ export default function SuppliesPage() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSugarMix(createEmptySugarMix())}
+                            onClick={() => { setTargetKgDraft(null); setColorDrafts({}); setSugarMix(createEmptySugarMix()); }}
                           >
                             Clear Mix
                           </Button>
@@ -541,11 +529,15 @@ export default function SuppliesPage() {
                                     type="number"
                                     inputMode="numeric"
                                     min={0}
-                                    value={sugarMix[option.sku]}
+                                    max={MAX_SUGAR_KG_PER_COLOR}
+                                    step={1}
+                                    value={colorDrafts[option.sku] ?? sugarMix[option.sku]}
+                                    aria-invalid={colorDrafts[option.sku] !== undefined && parseOrderQuantity(colorDrafts[option.sku]!, 0, MAX_SUGAR_KG_PER_COLOR) === null}
+                                    aria-describedby={hasIncompleteMix ? 'sugar-quantity-error' : undefined}
                                     onChange={(event) =>
-                                      updateColorQuantity(option.sku, Number(event.target.value))
+                                      updateColorQuantity(option.sku, event.target.value)
                                     }
-                                    className="h-10 w-24 text-right"
+                                    className="h-11 w-24 text-right"
                                   />
                                 </div>
                               </div>
@@ -804,7 +796,7 @@ export default function SuppliesPage() {
                       type="button"
                       onClick={handleStartBlankCheckout}
                       className="mt-5 w-full sm:w-auto"
-                      disabled={startingBlankCheckout}
+                      disabled={startingBlankCheckout || hasUnresolvedReturn}
                     >
                       {startingBlankCheckout
                         ? 'Redirecting…'
@@ -831,9 +823,9 @@ export default function SuppliesPage() {
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold text-foreground">Cart Rule</p>
+                      <p className="font-semibold text-foreground">Ordering sticks</p>
                       <p className="text-muted-foreground">
-                        Branded stick orders use direct Stripe checkout for every box quantity.
+                        Sticks are ordered separately from sugar. Choose your size and boxes, then pay securely online.
                       </p>
                     </div>
                   </div>
@@ -852,11 +844,11 @@ export default function SuppliesPage() {
                         Custom Sticks
                       </p>
                       <h2 className="mt-2 font-display text-3xl font-bold text-foreground">
-                        Payment-first checkout coming soon
+                        Custom sticks are coming soon
                       </h2>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                        Custom sticks are temporarily unavailable while we finish a checkout that
-                        collects the correct plate fee, shipping, tax, and payment before proofing.
+                        Custom sticks are not available to order yet. When ordering opens,
+                        you’ll pay online before artwork proofing begins.
                       </p>
                     </div>
                     <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground">
@@ -884,21 +876,21 @@ export default function SuppliesPage() {
                       </div>
                       <div>
                         <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                          Order Path
+                          Ordering
                         </p>
-                        <p className="mt-1 font-semibold text-foreground">Pay first</p>
+                        <p className="mt-1 font-semibold text-foreground">Coming soon</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="rounded-lg border border-border bg-background p-4 sm:p-5">
                     <h3 className="font-display text-lg font-semibold text-foreground">
-                      Why checkout is paused
+                      What to expect
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       The first custom order includes a {formatCurrency(CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE)}
-                      {' '}plate fee and requires artwork proofing. We will reopen this item only when
-                      the complete amount can be paid online before the fulfillment team is notified.
+                      {' '}plate fee and requires artwork proofing. Shipping, tax, and the full
+                      order total will be shown before payment when ordering becomes available.
                     </p>
                   </div>
                 </div>
@@ -917,13 +909,13 @@ export default function SuppliesPage() {
                     <div>
                       <p className="font-semibold text-foreground">Proofing</p>
                       <p className="text-muted-foreground">
-                        Artwork upload and proofing will be part of the payment-first order flow.
+                        You’ll upload artwork and review a proof after payment.
                       </p>
                     </div>
                     <div>
                       <p className="font-semibold text-foreground">Availability</p>
                       <p className="text-muted-foreground">
-                        No unpaid request form is available while checkout is being completed.
+                        We are not accepting custom stick orders yet.
                       </p>
                     </div>
                   </div>
@@ -944,7 +936,7 @@ export default function SuppliesPage() {
               <p className="mt-3 max-w-3xl text-muted-foreground">
                 Bloomjoy supplies are organized around the recurring machine-buyer needs that
                 usually happen after machine selection: sugar replenishment and Bloomjoy branded
-                sticks, with custom sticks returning after payment-first checkout is complete.
+                sticks, with custom sticks coming soon.
               </p>
               <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg border border-border bg-background p-5">
@@ -970,8 +962,8 @@ export default function SuppliesPage() {
                     Custom sticks
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    Custom sticks are temporarily unavailable until checkout can collect the
-                    first-order plate fee, shipping, tax, and full payment before proofing.
+                    Custom sticks are coming soon. Orders will include artwork proofing after
+                    online payment, with the first-order plate fee, shipping, and tax shown at checkout.
                   </p>
                 </div>
               </div>

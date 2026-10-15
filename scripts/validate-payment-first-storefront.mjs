@@ -201,7 +201,7 @@ assert.match(commerceAvailability, /VITE_MICRO_CHECKOUT_ENABLED === 'true'/);
 
 const cartPage = read('src/pages/Cart.tsx');
 assert.match(cartPage, /hasUnavailableMicro/);
-assert.match(cartPage, /Micro checkout is pending a shipping decision/);
+assert.match(cartPage, /Micro is not available to order yet/);
 
 const miniPage = read('src/pages/products/Mini.tsx');
 assert.match(miniPage, /Coming Soon/);
