@@ -74,7 +74,7 @@ select ok((select value->'items'->0->>'publicReference'='RF-QUEUE-0001'
   from queue_projection),
   'queue items contain current work copy without customer PII');
 select is((select value->'items'->0->'nextWorkBlockerCode' from queue_projection),
-  (select coalesce(public.refund_lifecycle_contract('aa455000-0000-4000-8000-000000000001')
+  (select coalesce(public.get_refund_lifecycle_for_manager('aa455000-0000-4000-8000-000000000001')
     #>'{nextWork,blocker,code}','null'::jsonb)),
   'The compact queue carries the exact canonical redacted blocker without another lookup');
 select ok((select (value->'counts'->>'allOpen')::integer
