@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(54);
+select plan(56);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -103,16 +103,25 @@ select is(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000001
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,status,intake_source,incident_at,incident_local_datetime,
   incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,
-  payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,
+  payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_wallet_used,
   correlation_status,correlation_source,nayax_lookup_status,nayax_recommendation_state,
+  nayax_recommendation_policy_version,
   nayax_lookup_generation,nayax_lookup_started_at,nayax_lookup_finished_at,nayax_recommendation_evaluated_at)
 select 'b9200000-0000-4000-8001-000000000010','RF-EMPTY-CARD',
   c.reporting_machine_id,c.reporting_location_id,'empty-card@example.invalid',c.issue_summary,
   c.status,c.intake_source,c.incident_at,c.incident_local_datetime,c.incident_timezone,
-  c.incident_time_resolution,c.incident_time_confidence,'card','tap_card',100,'4242','physical_card',
-  'multiple_candidates','nayax','multiple_matches','ambiguous',1,
+  c.incident_time_resolution,c.incident_time_confidence,'card','tap_card',100,'4242','physical_card',false,
+  'no_match','nayax','no_match','no_safe_match','2026-08-03.v1',1,
   statement_timestamp()-interval '5 minutes',statement_timestamp(),statement_timestamp()
 from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000001';
+select ok((select c.card_wallet_used is false and c.correlation_status='no_match'
+    and c.correlation_source='nayax' and c.nayax_recommendation_state='no_safe_match'
+    and nullif(btrim(c.nayax_recommendation_policy_version),'') is not null
+    and c.nayax_recommendation_evaluated_at>=c.deterministic_facts_updated_at
+    and c.nayax_match_execution_eligible is false and c.matched_nayax_transaction_id is null
+    and public.refund_missing_follow_up_fields(c.id)='{}'::text[]
+  from public.refund_cases c where c.id='b9200000-0000-4000-8001-000000000010'),
+  'The historical card question starts with the complete versioned no-safe-match proof');
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
   reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours)
 select 'b9200000-0000-4000-8002-000000000010',c.id,1,repeat('c',64),
@@ -136,6 +145,18 @@ select public.service_bind_refund_transactional_delivery('b9200000-0000-4000-800
 select public.service_record_refund_transactional_delivery_event(
   repeat('f',64),'obsolete-card-provider','deferred',statement_timestamp());
 reset role;
+-- The old question remains immutable while later lookup metadata needs internal
+-- research. Metadata changes are not new customer facts or a new contact cycle.
+update public.refund_cases set correlation_status='multiple_candidates',
+  nayax_lookup_status='multiple_matches',nayax_recommendation_state='ambiguous'
+where id='b9200000-0000-4000-8001-000000000010';
+select ok((select c.deterministic_fact_version=cycle.case_fact_version
+    and cycle.request_message_id=m.id and m.follow_up_cycle_id=cycle.id
+    and m.requested_fields='{}'::text[] and cycle.requested_fields='{}'::text[]
+  from public.refund_cases c join public.refund_follow_up_cycles cycle on cycle.refund_case_id=c.id
+  join public.refund_case_messages m on m.id=cycle.request_message_id
+  where c.id='b9200000-0000-4000-8001-000000000010'),
+  'Later lookup metadata preserves the exact current fact, cycle and saved empty question');
 select is(public.refund_purchase_correction_request_fields('b9200000-0000-4000-8001-000000000010'),
   '{}'::text[],'The representative current card case has no customer-correctable field');
 select ok(public.refund_lifecycle_contract('b9200000-0000-4000-8001-000000000010')->>'stage'
