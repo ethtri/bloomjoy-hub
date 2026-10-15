@@ -67,7 +67,7 @@ import {
   RefundCaseQueuePanel,
   type RefundCaseQueueListItem,
 } from '@/components/refunds/RefundCaseQueuePanel';
-import { filterRefundPortalQueue } from '@/lib/refundPortalQueue';
+import { filterRefundPortalQueue, refundQueueHasPurchaseEvidenceDependency } from '@/lib/refundPortalQueue';
 import {
   RefundCardManagerDecisionPanel,
   type RefundCardManagerCapabilityAction,
@@ -234,6 +234,7 @@ import {
   refundCanShowCandidateInventory,
   refundDecisionRecommendation,
   refundIsWaitingOnCustomer,
+  refundHasPurchaseEvidenceDependency,
   refundManagerView,
   refundNeedsDecision,
   refundPlainStatus,
@@ -934,6 +935,7 @@ const portalQueueTaskLabel = (item: RefundPortalQueueItem) => {
   if (item.decisionReady) return item.nextWorkActionCode === 'reject_request'
     ? 'Review rejection' : 'Decision needed';
   if (!item.isOpen || item.view === 'internal_test') return 'Closed';
+  if (refundQueueHasPurchaseEvidenceDependency(item)) return 'Purchase evidence needed';
   switch (item.nextWorkActionCode) {
     case 'send_cash_refund_and_confirm': return 'Send cash refund';
     case 'answer_question': return 'Waiting on customer';
@@ -6482,7 +6484,9 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
                   : 'info'
             )}
           >
-            {transactionView.description}
+            {refundHasPurchaseEvidenceDependency(selectedCase)
+              ? 'Bloomjoy needs verified purchase evidence before continuing. No Manager action or new customer question is due.'
+              : transactionView.description}
           </div>
         )}
         {incompleteHistoryRecoveryPresentation && (
@@ -6824,6 +6828,8 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
         : selectedCase.decision === 'approved' ? 'The refund is approved. Bloomjoy is completing the remaining work.'
         : selectedCase.decision === 'denied' ? 'The decision is saved. Bloomjoy is notifying the customer.'
         : selectedCase.lifecycle?.nextWork?.isOpen === false ? 'This case is closed.'
+        : refundHasPurchaseEvidenceDependency(selectedCase)
+          ? 'Bloomjoy needs verified purchase evidence before continuing. No Manager action or customer response is due.'
         : 'Bloomjoy is checking the purchase. No decision is needed yet.'),
     };
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(cardManagerState, primaryAction);

@@ -82,6 +82,12 @@ export const refundManagerView = (item: RefundManagerPresentationCase) =>
   : refundIsWaitingOnCustomer(item) ? 'waiting_on_customer' as const
   : 'all_open' as const;
 
+export const refundHasPurchaseEvidenceDependency = (item: RefundManagerPresentationCase) => {
+  const work = item.lifecycle?.nextWork;
+  return work?.isOpen === true && work.actor === 'agent' &&
+    work.actionCode === 'research_purchase' && work.blocker?.code === 'stable_evidence_dependency';
+};
+
 export const refundPlainStatus = (item: RefundManagerPresentationCase): string => {
   const work = item.lifecycle?.nextWork;
   const recommendation = refundDecisionRecommendation(item);
@@ -91,6 +97,7 @@ export const refundPlainStatus = (item: RefundManagerPresentationCase): string =
   if (refundIsWaitingOnCustomer(item)) return 'Waiting on customer';
   if (item.decision === 'approved') return 'Refund being completed';
   if (item.decision === 'denied') return 'Notifying customer';
+  if (refundHasPurchaseEvidenceDependency(item)) return 'Purchase evidence needed';
 
   switch (work?.actionCode) {
     case 'deliver_customer_question':
