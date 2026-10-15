@@ -207,11 +207,13 @@ const centsFromAmount = (value: unknown): number | null => {
     return null;
   }
 
-  const normalized = value.replace(/[$,\s]/g, "");
-  if (!normalized) {
+  const trimmed = value.trim();
+  // Validate separators before removing them so decimal commas or spaces cannot inflate an amount.
+  if (!/^\$?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(trimmed)) {
     return null;
   }
 
+  const normalized = trimmed.replace(/[$,]/g, "");
   const amount = Number(normalized);
   if (!Number.isFinite(amount) || amount < 0) {
     return null;
@@ -1289,6 +1291,10 @@ serve(async (req) => {
     const body = parsedBody.body;
     const action = sanitizeText(body?.action, 40);
     if (action === "giftCardOffer") {
+      const amountCents = centsFromAmount(body.amount);
+      if (amountCents === null || amountCents <= 0) {
+        throw new RequestValidationError("Enter a valid purchase amount, such as 12.50.");
+      }
       let offerMachineId = sanitizeText(body.machineId, 80);
       const selectionKey = sanitizeText(body.selectionKey, 80);
       if (selectionKey) {
@@ -1303,7 +1309,7 @@ serve(async (req) => {
       const enabled = await giftCardsEnabledForMachine(offerMachineId);
       if (!enabled) return new Response(JSON.stringify({ gift_card_enabled: false, offer: null }), { headers: refundStatusResponseHeaders });
       const { data: quote, error } = await supabase.rpc("service_get_refund_gift_card_offer", {
-        p_machine_id: offerMachineId, p_amount_cents: centsFromAmount(body.amount),
+        p_machine_id: offerMachineId, p_amount_cents: amountCents,
       });
       if (error) throw error;
       let offer = quote;

@@ -86,6 +86,41 @@ try {
   const submission = { machineId, customerEmail: 'synthetic@example.invalid', issueSummary: 'Synthetic machine issue',
     incidentAt: new Date(Date.now() - 3600000).toISOString(), paymentMethod: 'card', paymentAmount: '11.00', resolutionMethod: 'gift_card',
     giftCardOffer: { poolId, value: 1500, expiresAt: offer.expires_at } };
+  const assertNoAmountEffects = () => {
+    assert(!requests.some((r) => /service_get_refund_gift_card_offer|service_materialize_refund_gift_card_offer|service_claim_refund_submission|service_accept_refund_gift_card_offer|service_issue_refund_gift_card/.test(r.path)));
+    assert(!requests.some((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST'));
+  };
+  for (const amount of ['18,50', '18 50', '1,85.00', '1,850,00', '18\t50', '18\u00a050', '18$50', '$$18.50', '1e2', '0x10', '18.505']) {
+    requests.length = 0;
+    assertEquals((await post(intake, { action: 'giftCardOffer', machineId, amount })).status, 400, `quote ${amount}`);
+    assertNoAmountEffects();
+    for (const tender of ['cash', 'card']) {
+      requests.length = 0;
+      assertEquals((await post(intake, { ...submission, paymentMethod: tender, paymentAmount: amount })).status, 400, `intake ${tender} ${amount}`);
+      assertNoAmountEffects();
+    }
+  }
+  for (const field of ['cashInsertedAmount', 'expectedChangeAmount']) {
+    // Both malformed values would pass the existing cash/change ordering check after unsafe stripping.
+    const amounts = field === 'expectedChangeAmount' ? ['0,50', '0 50'] : ['18,50', '18 50'];
+    for (const amount of amounts) {
+      requests.length = 0;
+      assertEquals((await post(intake, { ...submission, paymentMethod: 'cash', issueCategory: 'expected_cash_change',
+        cashInsertedAmount: '100.00', expectedChangeAmount: '10.00', [field]: amount })).status, 400);
+      assertNoAmountEffects();
+    }
+  }
+  for (const [amount, cents] of [['18', 1800], ['18.50', 1850], ['$18.50', 1850], [' 18.50 ', 1850],
+    ['1,850.00', 185000], ['$1,850.00', 185000], [18.5, 1850]] as const) {
+    requests.length = 0;
+    assertEquals((await post(intake, { action: 'giftCardOffer', machineId, amount })).status, 200);
+    assertEquals(requests.find((r) => r.path.endsWith('/service_get_refund_gift_card_offer'))?.body.p_amount_cents, cents);
+  }
+  for (const amount of ['11', '11.00', '$11.00', ' 11.00 ', 11]) {
+    requests.length = 0;
+    assertEquals((await post(intake, { ...submission, paymentAmount: amount })).status, 200);
+    assertEquals(requests.find((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST')?.body.payment_amount_cents, 1100);
+  }
   for (const tender of ['cash', 'card']) {
     requests.length = 0;
     const result = await post(intake, { ...submission, paymentMethod: tender });
