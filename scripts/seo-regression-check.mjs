@@ -80,7 +80,7 @@ const expectedH1TextByRoute = {
   "/machines/mini": "Bloomjoy Sweets Mini Machine",
   "/machines/micro": "Bloomjoy Sweets Micro Machine",
   "/supplies": "Cotton Candy Machine Sugar and Paper Sticks",
-  "/plus": "Onboarding + Playbooks + Concierge",
+  "/plus": "Bloomjoy Plus",
   "/resources": "Before you buy the machine, plan the first location and the first Tuesday",
   "/resources/business-playbook": "Real startup notes for cotton candy operators",
   "/resources/business-playbook/planner": "Machine Fit + Startup Budget Planner",
