@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, LifeBuoy, Wrench } from "lucide-react";
 import { Layout } from "@/components/layout/Layout";
@@ -9,6 +10,30 @@ import { trackResourcesPlaybookCardClick } from "@/lib/businessPlaybookAnalytics
 import { getCanonicalUrlForSurface } from "@/lib/appSurface";
 import { resourcesFaqs } from "@/lib/seoRoutes";
 import { featuredBusinessPlaybookArticles, playbookCategories } from "@/data/businessPlaybook";
+
+// Keep the three guide groups open during this browsing session so Back can
+// restore the content the customer left as well as their scroll position.
+const expandedGuideGroups = new Set<string>();
+
+function ResourceGuideGroup({ id, title, className, children }: {
+  id: string;
+  title: string;
+  className: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(() => expandedGuideGroups.has(id));
+  return (
+    <details className={className} open={open} onToggle={(event) => {
+      const expanded = event.currentTarget.open;
+      if (expanded) expandedGuideGroups.add(id);
+      else expandedGuideGroups.delete(id);
+      setOpen(expanded);
+    }}>
+      <summary className="cursor-pointer py-2 font-semibold">{title}</summary>
+      {children}
+    </details>
+  );
+}
 
 export default function ResourcesPage() {
   const currentLocation = typeof window === "undefined" ? undefined : window.location;
@@ -80,13 +105,12 @@ export default function ResourcesPage() {
               </Link>
             ))}
           </div>
-          <details className="mt-5 rounded-xl border border-border p-4">
-            <summary className="cursor-pointer py-2 font-semibold">Browse all Business Playbook topics</summary>
+          <ResourceGuideGroup id="topics" title="Browse all Business Playbook topics" className="mt-5 rounded-xl border border-border p-4">
             <div className="mt-3 flex flex-wrap gap-2">
               {playbookCategories.map((category) => <Link key={category.id} to={`/resources/business-playbook#${category.id}`} onClick={() => trackResourcesPlaybookCardClick({ surface: "resources_category", cta: category.title, href: `/resources/business-playbook#${category.id}`, category: category.id })} className="inline-flex min-h-11 items-center rounded-lg bg-muted px-4 text-sm font-medium hover:text-primary">{category.title}</Link>)}
               <Link to="/resources/business-playbook" className="inline-flex min-h-11 items-center px-4 text-sm font-semibold text-primary">View all guides <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" /></Link>
             </div>
-          </details>
+          </ResourceGuideGroup>
         </div>
       </section>
 
@@ -94,14 +118,12 @@ export default function ResourcesPage() {
         <div className="container-page">
           <h2 className="font-display text-2xl font-bold">Run your machine</h2>
           <p className="mt-2 text-muted-foreground">Setup guidance for mobile operators, plus a look inside Bloomjoy Plus.</p>
-          <details className="mt-5 rounded-xl border border-border p-4">
-            <summary className="cursor-pointer py-2 font-semibold">Food trucks and mobile setup guides</summary>
+          <ResourceGuideGroup id="mobile" title="Food trucks and mobile setup guides" className="mt-5 rounded-xl border border-border p-4">
             <div className="mt-4"><MobileOperatorEntry surface="resources_category" /></div>
-          </details>
-          <details className="mt-3 rounded-xl border border-border p-4">
-            <summary className="cursor-pointer py-2 font-semibold">Preview Plus training and operator tools</summary>
+          </ResourceGuideGroup>
+          <ResourceGuideGroup id="plus" title="Preview Plus training and operator tools" className="mt-3 rounded-xl border border-border p-4">
             <div className="mt-4"><PlusToolsPreview surface="resources_plus_preview" operatorLoginUrl={operatorLoginUrl} /></div>
-          </details>
+          </ResourceGuideGroup>
         </div>
       </section>
       <section id="faq" className="scroll-mt-24 py-10 sm:py-12 lg:py-16">
