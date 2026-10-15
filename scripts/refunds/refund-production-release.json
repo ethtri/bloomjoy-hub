@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "15e6ecbd62b7f1d4cd9803c89d7d11c03fb1ca7a",
+  "sourceGitCommit": "8190e0cc605df874af54152f315762b49de29ae6",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -344,10 +344,13 @@
     "20261015154657_refund_gift_delivery_followthrough.sql",
     "20261015155042_refund_gift_denial_notice.sql",
     "20261015182126_refund_ready_effective_quiet_hours.sql",
-    "20261015182130_required_refund_manager_alerts.sql"
+    "20261015182130_required_refund_manager_alerts.sql",
+    "20261015212625_refund_due_work_health.sql",
+    "20261015213753_refund_obsolete_question_next_work.sql",
+    "20261015223700_refund_technical_incident_handoff.sql"
   ],
-  "migrationFilesSha256": "ff1de6f06e930ea8904b67e91a02ad6d1261f11c7bc3d0c21ca58555ed0b9826",
-  "migrationVersionSetSha256": "14104fff7b24ec9cb96fdbc7cad9792de64e48e3c0923d0548ba5cdab0dafd11",
+  "migrationFilesSha256": "599ce07c10b6f2423caa3c3f834a9fd83714ade957f1e43341a7a388cb04b733",
+  "migrationVersionSetSha256": "8c71176ec60d87af58b592f3bc668ca2715cd1a68963261f887f90b66b13e095",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -455,7 +458,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "cb5e8a5a962c7bb4723967a81d9b9c67743d5b2e2701785ada9865f472e71254",
+      "sourceSha256": "99fcef8cc5ffc20c5dc89e56b82e054217d51cc06a4578da550b7266383e2219",
       "production": {
         "version": 194,
         "ezbrSha256": "d5f30a1c0374aea29e7f5cf746873706a234018f428ed284436929b164afa885",
