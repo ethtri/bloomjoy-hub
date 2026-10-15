@@ -1,6 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1';
 import { requireRefundGiftCardOffer, requireRefundGiftCardStatus, giftCardStatusCopy } from './refundGiftCard.ts';
+import { refundCustomerText } from './refundCustomerCopy.ts';
 
 const offer = { pool_id: 'synthetic-pool', value: 1500, currency: 'USD', eligible_locations: ['Bloomjoy Test Mall'],
   expires_at: '2027-09-30T23:59:59Z', one_use: true, redemption_instructions: 'Enter the code on the machine’s gift card screen.' };
@@ -43,4 +44,19 @@ Deno.test('partial SQL projection crosses existing public parser and status copy
   assertEquals(giftCardStatusCopy(parsed).detail, 'Your $10.00 Bloomjoy gift card is ready.');
   assertEquals('purchase_amount' in parsed, false);
   assertEquals(giftCardStatusCopy(parsed).detail.includes('$30'), false);
+});
+
+Deno.test('saved denial keeps pending and failed contact truthful in English and Spanish', () => {
+  for (const delivery_state of ['queued', 'claimed', 'pending', 'failed', 'delivery_unknown', 'unknown', 'not_queued']) {
+    const copy = giftCardStatusCopy({ ...requireRefundGiftCardStatus(card)!, state: 'denied', delivery_state });
+    assertEquals(copy.next.includes('have sent'), false);
+    assertEquals(copy.next.includes('do not need to submit again'), true);
+    assertEquals(refundCustomerText(copy.next, 'es') !== copy.next, true);
+  }
+  for (const delivery_state of ['sent', 'accepted', 'deferred', 'delivered']) {
+    const copy = giftCardStatusCopy({ ...requireRefundGiftCardStatus(card)!, state: 'denied', delivery_state });
+    assertEquals(copy.next.includes('have sent'), true);
+    assertEquals(copy.next.includes('delivered'), false);
+    assertEquals(refundCustomerText(copy.next, 'es') !== copy.next, true);
+  }
 });

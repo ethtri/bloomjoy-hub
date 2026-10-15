@@ -10,6 +10,7 @@ export const RECEIPT_HANDOFF_MIGRATION = '20260930234847_refund_api_receipt_comp
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 export const GIFT_CARD_MIGRATION = '20260930222531_refund_gift_card_issuance.sql';
 export const PAYOUT_REMINDER_MIGRATION = '20261002170300_refund_legacy_payout_reminder_authority.sql';
+export const GIFT_DENIAL_NOTICE_MIGRATION = '20261015155042_refund_gift_denial_notice.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
@@ -30,9 +31,9 @@ export function extractReceiptParityBody(source, name) {
   const normalized = source.replaceAll('\r\n', '\n');
   const start = normalized.search(new RegExp(`^create(?: or replace)? function public\\.${name}\\(`, 'm'));
   const bodyStart = normalized.indexOf('as $$', start);
-  const bodyEnd = normalized.indexOf('\n$$;', bodyStart);
+  const bodyEnd = normalized.indexOf('$$;', bodyStart + 'as $$'.length);
   if (start < 0 || bodyStart < start || bodyEnd < bodyStart) throw new Error(`Missing exact function body: ${name}`);
-  const body = normalized.slice(bodyStart + 'as $$'.length, bodyEnd + 1);
+  const body = normalized.slice(bodyStart + 'as $$'.length, bodyEnd);
   if (body.includes('$receipt_parity$')) throw new Error('Unsafe receipt parity delimiter');
   return body;
 }
@@ -76,7 +77,12 @@ export function buildReceiptWrapperParityTest(repoRoot) {
       throw new Error(`Receipt delegate is not the current core: ${name}`);
     }
   }
-  const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
+  const hasGiftDenialGuard = files.includes(GIFT_DENIAL_NOTICE_MIGRATION);
+  const reviewedDefinitions = [...definitions];
+  if (hasGiftDenialGuard) reviewedDefinitions.push([GIFT_DENIAL_NOTICE_MIGRATION,
+    'service_mark_refund_manual_message_provider_attempt',
+    'service_mark_refund_manual_message_provider_attempt', 'uuid,uuid', true]);
+  const checks = reviewedDefinitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
     let body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
     if (runtimeName === 'service_claim_refund_gmail_outbound_pre_receipt_v1' && files.includes(PAYOUT_REMINDER_MIGRATION)) {
       // The complete retained delegate changes only its exact-message
@@ -84,7 +90,7 @@ export function buildReceiptWrapperParityTest(repoRoot) {
       body = applyPayoutReminderMessageBoundary(body,
         fs.readFileSync(path.join(migrationsDir, PAYOUT_REMINDER_MIGRATION), 'utf8'));
     }
-    if (runtimeName === 'service_mark_refund_manual_message_provider_attempt' && files.includes(GIFT_CARD_MIGRATION)) {
+    if (file === COMPLETION_MIGRATION && runtimeName === 'service_mark_refund_manual_message_provider_attempt' && files.includes(GIFT_CARD_MIGRATION)) {
       // Preserve complete-body parity: apply only the reviewed transactional
       // gift receipt exception. All original-payment and claim guards stay exact.
       const anchor = 'if not exists(select 1 from public.refund_customer_contact_settings settings';
@@ -95,12 +101,18 @@ export function buildReceiptWrapperParityTest(repoRoot) {
       }
       body = body.replace(anchor, replacement);
     }
-    const signature = `public.${runtimeName}(${args})`;
+    // The complaint guard is an outer wrapper. Continue proving every byte of
+    // the receipt/owner/claim delegate, and prove the new public wrapper too.
+    const retainedManual = hasGiftDenialGuard && file === COMPLETION_MIGRATION &&
+      runtimeName === 'service_mark_refund_manual_message_provider_attempt';
+    const deployedName = retainedManual ? 'service_mark_refund_manual_provider_pre_gift_complaint_v1' : runtimeName;
+    const signature = `public.${deployedName}(${args})`;
+    const deployedServiceAllowed = retainedManual ? false : serviceAllowed;
     return [
-      `select is((select prosrc from pg_proc where oid='${signature}'::regprocedure), $receipt_parity$${body}$receipt_parity$, '${runtimeName} has the complete exact current source body');`,
-      `select ok((select prosecdef from pg_proc where oid='${signature}'::regprocedure), '${runtimeName} preserves its reviewed security boundary');`,
-      `select is(has_function_privilege('service_role','${signature}','execute'), ${serviceAllowed}, '${runtimeName} service execute boundary');`,
-      ...['anon', 'authenticated'].map((role) => `select ok(not has_function_privilege('${role}','${signature}','execute'), '${runtimeName} is not directly callable by ${role}');`),
+      `select is((select prosrc from pg_proc where oid='${signature}'::regprocedure), $receipt_parity$${body}$receipt_parity$, '${deployedName} has the complete exact current source body');`,
+      `select ok((select prosecdef from pg_proc where oid='${signature}'::regprocedure), '${deployedName} preserves its reviewed security boundary');`,
+      `select is(has_function_privilege('service_role','${signature}','execute'), ${deployedServiceAllowed}, '${deployedName} service execute boundary');`,
+      ...['anon', 'authenticated'].map((role) => `select ok(not has_function_privilege('${role}','${signature}','execute'), '${deployedName} is not directly callable by ${role}');`),
     ];
   });
   return `begin;\ncreate extension if not exists pgtap with schema extensions;\nset local search_path=public,extensions;\nselect plan(${checks.length});\n${checks.join('\n')}\nselect * from finish();\nrollback;\n`;

@@ -10,6 +10,8 @@ begin;
 alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
 create schema gift_race_test;
 create table gift_race_test.results(lane text primary key,payload jsonb);
+insert into auth.users(id,email)
+ values('fb710000-0000-4000-8000-000000000001','gift-race-manager@example.invalid');
 insert into public.customer_accounts(id,name,account_type)
  values('fb720000-0000-4000-8000-000000000001','Gift race fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -17,6 +19,9 @@ insert into public.reporting_locations(id,account_id,name,timezone)
 insert into public.reporting_machines(id,account_id,location_id,machine_label,status)
  values('fb740000-0000-4000-8000-000000000001','fb720000-0000-4000-8000-000000000001',
  'fb730000-0000-4000-8000-000000000001','Gift race','active');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+ values('fb740000-0000-4000-8000-000000000001','fb710000-0000-4000-8000-000000000001',
+ 'gift-race-manager@example.invalid','Synthetic competing gift decisions');
 insert into public.refund_gift_card_pools(id,provider,provider_account_id,face_value_cents,
  eligible_machine_ids,eligible_locations,expires_at,enabled,redemption_instructions)
  values('fb750000-0000-4000-8000-000000000001','kemore','gift-race-fixture',1500,
@@ -51,6 +56,24 @@ begin
   return public.service_issue_refund_gift_card(p_case_id);
 exception when others then
   return jsonb_build_object('state','test_runtime_error','sqlstate',sqlstate,'error',sqlerrm);
+end $$;
+create function gift_race_test.decide(p_case_id uuid,p_approve boolean,p_notes text default null)
+returns jsonb language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"fb710000-0000-4000-8000-000000000001"}',true);
+  return public.admin_decide_refund_gift_card(p_case_id,p_approve,p_notes);
+exception when others then
+  return jsonb_build_object('state','test_runtime_error','sqlstate',sqlstate,'error',sqlerrm);
+end $$;
+create function gift_race_test.retry_notice(p_case_id uuid,p_intent_id uuid)
+returns jsonb language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"fb710000-0000-4000-8000-000000000001"}',true);
+  return public.admin_retry_refund_gift_denial_notice(p_case_id,p_intent_id);
+exception when others then
+  return jsonb_build_object('state','test_rpc_error','sqlstate',sqlstate,'error',sqlerrm);
 end $$;
 commit;
 select no_plan();
@@ -90,25 +113,160 @@ update public.refund_cases set duplicate_of_refund_case_id='fb760000-0000-4000-8
  where id='fb760000-0000-4000-8000-000000000004';
 select lives_ok($$select public.service_resume_refund_gift_card_cases()$$,
  'An unissued duplicate cannot poison the automatic stock-resume sweep');
+
+-- Both decisions execute the actual RPC in independent sessions. The winner
+-- keeps its case lock until commit, forcing the opposite action to observe
+-- the committed result instead of making a second decision or notice.
+select dblink_exec('gift_race_a','begin');
+insert into gift_race_test.results select 'deny_winner',payload from dblink('gift_race_a',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000002',false,'Reviewed denial won the race.')$$) as r(payload jsonb);
+select dblink_send_query('gift_race_b',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000002',true)$$);
+select ok(gift_race_test.wait_for_lock(),'Concurrent approval waits for the denial decision transaction');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000002' and message_type='denied'),0::bigint,
+ 'Uncommitted denial cannot expose a notice before its decision commits');
+select dblink_exec('gift_race_a','commit');
+insert into gift_race_test.results select 'approve_after_deny',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
+select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+insert into gift_race_test.results select 'deny_response_replay',payload from dblink('gift_race_b',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000002',false,'A retry must not replace the explanation.')$$) as r(payload jsonb);
+select diag(payload::text) from gift_race_test.results where payload->>'state'='test_runtime_error';
+select is((select count(*) from gift_race_test.results
+ where lane in ('deny_winner','approve_after_deny','deny_response_replay') and payload->>'state'='denied'),3::bigint,
+ 'Winning denial, waiting approval and response replay all return the same final denial');
+select is((select count(*) from public.refund_case_events
+ where refund_case_id='fb760000-0000-4000-8000-000000000002' and event_type='gift_card_exception_decided'),1::bigint,
+ 'Competing decisions and response replay record one Manager decision');
+select is((select count(*) from public.refund_gift_card_issuances
+ where refund_case_id='fb760000-0000-4000-8000-000000000002'),0::bigint,
+ 'Losing approval cannot issue a gift after denial commits');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000002' and message_type='denied'
+   and manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid
+   and manual_delivery_state='queued' and body like '%Reviewed denial won the race.%'
+   and body not like '%A retry must not replace%'),1::bigint,
+ 'Concurrent denial creates one immutable matching notice with its original explanation');
+
+-- Simulate an exhausted, definitely pre-provider failure of that saved notice.
+-- Competing operators may request new delivery attempts, but only one can win.
+update public.refund_case_messages set status='failed',manual_delivery_state='failed',
+ manual_delivery_attempt_count=3,error_message='synthetic_pre_provider_failure'
+ where refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid;
+select dblink_exec('gift_race_a','begin');
+insert into gift_race_test.results select 'denial_recovery_winner',payload from dblink('gift_race_a',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
+select dblink_send_query('gift_race_b',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000002')$$);
+select ok(gift_race_test.wait_for_lock(),'Competing delivery recovery intents serialize on the same saved denial');
+select dblink_exec('gift_race_a','commit');
+insert into gift_race_test.results select 'denial_recovery_loser',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
+select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+insert into gift_race_test.results select 'denial_recovery_replay',payload from dblink('gift_race_b',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
+select is((select count(*) from gift_race_test.results
+ where lane in ('denial_recovery_winner','denial_recovery_replay') and payload->>'state'='denied'),2::bigint,
+ 'Recovery and its response-loss replay preserve the saved denial');
+select is((select payload->>'sqlstate' from gift_race_test.results where lane='denial_recovery_loser'),
+ 'P4683','Waiting alternate recovery intent cannot queue a second attempt');
+select is((select count(*) from public.refund_case_messages child join public.refund_case_messages original
+ on original.id=child.gift_denial_source_message_id
+ where child.refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and original.manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid
+   and child.manual_delivery_intent_id='fb770000-0000-4000-8000-000000000001'
+   and child.manual_delivery_state='queued' and child.subject=original.subject and child.body=original.body),1::bigint,
+ 'Exactly one fresh delivery attempt retains the immutable original notice');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and manual_delivery_state in ('queued','claimed')),1::bigint,
+ 'Original and child have one current actionable contact attempt');
+select is((select manual_delivery_attempt_count::integer from public.refund_case_messages
+ where manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid),3,
+ 'A fresh provider key does not erase exhausted original-attempt evidence');
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages
+  where manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid),1)),0::bigint,
+ 'Targeting the old failure cannot revive it beside its queued recovery child');
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages
+  where manual_delivery_intent_id='fb770000-0000-4000-8000-000000000001'),1)),1::bigint,
+ 'The existing outbox claims only the current recovery attempt');
+select is((select count(*) from public.refund_case_events
+ where refund_case_id='fb760000-0000-4000-8000-000000000002' and event_type='gift_card_exception_decided'),1::bigint,
+ 'Concurrent delivery recovery never creates another Manager decision');
+
+-- Refill only the disposable fixture after the existing last-code race. A
+-- separate partial-order request exercises approval winning the reverse race.
+insert into public.refund_gift_card_codes(pool_id,provider,provider_account_id,code,valid_from,expires_at)
+ values('fb750000-0000-4000-8000-000000000001','kemore','gift-race-fixture','synthetic-race-decision',
+ now()-interval '1 day',now()+interval '30 days');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+ resolution_method,gift_card_pool_id,gift_card_value_cents,gift_card_expires_at,gift_card_state,issue_category)
+ values('fb760000-0000-4000-8000-000000000005','RF-GIFT-RACE-5',
+ 'fb740000-0000-4000-8000-000000000001','fb730000-0000-4000-8000-000000000001',
+ 'gift-race-5@example.invalid','Synthetic competing partial-order decision',now(),'cash',1100,1100,
+ 'gift_card','fb750000-0000-4000-8000-000000000001',1500,
+ (select expires_at from public.refund_gift_card_pools where id='fb750000-0000-4000-8000-000000000001'),
+ 'manager_review','partial_items');
+select is((select gift_card_state from public.refund_cases where public_reference='RF-GIFT-RACE-5'),
+ 'manager_review','Reverse-race fixture requires the same single Manager decision');
+select dblink_exec('gift_race_a','begin');
+insert into gift_race_test.results select 'approve_winner',payload from dblink('gift_race_a',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000005',true)$$) as r(payload jsonb);
+select dblink_send_query('gift_race_b',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000005',false,'This losing denial must not be sent.')$$);
+select ok(gift_race_test.wait_for_lock(),'Concurrent denial waits for the approval and issuance transaction');
+select dblink_exec('gift_race_a','commit');
+insert into gift_race_test.results select 'deny_after_approve',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
+select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+insert into gift_race_test.results select 'approve_response_replay',payload from dblink('gift_race_b',
+ $$select gift_race_test.decide('fb760000-0000-4000-8000-000000000005',true)$$) as r(payload jsonb);
+select diag(payload::text) from gift_race_test.results where payload->>'state'='test_runtime_error';
+select is((select count(*) from gift_race_test.results
+ where lane in ('approve_winner','deny_after_approve','approve_response_replay') and payload->>'state'='issued'),3::bigint,
+ 'Winning approval, waiting denial and response replay all return the same issued gift');
+select is((select count(*) from public.refund_case_events
+ where refund_case_id='fb760000-0000-4000-8000-000000000005' and event_type='gift_card_exception_decided'),1::bigint,
+ 'Approval winning the reverse race still records one Manager decision');
+select is((select count(*) from public.refund_gift_card_issuances
+ where refund_case_id='fb760000-0000-4000-8000-000000000005'),1::bigint,
+ 'Competing denial and approval replay cannot duplicate the gift issuance');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000005' and message_type='completed'),1::bigint,
+ 'Approval race creates exactly one gift fulfillment notice');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000005' and message_type='denied'),0::bigint,
+ 'Losing denial cannot send contradictory customer contact after approval');
+select is((select count(*) from public.refund_authoritative_receipts
+ where refund_case_id in (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%')),
+ 0::bigint,'Competing gift decisions never settle a monetary refund');
 select dblink_disconnect('gift_race_a');
 select dblink_disconnect('gift_race_b');
 begin;
 alter table public.refund_gift_card_issuances disable trigger refund_gift_card_issuances_immutable;
 alter table public.refund_case_messages disable trigger aa_refund_gift_card_message_identity;
+alter table public.refund_case_messages disable trigger aa_refund_gift_denial_notice_identity;
 delete from public.refund_gift_card_issuances where pool_id='fb750000-0000-4000-8000-000000000001';
+delete from public.refund_case_messages where gift_denial_source_message_id is not null and refund_case_id in
+ (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%');
 delete from public.refund_case_messages where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%');
 delete from public.refund_gift_card_codes where pool_id='fb750000-0000-4000-8000-000000000001';
 delete from public.refund_cases where public_reference like 'RF-GIFT-RACE-%';
 delete from public.refund_gift_card_pools where id='fb750000-0000-4000-8000-000000000001';
+delete from public.reporting_machine_refund_managers where reporting_machine_id='fb740000-0000-4000-8000-000000000001';
 delete from public.reporting_machines where id='fb740000-0000-4000-8000-000000000001';
 delete from public.reporting_locations where id='fb730000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='fb720000-0000-4000-8000-000000000001';
+delete from auth.users where id='fb710000-0000-4000-8000-000000000001';
 -- Drain deferred receipt/FK checks after deleting the full fixture, before
 -- altering tables to restore their normal triggers.
 set constraints all immediate;
 alter table public.refund_gift_card_issuances enable trigger refund_gift_card_issuances_immutable;
 alter table public.refund_case_messages enable trigger aa_refund_gift_card_message_identity;
+alter table public.refund_case_messages enable trigger aa_refund_gift_denial_notice_identity;
 alter table public.refund_case_messages enable trigger refund_completion_outbox_postcommit_wakeup;
 drop schema gift_race_test cascade;
 commit;

@@ -119,6 +119,30 @@ const email = {
     "<p>Thank you for contacting Bloomjoy. We are reviewing your request.</p>",
 };
 
+Deno.test('corrected denial delivery avoids the old recipient conversation and retains current authorization', async () => {
+  await withEnvironment({ ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: 'true' }, async () => {
+    let authorizations = 0;
+    const supabase = {
+      from: () => { throw new Error('Corrected recipient must not inspect or use the old Gmail thread'); },
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'service_verify_refund_synthetic_gmail_proof_transport') return { data: { required: false, allowed: true }, error: null };
+        assertEquals(name, 'service_authorize_refund_customer_outbound');
+        assertEquals(args.p_recipient_email, 'corrected@example.invalid');
+        assertEquals(args.p_delivery_kind, 'manual'); authorizations++;
+        return { data: { allowed: true, recipientResolutionStatus: 'resolved', managerCcEmails: ['manager@example.invalid'],
+          managerRecipientOverlap: false, managerRecipientCount: 1 }, error: null };
+      },
+    };
+    await withFetch(async () => { throw new Error('Adapter must not call Gmail for the corrected recipient'); }, async () => {
+      const result = await dispatchRefundCaseGmailReply({ supabase: supabase as never, refundCaseId: 'synthetic-case',
+        refundCaseMessageId: 'synthetic-message', recipientEmail: 'corrected@example.invalid', email,
+        deliveryKind: 'manual', giftDenialRecipientCorrected: true });
+      assertEquals(result.usedGmail, false); assertEquals(result.managerCcEmails, ['manager@example.invalid']);
+      assertEquals(authorizations, 1);
+    });
+  });
+});
+
 Deno.test("correction delivery sends no raw write capability into the actual Gmail claim ledger", async () => {
   await withEnvironment({ ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" }, async () => {
     const token = "x".repeat(43);

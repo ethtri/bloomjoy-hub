@@ -116,6 +116,30 @@ update public.refund_case_messages set status='failed',manual_delivery_state='de
  where manual_delivery_intent_id='fc770000-0000-4000-8000-000000000001';
 select throws_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
  'fc770000-0000-4000-8000-000000000002')$$,'P4672',null,'Unknown delivery cannot blindly create another send');
+select is(public.get_refund_gift_card_case('fc760000-0000-4000-8000-000000000001')->>'delivery_recovery_state',
+ 'reconciliation_required','Manager sees the exact unresolved delivery reason');
+select is(public.get_refund_gift_card_case('fc760000-0000-4000-8000-000000000001')->>'can_resend',
+ 'false','Manager is not offered a blocked resend');
+select public.service_bind_refund_transactional_delivery(
+ (select id from public.refund_case_messages where manual_delivery_intent_id='fc770000-0000-4000-8000-000000000001'),
+ 'synthetic-gift-reconciled',statement_timestamp());
+select is(public.get_refund_gift_card_case('fc760000-0000-4000-8000-000000000001')->>'delivery_recovery_state',
+ 'ready','Exact-message provider acceptance resolves a stale manual unknown');
+select is(public.refund_gift_card_case_projection('fc760000-0000-4000-8000-000000000001')->>'delivery_state',
+ 'accepted','Acceptance is not relabeled as delivered');
+select throws_ok($$select public.service_bind_refund_transactional_delivery(
+ (select id from public.refund_case_messages where manual_delivery_intent_id='fc770000-0000-4000-8000-000000000001'),
+ 'mismatched-provider-reference',statement_timestamp())$$,'P4651',null,'A different provider identity cannot reconcile the message');
+select lives_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000002')$$,'Reconciled same-code recovery resumes without another decision');
+select lives_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000002')$$,'A lost recovery response replays the same message intent');
+select throws_ok($$select public.admin_resend_refund_gift_card('fc760000-0000-4000-8000-000000000001',
+ 'fc770000-0000-4000-8000-000000000002','different@example.invalid')$$,
+ 'P0001','Delivery intent is already bound to different facts','Recipient change cannot reuse an existing delivery identity');
+select is((select count(*) from public.refund_gift_card_issuances),2::bigint,'Late delivery recovery never allocates another code');
+select is((select count(*) from public.refund_case_messages where manual_delivery_intent_id='fc770000-0000-4000-8000-000000000002'),
+ 1::bigint,'Recovery response loss creates only one same-code message');
 select ok(strpos(pg_get_functiondef('public.refund_completion_outbox_postcommit_wakeup()'::regprocedure),'refund_gift_card_v1')>0,
  'Immediate postcommit wakeup includes the same immutable gift message');
 -- Seed an immutable historical receipt as the disposable database owner. This

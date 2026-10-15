@@ -1503,3 +1503,18 @@ unchanged. The Manager Payroll UAT workflow records mocked desktop/mobile eviden
   and statement payload stay unchanged. Test desktop and 390px mobile rendering.
 - Use `scripts/validate-monthly-visit-compensation-uat.mjs` and the disposable SQL
   suite. Do not create or regenerate real compensation records for this draft.
+
+## Gift-card delivery follow-through (#1945)
+
+- In the synthetic gift browser fixture, deny once with the clearly labeled
+  customer-facing reason. After refresh, verify queued, failed and unknown
+  notice states remain visible with the decision saved and no second decision.
+- Declined EN/ES status pages must show the review/contact outcome without
+  redeemable gift value, locations or expiration terms. Check desktop, 375px and
+  320px, keyboard access and no horizontal overflow.
+- An unknown existing send shows delivery verification and a safe refresh action.
+  Exact late provider evidence permits supported same-code recovery; a response
+  retry retains the same intent and never allocates another code.
+- Run the gift HTTP/browser checks and disposable SQL suite for atomic notice
+  save, failure/response loss, opposite/concurrent decisions and unknown-send
+  holds. Use synthetic data; do not send customer mail or change live cases.
