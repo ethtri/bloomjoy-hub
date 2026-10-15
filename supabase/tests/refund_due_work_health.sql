@@ -183,46 +183,51 @@ select is(pg_temp.health()->>'decisionClockBasis','recorded_attention_clock',
 select is((select count(*) from public.refund_gift_card_issuances where refund_case_id='14310000-0000-4000-8000-000000000031'),
  0::bigint,'Health never issues a gift card or records a Manager decision');
 
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
 -- An actual delivered current question is a valid wait; its future single
 -- reminder is not a missed opportunity. Closing the case removes the source.
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
  customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,card_last4,status)
  values('14310000-0000-4000-8000-000000000050','RF-DUE-WAIT',
  '14310000-0000-4000-8000-000000000003','14310000-0000-4000-8000-000000000002',
- 'wait-fixture@example.invalid','Synthetic question',now(),'card',700,'4242','waiting_on_customer');
+ 'wait-fixture@example.invalid','Synthetic question',now(),'card',null,'4242','waiting_on_customer');
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,reason_code,
  requested_fields,template_version,case_fact_version,reminder_delay_hours,status)
  select '14310000-0000-4000-8000-000000000051',id,1,repeat('1',64),'missing_information',
- array['incident_time'],'refund_follow_up_v1',deterministic_fact_version,168,'claimed'
+ public.refund_missing_follow_up_fields(id),'refund_follow_up_v1',deterministic_fact_version,168,'claimed'
  from public.refund_cases where id='14310000-0000-4000-8000-000000000050';
 insert into public.refund_case_messages(id,refund_case_id,follow_up_cycle_id,message_type,status,
  recipient_email,subject,body,template_version,reason_code,requested_fields,sent_at,delivery_state,
  delivery_transport,provider_message_id,content_source,delivery_kind)
  values('14310000-0000-4000-8000-000000000052','14310000-0000-4000-8000-000000000050',
  '14310000-0000-4000-8000-000000000051','more_info','sent','wait-fixture@example.invalid',
- 'Synthetic question','Synthetic question','refund_follow_up_v1','missing_information',array['incident_time'],
+ 'Synthetic question','Synthetic question','refund_follow_up_v1','missing_information',
+ public.refund_missing_follow_up_fields('14310000-0000-4000-8000-000000000050'),
  now(),'delivered','resend','synthetic-delivery-health','deterministic_template','automatic');
-update public.refund_follow_up_cycles set status='waiting',request_message_id='14310000-0000-4000-8000-000000000052',
- request_created_at=now(),request_sent_at=now(),reminder_due_at=now()+interval '7 days'
- where id='14310000-0000-4000-8000-000000000051';
+select ok((select status='waiting' and request_message_id='14310000-0000-4000-8000-000000000052'
+ and request_sent_at is not null and reminder_due_at>now()+interval '6 days'
+ from public.refund_follow_up_cycles where id='14310000-0000-4000-8000-000000000051'),
+ 'Actual sent-message synchronization binds the immutable request and future reminder clock');
 select is(pg_temp.health()->>'futureRetryCount','1','Future existing follow-up remains a wait');
 select is(pg_temp.health()->>'overdueCount','25','A future reminder adds no overdue processing work');
-update public.refund_follow_up_cycles set reminder_due_at=now()-interval '1 hour'
- where id='14310000-0000-4000-8000-000000000051';
-select pg_temp.observe_slot(12,pg_temp.runtime()||'{"policyWindow":false}');
-select pg_temp.observe_slot(13,pg_temp.runtime()||'{"policyWindow":false}');
-select is(pg_temp.health()->>'policyWaitCount','1','An actual due question reminder outside its contact window is a policy wait');
-select is(pg_temp.health()->>'disabledWorkerCount','0','The legitimate policy wait does not imply a disabled contact worker');
-select is(pg_temp.health()->>'overdueCount','25','Two outside-window opportunities cannot age the question reminder into stalled work');
+select pg_temp.observe_slot(400,pg_temp.runtime()||'{"policyWindow":false}');
+select pg_temp.observe_slot(401,pg_temp.runtime()||'{"policyWindow":false}');
+select is(public.service_get_refund_due_work_health(pg_temp.at_slot(402))->>'policyWaitCount','1',
+ 'An actual due question reminder outside its contact window is a policy wait');
+select is(public.service_get_refund_due_work_health(pg_temp.at_slot(402))->>'disabledWorkerCount','0',
+ 'The legitimate policy wait does not imply a disabled contact worker');
+select is(public.service_get_refund_due_work_health(pg_temp.at_slot(402))->>'overdueCount','25',
+ 'Two outside-window opportunities cannot age the question reminder into stalled work');
 update public.refund_cases set status='closed' where id='14310000-0000-4000-8000-000000000050';
 select is(pg_temp.health()->>'futureRetryCount','0','Closing the real current cycle source stops its due/wait observation');
 
 insert into auth.users(id,email) values('14310000-0000-4000-8000-000000000060','synthetic-author@example.invalid');
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,
- created_by,content_source,delivery_kind,manual_delivery_intent_id,manual_delivery_state,
+ created_by,content_source,delivery_kind,reason_code,requested_fields,manual_delivery_intent_id,manual_delivery_state,
  manual_delivery_expected_case_version,manual_delivery_provider_attempted_at,manual_delivery_attempt_count)
  select '14310000-0000-4000-8000-000000000061',id,'more_info','failed',customer_email,'Synthetic unknown','Synthetic unknown',
- '14310000-0000-4000-8000-000000000060','manager_authored','manual',
+ '14310000-0000-4000-8000-000000000060','manager_authored','manual','missing_information',
+ public.refund_missing_follow_up_fields(id),
  '14310000-0000-4000-8000-000000000062','delivery_unknown',official_action_version,now(),1
  from public.refund_cases where id='14310000-0000-4000-8000-000000000050';
 select is(pg_temp.health()->>'unknownHoldCount','1','Actual provider-started unknown intent remains a hold, not eligible resend');
@@ -284,7 +289,6 @@ do $$ declare started timestamptz:=clock_timestamp(); snapshot jsonb; begin
  raise notice 'due-work full snapshot baseline: % ms, % items',
   round(extract(epoch from (clock_timestamp()-started))*1000,2),jsonb_array_length(snapshot->'items');
 end $$;
-set local session_replication_role=replica;
 update public.refund_cases set nayax_lookup_generation=1,nayax_lookup_status='multiple_matches',
  nayax_lookup_started_at=now()-interval '2 hours',nayax_lookup_finished_at=now()-interval '1 hour',
  nayax_lookup_correlation_digest=repeat('a',64),nayax_recommendation_policy_version='synthetic-health-benchmark-v1',
@@ -295,7 +299,6 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,reporting
  select gen_random_uuid(),'14310000-0000-4000-8000-000000000010','14310000-0000-4000-8000-000000000003',1,
  'SYNTHETIC-HEALTH-CANDIDATE-'||n,now()-interval '1 day',700,'5252','USD',now()+interval '1 day'
  from generate_series(1,200)n;
-set local session_replication_role=origin;
 select is((select count(*) from public.refund_nayax_lookup_candidates
  where refund_case_id='14310000-0000-4000-8000-000000000010' and lookup_generation=1),200::bigint,
  'Performance observation actually includes200 current synthetic candidates');

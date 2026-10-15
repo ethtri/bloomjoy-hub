@@ -223,8 +223,9 @@ select ok((select bool_and(private.refund_work_lane_available(item->>'lane',
  'Manual outbox enabled cannot fabricate an eligible automatic contact opportunity');
 select ok((select (snapshot->>'unsupportedActionCount')::integer>0 from due_receipt_observation),
  'Canonical missing completion intents remain uncovered rather than healthy empty work');
-update public.refund_cases set status='completed'
- where id='ce400000-0000-4000-8000-000000000003';
+select is(pg_temp.capture_error($$update public.refund_cases set status='completed'
+ where id='ce400000-0000-4000-8000-000000000003'$$),'P4663',
+ 'Existing accounting review forbids fabricating completed case state around a missing receipt intent');
 select is(public.refund_lifecycle_contract('ce400000-0000-4000-8000-000000000003')#>>'{nextWork,isOpen}','true',
  'A financially terminal required receipt without its contact intent remains canonically open');
 select ok((private.refund_current_work(statement_timestamp())->>'unsupportedActionCount')::integer>0,
