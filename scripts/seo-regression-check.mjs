@@ -75,10 +75,10 @@ const expectedMachineProductByRoute = {
 
 const expectedH1TextByRoute = {
   "/": "Robotic cotton candy",
-  "/machines": "Robotic Cotton Candy Machines for Operators",
-  "/machines/commercial-robotic-machine": "Bloomjoy Sweets <!-- -->Commercial Machine",
-  "/machines/mini": "Bloomjoy Sweets Mini Machine",
-  "/machines/micro": "Bloomjoy Sweets Micro Machine",
+  "/machines": "Compare Robotic Cotton Candy Machines",
+  "/machines/commercial-robotic-machine": "Commercial Machine",
+  "/machines/mini": "Mini Machine",
+  "/machines/micro": "Micro Machine",
   "/supplies": "Cotton Candy Machine Sugar and Paper Sticks",
   "/plus": "Onboarding + Playbooks + Concierge",
   "/resources": "Before you buy the machine, plan the first location and the first Tuesday",

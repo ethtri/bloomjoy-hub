@@ -193,7 +193,7 @@ assert.match(commercialPage, /Request a Quote/);
 
 const microPage = read('src/pages/products/Micro.tsx');
 assert.match(microPage, /Buy Micro Machine/);
-assert.match(microPage, /Checkout Pending/);
+assert.match(microPage, /Not yet available/);
 assert.match(microPage, /disabled=\{!isMicroCheckoutEnabled\}/);
 
 const commerceAvailability = read('src/lib/commerceAvailability.ts');

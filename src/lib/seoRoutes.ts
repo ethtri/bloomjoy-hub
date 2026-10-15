@@ -116,7 +116,7 @@ export const miniMachineFaqs = [
   },
   {
     q: "What are the Mini Machine dimensions and power requirements?",
-    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details will be confirmed when payment-first ordering launches.",
+    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Confirm placement and power details before ordering opens.",
   },
   {
     q: "Can the Mini Machine work in compact, quiet, or hospitality environments?",
@@ -149,7 +149,7 @@ export const machineBuyerFaqs = [
     q: "Are Bloomjoy machines sold through checkout or quote?",
     a: isMicroCheckoutEnabled
       ? "The available Micro Machine is purchased through online checkout. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary."
-      : "The Micro Machine will use online checkout after its shipping policy is approved. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
+      : "The Micro Machine is not yet available to order. Ordering and delivery details will be published on its product page when available. The Mini Machine is coming soon and does not accept orders yet. Only the BloomDirect Commercial Machine uses a quote request because its final configuration, shipping, and delivery requirements vary.",
   },
   {
     q: "Do all machines support complex cotton candy patterns?",
@@ -157,14 +157,14 @@ export const machineBuyerFaqs = [
   },
   {
     q: "What supplies do I need after buying a machine?",
-    a: "Bloomjoy machines run on cotton candy sugar and paper sticks. The supplies page supports paid bulk sugar and Bloomjoy branded stick orders. Custom sticks will return when their payment-first artwork and plate-fee checkout is ready.",
+    a: "Bloomjoy machines run on cotton candy sugar and paper sticks. The supplies page supports paid bulk sugar and Bloomjoy branded stick orders. Custom sticks are not yet available to order; current options are shown on the supplies page.",
   },
 ];
 
 export const resourcesFaqs = [
   {
     q: "What startup costs should I expect to launch an operation?",
-    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Available supplies use online checkout, Micro will use checkout once shipping is approved, and only the Commercial Machine uses quote review for variable configuration and delivery costs.",
+    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Available supplies use online checkout. Check each machine page for current availability; the Commercial Machine uses a quote to confirm configuration and delivery costs.",
     ctaLabel: "Request a Commercial quote",
     ctaHref: "/contact?type=quote&interest=commercial&source=%2Fresources%23faq",
   },
@@ -198,7 +198,7 @@ export const resourcesFaqs = [
   },
   {
     q: "Which sugar and stick supplies are available?",
-    a: "Bloomjoy sells bulk cotton candy sugar in core colors and Bloomjoy branded paper sticks by box through paid checkout. Custom sticks are temporarily unavailable until payment-first artwork proofing and plate-fee handling are ready.",
+    a: "Bloomjoy sells bulk cotton candy sugar in core colors and Bloomjoy branded paper sticks by box through paid checkout. Custom sticks are not yet available to order; current options are shown on the supplies page.",
   },
 ];
 

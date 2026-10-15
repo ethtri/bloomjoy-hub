@@ -22,13 +22,13 @@ const machineProducts = [
     description: 'Full-size commercial unit with automatic stick dispensing, complex patterns, and Commercial-only custom wrap via quote.',
     href: '/machines/commercial-robotic-machine',
     image: commercialMain,
-    badge: 'Most Popular',
+    badge: 'Quote available',
   },
   {
     sku: 'mini',
     name: MACHINE_NAMES.mini,
     price: '$4,000',
-    description: 'Portable at 1/5 the size. Payment-first ordering will open when Mini launches.',
+    description: 'Portable at 1/5 the size, with manual stick feeding. Coming soon.',
     href: '/machines/mini',
     image: miniMain,
     badge: 'Coming Soon',
@@ -40,30 +40,33 @@ const machineProducts = [
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
     image: microMain,
-    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Checkout Pending',
+    badge: isMicroCheckoutEnabled ? 'Buy Online' : 'Not yet available',
   },
 ];
 
 const comparisonRows = [
   {
     model: MACHINE_NAMES.commercial,
+    href: '/machines/commercial-robotic-machine',
     fit: 'High-traffic venues, retail locations, entertainment sites, and event operations',
     capability: 'Automatic stick dispensing, 64 preset patterns, four sugar colors',
     buyingPath: 'Quote required; final pricing depends on configuration, wrap, shipping, and delivery',
   },
   {
     model: MACHINE_NAMES.mini,
+    href: '/machines/mini',
     fit: 'Mobile operators and smaller venues that need a portable footprint',
     capability: 'Manual stick feeding with most complex pattern capabilities',
-    buyingPath: 'Coming soon; no request or checkout is accepted yet',
+    buyingPath: 'Coming soon · $4,000 expected price',
   },
   {
     model: MACHINE_NAMES.micro,
+    href: '/machines/micro',
     fit: 'Basic-shape, low-volume applications where compact size matters most',
     capability: 'Entry-level robotic cotton candy operation for simple shapes',
     buyingPath: isMicroCheckoutEnabled
-      ? 'Pay the $2,200 machine price online before fulfillment follow-up'
-      : 'Checkout opens after the shipping policy is approved; no request is collected',
+      ? 'Order online for $2,200; delivery coordinated after payment'
+      : 'Not yet available to order · $2,200 planning price',
   },
 ];
 
@@ -71,8 +74,8 @@ const buyerSteps = [
   'Compare the commercial, Mini, and Micro machines by venue type, throughput expectations, footprint, and pattern needs.',
   isMicroCheckoutEnabled
     ? 'Buy the available Micro Machine online, or request a quote only for the Commercial Machine.'
-    : 'Micro checkout opens after its shipping policy is approved; only the Commercial Machine uses a quote request.',
-  'Bloomjoy follows up after payment for sellable products; Mini remains unavailable until launch.',
+    : 'Micro is not yet available to order. Request a Commercial quote to discuss an available machine path.',
+  'Allow for supplies, delivery, setup, and local operating requirements in your budget.',
 ];
 
 export default function ProductsPage() {
@@ -83,15 +86,153 @@ export default function ProductsPage() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
+      <section className="bg-gradient-to-b from-cream to-background py-8 sm:py-12">
         <div className="container-page text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">
-            Robotic Cotton Candy Machines for Operators
+          <h1 className="font-display text-3xl font-bold text-foreground sm:text-5xl">
+            Compare Robotic Cotton Candy Machines
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
-            Compare commercial robotic cotton candy machines by footprint, pattern capability,
-            use case, supplies, support, and purchase path before you buy.
+            Find the right fit for your venue, service model, and budget.
           </p>
+        </div>
+      </section>
+
+      <section className="border-y border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-8">
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Compare at a glance
+              </h2>
+              <p className="mt-3 max-w-3xl text-muted-foreground">
+                Start with how you will serve. Commercial handles sticks automatically; Mini and Micro suit smaller, staffed operations.
+              </p>
+              <div className="mt-6 grid gap-3 md:hidden">
+                {comparisonRows.map((row) => (
+                  <article
+                    key={row.model}
+                    className="rounded-lg border border-border bg-background p-4"
+                  >
+                    <h3 className="font-display text-lg font-semibold text-foreground">
+                      {row.model}
+                    </h3>
+                    <p className="mt-2 text-sm font-medium text-foreground">{row.buyingPath}</p>
+                    <Link to={row.href} className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">
+                      View machine <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <dl className="mt-3 grid gap-3 text-sm">
+                      <div>
+                        <dt className="font-semibold text-foreground">Best fit</dt>
+                        <dd className="mt-1 text-muted-foreground">{row.fit}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-foreground">Capability</dt>
+                        <dd className="mt-1 text-muted-foreground">{row.capability}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+              <div className="mt-6 hidden overflow-hidden rounded-lg border border-border bg-background md:block">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead className="bg-muted/40 text-left">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold text-foreground">Model</th>
+                        <th className="px-4 py-3 font-semibold text-foreground">Best fit</th>
+                        <th className="px-4 py-3 font-semibold text-foreground">Capability</th>
+                        <th className="px-4 py-3 font-semibold text-foreground">Buying path</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparisonRows.map((row) => (
+                        <tr key={row.model} className="border-t border-border">
+                          <th className="px-4 py-3 text-left font-semibold text-foreground">
+                            <Link to={row.href} className="text-primary hover:underline">{row.model}</Link>
+                          </th>
+                          <td className="px-4 py-3 text-muted-foreground">{row.fit}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.capability}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.buyingPath}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <details className="min-w-0 rounded-lg border border-border bg-background p-5">
+              <summary className="cursor-pointer font-display text-lg font-semibold text-foreground">
+                What to plan before you buy
+              </summary>
+              <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
+                {buyerSteps.map((step, index) => (
+                  <li key={step} className="flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      {/* Machines */}
+      <section className="py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="max-w-3xl">
+            <h2 className="font-display text-2xl font-bold text-foreground">
+              Choose the machine that fits your operation
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Explore each machine’s photos, operating details, and current availability.
+            </p>
+          </div>
+          <div className="mt-8 grid gap-8 md:grid-cols-3">
+            {machineProducts.map((product) => (
+              <Link
+                key={product.sku}
+                to={product.href}
+                className="group card-elevated grid grid-cols-[6rem_1fr] overflow-hidden md:block transition-[box-shadow,transform] duration-200 hover:-translate-y-1"
+              >
+                <div className="overflow-hidden bg-muted md:aspect-square">
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    width={520}
+                    height={520}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-4 md:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-display text-lg font-semibold text-foreground group-hover:text-primary">
+                        {product.name}
+                      </h3>
+                      <p className="mt-1 font-display text-xl font-bold text-primary">
+                        {product.price}
+                      </p>
+                    </div>
+                    {product.badge && (
+                      <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                        {product.badge}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-3 text-sm text-muted-foreground">{product.description}</p>
+                  <div className="mt-4 flex items-center text-sm font-semibold text-primary">
+                    View details
+                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -172,147 +313,6 @@ export default function ProductsPage() {
         </div>
       </section>
 
-      {/* Machines */}
-      <section className="py-10 sm:py-12 lg:py-16">
-        <div className="container-page">
-          <div className="max-w-3xl">
-            <h2 className="font-display text-2xl font-bold text-foreground">
-              Choose the machine that fits your operation
-            </h2>
-            <p className="mt-3 text-muted-foreground">
-              Micro is payment-first once shipping is approved, Mini is coming soon, and the
-              Commercial Machine is the only model that uses a quote request.
-            </p>
-          </div>
-          <div className="mt-8 grid gap-8 md:grid-cols-3">
-            {machineProducts.map((product) => (
-              <Link
-                key={product.sku}
-                to={product.href}
-                className="group card-elevated overflow-hidden transition-[box-shadow,transform] duration-200 hover:-translate-y-1"
-              >
-                <div className="aspect-square overflow-hidden bg-muted">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    width={520}
-                    height={520}
-                    loading="lazy"
-                    decoding="async"
-                    className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
-                  />
-                </div>
-                <div className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-display text-lg font-semibold text-foreground group-hover:text-primary">
-                        {product.name}
-                      </h3>
-                      <p className="mt-1 font-display text-xl font-bold text-primary">
-                        {product.price}
-                      </p>
-                    </div>
-                    {product.badge && (
-                      <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                        {product.badge}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{product.description}</p>
-                  <div className="mt-4 flex items-center text-sm font-semibold text-primary">
-                    View details
-                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-y border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
-        <div className="container-page">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="min-w-0">
-              <h2 className="font-display text-2xl font-bold text-foreground">
-                Machine buyer comparison
-              </h2>
-              <p className="mt-3 max-w-3xl text-muted-foreground">
-                Use this comparison to choose the correct path: payment-first Micro when enabled,
-                coming-soon Mini, or quote review for the Commercial Machine.
-              </p>
-              <div className="mt-6 grid gap-3 md:hidden">
-                {comparisonRows.map((row) => (
-                  <article
-                    key={row.model}
-                    className="rounded-lg border border-border bg-background p-4"
-                  >
-                    <h3 className="font-display text-lg font-semibold text-foreground">
-                      {row.model}
-                    </h3>
-                    <dl className="mt-3 grid gap-3 text-sm">
-                      <div>
-                        <dt className="font-semibold text-foreground">Best fit</dt>
-                        <dd className="mt-1 text-muted-foreground">{row.fit}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-semibold text-foreground">Capability</dt>
-                        <dd className="mt-1 text-muted-foreground">{row.capability}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-semibold text-foreground">Buying path</dt>
-                        <dd className="mt-1 text-muted-foreground">{row.buyingPath}</dd>
-                      </div>
-                    </dl>
-                  </article>
-                ))}
-              </div>
-              <div className="mt-6 hidden overflow-hidden rounded-lg border border-border bg-background md:block">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full border-collapse text-sm">
-                    <thead className="bg-muted/40 text-left">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold text-foreground">Model</th>
-                        <th className="px-4 py-3 font-semibold text-foreground">Best fit</th>
-                        <th className="px-4 py-3 font-semibold text-foreground">Capability</th>
-                        <th className="px-4 py-3 font-semibold text-foreground">Buying path</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {comparisonRows.map((row) => (
-                        <tr key={row.model} className="border-t border-border">
-                          <th className="px-4 py-3 text-left font-semibold text-foreground">
-                            {row.model}
-                          </th>
-                          <td className="px-4 py-3 text-muted-foreground">{row.fit}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{row.capability}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{row.buyingPath}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            <aside className="min-w-0 rounded-lg border border-border bg-background p-5">
-              <h3 className="font-display text-lg font-semibold text-foreground">
-                Purchase expectations
-              </h3>
-              <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
-                {buyerSteps.map((step, index) => (
-                  <li key={step} className="flex gap-3">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                      {index + 1}
-                    </span>
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ol>
-            </aside>
-          </div>
-        </div>
-      </section>
-
       <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
@@ -321,13 +321,12 @@ export default function ProductsPage() {
             </h2>
             <Accordion
               type="multiple"
-              defaultValue={machineBuyerFaqs.map((_, index) => `machine-faq-${index}`)}
               className="mt-6"
             >
               {machineBuyerFaqs.map((faq, index) => (
                 <AccordionItem key={faq.q} value={`machine-faq-${index}`}>
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                  <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+                  <AccordionContent forceMount className="text-muted-foreground data-[state=closed]:hidden">{faq.a}</AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>
