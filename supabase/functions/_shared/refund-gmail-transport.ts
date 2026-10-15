@@ -141,6 +141,7 @@ export const dispatchRefundCaseGmailReply = async ({
     : "manager_cc_required",
   gmailThreadId = null,
   syntheticProofAuthorizationId = null,
+  giftDenialRecipientCorrected = false,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
@@ -152,6 +153,7 @@ export const dispatchRefundCaseGmailReply = async ({
   managerCopyPolicy?: RefundManagerCopyPolicy;
   gmailThreadId?: string | null;
   syntheticProofAuthorizationId?: string | null;
+  giftDenialRecipientCorrected?: boolean;
 }) => {
   if (/\/refunds\?case=/i.test(`${email.text}\n${email.html}`)) {
     throw new RefundGmailError(
@@ -194,7 +196,12 @@ export const dispatchRefundCaseGmailReply = async ({
     !targetGmailThreadId;
   let link: Record<string, unknown> | null = null;
   let linkError: { message?: string } | null = null;
-  if (!automaticWithoutExactSource) {
+  // A corrected denial recipient belongs to a new authorized transactional
+  // attempt, never to the prior recipient's Gmail conversation. Keep exact
+  // source/synthetic boundaries and current recipient/Manager authorization.
+  const correctedDenialWithoutSource = giftDenialRecipientCorrected &&
+    !targetGmailThreadId && !syntheticProof.required;
+  if (!automaticWithoutExactSource && !correctedDenialWithoutSource) {
     let linkQuery = supabase
       .from("refund_gmail_threads")
       .select("id,mailbox_hash")

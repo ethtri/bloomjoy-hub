@@ -67,6 +67,7 @@ type RefundManualMessageRow = {
   message_type: string;
   template_version: string | null;
   gift_card_issuance_id: string | null;
+  gift_denial_source_message_id: string | null;
   status: string;
   recipient_email: string;
   subject: string;
@@ -201,14 +202,13 @@ const getClaimedMessage = async (
   supabase: SupabaseClient,
   reference: RefundManualMessageClaimReference,
 ) => {
-  const { data, error } = await supabase
-    .from("refund_case_messages")
-    .select(`
+  const columns = `
       id,
       refund_case_id,
       message_type,
       template_version,
       gift_card_issuance_id,
+      gift_denial_source_message_id,
       status,
       recipient_email,
       subject,
@@ -229,12 +229,20 @@ const getClaimedMessage = async (
       synthetic_gmail_proof_authorization_id,
       manual_delivery_triage_suggestion_id,
       created_by
-    `)
-    .eq("id", reference.messageId)
-    .eq("manual_delivery_claim_token", reference.claimToken)
-    .maybeSingle();
+    `;
+  const read = (selectedColumns: string) => supabase.from("refund_case_messages")
+    .select(selectedColumns).eq("id", reference.messageId)
+    .eq("manual_delivery_claim_token", reference.claimToken).maybeSingle();
+  let { data, error } = await read(columns);
+  // Worker-first rolling deployment must keep the old outbox usable before
+  // the nullable source link exists. Retry only this exact missing-column
+  // contract; all other schema, permission and transport failures stay closed.
+  if (error?.code === "42703" && /column .*refund_case_messages\.gift_denial_source_message_id does not exist/.test(error.message)) {
+    ({ data, error } = await read(columns.replace("      gift_denial_source_message_id,\n", "")));
+  }
   if (error) throw error;
-  const message = data as RefundManualMessageRow | null;
+  const message = data as unknown as RefundManualMessageRow | null;
+  if (message && message.gift_denial_source_message_id === undefined) message.gift_denial_source_message_id = null;
   const systemGiftCompletion = message?.created_by === null &&
     message.delivery_kind === "automatic" && message.message_type === "completed" &&
     message.template_version === "refund_gift_card_v1" &&
@@ -449,6 +457,7 @@ export const deliverRefundManualMessageClaim = async ({
   const storedEmail = buildRefundStoredTextWithStatus({
     headline: message.subject,
     text: baseBody,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(currentCase.intake_meta),
     statusUrl: statusCapability?.url ?? null,
   });
   let email = {
@@ -459,6 +468,14 @@ export const deliverRefundManualMessageClaim = async ({
   let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
+  let giftDenialRecipientCorrected = false;
+  if (message.gift_denial_source_message_id) {
+    if (message.message_type !== 'denied' || message.delivery_kind !== 'manual') throw new Error('Saved denial notice binding is invalid.');
+    const { data: source, error: sourceError } = await supabase.from('refund_case_messages')
+      .select('refund_case_id,recipient_email').eq('id', message.gift_denial_source_message_id).single();
+    if (sourceError || source?.refund_case_id !== message.refund_case_id) throw new Error('Saved denial notice is unavailable.');
+    giftDenialRecipientCorrected = String(source.recipient_email).trim().toLowerCase() !== message.recipient_email.trim().toLowerCase();
+  }
   if (message.template_version === "refund_gift_card_v1" && !transactionalRecovery) {
     const { data: issuance, error: issuanceError } = await supabase
       .from("refund_gift_card_issuances")
@@ -557,6 +574,7 @@ export const deliverRefundManualMessageClaim = async ({
       email,
       deliveryKind: message.delivery_kind,
       managerCopyPolicy,
+      giftDenialRecipientCorrected,
       gmailThreadId: receiptThreadId,
       syntheticProofAuthorizationId:
         message.synthetic_gmail_proof_authorization_id,

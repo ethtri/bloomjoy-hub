@@ -636,3 +636,11 @@ Deno.test("Spanish stored gift acknowledgement translates its secure status acti
   assertIncludes(copy.html, "Consultar el estado del reembolso", "Spanish HTML action");
   assert(!copy.text.includes("Check refund status"), "No English action in Spanish copy");
 });
+
+Deno.test("reviewed gift denial explanation stays plain text in the branded stored-message renderer", () => {
+  const explanation = 'Reviewed reason: <script>alert("example")</script> & customer text.';
+  const email = buildRefundStoredTextWithStatus({ headline: 'Your Bloomjoy request review is complete', text: explanation });
+  assertIncludes(email.text, explanation, 'The reviewed explanation is preserved');
+  assertNotIncludes(email.html, '<script>', 'Manager text cannot become HTML');
+  assertIncludes(email.html, '&lt;script&gt;', 'The explanation is escaped by the existing renderer');
+});

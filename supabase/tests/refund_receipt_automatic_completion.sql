@@ -3,8 +3,11 @@ create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select no_plan();
 select ok(position('assert_no_active_refund_owner_resolution(case_id)'
-    in pg_get_functiondef('public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)'::regprocedure))>0,
+    in pg_get_functiondef('public.service_mark_refund_manual_provider_pre_gift_complaint_v1(uuid,uuid)'::regprocedure))>0,
   'Manual outbox provider mark preserves the owner-resolution stop');
+select ok(position('return public.service_mark_refund_manual_provider_pre_gift_complaint_v1('
+    in pg_get_functiondef('public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)'::regprocedure))>0,
+  'The complaint wrapper always retains the exact provider delegate and its owner-resolution stop');
 select ok(position('is_refund_receipt_completion_message(to_jsonb(new))'
     in pg_get_functiondef('public.guard_refund_follow_up_message()'::regprocedure))>0,
   'The legacy automatic-message guard recognizes only the authority-bound receipt completion identity');

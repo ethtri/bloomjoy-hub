@@ -93,6 +93,99 @@ const singleRowQuery = (data: unknown) => {
   return query;
 };
 
+Deno.test('worker-first rollout retries only actual missing denial-link column and keeps old receipt reconciliation', async () => {
+  const selections: string[] = [], calls: string[] = [];
+  const message = claimedMessage('2026-10-01T00:00:00Z', {
+    template_version: 'refund_receipt_completion_v1', delivery_transport: 'resend',
+    provider_message_id: 'synthetic-legacy-receipt', delivery_state: 'accepted', delivery_state_updated_at: '2026-10-01T00:01:00Z',
+  });
+  const supabase = {
+    from: (table: string) => {
+      if (table === 'refund_cases') return singleRowQuery(currentCase);
+      if (table !== 'refund_case_messages') throw new Error(`Unexpected rollout table ${table}`);
+      const query = { select: (columns: string) => { selections.push(columns); return query; },
+        eq: () => query, maybeSingle: () => Promise.resolve(selections.length === 1
+          ? { data: null, error: { code: '42703', message: 'column refund_case_messages.gift_denial_source_message_id does not exist' } }
+          : { data: message, error: null }) };
+      return query;
+    },
+    rpc: (name: string) => { calls.push(name); return Promise.resolve({ data: {
+      marked: true, finished: true, payloadRedacted: true,
+    }, error: null }); },
+  };
+  const result = await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } });
+  assertEquals(result.outcome, 'sent'); assertEquals(selections.length, 2);
+  assertEquals(selections[0].includes('gift_denial_source_message_id'), true);
+  assertEquals(selections[1].includes('gift_denial_source_message_id'), false);
+  assertEquals(calls, ['service_mark_refund_manual_message_provider_attempt', 'service_finish_refund_manual_message_delivery']);
+});
+
+Deno.test('schema-cache lag, unrelated columns and permission errors never treat a corrected denial child as legacy', async () => {
+  for (const error of [
+    { code: 'PGRST204', message: "Could not find the gift_denial_source_message_id column of refund_case_messages in the schema cache" },
+    { code: '42703', message: 'column refund_case_messages.other_evidence does not exist' },
+    { code: '42501', message: 'column refund_case_messages.gift_denial_source_message_id does not exist' },
+  ]) {
+    let reads = 0, providerCalls = 0, rejected = false;
+    const supabase = {
+      from: (table: string) => {
+        assertEquals(table, 'refund_case_messages'); reads++;
+        const query = { select: () => query, eq: () => query, maybeSingle: () => Promise.resolve({ data: null, error }) };
+        return query;
+      },
+      rpc: () => { providerCalls++; throw new Error('Rollout failure reached provider boundary'); },
+    };
+    try { await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } }); }
+    catch (caught) { rejected = true; assertEquals(caught, error); }
+    assertEquals(rejected, true); assertEquals(reads, 1); assertEquals(providerCalls, 0);
+  }
+});
+
+Deno.test('linked corrected denial uses one fresh transactional key and preserves saved notice content', async () => {
+  const settings = { RESEND_API_KEY: 'synthetic-resend-key', REFUND_CUSTOMER_FROM_EMAIL: 'refunds@bloomjoysweets.com',
+    INTERNAL_NOTIFICATION_FROM_EMAIL: 'info@bloomjoysweets.com', GMAIL_SUPPORT_MAILBOX: 'info@bloomjoysweets.com' };
+  const before = new Map(Object.keys(settings).map(name => [name, Deno.env.get(name)]));
+  for (const [name, value] of Object.entries(settings)) Deno.env.set(name, value);
+  const originalFetch = globalThis.fetch; let sends = 0, messageReads = 0; const calls: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    assertEquals(String(url), 'https://api.resend.com/emails'); sends++;
+    const payload = JSON.parse(String(init?.body));
+    assertEquals(payload.to, ['customer@example.invalid']);
+    assertEquals(payload.cc, ['manager@example.invalid']);
+    assertEquals(new Headers(init?.headers).get('Idempotency-Key'), `refund-message-${messageId}`);
+    assertEquals(payload.text.includes('Saved reviewed explanation.'), true);
+    return Response.json({ id: 'synthetic-denial-new-key' });
+  }) as typeof fetch;
+  try {
+    const supabase = {
+      from: (table: string) => {
+        if (table === 'refund_case_messages') return singleRowQuery(++messageReads === 1
+          ? claimedMessage(null, { message_type: 'denied', delivery_kind: 'manual', content_source: 'manager_authored',
+            body: 'Saved reviewed explanation.', gift_denial_source_message_id: secondMessageId })
+          : { refund_case_id: 'b2200000-0000-4000-8000-000000000001', recipient_email: 'old-typo@example.invalid' });
+        if (table === 'refund_cases') return singleRowQuery(currentCase);
+        throw new Error(`Unexpected corrected-denial table ${table}`);
+      },
+      rpc: async (name: string) => {
+        calls.push(name);
+        if (name === 'service_verify_refund_synthetic_gmail_proof_transport') return { data: { required: false, allowed: true }, error: null };
+        if (name === 'service_authorize_refund_customer_outbound') return { data: { allowed: true, recipientResolutionStatus: 'resolved',
+          managerCcEmails: ['manager@example.invalid'], managerRecipientOverlap: false, managerRecipientCount: 1 }, error: null };
+        if (name.includes('mark_refund_')) return { data: { marked: true, payloadRedacted: true }, error: null };
+        if (name === 'service_bind_refund_transactional_delivery') return { data: { bound: true, payloadRedacted: true }, error: null };
+        if (name === 'service_finish_refund_manual_message_delivery') return { data: { finished: true, payloadRedacted: true }, error: null };
+        throw new Error(`Unexpected corrected-denial RPC ${name}`);
+      },
+    };
+    const result = await deliverRefundManualMessageClaim({ supabase: supabase as never, reference: { messageId, claimToken } });
+    assertEquals(result.outcome, 'sent'); assertEquals(sends, 1);
+    assertEquals(calls.includes('service_claim_refund_gmail_outbound_v3'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of before) { if (value === undefined) Deno.env.delete(name); else Deno.env.set(name, value); }
+  }
+});
+
 Deno.test("System gift author requires exact existing automatic completion authority before transport", async () => {
   const variants = [
     { overrides: { delivery_kind: "manual" }, proof: true, queries: 0 },
