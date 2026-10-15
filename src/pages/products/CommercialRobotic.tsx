@@ -116,21 +116,16 @@ export default function CommercialRoboticPage() {
         </div>
       </div>
 
-      <section className="section-padding">
+      <section className="py-6 sm:py-10 lg:py-12">
         <div className="container-page">
-          <div className="grid gap-12 lg:grid-cols-2">
-            {/* Image */}
-            <div>
-              <ProductImageGallery images={commercialImages} />
-            </div>
-
+          <div className="grid gap-6 lg:grid-cols-2 lg:gap-x-12">
             {/* Details */}
-            <div>
+            <div className="order-1 min-w-0 lg:order-2">
               <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                Most Popular
+                Available by quote
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets {MACHINE_NAMES.commercial}
+                {MACHINE_NAMES.commercial}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 Request a quote
@@ -139,28 +134,29 @@ export default function CommercialRoboticPage() {
                 We will confirm configuration, wrap, shipping, and delivery in your quote.
               </p>
 
-              <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-                Full-size commercial robotic cotton candy machine designed for high-throughput venues. Automated stick dispensing, complex pattern capabilities, and built for continuous operation. Commercial-only custom wrap is available with final design coordinated offline by the Bloomjoy design team.
+              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+                For high-traffic venues and event operations. Automatic stick dispensing, 64 patterns, and four sugar colors. Plan for a 230 kg cabinet and AC 110V/220V power.
               </p>
 
-              <div className="mt-8 space-y-4">
-                <Link
-                  to="/contact?type=quote&interest=commercial-robotic-machine&source=%2Fmachines%2Fcommercial-robotic-machine"
-                  onClick={handleRequestQuote}
-                >
-                  <Button variant="hero" size="xl" className="w-full">
-                    Request a Quote
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-                <p className="text-center text-sm text-muted-foreground">
-                  Standard Bloomjoy wrap and Commercial-only custom wrap are both available.
-                </p>
-                <p className="text-center text-sm text-muted-foreground">
-                  Custom wrap artwork is finalized offline with the Bloomjoy design team.
+              <div className="mt-5 space-y-3">
+                <Button asChild variant="hero" size="xl" className="w-full">
+                  <Link to="/contact?type=quote&interest=commercial-robotic-machine&source=%2Fmachines%2Fcommercial-robotic-machine" onClick={handleRequestQuote}>
+                    Request a Quote <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  Choose a standard Bloomjoy wrap or work with our design team on a custom wrap.
                 </p>
               </div>
 
+            </div>
+
+            <div className="order-2 min-w-0 lg:order-1 lg:row-span-2">
+              <ProductImageGallery images={commercialImages} className="mx-auto max-w-sm lg:max-w-none" />
+            </div>
+
+            <details className="order-3 min-w-0 rounded-xl border border-border bg-background p-5 lg:col-start-2">
+              <summary className="cursor-pointer font-display text-lg font-semibold text-foreground">Fit, features, and planning guides</summary>
               <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <div className="flex items-start gap-3">
                   <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -276,17 +272,27 @@ export default function CommercialRoboticPage() {
                   and operators seeking maximum throughput with a scheduled service rhythm.
                 </p>
               </div>
-            </div>
+            </details>
           </div>
 
-          {/* Specs and Documentation */}
-          <div className="mt-16">
-            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
-              Specs and Documentation
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Commercial planning details presented in native, readable format.
-            </p>
+        </div>
+      </section>
+      <div className="sticky top-16 z-30 border-y border-border bg-background/95 backdrop-blur">
+        <div className="container-page flex min-h-16 items-center justify-between gap-3 py-2">
+          <p className="text-sm font-semibold text-foreground">Commercial Machine</p>
+          <Button asChild size="sm" className="min-h-11 shrink-0">
+            <Link to="/contact?type=quote&interest=commercial-robotic-machine&source=%2Fmachines%2Fcommercial-robotic-machine" onClick={handleRequestQuote}>
+              Request a Quote <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      </div>
+      <section className="py-8 sm:py-12">
+        <div className="container-page">
+          <details className="rounded-xl border border-border p-5 sm:p-6">
+            <summary className="cursor-pointer font-display text-2xl font-bold text-foreground">Full specifications and documents</summary>
+          <div className="mt-6">
+
 
             <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {specHighlights.map((highlight) => (
@@ -378,6 +384,8 @@ export default function CommercialRoboticPage() {
               </div>
             </div>
           </div>
+
+          </details>
 
           <Dialog open={Boolean(activeDoc)} onOpenChange={(open) => !open && setActiveDoc(null)}>
             <DialogContent className="max-w-[95vw] border-none bg-transparent p-0 shadow-none">
@@ -487,20 +495,19 @@ export default function CommercialRoboticPage() {
             </div>
           </div>
 
-          <section id="faq" className="mt-16 scroll-mt-24">
+          <section id="faq" className="mt-16 scroll-mt-36">
             <div className="mx-auto max-w-3xl">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Commercial robotic cotton candy machine FAQs
               </h2>
               <Accordion
                 type="multiple"
-                defaultValue={commercialMachineFaqs.map((_, index) => `commercial-faq-${index}`)}
                 className="mt-6"
               >
                 {commercialMachineFaqs.map((faq, index) => (
                   <AccordionItem key={faq.q} value={`commercial-faq-${index}`}>
                     <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                    <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+                    <AccordionContent forceMount className="text-muted-foreground data-[state=closed]:hidden">{faq.a}</AccordionContent>
                   </AccordionItem>
                 ))}
               </Accordion>
