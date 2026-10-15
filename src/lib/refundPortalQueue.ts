@@ -14,6 +14,7 @@ export type RefundPortalQueueItem = {
   nextWorkActor: 'agent' | 'customer' | 'manager' | 'system';
   nextWorkActionCode: string;
   nextWorkActionLabel: string;
+  nextWorkBlockerCode?: string | null;
   payloadRedacted: true;
 };
 
@@ -81,6 +82,7 @@ export const parseRefundPortalQueueProjection = (
       !refundPortalQueueActors.has(String(item.nextWorkActor)) ||
       typeof item.nextWorkActionCode !== 'string' ||
       typeof item.nextWorkActionLabel !== 'string' || !item.nextWorkActionLabel.trim() ||
+      (item.nextWorkBlockerCode != null && typeof item.nextWorkBlockerCode !== 'string') ||
       item.payloadRedacted !== true
     ) {
       throw new Error('Unsupported refund queue summary.');
@@ -125,6 +127,10 @@ export const parseRefundPortalQueueProjection = (
     payloadRedacted: true,
   };
 };
+
+export const refundQueueHasPurchaseEvidenceDependency = (item: RefundPortalQueueItem) =>
+  item.isOpen && item.nextWorkActor === 'agent' && item.nextWorkActionCode === 'research_purchase' &&
+  item.nextWorkBlockerCode === 'stable_evidence_dependency';
 
 /** Search spans customer views; internal archives remain a separate scope. */
 export const filterRefundPortalQueue = (

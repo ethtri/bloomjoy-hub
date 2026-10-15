@@ -8,9 +8,11 @@ import { createServer } from 'vite';
 
 let vite;
 let Review;
+let refundHasPurchaseEvidenceDependency;
 test.before(async () => {
   vite = await createServer({ appType: 'custom', logLevel: 'error', optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true } });
   ({ RefundTransactionCandidateReview: Review } = await vite.ssrLoadModule('/src/components/refunds/RefundTransactionCandidateReview.tsx'));
+  ({ refundHasPurchaseEvidenceDependency } = await vite.ssrLoadModule('/src/lib/refundManagerPresentation.ts'));
 });
 test.after(async () => { await vite?.close(); });
 
@@ -114,6 +116,7 @@ const pagePanel = (overrides = {}) => {
   const env = {
     selectedCase: caseRecord, editor: editorState, selectedCaseIsResolvedDuplicate: false, selectedCaseNeedsLegacyPaymentReview: false,
     primaryAction: null, refundCanShowCandidateInventory: () => true, nayaxCandidates: [candidate('first'), candidate('alternative')],
+    refundHasPurchaseEvidenceDependency,
     hasSelectedCardEvidence: () => true, isWaitingCase: () => false, refundOperationsAccess: true,
     canConfirmRefundCandidate: ({ canSelectCandidate }) => canSelectCandidate, officialActionVersion: 1,
     selectedNayaxCandidate: (editor, candidates) => candidates.find((item) => item.candidateToken === editor.matchedNayaxCandidateToken) ?? null,

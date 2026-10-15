@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import { filterRefundPortalQueue, parseRefundPortalQueueProjection, type RefundPortalQueueItem } from "./refundPortalQueue.ts";
+import { filterRefundPortalQueue, parseRefundPortalQueueProjection, refundQueueHasPurchaseEvidenceDependency, type RefundPortalQueueItem } from "./refundPortalQueue.ts";
 
 const fixture = () => ({
   schemaVersion: "refund_portal_queue_v1",
@@ -37,6 +37,27 @@ Deno.test("portal queue projection accepts the small redacted contract", () => {
   const parsed = parseRefundPortalQueueProjection(fixture());
   assertEquals(parsed.counts.decisions, 1);
   assertEquals(parsed.items[0].nextWorkActor, "manager");
+});
+
+Deno.test('compact dependency copy requires the exact optional canonical blocker', () => {
+  const item: RefundPortalQueueItem = { ...fixture().items[0] as RefundPortalQueueItem,
+    decisionReady: false, view: 'all_open', nextWorkActor: 'agent',
+    nextWorkActionCode: 'research_purchase', nextWorkBlockerCode: 'stable_evidence_dependency' };
+  assertEquals(refundQueueHasPurchaseEvidenceDependency(item), true);
+  for (const nextWorkBlockerCode of [undefined, null, 'request_delivery_unknown']) {
+    assertEquals(refundQueueHasPurchaseEvidenceDependency({ ...item, nextWorkBlockerCode }), false);
+  }
+  assertEquals(refundQueueHasPurchaseEvidenceDependency({ ...item, isOpen: false }), false);
+  assertEquals(refundQueueHasPurchaseEvidenceDependency({ ...item, nextWorkActor: 'system' }), false);
+  assertEquals(refundQueueHasPurchaseEvidenceDependency({ ...item, nextWorkActionCode: 'recover_customer_delivery' }), false);
+  const projection = fixture();
+  for (const nextWorkBlockerCode of [undefined, null, 'stable_evidence_dependency']) {
+    assertEquals(parseRefundPortalQueueProjection({ ...projection,
+      items: [{ ...projection.items[0], nextWorkBlockerCode }] }).items[0].nextWorkBlockerCode,
+      nextWorkBlockerCode);
+  }
+  assertThrows(() => parseRefundPortalQueueProjection({ ...projection,
+    items: [{ ...projection.items[0], nextWorkBlockerCode: 12 }] }));
 });
 
 Deno.test("portal queue projection rejects duplicate case rows", () => {

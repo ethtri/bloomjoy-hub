@@ -369,5 +369,14 @@ Deno.test('Waiting on customer requires sent-question proof and the four views f
   assertEquals(cases.filter((item) => refundManagerView(item) === 'waiting_on_customer').length, 1);
   assertEquals(cases.filter((item) => refundManagerView(item) === 'completed').length, 1);
   assertEquals(refundPlainStatus(active), 'Finding the purchase');
+  const dependency = {
+    ...active,
+    lifecycle: { ...active.lifecycle!, nextWork: { ...active.lifecycle!.nextWork!,
+      blocker: { code: 'stable_evidence_dependency', owner: 'Agent' as const,
+        nextStep: 'Find verified purchase evidence.' } } },
+  };
+  assertEquals(refundPlainStatus(dependency), 'Purchase evidence needed');
+  assertEquals(refundManagerView(dependency), 'all_open');
+  assertEquals(refundNeedsDecision(dependency), false);
   assertEquals(refundPlainStatus(closed), 'Closed');
 });
