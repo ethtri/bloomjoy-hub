@@ -85,16 +85,16 @@ select is(public.service_refund_manager_ready_notice_snapshot('fc860000-0000-400
 select is(pg_temp.gift_snapshot()->>'decisionFingerprint',(select snapshot->>'decisionFingerprint' from gift_before),
  'Returning to the same material preparation restores the same semantic identity');
 
+insert into public.email_alert_profiles(user_id,timezone,quiet_enabled,daily_time)
+ values('fc810000-0000-4000-8000-000000000001','UTC',false,date_trunc('minute',now() at time zone 'UTC')::time);
 update private.email_alert_delivery_settings set delivery_enabled=true,activated_at=now()-interval '1 hour';
-select is(public.service_enqueue_refund_manager_ready_notices('fc860000-0000-4000-8000-000000000001')->>'queuedCount','0',
- 'Optional ready delivery remains off without a subscription');
+select is(public.service_enqueue_refund_manager_ready_notices('fc860000-0000-4000-8000-000000000001')->>'queuedCount','1',
+ 'Required gift decision queues automatically without a subscription');
 insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,machine_ids,enabled_since)
  values('fc810000-0000-4000-8000-000000000001','decision-ready',true,'selected',
  array['fc840000-0000-4000-8000-000000000001']::uuid[],now()-interval '1 hour');
-insert into public.email_alert_profiles(user_id,timezone,quiet_enabled,daily_time)
- values('fc810000-0000-4000-8000-000000000001','UTC',false,date_trunc('minute',now() at time zone 'UTC')::time);
-select is(public.service_enqueue_refund_manager_ready_notices('fc860000-0000-4000-8000-000000000001')->>'queuedCount','1',
- 'Explicitly subscribed Manager queues one gift decision');
+select is(public.service_enqueue_refund_manager_ready_notices('fc860000-0000-4000-8000-000000000001')->>'queuedCount','0',
+ 'A later saved subscription cannot duplicate the automatic gift notice');
 select ok((select ready_proof_id is null and ready_evidence_basis='gift_card_manager_review'
  from public.refund_manager_notification_actions where notice_reason='decision_ready'),
  'Durable identity explicitly records gift review without a fabricated proof');

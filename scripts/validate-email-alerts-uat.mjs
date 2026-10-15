@@ -54,15 +54,15 @@ const save = async (page, saves) => {
 try {
   const manager = await session(); const { page, saves } = manager;
   await page.goto(`${origin}/portal/notifications`); await waitPage(page);
-  await check('Daily alone defaults on; all six manager categories are visible', async () => {
-    assert.equal(await page.getByRole('checkbox', { name: /^Receive / }).count(), 6);
+  await check('Daily alone defaults on; five informational categories are optional', async () => {
+    assert.equal(await page.getByRole('checkbox', { name: /^Receive / }).count(), 5);
     assert(await page.getByRole('checkbox', { name: 'Receive Daily operations brief', exact: true }).isChecked());
     assert.equal(await page.getByRole('checkbox', { name: /^Receive /, checked: true }).count(), 1);
     assert(await page.getByRole('button', { name: 'Save preferences', exact: true }).isDisabled());
     assert(await page.getByRole('checkbox', { name: 'Receive Cash sales unexpectedly quiet' }).isDisabled());
     assert(await page.getByText('Complete cash comparison source is not verified').isVisible());
     assert(await page.getByText(/Card activity is not included/).isVisible());
-    assert(await page.getByText(/Daily briefs show period sales and new requests/).isVisible());
+    assert(await page.getByText(/we email the responsible Managers automatically/).isVisible());
     assert.equal(await page.getByText(/Ready decisions also appear in your daily brief|daily brief also includes open refund work/).count(), 0,
       'Preferences must not promise outstanding decisions in the period digest');
     await overflow(page); await snap(page, 'preferences-desktop');
@@ -70,15 +70,12 @@ try {
     await overflow(page); await snap(page, 'preferences-manager-mobile');
     await page.setViewportSize({ width: 1440, height: 960 });
   });
-  await check('Manager decision-ready is an explicit opt-in for selected machines', async () => {
-    await page.getByRole('checkbox', { name: 'Receive Refund decision ready', exact: true }).check();
-    const decision = row(page, 'Refund decision ready');
-    await decision.getByRole('checkbox', { name: /North Atrium/ }).check();
-    await save(page, saves);
-    const chosen = manager.saved().alerts.find(item => item.id === 'decision-ready');
-    assert.equal(chosen.enabled, true); assert.equal(chosen.scopeMode, 'selected');
-    assert.deepEqual(chosen.machineIds, ['operator-machine-north']);
-    assert.equal(manager.saved().alerts[0].scopeMode, 'all_assigned', 'Untouched daily follows future assignments');
+  await check('Required Manager actions need no subscription or setup step', async () => {
+    assert.equal(await page.getByRole('checkbox', { name: 'Receive Refund action needed', exact: true }).count(), 0);
+    assert(await page.getByText(/Quiet hours still apply/).isVisible());
+    assert.equal(manager.saved().alerts.find(item => item.id === 'decision-ready').enabled, false,
+      'Operational responsibility does not rewrite the old opt-out');
+    assert.equal(saves.length, 0, 'No enrollment or preference save is required');
   });
   await check('Empty enabled scope prevents save, then saves independent weekly selection', async () => {
     await page.getByRole('checkbox', { name: 'Receive Weekly performance review', exact: true }).check();
@@ -125,7 +122,7 @@ try {
     await snap(page, 'setup-review-desktop');
     await save(page, saves);
     assert.deepEqual(manager.saved().alerts.find(item => item.id === 'weekly').machineIds, ['operator-machine-garden']);
-    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, ['operator-machine-north']);
+    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, []);
   });
   await check('Authorized report machine link opens panel; it only changes the selected machine', async () => {
     await page.goto(`${origin}/portal/reports?machine=operator-machine-north`);
@@ -143,7 +140,7 @@ try {
     await panel.waitFor({ state: 'hidden' });
     assert.deepEqual(manager.saved().alerts[0].machineIds, ['operator-machine-garden']);
     assert.deepEqual([...manager.saved().alerts.find(item => item.id === 'weekly').machineIds].sort(), ['operator-machine-garden', 'operator-machine-north']);
-    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, ['operator-machine-north']);
+    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, []);
   });
   await check('Reports digest setup carries machine scope and preserves other categories', async () => {
     await page.getByRole('link', { name: 'Subscribe to digest' }).click();
@@ -155,7 +152,7 @@ try {
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await save(page, saves);
     assert.deepEqual(manager.saved().alerts[0].machineIds, ['operator-machine-north']);
-    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, ['operator-machine-north']);
+    assert.deepEqual(manager.saved().alerts.find(item => item.id === 'decision-ready').machineIds, []);
   });
   await check('Reports digest setup requires a digest even with an enabled refund alert', async () => {
     await page.goto(`${origin}/portal/notifications?setup=digests&machines=operator-machine-north`);

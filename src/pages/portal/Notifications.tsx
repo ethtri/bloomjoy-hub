@@ -32,9 +32,9 @@ function PreferencesEditor({ context }: { context: EmailAlertContext }) {
   const [leave, setLeave] = useState<(() => void) | null>(null); const [success, setSuccess] = useState(false);
   const initialized = useRef(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(preferencesFrom(base));
-  const active = draft.alerts.filter(alert => alert.enabled && alert.available);
-  const optional = draft.alerts.filter(alert => alert.id !== 'decision-ready' || alert.authorized);
-  const affected = (preferences: EmailAlertPreferences) => preferences.alerts.filter(alert => (alert.id !== 'decision-ready' || alert.authorized) && (flowSource !== 'digests' || ['daily', 'weekly'].includes(alert.id)));
+  const active = draft.alerts.filter(alert => alert.id !== 'decision-ready' && alert.enabled && alert.available);
+  const optional = draft.alerts.filter(alert => alert.id !== 'decision-ready');
+  const affected = (preferences: EmailAlertPreferences) => preferences.alerts.filter(alert => alert.id !== 'decision-ready' && (flowSource !== 'digests' || ['daily', 'weekly'].includes(alert.id)));
   const updateAlert = (alert: EmailAlertSubscription) => { setDraft(previous => ({ ...previous, alerts: previous.alerts.map(item => item.id === alert.id ? alert : item) })); setError(''); setSuccess(false); };
   const updateSettings = (settings: EmailAlertPreferences['settings']) => { setDraft(previous => ({ ...previous, settings })); setError(''); setSuccess(false); };
   const toggleExpanded = (id: EmailAlertId) => setExpanded(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
@@ -66,10 +66,10 @@ function PreferencesEditor({ context }: { context: EmailAlertContext }) {
     return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', click, true); };
   }, [dirty, navigate]);
 
-  const startSetup = () => { const current = [...new Set(base.alerts.filter(alert => alert.enabled).flatMap(alert => machinesForAlert(alert, base.machines).map(machine => machine.machineId)))]; setDraft(preferencesFrom(base)); setFlowSource('all'); setFlowMachines(current); appliedScope.current = [...current].sort().join(','); setStep(1); setExpanded([]); setError(''); setSuccess(false); };
+  const startSetup = () => { const current = [...new Set(base.alerts.filter(alert => alert.id !== 'decision-ready' && alert.enabled).flatMap(alert => machinesForAlert(alert, base.machines).map(machine => machine.machineId)))]; setDraft(preferencesFrom(base)); setFlowSource('all'); setFlowMachines(current); appliedScope.current = [...current].sort().join(','); setStep(1); setExpanded([]); setError(''); setSuccess(false); };
   const preset = (role: 'manager' | 'technician' | 'none') => {
     const ids: EmailAlertId[] = role === 'manager' ? ['daily', 'weekly', 'sales-quiet'] : role === 'technician' ? ['new-refund', 'device-offline'] : [];
-    setDraft(previous => ({ ...previous, alerts: previous.alerts.map(alert => ({ ...alert, enabled: alert.available && ids.includes(alert.id) })) })); setError('');
+    setDraft(previous => ({ ...previous, alerts: previous.alerts.map(alert => alert.id === 'decision-ready' ? alert : ({ ...alert, enabled: alert.available && ids.includes(alert.id) })) })); setError('');
   };
   const save = async () => {
     const invalid = validateEmailAlertPreferences(draft, base.machines);

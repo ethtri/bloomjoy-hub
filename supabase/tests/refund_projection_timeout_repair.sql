@@ -9,6 +9,10 @@ select ok(strpos(pg_get_functiondef(
   'recommendation projection has the guarded impossible-evidence fast path');
 select ok(strpos(pg_get_functiondef(
     'public.service_refund_manager_ready_notice_snapshot(uuid,uuid,timestamptz)'::regprocedure),
+    'return public.service_refund_ready_snapshot_pre_required_v1(')>0,
+  'recovery adapter delegates business decisions to the existing gift adapter');
+select ok(strpos(pg_get_functiondef(
+    'public.service_refund_ready_snapshot_pre_required_v1(uuid,uuid,timestamptz)'::regprocedure),
     'return public.service_refund_ready_snapshot_pre_gift_review_v1(')>0,
   'gift adapter delegates non-gift cases to the optimized ready snapshot');
 select ok(strpos(pg_get_functiondef(

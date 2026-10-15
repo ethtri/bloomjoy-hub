@@ -32,6 +32,19 @@ const claim = {
 };
 const caseUrl = (caseId: string) => `https://portal.example/refunds?case=${caseId}`;
 
+Deno.test("required reminder preserves the same final route check and durable attempt key", async () => {
+  let starts = 0;
+  const result = await deliverRefundManagerReadyClaim({ claim: { ...claim, noticeStage: "reminder" }, caseUrl,
+    client: { rpc: async name => { if (name.includes("provider_started")) starts++; return { data: true, error: null }; } },
+    sendEmail: async message => {
+      assert(starts === 1, "current route checked before reminder transport");
+      assert(message.subject.startsWith("Reminder: "), "reminder is clearly named");
+      assert(message.idempotencyKey === `refund_manager_ready_${claim.intentId.replaceAll("-", "")}`, "existing outbox identity is the provider key");
+      return { providerMessageId: "synthetic-required-reminder" };
+    } });
+  assert(result === "sent", "required reminder settles through the existing ledger");
+});
+
 Deno.test("ready notice sends one current manager a prepared decision with a durable idempotency key", async () => {
   const calls: string[] = [];
   const messages: Array<{ to: string[]; idempotencyKey: string; text: string }> = [];

@@ -32,7 +32,7 @@ export const alertDefinitions: Record<EmailAlertId, { name: string; short: strin
   daily: { name: 'Daily operations brief', short: 'Daily brief', description: 'Yesterday’s performance and refund requests, grouped by machine.' },
   weekly: { name: 'Weekly performance review', short: 'Weekly review', description: 'Last week’s performance, comparisons, and refund requests.' },
   'new-refund': { name: 'New refund request', short: 'New refund requests', description: 'The reported problem and customer comment when a request arrives.' },
-  'decision-ready': { name: 'Refund decision ready', short: 'Refund decisions', description: 'An optional email when a case for a machine you manage is ready for your decision. View outstanding decisions in Refunds.' },
+  'decision-ready': { name: 'Refund action needed', short: 'Refund actions', description: 'Required refund actions are emailed automatically to the responsible Managers. Your quiet hours still apply.' },
   'sales-quiet': { name: 'Cash sales unexpectedly quiet', short: 'Quiet cash-sales alerts', description: 'When verified cash activity for a complete reporting day is much lower than usual. Card activity is not included.' },
   'device-offline': { name: 'Nayax connection disconnected', short: 'Nayax connection alerts', description: 'When a previously connected machine’s Nayax MQTT connection stays disconnected for at least 15 minutes. Connection status alone does not establish machine condition.' },
 };
@@ -52,6 +52,7 @@ export function changeAlertMachine(alert: EmailAlertSubscription, machines: Emai
 /** A machine panel only changes that machine; an inactive category cannot revive its old scopes. */
 export function changeMachineSubscriptions(preferences: EmailAlertPreferences, machines: EmailAlertMachine[], machineId: string, selected: EmailAlertId[]): EmailAlertPreferences {
   return { ...preferences, alerts: preferences.alerts.map(alert => {
+    if (alert.id === 'decision-ready') return alert;
     const machine = machines.find(item => item.machineId === machineId && item.authorizedAlertIds.includes(alert.id));
     if (!machine) return alert;
     const wasSelected = alert.enabled && machinesForAlert(alert, machines).some(machine => machine.machineId === machineId);
@@ -63,6 +64,7 @@ export function changeMachineSubscriptions(preferences: EmailAlertPreferences, m
 }
 export function validateEmailAlertPreferences(preferences: EmailAlertPreferences, machines: EmailAlertMachine[]) {
   for (const alert of preferences.alerts) {
+    if (alert.id === 'decision-ready') continue;
     if (alert.enabled && alert.available && !machinesForAlert(alert, machines).length) return `Choose at least one machine for ${alertDefinitions[alert.id].name.toLowerCase()}.`;
   }
   if (!settingsSchema.safeParse(preferences.settings).success) return 'Choose a valid delivery time for each digest and quiet-hours setting.';

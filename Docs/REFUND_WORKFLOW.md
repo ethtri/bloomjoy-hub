@@ -291,6 +291,16 @@ an existing case to a gift card; never automatically rewrite payment history.
 
 ## Customer forms and notifications
 
+Required Manager decisions and supported human recovery of a known failed
+customer notice generate automatic action-needed email to the current responsible
+Managers. Existing quiet hours apply; informational summaries remain optional.
+If the same action is outstanding, send one reminder on the next business-day
+anniversary of its first successful notice, then stop repeating. Resolve the
+action in the existing Refunds workspace. A contact-recovery notice preserves the
+saved decision and original customer notice; it never asks for another decision,
+customer form or unsafe retry of an unknown send. See the October 15 notification
+decision in `DECISIONS.md` for the precise delivery policy.
+
 Structured updates to the same case are the normal correction path. After
 internal research establishes that a customer fact is needed, the email names
 exactly which human-readable field or fields to check or update, briefly says

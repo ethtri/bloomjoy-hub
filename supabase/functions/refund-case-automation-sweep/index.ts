@@ -3980,6 +3980,12 @@ const runEnabledManagerAgingSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
+  const ownership = await supabase.rpc("service_email_alert_delivery_status", {});
+  if (ownership.error) throw ownership.error;
+  if (ownership.data?.ownershipActivated === true) {
+    addReason(counters, "manager_aging_owned_by_action_notices");
+    return;
+  }
   if (
     !Number.isInteger(managerReminderBusinessDays) ||
     managerReminderBusinessDays < 1 || managerReminderBusinessDays > 10 ||

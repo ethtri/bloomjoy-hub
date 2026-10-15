@@ -24,6 +24,22 @@ const notice = {
   payloadRedacted: true,
 } as const;
 
+Deno.test("customer-notice recovery has one navigation action and no new financial decision", () => {
+  const recovery = parseRefundManagerReadyNotice({ ...notice, proofId: null,
+    actionCode: "retry_customer_notice", evidenceBasis: "gift_denial_delivery_recovery",
+    amountCents: null, currencyCode: null,
+    preparationSummary: "The decision is saved. Review the customer email and retry the saved notice." });
+  const message = buildRefundManagerReadyEmail({ notice: recovery,
+    caseUrl: "https://portal.example/refunds?case=synthetic", isReminder: true });
+  assert(message.subject.startsWith("Reminder: Customer notice needs attention:"), "reminder names the operational purpose");
+  assert(message.text.includes("refund decision is already saved"), "no repeated business decision");
+  assert(!/approve or deny|Zelle|No matched purchase amount|Gift-card value/.test(message.text), "no false money or issuance instruction");
+  assert((message.html.match(/<a href=/g) ?? []).length === 1, "one direct case navigation link");
+  let rejected = false;
+  try { parseRefundManagerReadyNotice({ ...recovery, actionCode: "approve_or_deny_request" }); } catch { rejected = true; }
+  assert(rejected, "recovery evidence cannot authorize or imply approval");
+});
+
 Deno.test("ready email requires a complete safe final-decision projection", () => {
   for (const unsafe of [
     { ...notice, customerEmail: "private@example.test" },

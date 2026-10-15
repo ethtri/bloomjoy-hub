@@ -24,7 +24,7 @@ export type AlertSendEmail = (
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Subscription presentation around the mature, protected decision renderer; no workflow change. */
+/** Essential responsibility notices retain quiet-hours settings, without an opt-out promise. */
 export function decorateReadySubscription<
   T extends { html: string; text: string },
 >(message: T, preferencesUrl: string): T {
@@ -39,7 +39,7 @@ export function decorateReadySubscription<
   const header =
     '<p style="margin:0 0 26px;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#7b2946;letter-spacing:1px">bloomjoy HUB</p>';
   const footer =
-    `<p style="font-size:14px;line-height:1.5;margin:24px 0 12px">You receive this update because you follow refund decisions for this machine.</p><p><a href="${escaped}" style="color:#7b2946;font-weight:700;text-decoration:underline">Manage or turn off email alerts</a></p>`;
+    `<p style="font-size:14px;line-height:1.5;margin:24px 0 12px">You receive this action-needed notice because you are a responsible Manager for this machine. Your quiet hours apply.</p><p><a href="${escaped}" style="color:#7b2946;font-weight:700;text-decoration:underline">Manage quiet hours and optional summaries</a></p>`;
   return {
     ...message,
     html: message.html.replace(/(<main[^>]*>)/, `$1${header}`).replace(
@@ -47,7 +47,7 @@ export function decorateReadySubscription<
       `${footer}</main>`,
     ),
     text:
-      `${message.text}\n\nYou receive this update because you follow refund decisions for this machine.\nManage or turn off email alerts: ${url.toString()}`,
+      `${message.text}\n\nYou receive this action-needed notice because you are a responsible Manager for this machine. Your quiet hours apply.\nManage quiet hours and optional summaries: ${url.toString()}`,
   };
 }
 

@@ -5,6 +5,16 @@ import { alertSchedule, changeAlertMachine, changeMachineSubscriptions, emailAle
 const context = () => emailAlertContextSchema.parse(structuredClone(fixture));
 const equal = (actual: unknown, expected: unknown) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); };
 
+Deno.test('informational edits preserve former decision subscriptions without making them an enrollment gate', () => {
+  const data = context(); const draft = preferencesFrom(data);
+  const legacy = draft.alerts.find(item => item.id === 'decision-ready')!;
+  legacy.enabled = true; legacy.machineIds = [];
+  equal(validateEmailAlertPreferences(draft, data.machines), null);
+  const edited = changeMachineSubscriptions(draft, data.machines, data.machines[0].machineId, []);
+  equal(edited.alerts.find(item => item.id === 'decision-ready'), legacy);
+  equal(edited.alerts.find(item => item.id === 'daily')?.enabled, true);
+});
+
 Deno.test('contract and defaults preserve daily assignment following and explicit opt-out', () => {
   const data = context(); const draft = preferencesFrom(data);
   equal(draft.alerts.filter(item => item.enabled).map(item => item.id), ['daily']);

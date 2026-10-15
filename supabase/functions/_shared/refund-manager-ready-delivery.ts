@@ -34,7 +34,10 @@ export const deliverRefundManagerReadyClaim = async ({ client, claim, sendEmail,
   let providerStarted = false;
   try {
     const notice = parseRefundManagerReadyNotice(value.projection);
-    const message = buildRefundManagerReadyEmail({ notice, caseUrl: caseUrl(notice.caseId) });
+    if (value.noticeStage != null && !['initial', 'reminder'].includes(value.noticeStage as string)) {
+      throw new Error("Ready notice stage is invalid.");
+    }
+    const message = buildRefundManagerReadyEmail({ notice, caseUrl: caseUrl(notice.caseId), isReminder: value.noticeStage === 'reminder' });
     const started = await client.rpc("service_mark_refund_manager_ready_notice_provider_started", {
       p_intent_id: intentId, p_claim_token: token,
       p_route_fingerprint: routeFingerprint, p_recipient: recipient,

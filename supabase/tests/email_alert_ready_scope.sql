@@ -46,18 +46,18 @@ select is(public.service_enqueue_refund_manager_ready_notices('ef760000-0000-400
  '2','Before first adoption the legacy case producer retains both mapped-manager notices');
 truncate ready_snapshot_probes;
 update private.email_alert_delivery_settings set delivery_enabled=true,activated_at='2026-10-03T14:00Z' where singleton;
-select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:00Z')->>'reason','no_current_subscriptions','Default-off ready lane exits before scanning history');
-select is((select count(*)::integer from ready_snapshot_probes),0,'Zero subscribers cause zero canonical snapshot calls');
-select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-03T15:00Z')->>'reason','no_current_subscriptions','Existing legacy ready rows do not trigger claim traversal without opt-in');
-select is((select count(*)::integer from public.refund_manager_notification_actions where notice_reason='decision_ready' and delivery_state='ready_queued'),2,'Default-off preserves existing durable rows without reserving them');
-select is((select ready_scan_after_case_id from private.email_alert_delivery_settings),null,'Zero-subscriber ticks do not advance a fake scan cursor');
+select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-04T03:00Z')->>'reason','no_current_subscriptions','Default quiet hours defer required ready work without scanning history');
+select is((select count(*)::integer from ready_snapshot_probes),0,'Quiet hours cause zero canonical snapshot calls');
+select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-04T03:00Z')->>'reason','no_current_subscriptions','Quiet hours defer existing durable actions');
+select is((select count(*)::integer from public.refund_manager_notification_actions where notice_reason='decision_ready' and delivery_state='ready_queued'),2,'Quiet deferral preserves durable rows without reserving them');
+select is((select ready_scan_after_case_id from private.email_alert_delivery_settings),null,'Quiet ticks do not advance the fair scan cursor');
 
 -- A forged scope on an unassigned machine still cannot authorize a producer.
 insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,machine_ids)
  values('ef710000-0000-4000-8000-000000000002','decision-ready',true,'selected',array['ef740000-0000-4000-8000-000000000002'::uuid]);
-select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:00Z')->>'scannedCount','0','Stored preferences grant no new machine authority');
+select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-04T03:00Z')->>'scannedCount','0','Stored preferences cannot bypass quiet hours');
 insert into public.email_alert_preferences(user_id,alert_id,enabled,scope_mode,machine_ids)
- values('ef710000-0000-4000-8000-000000000001','decision-ready',true,'selected',array['ef740000-0000-4000-8000-000000000001'::uuid]);
+ values('ef710000-0000-4000-8000-000000000001','decision-ready',false,'selected','{}'::uuid[]);
 -- Saving an opt-in through a service/import does not necessarily create a
 -- profile. Effective UI defaults still defer producer, claim and provider start.
 create function pg_temp.ready_policy_checks(p_observed_at timestamptz)
@@ -69,7 +69,7 @@ returns jsonb language sql stable as $$
    'ef740000-0000-4000-8000-000000000001',p_observed_at));
 $$;
 select is((select count(*)::integer from public.email_alert_profiles
- where user_id='ef710000-0000-4000-8000-000000000001'),0,'Opted-in fixture has no saved delivery profile');
+ where user_id='ef710000-0000-4000-8000-000000000001'),0,'Required-notice fixture has no saved delivery profile');
 select is((private.email_alert_context('ef710000-0000-4000-8000-000000000001')#>>'{settings,quietStart}'),
  '20:00','Preferences display the default quiet start without a profile');
 select is(pg_temp.ready_policy_checks('2026-10-04T02:59Z'),'[true,true]'::jsonb,
@@ -86,8 +86,8 @@ select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-04
 select is((select count(*)::integer from ready_snapshot_probes),0,'Default quiet deferral never traverses case snapshots');
 select is(pg_temp.ready_policy_checks('2026-10-04T13:59Z'),'[false,false]'::jsonb,
  'Producer and provider boundary remain deferred at 06:59 Pacific without a profile');
-select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-10-04T14:00Z')),1,
- 'Default quiet hours release the selected scope at exactly 07:00 Pacific');
+select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-10-04T14:00Z')),3,
+ 'Default quiet end releases all three current assignments despite saved opt-out');
 select is(private.email_alert_ready_allowed('ef710000-0000-4000-8000-000000000001',
  'ef740000-0000-4000-8000-000000000001','2026-10-04T14:00Z'),true,
  'Provider-start policy agrees at the default quiet end');
@@ -110,34 +110,35 @@ create temporary table ready_scan_results(n integer,p jsonb);
 insert into ready_scan_results values(1,public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:00Z'));
 insert into ready_scan_results values(2,public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:05Z'));
 insert into ready_scan_results values(3,public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:10Z'));
-select ok((select bool_and(p->>'scannedCount'='5' and p->>'scanLimited'='true') from ready_scan_results),'Each global enqueue evaluates at most five subscribed cases');
-select is((select count(distinct case_id)::integer from ready_snapshot_probes),13,'Rotating batches eventually cover all selected cases beyond the first five');
-select is((select count(*)::integer from ready_snapshot_probes where case_id='ef760000-0000-4000-8000-000000000013'),0,'Unselected machine never enters canonical readiness work');
-select is((select count(*)::integer from ready_snapshot_probes where manager_id='ef710000-0000-4000-8000-000000000002'),0,'Other mapped managers remain excluded unless their own machine scope is enabled');
+select ok((select bool_and(p->>'scannedCount'='5' and p->>'scanLimited'='true') from ready_scan_results),'Each global enqueue evaluates at most five active assigned cases');
+select is((select count(distinct case_id)::integer from ready_snapshot_probes),14,'Rotating batches eventually cover all active assigned cases beyond the first five');
+select is((select count(*)::integer from ready_snapshot_probes where case_id='ef760000-0000-4000-8000-000000000013')>0,true,'Saved machine selections cannot hide required Manager work');
+select is((select count(*)::integer from ready_snapshot_probes where manager_id='ef710000-0000-4000-8000-000000000002')>0,true,'Every current responsible Manager is included without enrollment');
 select is((select count(*)::integer from public.refund_manager_notification_actions where notice_reason='decision_ready'),2,'Scoped enqueue reuses mature decision identities without duplicate actions');
 create temporary table optional_ready_claim as select public.service_claim_next_refund_manager_ready_notice(null,'2026-10-03T15:10Z') p;
-select is((select p->>'claimed' from optional_ready_claim),'true','An eligible subscriber can claim the existing canonical ready action');
-select is((select p->>'recipient' from optional_ready_claim),'ready-opt-in@example.invalid','Claim still routes to the authorized current manager');
+select is((select p->>'claimed' from optional_ready_claim),'true','A responsible Manager claims required work despite saved opt-out');
+select ok((select p->>'recipient' from optional_ready_claim) in ('ready-opt-in@example.invalid','ready-off@example.invalid'),'Claim uses a current responsible Manager account email');
 select is((select p#>>'{projection,actionCode}' from optional_ready_claim),'send_cash_refund_and_confirm','Canonical approved-payout action remains intact');
-select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-03T15:10Z')->>'claimed','false','An excluded manager action cannot be claimed after the subscribed action is reserved');
+select is(public.service_claim_next_refund_manager_ready_notice(null,'2026-10-03T15:10Z')->>'claimed','true','The other responsible Manager has an independent required notice');
 
+update public.reporting_machine_refund_managers set status='revoked',revoked_at='2026-10-03T15:11Z',revoke_reason='Synthetic revoke' where manager_user_id='ef710000-0000-4000-8000-000000000002';
 truncate ready_snapshot_probes;
 update public.reporting_machine_refund_managers set status='revoked',revoked_at='2026-10-03T15:11Z',revoke_reason='Synthetic revoke'
- where manager_user_id='ef710000-0000-4000-8000-000000000001' and reporting_machine_id='ef740000-0000-4000-8000-000000000001';
+ where manager_user_id='ef710000-0000-4000-8000-000000000001' ;
 select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:15Z')->>'reason','no_current_subscriptions','Revocation removes source work despite a saved opt-in');
 select is((select count(*)::integer from ready_snapshot_probes),0,'Revocation avoids expensive snapshots');
 update public.reporting_machine_refund_managers set status='active',revoked_at=null,revoke_reason=null
  where manager_user_id='ef710000-0000-4000-8000-000000000001' and reporting_machine_id='ef740000-0000-4000-8000-000000000001';
 update auth.users set banned_until='2027-01-01' where id='ef710000-0000-4000-8000-000000000001';
-select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:15Z')->>'reason','no_current_subscriptions','Banned recipients cannot generate optional ready work');
+select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:15Z')->>'reason','no_current_subscriptions','Banned recipients cannot generate required ready work');
 update auth.users set banned_until=null where id='ef710000-0000-4000-8000-000000000001';
 insert into public.email_alert_profiles(user_id,timezone,quiet_enabled,quiet_start,quiet_end)
  values('ef710000-0000-4000-8000-000000000001','America/Los_Angeles',true,'07:00','10:00');
-select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:15Z')->>'reason','no_current_subscriptions','Quiet hours defer optional producer work without dropping its durable cursor');
+select is(public.service_enqueue_refund_manager_ready_notices(null,'2026-10-03T15:15Z')->>'reason','no_current_subscriptions','Quiet hours defer required producer work without dropping its durable cursor');
 update public.email_alert_profiles set quiet_enabled=false
  where user_id='ef710000-0000-4000-8000-000000000001';
 select is((select count(*)::integer from private.email_alert_current_ready_scope('2026-10-03T15:15Z')),1,
- 'Explicitly disabled quiet hours restore the current opted-in scope');
+ 'Explicitly disabled quiet hours restore the current responsible scope');
 select is(private.email_alert_ready_allowed('ef710000-0000-4000-8000-000000000001',
  'ef740000-0000-4000-8000-000000000001','2026-10-03T15:15Z'),true,
  'Provider-start policy also preserves explicitly disabled quiet hours');
