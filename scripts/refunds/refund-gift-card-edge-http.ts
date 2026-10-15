@@ -137,7 +137,10 @@ try {
   assert(resend); assertEquals(resend.authorization, 'Bearer synthetic-manager-token');
   assertEquals(resend.body, { p_case_id: caseId, p_intent_id: recovery.intentId, p_email: 'corrected@example.invalid' });
   for (const [code, status] of [['42501', 403], ['P4672', 409]] as const) {
-    rpcError = code; assertEquals((await post(admin, recovery, true)).status, status);
+    rpcError = code;
+    const held = await post(admin, recovery, true);
+    assertEquals(held.status, status);
+    if (code === 'P4672') assert(String(held.data.error).includes('existing email send is still being verified'));
   }
   assert(!requests.some((r) => /service_issue_refund_gift_card|service_accept_refund_gift_card_offer|refund_cases/.test(r.path)));
   assertEquals(unexpected, []);

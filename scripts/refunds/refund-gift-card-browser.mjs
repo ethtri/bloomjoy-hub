@@ -211,7 +211,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
 <RefundGiftCardManagerPanel refundCase={{id:'synthetic-case',publicReference:'RF-SYNTHETIC',customerName:'Synthetic Friend',customerEmail:'synthetic@example.test',issueSummary:'The machine did not make a treat.',paymentAmountCents:1100,locationName:'Bloomjoy Test Mall',paymentMethod:'card',resolutionMethod:'gift_card'}} /></main>
 </QueryClientProvider>);`);
   for (const width of [1280, 375, 320]) {
-    for (const mode of ['approve', 'deny', 'read-only', 'resend', 'resend-read-only']) {
+    for (const mode of ['approve', 'deny', 'read-only', 'resend', 'resend-held', 'resend-read-only']) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       await context.addInitScript(() => localStorage.setItem('sb-127-auth-token', JSON.stringify({
         access_token: 'synthetic-access-token', refresh_token: 'synthetic-refresh-token', token_type: 'bearer', expires_at: 4102444800,
@@ -227,7 +227,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         if (url.includes('/rest/v1/rpc/get_refund_gift_card_case')) return route.fulfill({ json: {
           ...status, state: mode.startsWith('resend') ? 'issued' : decided ? mode === 'deny' ? 'denied' : 'issued' : 'manager_review',
           can_decide: !decided && !mode.startsWith('resend') && mode !== 'read-only',
-          can_resend: mode === 'resend', customer_email: 'synthetic@example.test', prior_issued_count: 1, latest_issued_at: '2026-08-01T12:00:00Z',
+          can_resend: mode === 'resend', delivery_recovery_state: mode === 'resend-held' ? 'reconciliation_required' : 'ready',
+          customer_email: 'synthetic@example.test', prior_issued_count: 1, latest_issued_at: '2026-08-01T12:00:00Z',
           previous_issuance: { value: 1000, currency: 'USD', issued_at: '2026-08-01T12:00:00Z', public_reference: 'RF-SYNTHETIC-PREVIOUS', eligible_locations: ['Bloomjoy Test Arcade'] },
         } });
         if (url.includes('/functions/v1/refund-case-admin-update')) {
@@ -260,6 +261,12 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         assert.equal(decisions[0].intentId, decisions[1].intentId);
         assert.equal(decisions[1].action, 'resendGiftCard');
         assert.equal(decisions[1].customerEmail, 'corrected@example.test');
+      } else if (mode === 'resend-held') {
+        assert.equal(await page.getByRole('button', { name: 'Resend gift card email' }).count(), 0);
+        assert.equal(await page.getByLabel('Customer email', { exact: true }).count(), 0);
+        await page.getByText('Delivery verification needed', { exact: true }).waitFor();
+        await page.getByRole('button', { name: 'Refresh delivery status', exact: true }).click();
+        assert.equal(decisions.length, 0);
       } else if (mode === 'resend-read-only') assert.equal(await page.getByRole('button', { name: 'Resend gift card email' }).count(), 0);
       else if (mode === 'read-only') assert.equal(await page.getByRole('button', { name: /Approve/ }).count(), 0);
       else {

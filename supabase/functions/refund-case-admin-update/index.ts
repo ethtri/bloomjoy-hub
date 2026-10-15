@@ -800,7 +800,11 @@ serve(async (req) => {
         p_case_id: body.caseId, p_intent_id: body.intentId,
         p_email: sanitizeText(body.customerEmail, 320) || null,
       });
-      if (error) return jsonResponse({ error: "Delivery needs review before this gift card can be resent.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
+      if (error) return jsonResponse({ error: error.code === "P4672"
+        ? "The existing email send is still being verified. Refresh this review after the provider result is reconciled; the same gift card is saved."
+        : error.code === "42501" ? "Current assigned Manager access is required."
+        : "This gift card cannot be resent yet. Refresh the review to check its delivery and expiry.",
+        errorCode: error.code }, error.code === "42501" ? 403 : 409);
       return jsonResponse({ gift_card: data });
     }
     if (["approveGiftCard", "denyGiftCard"].includes(body?.action)) {

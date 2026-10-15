@@ -20,6 +20,7 @@ export type RefundGiftCardManagerContext = RefundGiftCardStatus & {
   review_reasons: string[];
   can_decide: boolean;
   can_resend: boolean;
+  delivery_recovery_state: 'ready' | 'queued' | 'reconciliation_required' | 'code_unavailable' | 'not_issued';
   customer_email: string;
   prior_issued_count: number;
   latest_issued_at: string | null;
@@ -33,7 +34,12 @@ export const fetchRefundGiftCardManagerContext = async (caseId: string) => {
   if (!status || typeof data.can_decide !== 'boolean' || !Number.isSafeInteger(data.prior_issued_count)) {
     throw new Error('Gift card review is temporarily unavailable.');
   }
-  return { ...status, can_decide: data.can_decide, can_resend: data.can_resend === true, customer_email: typeof data.customer_email === 'string' ? data.customer_email : '', prior_issued_count: data.prior_issued_count,
+  if (data.delivery_recovery_state != null && !['ready', 'queued', 'reconciliation_required', 'code_unavailable', 'not_issued'].includes(data.delivery_recovery_state)) {
+    throw new Error('Gift card delivery status is temporarily unavailable. Refresh the review.');
+  }
+  return { ...status, can_decide: data.can_decide, can_resend: data.can_resend === true,
+    delivery_recovery_state: data.delivery_recovery_state ?? (data.can_resend ? 'ready' : 'not_issued'),
+    customer_email: typeof data.customer_email === 'string' ? data.customer_email : '', prior_issued_count: data.prior_issued_count,
     affected_amount: data.affected_amount ?? data.purchase_amount ?? data.value,
     purchase_amount: data.purchase_amount ?? data.value,
     cash_inserted_amount: data.cash_inserted_amount ?? null,

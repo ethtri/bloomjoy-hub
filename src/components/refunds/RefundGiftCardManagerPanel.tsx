@@ -92,13 +92,19 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
           <Button variant="outline" className="min-h-11" disabled={pending || !notes.trim()} onClick={() => void decide(false)}>Deny request</Button>
         </div>
       </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided ? 'Decision saved. The system will finish automatically.' : giftCardStatusCopy(card).next}</p>}
-      {card.state === 'issued' && card.can_resend && <div className="space-y-3 border-t border-border pt-4">
+      {card.state === 'issued' && <div className="space-y-3 border-t border-border pt-4">
+        {card.delivery_recovery_state === 'reconciliation_required' ? <div role="status" className="space-y-2 text-sm leading-6">
+          <p className="font-semibold">Delivery verification needed</p>
+          <p>The email provider has not confirmed the existing send. The System must reconcile that result before another email or recipient correction. The same gift card is saved.</p>
+          <Button variant="outline" className="min-h-11" onClick={() => void query.refetch()}>Refresh delivery status</Button>
+        </div> : card.delivery_recovery_state === 'code_unavailable' ? <p role="status" className="text-sm leading-6">The assigned code has expired or is no longer available for delivery. Contact Refund Operations to review this same request.</p> : card.can_resend ? <>
         <Label htmlFor="gift-card-recipient">Customer email</Label>
         <Input id="gift-card-recipient" type="email" value={recipient ?? card.customer_email} disabled={pending}
           onChange={(event) => { setRecipient(event.target.value); setResendIntent(crypto.randomUUID()); setResent(false); }} />
         <p className="text-sm text-muted-foreground">Send the same gift card again, or correct the email. This does not issue another card.</p>
         <Button className="min-h-11" variant="outline" disabled={pending} onClick={() => void resend()}>{pending ? 'Sending…' : 'Resend gift card email'}</Button>
         {resent && <p role="status" className="text-sm">The same gift card email is queued.</p>}
+        </> : null}
       </div>}
     </>}
   </section>;
