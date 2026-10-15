@@ -162,6 +162,11 @@ try {
   assertEquals(requests.find((r) => r.path.endsWith('/admin_retry_refund_gift_denial_notice'))?.body,
     { p_case_id: caseId, p_intent_id: noticeRecovery.intentId, p_email: 'corrected@example.invalid' });
   assert(!requests.some((r) => r.path.endsWith('/admin_decide_refund_gift_card')), 'Delivery recovery never repeats the saved decision');
+  rpcError = 'P4684';
+  const complained = await post(admin, noticeRecovery, true);
+  assertEquals(complained.status, 409);
+  assertEquals(complained.data.error, 'Email delivery to this address requires Refund Operations review. The decision is saved.');
+  rpcError = null;
   assertEquals(unexpected, []);
   console.log('Gift-card actual intake/admin HTTP contracts passed with synthetic PostgREST/Auth.');
 } finally {

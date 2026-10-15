@@ -64,7 +64,9 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
     finally { setPending(false); onActionPendingChange?.(false); }
   };
   const card = query.data;
-  const denialNoticeCopy = card?.denial_delivery_recovery_state === 'reconciliation_required'
+  const denialNoticeCopy = card?.denial_delivery_recovery_state === 'complaint_review'
+    ? 'Decision saved. Email delivery to this address requires Refund Operations review.'
+    : card?.denial_delivery_recovery_state === 'reconciliation_required'
     ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
     : card?.can_retry_denial ? 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
     : card && ['queued', 'claimed', 'pending'].includes(card.delivery_state) ? 'Decision saved. The System is sending the customer notice.'

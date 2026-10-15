@@ -18,6 +18,16 @@ returns boolean language sql stable security definer set search_path='' as $$
 $$;
 revoke all on function private.is_refund_gift_denial_notice(jsonb) from public,anon,authenticated,service_role;
 
+create function private.refund_gift_denial_recipient_complained(p_case_id uuid,p_recipient text)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.refund_case_messages m where m.refund_case_id=p_case_id
+    and private.is_refund_gift_denial_notice(to_jsonb(m))
+    and lower(btrim(m.recipient_email))=lower(btrim(p_recipient))
+    and m.delivery_transport='resend' and m.provider_message_id ~ '^[A-Za-z0-9_-]{8,255}$'
+    and m.delivery_state_updated_at is not null and m.delivery_state='complained');
+$$;
+revoke all on function private.refund_gift_denial_recipient_complained(uuid,text) from public,anon,authenticated,service_role;
+
 do $$ declare d text; old_fragment text; begin
   d:=pg_get_functiondef('public.refund_gift_card_case_projection(uuid)'::regprocedure);
   old_fragment:='where message.id=i.message_id or message.gift_card_issuance_id=i.id';
@@ -105,7 +115,8 @@ begin
   end if;
   if old.manual_delivery_intent_id=md5('gift-card-denial:'||old.refund_case_id::text)::uuid
     or old.gift_denial_source_message_id is not null then
-    if tg_op='DELETE' or public.refund_receipt_completion_message_digest(to_jsonb(old))
+    if tg_op='DELETE' or new.created_at is distinct from old.created_at
+      or public.refund_receipt_completion_message_digest(to_jsonb(old))
       is distinct from public.refund_receipt_completion_message_digest(to_jsonb(new)) then
       raise exception 'Gift-card denial notice identity is immutable' using errcode='P4682';
     end if;
@@ -158,6 +169,8 @@ begin
       order by notice.created_at desc,notice.id desc limit 1 for update;
     if not private.is_refund_gift_denial_notice(to_jsonb(m))
       or m.manual_delivery_expected_case_version is distinct from c.official_action_version then continue; end if;
+    if m.manual_delivery_provider_attempted_at is null
+      and private.refund_gift_denial_recipient_complained(c.id,m.recipient_email) then continue; end if;
     known_sent:=(m.delivery_transport='resend' and m.provider_message_id ~ '^[A-Za-z0-9_-]{8,255}$'
       and m.delivery_state_updated_at is not null and m.delivery_state in ('accepted','deferred','delivered'))
       or exists(select 1 from public.refund_gmail_messages g join public.refund_gmail_threads t on t.id=g.gmail_thread_id
@@ -184,6 +197,30 @@ begin
 end $$;
 revoke all on function public.service_claim_refund_manual_message_deliveries(uuid,integer) from public,anon,authenticated;
 grant execute on function public.service_claim_refund_manual_message_deliveries(uuid,integer) to service_role;
+
+-- A late complaint on an older attempt suppresses new provider access to that
+-- same recipient. Reuse the final existing provider boundary and case-first
+-- lock order; corrected different recipients and other message types retain
+-- their current contracts.
+alter function public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)
+  rename to service_mark_refund_manual_provider_pre_gift_complaint_v1;
+revoke all on function public.service_mark_refund_manual_provider_pre_gift_complaint_v1(uuid,uuid)
+  from public,anon,authenticated,service_role;
+create function public.service_mark_refund_manual_message_provider_attempt(p_refund_case_message_id uuid,p_claim_token uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare case_id uuid; m public.refund_case_messages;
+begin
+  select refund_case_id into case_id from public.refund_case_messages where id=p_refund_case_message_id;
+  perform 1 from public.refund_cases where id=case_id for update;
+  select * into m from public.refund_case_messages where id=p_refund_case_message_id for update;
+  if private.is_refund_gift_denial_notice(to_jsonb(m)) and m.manual_delivery_provider_attempted_at is null
+    and private.refund_gift_denial_recipient_complained(m.refund_case_id,m.recipient_email) then
+    raise exception 'This customer notice recipient requires Refund Operations review' using errcode='P4684';
+  end if;
+  return public.service_mark_refund_manual_provider_pre_gift_complaint_v1(p_refund_case_message_id,p_claim_token);
+end $$;
+revoke all on function public.service_mark_refund_manual_message_provider_attempt(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.service_mark_refund_manual_message_provider_attempt(uuid,uuid) to service_role;
 
 -- The established pg_net wakeup runs only after this decision/outbox transaction
 -- commits. Its loss is harmless: the normal scheduled drain sees the same row.
@@ -248,6 +285,8 @@ declare latest public.refund_case_messages;
 begin
   if not exists(select 1 from public.refund_cases c where c.id=p_case_id and c.resolution_method='gift_card'
     and c.gift_card_state='denied' and c.case_population='customer') then return 'not_denied'; end if;
+  if exists(select 1 from public.refund_cases c where c.id=p_case_id
+    and private.refund_gift_denial_recipient_complained(c.id,c.customer_email)) then return 'complaint_review'; end if;
   if exists(select 1 from public.refund_case_messages m where m.refund_case_id=p_case_id
     and private.is_refund_gift_denial_notice(to_jsonb(m))
     and private.refund_gift_delivery_unresolved(to_jsonb(m))) then return 'reconciliation_required'; end if;
@@ -302,6 +341,8 @@ begin
       raise exception 'Delivery intent is already bound to different facts' using errcode='P4656'; end if;
     return public.get_refund_gift_card_case(c.id);
   end if;
+  if private.refund_gift_denial_recipient_complained(c.id,email_key) then
+    raise exception 'This customer notice recipient requires Refund Operations review' using errcode='P4684'; end if;
   if private.refund_gift_denial_recovery(c.id)<>'ready' then
     raise exception 'Existing notice delivery must be resolved before recovery' using errcode='P4683'; end if;
   if email_key<>lower(btrim(c.customer_email)) then
@@ -312,7 +353,10 @@ begin
   queued:=public.service_enqueue_refund_manual_message_intent(c.id,c.official_action_version,p_intent_id,auth.uid(),
     'denied',email_key,original.subject,original.body,'refund_denied_editable_v1','manager_authored',null,
     '{}'::text[],null,original.manual_delivery_status_link_requested,null);
-  update public.refund_case_messages set gift_denial_source_message_id=original.id
+  update public.refund_case_messages set gift_denial_source_message_id=original.id,
+    created_at=greatest(clock_timestamp(),(select max(prior.created_at)+interval '1 microsecond'
+      from public.refund_case_messages prior where prior.refund_case_id=c.id
+        and private.is_refund_gift_denial_notice(to_jsonb(prior))))
     where id=(queued->>'messageId')::uuid;
   perform public.service_dispatch_refund_completion_wakeup((queued->>'messageId')::uuid);
   insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)

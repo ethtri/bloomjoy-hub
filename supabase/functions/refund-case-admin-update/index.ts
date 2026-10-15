@@ -801,7 +801,9 @@ serve(async (req) => {
         p_case_id: body.caseId, p_intent_id: body.intentId,
         p_email: sanitizeText(body.customerEmail, 320) || null,
       });
-      if (error) return jsonResponse({ error: error.code === "P4683"
+      if (error) return jsonResponse({ error: error.code === "P4684"
+        ? "Email delivery to this address requires Refund Operations review. The decision is saved."
+        : error.code === "P4683"
         ? "The existing customer notice must finish or be reconciled before another delivery attempt. The decision is saved."
         : error.code === "P4672"
         ? "The existing email send is still being verified. Refresh this review after the provider result is reconciled; the same gift card is saved."
