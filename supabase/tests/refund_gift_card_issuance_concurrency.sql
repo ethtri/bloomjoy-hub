@@ -66,6 +66,15 @@ begin
 exception when others then
   return jsonb_build_object('state','test_runtime_error','sqlstate',sqlstate,'error',sqlerrm);
 end $$;
+create function gift_race_test.retry_notice(p_case_id uuid,p_intent_id uuid)
+returns jsonb language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"fb710000-0000-4000-8000-000000000001"}',true);
+  return public.admin_retry_refund_gift_denial_notice(p_case_id,p_intent_id);
+exception when others then
+  return jsonb_build_object('state','test_rpc_error','sqlstate',sqlstate,'error',sqlerrm);
+end $$;
 commit;
 select no_plan();
 select ok(public.refund_case_has_unresolved_reconciliation('fb760000-0000-4000-8000-000000000001'),
@@ -139,6 +148,54 @@ select is((select count(*) from public.refund_case_messages
    and body not like '%A retry must not replace%'),1::bigint,
  'Concurrent denial creates one immutable matching notice with its original explanation');
 
+-- Simulate an exhausted, definitely pre-provider failure of that saved notice.
+-- Competing operators may request new delivery attempts, but only one can win.
+update public.refund_case_messages set status='failed',manual_delivery_state='failed',
+ manual_delivery_attempt_count=3,error_message='synthetic_pre_provider_failure'
+ where refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid;
+select dblink_exec('gift_race_a','begin');
+insert into gift_race_test.results select 'denial_recovery_winner',payload from dblink('gift_race_a',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
+select dblink_send_query('gift_race_b',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000002')$$);
+select ok(gift_race_test.wait_for_lock(),'Competing delivery recovery intents serialize on the same saved denial');
+select dblink_exec('gift_race_a','commit');
+insert into gift_race_test.results select 'denial_recovery_loser',payload from dblink_get_result('gift_race_b') as r(payload jsonb);
+select * from dblink_get_result('gift_race_b') as r(payload jsonb);
+insert into gift_race_test.results select 'denial_recovery_replay',payload from dblink('gift_race_b',
+ $$select gift_race_test.retry_notice('fb760000-0000-4000-8000-000000000002','fb770000-0000-4000-8000-000000000001')$$) as r(payload jsonb);
+select is((select count(*) from gift_race_test.results
+ where lane in ('denial_recovery_winner','denial_recovery_replay') and payload->>'state'='denied'),2::bigint,
+ 'Recovery and its response-loss replay preserve the saved denial');
+select is((select payload->>'sqlstate' from gift_race_test.results where lane='denial_recovery_loser'),
+ 'P4683','Waiting alternate recovery intent cannot queue a second attempt');
+select is((select count(*) from public.refund_case_messages child join public.refund_case_messages original
+ on original.id=child.gift_denial_source_message_id
+ where child.refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and original.manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid
+   and child.manual_delivery_intent_id='fb770000-0000-4000-8000-000000000001'
+   and child.manual_delivery_state='queued' and child.subject=original.subject and child.body=original.body),1::bigint,
+ 'Exactly one fresh delivery attempt retains the immutable original notice');
+select is((select count(*) from public.refund_case_messages
+ where refund_case_id='fb760000-0000-4000-8000-000000000002'
+   and manual_delivery_state in ('queued','claimed')),1::bigint,
+ 'Original and child have one current actionable contact attempt');
+select is((select manual_delivery_attempt_count::integer from public.refund_case_messages
+ where manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid),3,
+ 'A fresh provider key does not erase exhausted original-attempt evidence');
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages
+  where manual_delivery_intent_id=md5('gift-card-denial:fb760000-0000-4000-8000-000000000002')::uuid),1)),0::bigint,
+ 'Targeting the old failure cannot revive it beside its queued recovery child');
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+ (select id from public.refund_case_messages
+  where manual_delivery_intent_id='fb770000-0000-4000-8000-000000000001'),1)),1::bigint,
+ 'The existing outbox claims only the current recovery attempt');
+select is((select count(*) from public.refund_case_events
+ where refund_case_id='fb760000-0000-4000-8000-000000000002' and event_type='gift_card_exception_decided'),1::bigint,
+ 'Concurrent delivery recovery never creates another Manager decision');
+
 -- Refill only the disposable fixture after the existing last-code race. A
 -- separate partial-order request exercises approval winning the reverse race.
 insert into public.refund_gift_card_codes(pool_id,provider,provider_account_id,code,valid_from,expires_at)
@@ -190,6 +247,8 @@ alter table public.refund_gift_card_issuances disable trigger refund_gift_card_i
 alter table public.refund_case_messages disable trigger aa_refund_gift_card_message_identity;
 alter table public.refund_case_messages disable trigger aa_refund_gift_denial_notice_identity;
 delete from public.refund_gift_card_issuances where pool_id='fb750000-0000-4000-8000-000000000001';
+delete from public.refund_case_messages where gift_denial_source_message_id is not null and refund_case_id in
+ (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%');
 delete from public.refund_case_messages where refund_case_id in
  (select id from public.refund_cases where public_reference like 'RF-GIFT-RACE-%');
 delete from public.refund_gift_card_codes where pool_id='fb750000-0000-4000-8000-000000000001';
