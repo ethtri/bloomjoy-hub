@@ -15,11 +15,11 @@ export const MobileOperatorEntry = ({ surface }: { surface: 'resources_category'
         <Truck aria-hidden="true" className="h-7 w-7" />
       </span>
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Food trucks &amp; mobile operators</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-pink-light">Food trucks &amp; mobile operators</p>
         <h2 className="mt-2 font-display text-2xl font-bold">Start with fit. Then inspect the setup.</h2>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/70">Compare a staffed Mini path with larger or lower-volume options, then work through space, total electrical load, service flow, transport questions, cleaning, storage, and local review.</p>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:flex-col">
         <Button asChild>
           <Link
             to={MOBILE_SETUP_FIT_CHECKER_PATH}

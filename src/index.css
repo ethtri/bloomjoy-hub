@@ -89,6 +89,20 @@
     --app-shell-divider: 340 20% 90%;
   }
 
+  .marketing-surface {
+    /* Keep candy-pink actions; use readable text and deeper rose links. */
+    --primary: 335 65% 40%;
+    --primary-foreground: 340 30% 99%;
+    --ring: 335 65% 40%;
+    --coral-dark: 335 65% 34%;
+    --muted-foreground: 220 10% 40%;
+    --action: 345 72% 68%;
+    --action-foreground: 220 20% 14%;
+    --action-hover: 345 72% 64%;
+    --action-active: 345 72% 62%;
+    --action-shadow-hover: 0 6px 20px -3px hsl(345 72% 68% / 0.36);
+  }
+
   .app-surface {
     /*
      * Authenticated app interaction palette.
@@ -164,6 +178,19 @@
     --sidebar-ring: 345 68% 72%;
     --app-shell-divider: 220 15% 20%;
   }
+
+  .dark.marketing-surface,
+  .dark .marketing-surface {
+    --primary: 345 68% 72%;
+    --primary-foreground: 220 20% 10%;
+    --ring: 345 68% 72%;
+    --coral-dark: 345 68% 78%;
+    --muted-foreground: 340 10% 70%;
+    --action: 345 68% 72%;
+    --action-foreground: 220 20% 10%;
+    --action-hover: 345 68% 68%;
+    --action-active: 345 68% 66%;
+  }
 }
 
 @layer base {
@@ -187,6 +214,15 @@
 }
 
 @layer components {
+  .public-skip-link {
+    @apply fixed left-4 top-2 z-[100] -translate-y-24 rounded-lg bg-foreground px-4 py-3 font-semibold text-background focus:translate-y-0;
+  }
+
+  .marketing-surface :where(a, button, summary):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+
   .container-page {
     @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
   }
@@ -243,6 +279,21 @@
 
   /* AppLayout also scopes body so Radix portals receive these mobile rules. */
   @media (max-width: 767px) {
+    .marketing-surface :is([data-app-control="button"], [data-app-control="select"], input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select) {
+      min-height: 2.75rem;
+    }
+
+    .marketing-surface [data-app-control="button"] {
+      height: auto;
+      min-width: 2.75rem;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .marketing-surface :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select) {
+      font-size: 1rem;
+    }
+
     .app-surface :is([data-app-control="button"], [data-app-control="select"], input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select) {
       min-height: 2.75rem;
     }
@@ -265,6 +316,14 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .marketing-surface [data-app-control="button"] {
+      transition: none;
+    }
+
+    html:has(.marketing-surface) {
+      scroll-behavior: auto;
+    }
+
     .app-surface [data-app-control="button"] {
       transition: none;
     }

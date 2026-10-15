@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { MACHINE_NAMES } from '@/lib/machineNames';
+import logo from '@/assets/logo.png';
 
 const footerLinks = {
   products: [
@@ -16,7 +17,8 @@ const footerLinks = {
   ],
   support: [
     { href: '/resources#faq', label: 'FAQ' },
-    { href: '/resources#support-boundaries', label: 'Support Boundaries' },
+    { href: '/resources#support-boundaries', label: 'Machine support' },
+    { href: '/refunds/request', label: 'Help with a purchase' },
     { href: '/contact?type=quote&interest=commercial&source=%2F', label: 'Commercial Quote' },
   ],
   legal: [
@@ -34,12 +36,8 @@ export function Footer() {
           {/* Brand */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-                <span className="font-display text-lg font-bold text-primary-foreground">B</span>
-              </div>
-              <span className="font-display text-xl font-semibold text-foreground">
-                Bloomjoy<span className="text-primary">.</span>
-              </span>
+              <img src={logo} alt="" width={44} height={44} loading="lazy" className="h-11 w-11 shrink-0" />
+              <span className="font-display text-base font-bold text-foreground">Bloomjoy Sweets</span>
             </Link>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Robotic cotton candy machines and premium supplies for operators across the United States.
@@ -48,13 +46,13 @@ export function Footer() {
 
           {/* Machines */}
           <div>
-            <h4 className="font-display text-sm font-semibold text-foreground">Machines</h4>
-            <ul className="mt-4 space-y-3">
+            <h2 className="font-display text-sm font-semibold text-foreground">Machines</h2>
+            <ul className="mt-3 space-y-1">
               {footerLinks.products.map((link) => (
                 <li key={link.href}>
                   <Link
                     to={link.href}
-                    className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                    className="inline-flex min-h-11 items-center py-2 text-sm text-muted-foreground transition-colors hover:text-primary"
                   >
                     {link.label}
                   </Link>
@@ -65,13 +63,13 @@ export function Footer() {
 
           {/* Company */}
           <div>
-            <h4 className="font-display text-sm font-semibold text-foreground">Company</h4>
-            <ul className="mt-4 space-y-3">
+            <h2 className="font-display text-sm font-semibold text-foreground">Company</h2>
+            <ul className="mt-3 space-y-1">
               {footerLinks.company.map((link) => (
                 <li key={link.href}>
                   <Link
                     to={link.href}
-                    className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                    className="inline-flex min-h-11 items-center py-2 text-sm text-muted-foreground transition-colors hover:text-primary"
                   >
                     {link.label}
                   </Link>
@@ -82,13 +80,13 @@ export function Footer() {
 
           {/* Support */}
           <div>
-            <h4 className="font-display text-sm font-semibold text-foreground">Support</h4>
-            <ul className="mt-4 space-y-3">
+            <h2 className="font-display text-sm font-semibold text-foreground">Support</h2>
+            <ul className="mt-3 space-y-1">
               {footerLinks.support.map((link) => (
                 <li key={link.href}>
                   <Link
                     to={link.href}
-                    className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                    className="inline-flex min-h-11 items-center py-2 text-sm text-muted-foreground transition-colors hover:text-primary"
                   >
                     {link.label}
                   </Link>
@@ -99,13 +97,13 @@ export function Footer() {
 
           {/* Legal */}
           <div>
-            <h4 className="font-display text-sm font-semibold text-foreground">Legal</h4>
-            <ul className="mt-4 space-y-3">
+            <h2 className="font-display text-sm font-semibold text-foreground">Legal</h2>
+            <ul className="mt-3 space-y-1">
               {footerLinks.legal.map((link) => (
                 <li key={link.href}>
                   <Link
                     to={link.href}
-                    className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                    className="inline-flex min-h-11 items-center py-2 text-sm text-muted-foreground transition-colors hover:text-primary"
                   >
                     {link.label}
                   </Link>
@@ -117,8 +115,8 @@ export function Footer() {
 
         {/* Support Boundaries Notice */}
         <div className="mt-12 rounded-lg border border-border bg-background p-4">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            <strong className="font-semibold text-foreground">Support Boundaries:</strong> The manufacturer support team provides 24/7 first-line technical support via WeChat for machine issues. Bloomjoy provides concierge guidance, onboarding assistance, and escalation support during US business hours (Mon–Fri, 9am–5pm EST). Bloomjoy is not a 24/7 support provider. Response times may vary based on volume.
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            <strong className="font-semibold text-foreground">How support works:</strong> The manufacturer support team provides 24/7 first-line technical support via WeChat for machine issues. Bloomjoy provides concierge guidance, onboarding assistance, and escalation support during US business hours (Mon–Fri, 9am–5pm EST). Bloomjoy is not a 24/7 support provider. Response times may vary based on volume.
           </p>
         </div>
 

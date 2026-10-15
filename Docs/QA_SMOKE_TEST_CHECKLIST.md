@@ -6,6 +6,20 @@
 
 # QA Smoke Test Checklist
 
+## Public customer experience (#1931, #1932, #1933, #624)
+
+- Use synthetic/local data at 320, 390, 768 and 1440px. The header fits without overflow; cart and menu controls are at least 44px. Tab reaches Skip to content; the mobile menu closes with Escape and returns focus to its toggle. Current navigation is announced.
+- Scroll to a public-page footer and follow a product link, including a previously visited route. The destination starts at its heading. Back/Forward restores the prior scroll position. Resources topic links, FAQ and Machine support anchors remain below the sticky header and receive focus.
+- Check default, hover, active and keyboard-focus public actions. Run `node scripts/validate-public-color-contrast.mjs`; public action text and links meet 4.5:1 in light and dark themes. Authenticated palette remains scoped separately.
+- Resources opens with choosing, operating and help shortcuts. Purchase help opens `/refunds/request`. Detailed operator/tool sections expand by keyboard; public guides remain accessible without login.
+- At 390x844, the Commercial quote action and each machine's price/availability are visible before the gallery. Expanded specs and Mini operation clips remain available. The listing exposes comparison early; unavailable machines retain useful next steps. Planner results show availability and a product path without waiting until the bottom.
+- At `/contact?type=quote&interest=commercial&source=%2Fmachines%2Fcommercial-robotic-machine`, Name is visible in the first mobile viewport. Empty submit announces required fields; each error link focuses its field. Optional fields stay optional. Mini/Micro context does not change the Commercial-only quote policy. Imported context is categorical and expandable; personal text stays out of URLs and analytics.
+- At `/supplies`, enter a total of 20kg: mix, total, price and Add action agree. Blank, invalid or below-minimum drafts cannot add the old quantity. Adding an edited mix produces the exact visible quantities and respects each existing minimum.
+- At `/cart`, clear a quantity and type a replacement: the item remains. One quantity control is shown per line. Only explicit Remove deletes it; Undo restores it. Sugar minimum, whole-number validation and disabled checkout gates remain enforced.
+- With local synthetic checkout-status responses only, exercise paid, pending, failed lookup, wrong category, missing session, cancelled and forged `success` returns on Cart, Supplies and Plus. Only server-verified paid status shows confirmation. Refresh re-verifies; replay does not clear a later cart. Cancel/error keep an actionable recovery path. Never submit a real order/payment/refund for this smoke check.
+- Plus shows the flat $100/month account price, membership CTA and billing context near the top; its public sample remains accessible signed out. A paid response does not claim membership access has finished syncing. Send another message focuses Name; reduced-motion settings avoid animated form scrolling.
+
+
 ## Mobile refund review (#1869)
 
 - On the PR branch, use synthetic `/refunds` data at 320, 390, 768 and 1440px. Open a late queue row, return, reopen the same case, and use browser Back/Forward. Verify queue search/company/view, originating row focus and scroll position survive; desktop panes remain usable.
