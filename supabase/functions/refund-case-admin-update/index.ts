@@ -822,11 +822,11 @@ serve(async (req) => {
         p_affected_amount_cents: body.affectedAmountCents ?? null,
       });
       if (error) return jsonResponse({ error: "The gift-card decision could not be saved.", errorCode: error.code }, error.code === "42501" ? 403 : 409);
-      if (body.action === "denyGiftCard") {
-        const deniedCase = await getRefundCase(body.caseId);
-        if (deniedCase) await sendAndLogCustomerMessage(deniedCase, "denied", []);
-      }
-      return jsonResponse({ gift_card: data });
+      // The decision and its notice commit together. The scheduled outbox owns
+      // delivery even if this response is lost; replay never sends inline.
+      return jsonResponse({ gift_card: data, decision_saved: true,
+        customer_message: body.action === "denyGiftCard" && data?.state === "denied"
+          ? { status: data.delivery_state ?? "not_queued" } : null });
     }
     if (isOwnerNonrefundAdoptionMode(body?.mode)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");

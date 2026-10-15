@@ -66,13 +66,13 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
         <ul className="list-inside list-disc">{card.review_reasons.map((reason) => <li key={reason}>{({ partial_items: 'Customer received fewer items', expected_cash_change: 'Customer expected cash change', high_value: 'Gift card exceeds $25', repeat_request: 'Previous gift card request', repeat_customer: 'Previous gift card request' } as Record<string, string>)[reason] ?? reason.replace(/_/g, ' ')}</li>)}</ul>
       </div>}
       {card.cash_inserted_amount != null && <p className="text-sm leading-6">Cash inserted: {giftCardAmount(card.cash_inserted_amount, card.currency)} · Expected change: {giftCardAmount(card.expected_change_amount ?? 0, card.currency)}</p>}
-      <div className="border-t border-border pt-4">
+      {card.state !== 'denied' && <div className="border-t border-border pt-4">
         <h4 className="mb-2 text-sm font-semibold">{card.can_decide ? 'Proposed gift card value' : 'Gift card terms'}</h4>
         {card.can_decide ? <>
           <p className="text-xl font-semibold">{proposedValue ? giftCardAmount(proposedValue, card.currency) : 'Enter a valid gift amount'}</p>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">This previews the value only. Approval verifies an available gift card and its locations and expiry before assigning it. Verified terms appear here after the decision.</p>
         </> : <RefundGiftCardTerms offer={card} />}
-      </div>
+      </div>}
       <div className="border-t border-border pt-4 text-sm leading-6">
         <h4 className="font-semibold">Previous gift cards in the last 12 months</h4>
         <p>{card.prior_issued_count} issued{card.latest_issued_at ? ` · Latest: ${giftCardExpiry(card.latest_issued_at)}` : ''}</p>
@@ -84,14 +84,14 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
           onChange={(event) => setAmountDraft(event.target.value)} aria-invalid={!affectedAmountCents} aria-describedby="gift-card-amount-help" />
         <p id="gift-card-amount-help" className="text-sm leading-6 text-muted-foreground">The gift card rounds up to the next $5. The preview and approval below show the final gift card value. One decision covers all review reasons.</p>
         {!affectedAmountCents && <p role="alert" className="text-sm text-destructive">Enter a positive amount with at most two decimal places.</p>}
-        <Label htmlFor="gift-card-decision-notes">Decision note (required if denying)</Label>
+        <Label htmlFor="gift-card-decision-notes">Reason shown to the customer if declined (required)</Label>
         <Textarea id="gift-card-decision-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={800} />
         <p className="text-sm text-muted-foreground">Approval assigns the gift card and sends its email automatically.</p>
         <div className="flex flex-wrap gap-3">
           <Button className="min-h-11" disabled={pending || !proposedValue} onClick={() => void decide(true)}>{pending ? 'Saving decision…' : proposedValue ? `Approve ${giftCardAmount(proposedValue, card.currency)} gift card` : 'Enter a valid gift amount'}</Button>
           <Button variant="outline" className="min-h-11" disabled={pending || !notes.trim()} onClick={() => void decide(false)}>Deny request</Button>
         </div>
-      </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided ? 'Decision saved. The system will finish automatically.' : giftCardStatusCopy(card).next}</p>}
+      </div> : <p role="status" className="border-t border-border pt-4 text-sm leading-6">{decided && card.can_decide ? 'Decision saved. Refreshing customer contact status…' : card.state === 'denied' ? `Decision saved. ${giftCardStatusCopy(card).next}` : card.delivery_recovery_state === 'reconciliation_required' ? 'The assigned gift card is saved. Delivery verification is still in progress.' : giftCardStatusCopy(card).next}</p>}
       {card.state === 'issued' && <div className="space-y-3 border-t border-border pt-4">
         {card.delivery_recovery_state === 'reconciliation_required' ? <div role="status" className="space-y-2 text-sm leading-6">
           <p className="font-semibold">Delivery verification needed</p>

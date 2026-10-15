@@ -449,6 +449,7 @@ export const deliverRefundManualMessageClaim = async ({
   const storedEmail = buildRefundStoredTextWithStatus({
     headline: message.subject,
     text: baseBody,
+    customerLocale: refundCustomerLocaleFromIntakeMeta(currentCase.intake_meta),
     statusUrl: statusCapability?.url ?? null,
   });
   let email = {

@@ -74,7 +74,11 @@ export const giftCardStatusCopy = (card: RefundGiftCardStatus) => {
   if (card.state === 'denied') return {
     title: 'Your review is complete',
     detail: 'A gift card was not issued for this request.',
-    next: 'Reply to your Bloomjoy email if you would like us to review the same request again.',
+    next: ['sent', 'accepted', 'deferred', 'delivered'].includes(card.delivery_state)
+      ? 'We have sent the review outcome by email. Reply in that conversation if we missed or misunderstood something.'
+      : ['queued', 'claimed', 'pending'].includes(card.delivery_state)
+      ? 'We are sending the review outcome by email. Your request is saved; you do not need to submit again.'
+      : 'Your review is saved, but its email delivery needs attention. Our team is working on it. You do not need to submit again.',
   };
   const delivered = card.delivery_state === 'delivered';
   const accepted = ['sent', 'accepted'].includes(card.delivery_state);

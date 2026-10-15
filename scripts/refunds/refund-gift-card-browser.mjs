@@ -107,11 +107,23 @@ try {
         assert.match(await page.locator('main').innerText(), /Check your inbox or spam folder/);
         for (const scenario of [{ state: 'manager_review', delivery: 'none', heading: 'Your request is being reviewed' },
           { state: 'pending_inventory', delivery: 'none', heading: 'We’re preparing your gift card' },
-          { state: 'issued', delivery: 'failed', heading: 'A little sweetness is on its way' }]) {
+          { state: 'issued', delivery: 'failed', heading: 'A little sweetness is on its way' },
+          { state: 'denied', delivery: 'queued', heading: 'Your review is complete' },
+          { state: 'denied', delivery: 'delivery_unknown', heading: 'Your review is complete' },
+          { state: 'denied', delivery: 'sent', heading: 'Your review is complete' }]) {
           state = scenario.state; delivery = scenario.delivery;
           await page.reload();
           await page.getByRole('heading', { name: scenario.heading, exact: true }).waitFor();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+          if (state === 'denied') {
+            assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0, 'Denied status cannot present an unissued code as redeemable');
+            const expected = delivery === 'queued' ? /We are sending the review outcome/ : delivery === 'sent' ? /We have sent the review outcome/ : /email delivery needs attention/;
+            assert.match(await page.locator('main').innerText(), expected);
+            await page.getByRole('button', { name: 'Español', exact: true }).click();
+            assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
+            assert.match(await page.locator('main').innerText(), delivery === 'queued' ? /Estamos enviando el resultado/ : delivery === 'sent' ? /Enviamos el resultado/ : /hubo un problema con el correo/);
+            await page.getByRole('button', { name: 'English', exact: true }).click();
+          }
         }
         await page.screenshot({ path: `${artifacts}/status-delivery-recovery-${width}.png`, fullPage: true });
       }
@@ -211,7 +223,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
 <RefundGiftCardManagerPanel refundCase={{id:'synthetic-case',publicReference:'RF-SYNTHETIC',customerName:'Synthetic Friend',customerEmail:'synthetic@example.test',issueSummary:'The machine did not make a treat.',paymentAmountCents:1100,locationName:'Bloomjoy Test Mall',paymentMethod:'card',resolutionMethod:'gift_card'}} /></main>
 </QueryClientProvider>);`);
   for (const width of [1280, 375, 320]) {
-    for (const mode of ['approve', 'deny', 'read-only', 'resend', 'resend-held', 'resend-read-only']) {
+    for (const mode of ['approve', 'deny', 'deny-unknown', 'read-only', 'resend', 'resend-held', 'resend-read-only']) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       await context.addInitScript(() => localStorage.setItem('sb-127-auth-token', JSON.stringify({
         access_token: 'synthetic-access-token', refresh_token: 'synthetic-refresh-token', token_type: 'bearer', expires_at: 4102444800,
@@ -225,7 +237,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
         const url = route.request().url();
         if (new URL(url).origin === new URL(base).origin) return route.continue();
         if (url.includes('/rest/v1/rpc/get_refund_gift_card_case')) return route.fulfill({ json: {
-          ...status, state: mode.startsWith('resend') ? 'issued' : decided ? mode === 'deny' ? 'denied' : 'issued' : 'manager_review',
+          ...status, state: mode.startsWith('resend') ? 'issued' : decided ? mode.startsWith('deny') ? 'denied' : 'issued' : 'manager_review',
+          delivery_state: mode === 'resend-held' ? 'delivery_unknown' : mode.startsWith('deny') && decided ? mode === 'deny-unknown' ? 'delivery_unknown' : 'failed' : 'sent',
           can_decide: !decided && !mode.startsWith('resend') && mode !== 'read-only',
           can_resend: mode === 'resend', delivery_recovery_state: mode === 'resend-held' ? 'reconciliation_required' : 'ready',
           customer_email: 'synthetic@example.test', prior_issued_count: 1, latest_issued_at: '2026-08-01T12:00:00Z',
@@ -270,15 +283,22 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       } else if (mode === 'resend-read-only') assert.equal(await page.getByRole('button', { name: 'Resend gift card email' }).count(), 0);
       else if (mode === 'read-only') assert.equal(await page.getByRole('button', { name: /Approve/ }).count(), 0);
       else {
-        if (mode === 'deny') {
+        if (mode.startsWith('deny')) {
           assert.equal(await page.getByRole('button', { name: 'Deny request', exact: true }).isDisabled(), true);
           await page.locator('#gift-card-decision-notes').fill('Synthetic reviewed denial reason.');
           await page.getByRole('button', { name: 'Deny request', exact: true }).click();
         } else await page.getByRole('button', { name: 'Approve $15.00 gift card', exact: true }).click();
-        await page.getByText('Decision saved. The system will finish automatically.', { exact: true }).waitFor();
+        await page.getByText(mode.startsWith('deny')
+          ? 'Decision saved. Your review is saved, but its email delivery needs attention. Our team is working on it. You do not need to submit again.'
+          : 'We have sent your gift card email. Check your inbox or spam folder. Reply to your Bloomjoy email if you need a hand.', { exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: 'Deny request', exact: true }).count(), 0);
         assert.equal(decisions.length, 1);
         assert.equal(decisions[0].caseId, 'synthetic-case');
         assert.equal(decisions[0].action, mode === 'approve' ? 'approveGiftCard' : 'denyGiftCard');
+        if (mode.startsWith('deny')) {
+          assert.equal(await page.getByTestId('refund-gift-card-terms').count(), 0);
+          await page.screenshot({ path: `${artifacts}/manager-${mode}-after-save-${width}.png`, fullPage: true });
+        }
       }
       assert.deepEqual(errors, []);
       evidence.push({ width, managerMode: mode, oneDecision: true, noOverflow: true });
