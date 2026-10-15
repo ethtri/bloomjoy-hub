@@ -3982,8 +3982,9 @@ const runEnabledManagerAgingSweep = async (
   if (!supabase) return;
   const ownership = await supabase.rpc("service_email_alert_delivery_status", {});
   if (ownership.error) throw ownership.error;
-  if (ownership.data?.ownershipActivated === true) {
-    addReason(counters, "manager_aging_owned_by_action_notices");
+  const operationalExceptionsOnly = ownership.data?.requiredRefundActionsVersion === 1;
+  if (operationalExceptionsOnly && ownership.data?.deliveryEnabled !== true) {
+    addReason(counters, "manager_operational_notices_disabled");
     return;
   }
   if (
@@ -4001,7 +4002,7 @@ const runEnabledManagerAgingSweep = async (
   // The database applies all due/current/pending filters before this cap. A
   // backlog of resolved or not-yet-due rows therefore cannot starve later work.
   const { data: attentionStates, error: attentionError } = await supabase.rpc(
-    "service_list_due_refund_manager_aging_notices",
+    operationalExceptionsOnly ? "service_list_due_refund_manager_operational_exceptions" : "service_list_due_refund_manager_aging_notices",
     {
       p_observed_at: new Date().toISOString(),
       p_timezone: automationTimezone,
@@ -4009,6 +4010,9 @@ const runEnabledManagerAgingSweep = async (
       p_escalation_business_days: managerEscalationBusinessDays,
       p_template_version: REFUND_MANAGER_AGING_TEMPLATE_VERSION,
       p_limit: 100,
+      ...(operationalExceptionsOnly ? {
+        p_mailbox_identities: getRefundManagerNoticeReservationRouteInputs({ customerEmail: '' }).mailboxIdentities,
+      } : {}),
     },
   );
   if (attentionError) throw attentionError;

@@ -10,6 +10,8 @@ import {
   deliverMachineEmailClaim,
   deliverMachineReadyClaim,
 } from "./machine-email-alert-delivery.ts";
+import { deliverRefundContactOwnerClaim } from './refund-contact-owner-delivery.ts';
+import { getRefundManagerNoticeReservationRouteInputs } from './refund-manager-notification.ts';
 
 type DispatchDependencies = {
   client: AlertRpcClient;
@@ -258,6 +260,7 @@ export function createMachineEmailDispatcher(
     // is not a hard request timeout: a started provider send is never cancelled
     // or blindly retried to fit this budget.
     const deadline = startedAt + 40_000;
+    let requiredActionsVersion: unknown;
     if (body.observeOnly !== true) {
       const activation = await deps.client.rpc(
         "service_email_alert_delivery_status",
@@ -286,6 +289,7 @@ export function createMachineEmailDispatcher(
           providerCalls: 0,
         }, 503);
       }
+      requiredActionsVersion = activation.data.requiredRefundActionsVersion;
     }
     let signals: unknown = null;
     let signalStatus = "deferred";
@@ -471,15 +475,34 @@ export function createMachineEmailDispatcher(
         }
       }
     }
+    // One owner exception per tick avoids a backlog burst and cannot consume
+    // the protected daily-delivery window. Old databases never receive new RPCs.
+    const contactOwner = { sent: 0, stale: 0, held: 0, deferred: false };
+    if (requiredActionsVersion === 1) {
+      if (clock() >= deadline - 5_000) contactOwner.deferred = true;
+      else {
+        const inputs = getRefundManagerNoticeReservationRouteInputs({ customerEmail: '' });
+        const claim = await rpc('service_claim_refund_contact_owner_notice', {
+          p_mailbox_identities: inputs.mailboxIdentities, p_ops_fallback_recipients: inputs.opsFallbackRecipients,
+          p_observed_at: (deps.now?.() ?? new Date()).toISOString(),
+        });
+        if (claim.error || !isRecord(claim.data) || typeof claim.data.claimed !== 'boolean') contactOwner.held++;
+        else if (claim.data.claimed) {
+          try { contactOwner[await deliverRefundContactOwnerClaim({ client: deps.client, claim: claim.data, sendEmail: deps.sendEmail, caseUrl: deps.links.caseUrl })]++; }
+          catch { contactOwner.held++; }
+        }
+      }
+    }
     await collectSignals();
     return json({
-      status: counts.held || ready.held || ready.status !== "completed" ||
+      status: counts.held || ready.held || contactOwner.held || contactOwner.deferred || ready.status !== "completed" ||
           genericBudgetDeferred || signalStatus !== "collected"
         ? "attention"
         : "completed",
       ...counts,
       genericBudgetDeferred,
       ready,
+      contactOwner,
       signalStatus,
       signals,
     });

@@ -3,6 +3,8 @@ import {
   RefundManagerNoticeRouteChangedError,
   type RefundManagerNotificationReason,
   sendRefundManagerActionNotice,
+  bindRefundManagerNoticeReservationRouting,
+  getRefundManagerNoticeReservationRouteInputs,
 } from "./refund-manager-notification.ts";
 import { getInternalNotificationRecipients, TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 
@@ -133,6 +135,41 @@ const enrichedEmailContext = {
   customerCommentExcerpt: "The machine charged me but no cotton candy came out.",
   paymentOutcomeUnknown: false,
 };
+
+Deno.test('adopted routing exception reaches existing Ops transport only after the final protected revalidation', async () => {
+  const inputs = getRefundManagerNoticeReservationRouteInputs({ customerEmail: noticeInput.customerEmail });
+  const key = `manager_aging:escalation:${noticeInput.refundCaseId}:v1`;
+  const routing = bindRefundManagerNoticeReservationRouting({ ...noticeInput, mailboxIdentities: inputs.mailboxIdentities,
+    reservation: { requiredRefundActionsVersion: 1, attemptKey: key, recipientRoute: {
+      recipients: inputs.opsFallbackRecipients, routeType: 'operations', managerRecipientCount: 0,
+      recipientCount: inputs.opsFallbackRecipients.length, resolutionStatus: 'no_active_managers', mappingFingerprint: 'a'.repeat(64),
+    } },
+  });
+  for (const allowed of [true, false]) {
+    let sends = 0; const calls: string[] = [];
+    const client = { rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push(name);
+      if (name === 'service_get_refund_manager_action_email_context_v2') return { data: enrichedEmailContext, error: null };
+      if (name === 'service_revalidate_refund_manager_operational_aging') {
+        assertEquals(args.p_action_key, key, 'Existing durable aging attempt is bound to the final check');
+        assertEquals(args.p_ops_fallback_recipients, inputs.opsFallbackRecipients, 'Configured safe Ops route is reused');
+        return { data: { status: 'no_active_managers', managerCcEmails: [], managerCcCount: 0, deliveryAllowed: allowed }, error: null };
+      }
+      throw new Error(`Unexpected RPC ${name}`);
+    } };
+    let held = false;
+    try {
+      await sendRefundManagerActionNotice({ ...noticeInput, noticeReason: 'manager_escalation', resolvedRouting: routing,
+        supabase: client as never, sendEmail: async message => {
+          sends++; assertEquals(message.to, inputs.opsFallbackRecipients, 'Only existing Ops recipients receive the exception');
+          return { provider: 'resend' as const, providerMessageId: 'synthetic-ops-receipt', acceptedAt: new Date().toISOString() };
+        } });
+    } catch (error) { held = error instanceof RefundManagerNoticeRouteChangedError; }
+    assertEquals(sends, allowed ? 1 : 0, 'Final authority/master/quiet result controls actual provider calls');
+    assertEquals(held, !allowed, 'A resolved or deferred exception is a proven non-send');
+    assertEquals(calls, ['service_get_refund_manager_action_email_context_v2', 'service_revalidate_refund_manager_operational_aging'], 'No legacy Manager resolver or duplicate notification claim is used');
+  }
+});
 
 Deno.test("notice transport includes case context only for the current manager route", async () => {
   for (const operations of [false, true]) {

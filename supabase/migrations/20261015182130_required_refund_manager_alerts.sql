@@ -263,6 +263,69 @@ grant execute on function public.service_enqueue_refund_manager_ready_notices(uu
 
 -- Stage is an additive claim property, leaving the strict financial snapshot
 -- unchanged. Both stages use the same final authority/proof/quiet-hours check.
+create function private.refund_manager_operational_route(p_case_id uuid,p_customer_email text,p_mailbox_identities text[])
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare c public.refund_cases; total integer; valid integer; recipients text[]; state text;
+begin
+ select * into c from public.refund_cases where id=p_case_id;
+ if c.id is null or lower(btrim(c.customer_email)) is distinct from lower(btrim(p_customer_email)) then
+  raise exception 'Customer recipient must match the refund case' using errcode='22023'; end if;
+ select count(*)::integer,count(distinct lower(btrim(u.email))) filter(where u.deleted_at is null
+   and (u.banned_until is null or u.banned_until<=statement_timestamp())
+   and public.refund_email_address_is_valid(u.email) and lower(btrim(u.email))<>lower(btrim(c.customer_email))
+   and not(lower(btrim(u.email))=any(public.normalize_refund_mailbox_identities(p_mailbox_identities))))::integer,
+  coalesce(array_agg(distinct lower(btrim(u.email))) filter(where u.deleted_at is null
+   and (u.banned_until is null or u.banned_until<=statement_timestamp())
+   and public.refund_email_address_is_valid(u.email) and lower(btrim(u.email))<>lower(btrim(c.customer_email))
+   and not(lower(btrim(u.email))=any(public.normalize_refund_mailbox_identities(p_mailbox_identities)))),'{}'::text[])
+ into total,valid,recipients from public.reporting_machine_refund_managers m
+ left join auth.users u on u.id=m.manager_user_id
+ where m.reporting_machine_id=c.reporting_machine_id and m.status='active' and m.revoked_at is null;
+ state:=case when c.reporting_machine_id is null then 'machine_unresolved' when total=0 then 'no_active_managers'
+  when total not between 1 and 4 or valid<>total then 'invalid_manager_mapping' else 'resolved' end;
+ return jsonb_build_object('status',state,'managerCcEmails',case when state='resolved' then to_jsonb(recipients) else '[]'::jsonb end,
+  'managerCcCount',case when state='resolved' then cardinality(recipients) else 0 end);
+end $$;
+revoke all on function private.refund_manager_operational_route(uuid,text,text[]) from public,anon,authenticated,service_role;
+
+create function private.refund_ops_notice_delivery_allowed(p_recipients text[],p_observed_at timestamptz)
+returns boolean language sql stable security definer set search_path='' as $$
+ select (select activated_at is not null and delivery_enabled from private.email_alert_delivery_settings where singleton)
+  and cardinality(p_recipients) between 1 and 5 and not exists(
+   select 1 from unnest(p_recipients) recipient left join auth.users u on lower(btrim(u.email))=lower(btrim(recipient))
+   where private.email_alert_in_quiet_hours(u.id,p_observed_at));
+$$;
+revoke all on function private.refund_ops_notice_delivery_allowed(text[],timestamptz) from public,anon,authenticated,service_role;
+
+-- Existing Ops routing exceptions retain their existing five-day cadence and
+-- feature gate. They are not another reminder to a successfully routed Manager.
+create function public.service_revalidate_refund_manager_operational_aging(
+ p_refund_case_id uuid,p_customer_email text,p_mailbox_identities text[],p_ops_fallback_recipients text[],p_action_key text)
+returns jsonb language plpgsql volatile security definer set search_path='' as $$
+declare c public.refund_cases; a public.refund_manager_attention_states; route jsonb;
+begin
+ select * into c from public.refund_cases where id=p_refund_case_id for update;
+ if c.id is null then return jsonb_build_object('deliveryAllowed',false); end if;
+ perform pg_advisory_xact_lock(hashtext('machine_manager:'||c.reporting_machine_id::text));
+ perform 1 from public.reporting_machines where id=c.reporting_machine_id for update;
+ perform 1 from public.reporting_machine_refund_managers where reporting_machine_id=c.reporting_machine_id
+  order by id for share;
+ select * into a from public.refund_manager_attention_states where refund_case_id=c.id;
+ route:=private.refund_manager_operational_route(c.id,p_customer_email,p_mailbox_identities);
+ return route||jsonb_build_object('deliveryAllowed',coalesce(
+  a.notice_attempt_key=p_action_key and a.notice_attempt_expected_outcome='operations_exception'
+  and a.delivery_review_reason='notice_attempt_in_flight' and a.notice_attempt_started_at is not null
+  and a.notice_attempt_milestone='escalation' and a.delivery_review_required_at is not null
+  and a.notice_attempt_attention_version=a.attention_version and a.case_status=c.status
+  and a.correlation_status=c.correlation_status and a.decision is not distinct from c.decision
+  and a.deterministic_fact_version=c.deterministic_fact_version
+  and public.refund_case_requires_manager_attention(c.status) and c.status not in('draft','waiting_on_customer','denied','completed','closed')
+  and route->>'status'<>'resolved'
+  and private.refund_ops_notice_delivery_allowed(p_ops_fallback_recipients,statement_timestamp()),false));
+end $$;
+revoke all on function public.service_revalidate_refund_manager_operational_aging(uuid,text,text[],text[],text) from public,anon,authenticated;
+grant execute on function public.service_revalidate_refund_manager_operational_aging(uuid,text,text[],text[],text) to service_role;
+
 do $$ declare d text; anchor text; begin
  d:=pg_get_functiondef('public.service_claim_next_refund_manager_ready_notice(uuid,timestamptz)'::regprocedure);
  anchor:='''projection'',snapshot_value,''payloadRedacted'',true';
@@ -277,14 +340,48 @@ do $$ declare d text; anchor text; begin
  anchor:='  current_snapshot:=';
  if strpos(d,anchor)=0 then raise exception 'Ready provider snapshot changed'; end if;
  execute replace(d,anchor,E'  if not private.refund_ready_stage_allowed(action_row.id,statement_timestamp()) then return false; end if;\n'||anchor);
- -- This sender replaces legacy digest-only reminders and same-recipient day-five
- -- pings. Other operational incident and routing-exception controls are intact.
+ -- A distinct selector lets new consumers preserve only existing Ops exceptions;
+ -- old consumers receive no aging work once adopted, so cannot double-ping.
+ d:=pg_get_functiondef('public.service_list_due_refund_manager_aging_notices(timestamptz,text,integer,integer,text,integer)'::regprocedure);
+ anchor:='p_limit integer DEFAULT 100)';
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging signature changed'; end if;
+ d:=replace(d,'public.service_list_due_refund_manager_aging_notices(', 'public.service_list_due_refund_manager_operational_exceptions(');
+ d:=replace(d,anchor,'p_limit integer, p_mailbox_identities text[])');
+ anchor:='    where attention.attention_started_at is not null';
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging admission changed'; end if;
+ d:=replace(d,anchor,anchor||$patch$
+      and (select activated_at is not null and delivery_enabled from private.email_alert_delivery_settings where singleton)
+      and age.business_day_age>=p_escalation_business_days
+      and coalesce(refund_case.case_population,'customer')='customer' and refund_case.duplicate_of_refund_case_id is null
+      and private.refund_manager_operational_route(refund_case.id,refund_case.customer_email,p_mailbox_identities)->>'status'<>'resolved'$patch$);
+ execute d;
  d:=pg_get_functiondef('public.service_list_due_refund_manager_aging_notices(timestamptz,text,integer,integer,text,integer)'::regprocedure);
  anchor:=E'begin\r\n';
  if strpos(d,anchor)=0 then anchor:=E'begin\n'; end if;
  if strpos(d,anchor)=0 then raise exception 'Legacy aging entry changed'; end if;
  execute overlay(d placing anchor||E'  if (select activated_at is not null from private.email_alert_delivery_settings where singleton) then return; end if;\n'
   from strpos(d,anchor) for length(anchor));
+ d:=pg_get_functiondef('public.service_begin_refund_manager_aging_notice_attempt(uuid,bigint,text,timestamptz,text,integer,integer,text,text,text[],text[])'::regprocedure);
+ anchor:='  recipient_resolution := public.service_resolve_refund_customer_manager_cc(';
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging route changed'; end if;
+ d:=replace(d,anchor,'  recipient_resolution := case when (select activated_at is not null from private.email_alert_delivery_settings where singleton) then private.refund_manager_operational_route(');
+ -- Both route functions have the same argument list. Close the CASE at this
+ -- exact statement rather than changing any other resolver/correspondence path.
+ anchor:='    mailbox_identities'||E'\r\n  );';
+ if strpos(d,anchor)=0 then anchor:='    mailbox_identities'||E'\n  );'; end if;
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging route arguments changed'; end if;
+ d:=replace(d,anchor,replace(anchor,');',') else public.service_resolve_refund_customer_manager_cc(p_refund_case_id,case_row.customer_email,mailbox_identities) end;'));
+ anchor:='  recipient_count := cardinality(route_recipients);';
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging route admission changed'; end if;
+ d:=replace(d,anchor,$patch$  if (select activated_at is not null from private.email_alert_delivery_settings where singleton)
+   and (p_milestone<>'escalation' or route_type<>'operations'
+    or not private.refund_ops_notice_delivery_allowed(route_recipients,p_observed_at)) then
+   return jsonb_build_object('authorized',false,'reason','operational_exception_not_due'); end if;
+$patch$||anchor);
+ anchor:='    ''attemptStarted'', true,';
+ if strpos(d,anchor)=0 then raise exception 'Legacy aging response changed'; end if;
+ d:=replace(d,anchor,anchor||E'\n    ''requiredRefundActionsVersion'',case when (select activated_at is not null from private.email_alert_delivery_settings where singleton) then 1 end,');
+ execute d;
  d:=pg_get_functiondef('public.service_mark_refund_manager_notification_provider_started(uuid,uuid)'::regprocedure);
  anchor:='  if action_row.notice_reason=''wallet_match_ready'' then';
  if strpos(d,anchor)=0 then raise exception 'Legacy notice provider boundary changed'; end if;
@@ -299,6 +396,15 @@ $patch$||anchor);
  execute replace(d,anchor,anchor||E'\n    if alert->>''id''=''decision-ready'' and (select activated_at is not null from private.email_alert_delivery_settings where singleton) then continue; end if;');
 end $$;
 
+revoke all on function public.service_list_due_refund_manager_operational_exceptions(timestamptz,text,integer,integer,text,integer,text[]) from public,anon,authenticated;
+grant execute on function public.service_list_due_refund_manager_operational_exceptions(timestamptz,text,integer,integer,text,integer,text[]) to service_role;
+
+do $$ declare d text; anchor text:='''ownershipActivated'',activated_at is not null'; begin
+ d:=pg_get_functiondef('public.service_email_alert_delivery_status()'::regprocedure);
+ if strpos(d,anchor)=0 then raise exception 'Delivery ownership response changed'; end if;
+ execute replace(d,anchor,anchor||',''requiredRefundActionsVersion'',case when activated_at is not null then 1 end');
+end $$;
+
 -- Getter and save share this response. New UI keeps legacy enrollment until
 -- this exact backend policy exists and the personal sender owns delivery.
 do $$ declare d text; anchor text:='  return result;'; begin
@@ -306,6 +412,129 @@ do $$ declare d text; anchor text:='  return result;'; begin
  if strpos(d,anchor)=0 then raise exception 'Preference response changed'; end if;
  execute replace(d,anchor,$patch$  return result||jsonb_build_object('requiredRefundActionsVersion',
    case when (select activated_at is not null from private.email_alert_delivery_settings where singleton) then 1 end);$patch$);
+end $$;
+
+-- One initial owner-routing notice for a supported failed denial contact. This
+-- uses the existing action/recipient ledger; old ready/digest consumers cannot
+-- claim this distinct purpose and the generic provider marker rejects it.
+alter table public.refund_manager_notification_actions drop constraint refund_manager_notification_actions_notice_reason_check,
+ add constraint refund_manager_notification_actions_notice_reason_check check(notice_reason in(
+ 'intake_created','wallet_match_ready','customer_reply','hard_bounce','provider_setup','provider_outage','provider_rejection',
+ 'provider_timeout','provider_unknown','follow_up_manual_review','manager_reminder','manager_escalation',
+ 'routine_customer_message','manager_authored_conversation','customer_completion_copy','decision_ready','customer_contact_owner_needed'));
+create unique index refund_contact_owner_once on public.refund_manager_notification_actions(refund_case_id)
+ where notice_reason='customer_contact_owner_needed';
+alter table private.email_alert_delivery_settings add column contact_owner_scan_after_case_id uuid;
+
+create function private.refund_denial_owner_recovery_root(p_case_id uuid)
+returns uuid language plpgsql stable security definer set search_path='' as $$
+declare c public.refund_cases; latest public.refund_case_messages; root_id uuid;
+begin
+ select * into c from public.refund_cases where id=p_case_id;
+ if c.id is null or c.resolution_method<>'gift_card' or c.gift_card_state<>'denied'
+  or coalesce(c.case_population,'customer')<>'customer' or c.duplicate_of_refund_case_id is not null
+  or private.refund_gift_denial_recovery(c.id) is distinct from 'ready' then return null; end if;
+ select * into latest from public.refund_case_messages m where m.refund_case_id=c.id
+  and private.is_refund_gift_denial_notice(to_jsonb(m)) order by m.created_at desc,m.id desc limit 1;
+ if latest.id is null or (latest.manual_delivery_provider_attempted_at is null and latest.delivery_transport is null
+  and latest.manual_delivery_attempt_count<3) then return null; end if;
+ select id into root_id from public.refund_case_messages where refund_case_id=c.id
+  and manual_delivery_intent_id=md5('gift-card-denial:'||c.id::text)::uuid;
+ return root_id;
+end $$;
+revoke all on function private.refund_denial_owner_recovery_root(uuid) from public,anon,authenticated,service_role;
+
+create function private.refund_contact_owner_route(p_case_id uuid,p_mailbox_identities text[],p_ops_fallback_recipients text[],p_observed_at timestamptz)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare c public.refund_cases; root_id uuid; recipients text[]; fingerprints text[];
+begin
+ select * into c from public.refund_cases where id=p_case_id;
+ root_id:=private.refund_denial_owner_recovery_root(c.id);
+ if root_id is null or private.refund_manager_operational_route(c.id,c.customer_email,p_mailbox_identities)->>'status'='resolved' then return null; end if;
+ select array_agg(email order by email) into recipients from(select distinct lower(btrim(v)) email
+  from unnest(p_ops_fallback_recipients) v where public.refund_email_address_is_valid(v)
+   and lower(btrim(v))<>lower(btrim(c.customer_email))
+   and not(lower(btrim(v))=any(public.normalize_refund_mailbox_identities(p_mailbox_identities)))) safe;
+ if not coalesce(private.refund_ops_notice_delivery_allowed(recipients,p_observed_at),false) then return null; end if;
+ select array_agg(private.email_alert_hash(email) order by email) into fingerprints from unnest(recipients) email;
+ return jsonb_build_object('rootId',root_id,'recipients',to_jsonb(recipients),
+  'fingerprint',private.email_alert_hash(jsonb_build_array('customer_contact_owner_needed',c.id,root_id,fingerprints)::text));
+end $$;
+revoke all on function private.refund_contact_owner_route(uuid,text[],text[],timestamptz) from public,anon,authenticated,service_role;
+
+create function public.service_claim_refund_contact_owner_notice(p_mailbox_identities text[],p_ops_fallback_recipients text[],p_observed_at timestamptz default statement_timestamp())
+returns jsonb language plpgsql volatile security definer set search_path='' as $$
+declare c public.refund_cases; a public.refund_manager_notification_actions; route jsonb; cursor_id uuid;
+ recipients text[]; version_value bigint; token uuid; machine_label text;
+begin
+ if not(select activated_at is not null and delivery_enabled from private.email_alert_delivery_settings where singleton)
+  then return jsonb_build_object('claimed',false,'reason','delivery_disabled'); end if;
+ if not pg_try_advisory_xact_lock(hashtextextended('refund_contact_owner_scan',0)) then return jsonb_build_object('claimed',false,'reason','scan_in_progress'); end if;
+ select contact_owner_scan_after_case_id into cursor_id from private.email_alert_delivery_settings where singleton;
+ for c in select rc.* from public.refund_cases rc where rc.resolution_method='gift_card' and rc.gift_card_state='denied'
+  and coalesce(rc.case_population,'customer')='customer' and rc.duplicate_of_refund_case_id is null
+  and private.refund_denial_owner_recovery_root(rc.id) is not null
+  and private.refund_manager_operational_route(rc.id,rc.customer_email,p_mailbox_identities)->>'status'<>'resolved'
+  and not exists(select 1 from public.refund_manager_notification_actions other where other.refund_case_id=rc.id
+   and other.notice_reason='customer_contact_owner_needed' and(other.delivery_state in('sent','delivery_unknown')
+    or other.attempt_count>=3 or(other.delivery_state='reserved' and other.updated_at>p_observed_at-interval '10 minutes')))
+  order by coalesce(rc.id>cursor_id,true) desc,rc.id limit 5
+ loop
+  update private.email_alert_delivery_settings set contact_owner_scan_after_case_id=c.id where singleton;
+  perform 1 from public.refund_cases where id=c.id for update;
+  route:=private.refund_contact_owner_route(c.id,p_mailbox_identities,p_ops_fallback_recipients,p_observed_at);
+  if route is null then continue; end if;
+  select array_agg(v order by v) into recipients from jsonb_array_elements_text(route->'recipients') v;
+  select * into a from public.refund_manager_notification_actions where refund_case_id=c.id and notice_reason='customer_contact_owner_needed' for update;
+  token:=gen_random_uuid();
+  if a.id is not null and(a.delivery_state not in('known_not_sent','reserved') or a.provider_attempt_started_at is not null or a.attempt_count>=3
+    or(a.delivery_state='reserved' and a.updated_at>p_observed_at-interval '10 minutes')) then continue; end if;
+  if a.id is null then
+   select coalesce(max(attention_version),1) into version_value from public.refund_manager_attention_states where refund_case_id=c.id;
+   insert into public.refund_manager_notification_actions(refund_case_id,attention_version,notice_reason,channel,urgency,delivery_state,
+    claim_token,attempt_count,route_type,resolution_status,mapping_fingerprint,manager_recipient_count,recipient_count)
+   values(c.id,version_value,'customer_contact_owner_needed','immediate','actionable','reserved',token,1,'operations',
+    'contact_owner_needed',route->>'fingerprint',0,cardinality(recipients)) returning * into a;
+  else
+   update public.refund_manager_notification_actions set claim_token=token,attempt_count=attempt_count+1,delivery_state='reserved',
+    mapping_fingerprint=route->>'fingerprint',recipient_count=cardinality(recipients),settled_at=null,updated_at=p_observed_at where id=a.id returning * into a;
+   delete from public.refund_manager_notification_recipients where action_id=a.id;
+  end if;
+  insert into public.refund_manager_notification_recipients(action_id,recipient_fingerprint,delivery_state)
+   select a.id,private.email_alert_hash(v),'reserved' from unnest(recipients) v;
+  select private.reporting_machine_display_name(m) into machine_label from public.reporting_machines m where m.id=c.reporting_machine_id;
+  return jsonb_build_object('claimed',true,'claimKind','customer_contact_owner_needed','requiredRefundActionsVersion',1,
+   'actionId',a.id,'claimToken',a.claim_token,'recipients',to_jsonb(recipients),'routeFingerprint',route->>'fingerprint',
+   'caseId',c.id,'publicReference',c.public_reference,'machineLabel',coalesce(machine_label,'Machine not recorded'),'payloadRedacted',true);
+ end loop;
+ return jsonb_build_object('claimed',false,'reason','no_actionable_owner_exception');
+end $$;
+revoke all on function public.service_claim_refund_contact_owner_notice(text[],text[],timestamptz) from public,anon,authenticated;
+grant execute on function public.service_claim_refund_contact_owner_notice(text[],text[],timestamptz) to service_role;
+
+create function public.service_mark_refund_contact_owner_provider_started(p_action_id uuid,p_claim_token uuid,p_mailbox_identities text[],p_ops_fallback_recipients text[],p_route_fingerprint text,p_recipients text[])
+returns boolean language plpgsql volatile security definer set search_path='' as $$
+declare a public.refund_manager_notification_actions; route jsonb; case_id uuid;
+begin
+ select refund_case_id into case_id from public.refund_manager_notification_actions where id=p_action_id and notice_reason='customer_contact_owner_needed';
+ if case_id is null then return false; end if;
+ perform 1 from public.refund_cases where id=case_id for update;
+ select * into a from public.refund_manager_notification_actions where id=p_action_id and notice_reason='customer_contact_owner_needed' for update;
+ if a.id is null or a.claim_token is distinct from p_claim_token or a.delivery_state<>'reserved' or a.provider_attempt_started_at is not null then return false; end if;
+ perform pg_advisory_xact_lock(hashtext('machine_manager:'||(select reporting_machine_id::text from public.refund_cases where id=a.refund_case_id)));
+ perform 1 from public.reporting_machines where id=(select reporting_machine_id from public.refund_cases where id=a.refund_case_id) for update;
+ route:=private.refund_contact_owner_route(a.refund_case_id,p_mailbox_identities,p_ops_fallback_recipients,statement_timestamp());
+ if route is null or route->>'fingerprint' is distinct from a.mapping_fingerprint or a.mapping_fingerprint is distinct from p_route_fingerprint
+  or route->'recipients' is distinct from (select jsonb_agg(v order by v) from unnest(p_recipients) v) then return false; end if;
+ return public.service_mark_refund_manager_notification_provider_started_pre_ready_rollback_20260924(p_action_id,p_claim_token);
+end $$;
+revoke all on function public.service_mark_refund_contact_owner_provider_started(uuid,uuid,text[],text[],text,text[]) from public,anon,authenticated;
+grant execute on function public.service_mark_refund_contact_owner_provider_started(uuid,uuid,text[],text[],text,text[]) to service_role;
+
+do $$ declare d text; anchor text:='  if action_row.notice_reason=''wallet_match_ready'' then'; begin
+ d:=pg_get_functiondef('public.service_mark_refund_manager_notification_provider_started(uuid,uuid)'::regprocedure);
+ if strpos(d,anchor)=0 then raise exception 'Generic provider marker changed'; end if;
+ execute replace(d,anchor,'  if action_row.notice_reason=''customer_contact_owner_needed'' then return false; end if;'||E'\n'||anchor);
 end $$;
 
 select pg_notify('pgrst','reload schema');

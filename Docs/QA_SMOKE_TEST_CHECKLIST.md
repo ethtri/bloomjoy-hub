@@ -187,6 +187,12 @@
   an unsupported retry alert. Repeated ticks and day five add no third notice.
   Before the matching backend capability is present, the new frontend retains
   the existing optional decision controls, save behavior and truthful copy.
+- Known failed denial contact with no safe Manager route generates one initial
+  Ops owner-routing notice, honoring Ops quiet hours. Current route repair or a
+  queued retry between claim and provider cancels it; unknown delivery cannot
+  be resent. The old five-day escalation selects only genuine unresolved-route
+  Ops exceptions after adoption, with its existing gate/cadence, never another
+  Manager ping. Old consumers cannot claim or mislabel the new Ops purpose.
 - Verify the machine panel changes only its current machine, last-machine removal
   turns that category off, and enabling it never revives an old selection. Reports
   setup carries selected machines into review without changing other alerts.

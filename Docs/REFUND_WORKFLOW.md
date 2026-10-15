@@ -300,6 +300,10 @@ action in the existing Refunds workspace. A contact-recovery notice preserves th
 saved decision and original customer notice; it never asks for another decision,
 customer form or unsafe retry of an unknown send. See the October 15 notification
 decision in `DECISIONS.md` for the precise delivery policy.
+If a supported known-failed notice has no safe Manager route, the existing Ops
+recipients receive one owner-routing notice to assign the work. There is no
+reminder loop or second refund decision. Queued, settled, unknown or complaint
+states do not generate that notice.
 
 Structured updates to the same case are the normal correction path. After
 internal research establishes that a customer fact is needed, the email names

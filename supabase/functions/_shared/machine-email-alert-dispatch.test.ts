@@ -562,7 +562,7 @@ Deno.test("disabled normal tick never polls, enqueues, reserves or calls provide
       rpc: (name) => {
         calls.push(name);
         return Promise.resolve({
-          data: { deliveryEnabled: false },
+          data: { deliveryEnabled: false, requiredRefundActionsVersion: 1 },
           error: null,
         });
       },
@@ -585,4 +585,20 @@ Deno.test("disabled normal tick never polls, enqueues, reserves or calls provide
       sends === 0,
     "disabled has zero effects",
   );
+});
+
+Deno.test('contact-owner scanner uses only exact backend capability and admits one bounded attempt per tick', async () => {
+  for (const version of [undefined, 1, 2]) {
+    const calls: string[] = [];
+    const handler = createMachineEmailDispatcher({ secret: 'test-secret', transportConfigured: true, links: machineEmailLinks(),
+      monotonicNow: () => 0, client: { rpc: (name) => {
+        calls.push(name);
+        if (name === 'service_email_alert_delivery_status') return Promise.resolve({ data: { deliveryEnabled: true, requiredRefundActionsVersion: version }, error: null });
+        if (name === 'service_enqueue_refund_manager_ready_notices') return Promise.resolve({ data: readyEnqueue({ reason: 'no_current_subscriptions' }), error: null });
+        return Promise.resolve({ data: { claimed: false }, error: null });
+      } }, collectSignals: async () => ({}), sendEmail: () => { throw new Error('No synthetic work to send'); } });
+    await handler(request({}));
+    assert(calls.filter(name => name === 'service_claim_refund_contact_owner_notice').length === (version === 1 ? 1 : 0), 'Old/unknown database never receives a new RPC');
+    assert(calls[1] === 'service_claim_next_email_alert', 'Existing daily delivery remains first');
+  }
 });
