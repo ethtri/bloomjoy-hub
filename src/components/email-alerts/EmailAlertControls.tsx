@@ -43,7 +43,7 @@ export function AlertMachineChoices({ alert, context, onChange }: { alert: Email
 }
 
 export function InboxSummary({ preferences, context, detailed = false }: { preferences: EmailAlertPreferences; context: EmailAlertContext; detailed?: boolean }) {
-  const active = preferences.alerts.filter(alert => alert.id !== 'decision-ready' && alert.enabled && alert.available);
+  const active = preferences.alerts.filter(alert => (!context.requiredActionNotices || alert.id !== 'decision-ready') && alert.enabled && alert.available);
   const both = ['daily', 'weekly'].every(id => active.some(alert => alert.id === id));
   return <section className="rounded-lg border bg-card p-5"><h2 className="text-base font-semibold">{detailed ? 'Review your choices' : 'Your inbox at a glance'}</h2><div className="my-4 border-b pb-4"><p className="text-xs text-muted-foreground">Deliver to your account email</p><p className="mt-1 break-all text-sm">{context.email}</p></div><div className="space-y-5">{active.map(alert => { const Icon = alertIcons[alert.id]; const selected = machinesForAlert(alert, context.machines); return <div key={alert.id} className="flex items-start gap-3"><Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary"/><div className="min-w-0"><h3 className="text-sm font-medium">{alertDefinitions[alert.id].short} · {selected.length} {selected.length === 1 ? 'machine' : 'machines'}</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{alertSchedule(alert.id, preferences.settings)}</p>{detailed && <p className="mt-2 text-xs leading-relaxed">{selected.map(machine => machine.machineLabel).join(', ')}</p>}</div></div>; })}</div>
     {!active.length && <p className="text-sm text-muted-foreground">Optional alerts are off.</p>}
@@ -54,5 +54,6 @@ export function InboxSummary({ preferences, context, detailed = false }: { prefe
 
 export function ManagerAlertNotice({ context }: { context: EmailAlertContext }) {
   if (!context.machines.some(machine => machine.isManager)) return null;
+  if (!context.requiredActionNotices) return <section className="mt-6 flex gap-3 border-t pt-5"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"/><div><h2 className="text-sm font-semibold">Refund decisions</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">View outstanding decisions in Refunds. Turn on Refund decision ready for optional emails when a case needs your decision. Daily briefs show period sales and new requests. Your manager assignments determine which cases you can decide.</p></div></section>;
   return <section className="mt-6 flex gap-3 border-t pt-5"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"/><div><h2 className="text-sm font-semibold">Refund actions</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">When a refund needs your decision or a saved customer notice needs recovery, we email the responsible Managers automatically. Quiet hours still apply. If the same action is outstanding, we send one reminder on the next business day. Daily and weekly summaries remain your choice. Open Refunds to take the action.</p></div></section>;
 }

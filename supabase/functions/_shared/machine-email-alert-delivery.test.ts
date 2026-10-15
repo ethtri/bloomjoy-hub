@@ -2,6 +2,7 @@ import {
   type AlertRpcClient,
   decorateReadySubscription,
   deliverMachineEmailClaim,
+  deliverMachineReadyClaim,
   machineEmailLinks,
 } from "./machine-email-alert-delivery.ts";
 import {
@@ -24,10 +25,39 @@ const claim = () => ({
 });
 
 Deno.test("essential notice footer explains responsibility and quiet hours without an opt-out promise", () => {
-  const rendered = decorateReadySubscription({ html: '<main><a href="https://app.example.test/refunds/one">Review case</a></main>', text: 'Review case' }, 'https://app.example.test/notifications');
+  const rendered = decorateReadySubscription({ html: '<main><a href="https://app.example.test/refunds/one">Review case</a></main>', text: 'Review case' }, 'https://app.example.test/notifications', true);
   assert(rendered.text.includes('responsible Manager') && rendered.text.includes('quiet hours'), 'truthful operational purpose');
   assert(!/turn off|unsubscribe|follow refund/i.test(rendered.text + rendered.html), 'no optional enrollment or unsubscribe promise');
   assert(rendered.html.includes('Review case') && rendered.html.includes('Manage quiet hours and optional summaries'), 'case action and truthful settings navigation retained');
+});
+
+Deno.test("new consumer retains truthful optional footer for an old database claim", () => {
+  const rendered = decorateReadySubscription({ html: '<main>Review case</main>', text: 'Review case' }, 'https://app.example.test/notifications');
+  assert(rendered.text.includes('follow refund decisions') && rendered.text.includes('turn off'), 'legacy subscription remains optional');
+  assert(!rendered.text.includes('responsible Manager'), 'mandatory policy is not inferred from a legacy claim');
+});
+
+Deno.test("ready claim capability selects truthful legacy or required footer at the actual delivery adapter", async () => {
+  for (const version of [undefined, 1, 2]) {
+    let rendered = '';
+    const result = await deliverMachineReadyClaim({
+      client: { rpc: () => Promise.resolve({ data: true, error: null }) },
+      claim: { claimed: true, intentId: fixtureId(700), claimToken: fixtureId(701),
+        recipient: 'manager@example.test', routeFingerprint: 'a'.repeat(64), payloadRedacted: true,
+        requiredRefundActionsVersion: version, projection: {
+          schemaVersion: 'refund_manager_ready_notice_v2', caseId: fixtureId(702), managerUserId: fixtureId(703),
+          decisionFingerprint: 'a'.repeat(64), proofId: null, officialActionVersion: 1, deterministicFactVersion: 1,
+          actionCode: 'approve_or_deny_request', recommendationKind: null, recommendationReasonCode: null,
+          evidenceBasis: 'gift_card_manager_review', preparationSummary: 'Review the partial-order request.',
+          publicReference: 'RF-SYNTHETIC-1', amountCents: 1500, currencyCode: 'USD',
+          machineLabel: 'Synthetic machine', locationName: 'Synthetic location', payloadRedacted: true,
+        } },
+      links: machineEmailLinks(),
+      sendEmail: async message => { rendered = message.text; return { providerMessageId: 'synthetic-receipt' }; },
+    });
+    assert(result === 'sent' && rendered.includes(version === 1 ? 'responsible Manager' : 'follow refund decisions'), 'only exact backend capability selects required explanation');
+    assert(rendered.includes('turn off') === (version !== 1), 'opt-out promise matches the claim policy');
+  }
 });
 
 Deno.test("delivery revalidates exact route before one isolated recipient send", async () => {

@@ -1,5 +1,6 @@
 {
   "schemaVersion": "email_alert_preferences_v1",
+  "requiredRefundActionsVersion": 1,
   "revision": 0,
   "email": "alex.manager@example.invalid",
   "eligible": true,

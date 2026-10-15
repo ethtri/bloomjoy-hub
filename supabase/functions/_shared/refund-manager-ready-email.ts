@@ -159,14 +159,14 @@ export const buildRefundManagerReadyEmail = ({ notice, caseUrl, isReminder = fal
     : `Prepared case summary: ${notice.preparationSummary}`;
   const navigation = "Opening the case does not approve, deny, send, or repeat a refund.";
   const subject = `${isReminder ? "Reminder: " : ""}${isRecovery ? `Customer notice needs attention: ${notice.publicReference}` : `${isGift ? "Gift-card decision" : notice.recommendationKind === "reject" ? "Decline recommendation" : "Refund decision"} ready: ${notice.publicReference} · ${amount}`}`;
-  const heading = isReminder ? "This refund action is still waiting for you" : isGift
+  const heading = isReminder ? isRecovery ? "Customer notice still needs attention" : "This refund action is still waiting for you" : isGift
     ? "Gift-card decision ready"
     : isRecovery ? "Customer notice delivery needs attention"
     : notice.recommendationKind === "reject"
     ? "Decline recommendation ready"
     : "Refund decision ready";
   const reference = isRecovery ? notice.publicReference : `${notice.publicReference} · ${amount}`;
-  const text = `${action}\n${reason}\n\n${reference}\n${notice.machineLabel}\nOpen case: ${caseUrl}\n\n${navigation}`;
-  const html = `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;background:#f1f5f9;color:#172535;font-family:Arial,sans-serif"><main style="box-sizing:border-box;max-width:640px;margin:0 auto;padding:24px;background:#fff;line-height:1.5;overflow-wrap:anywhere"><h1 style="font-size:22px;line-height:1.25;margin:0 0 16px">${escapeHtml(heading)}</h1><p><strong>${escapeHtml(action)}</strong></p><p>${escapeHtml(reason)}</p><p><strong>${escapeHtml(reference)}</strong><br>${escapeHtml(notice.machineLabel)}</p><p><a href="${escapeHtml(caseUrl)}" style="color:#174a77">Open refund case ${escapeHtml(notice.publicReference)}</a></p><p style="font-size:13px;color:#435466">${escapeHtml(navigation)}</p></main></body></html>`;
+  const text = `${action}${isRecovery ? '' : `\n${reason}`}\n\n${reference}\n${notice.machineLabel}\nOpen case: ${caseUrl}${isRecovery ? '' : `\n\n${navigation}`}`;
+  const html = `<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head><body style="margin:0;background:#f1f5f9;color:#172535;font-family:Arial,sans-serif"><main style="box-sizing:border-box;max-width:640px;margin:0 auto;padding:24px;background:#fff;line-height:1.5;overflow-wrap:anywhere"><h1 style="font-size:22px;line-height:1.25;margin:0 0 16px">${escapeHtml(heading)}</h1><p><strong>${escapeHtml(action)}</strong></p>${isRecovery ? '' : `<p>${escapeHtml(reason)}</p>`}<p><strong>${escapeHtml(reference)}</strong><br>${escapeHtml(notice.machineLabel)}</p><p><a href="${escapeHtml(caseUrl)}" style="color:#174a77">Open refund case ${escapeHtml(notice.publicReference)}</a></p>${isRecovery ? '' : `<p style="font-size:13px;color:#435466">${escapeHtml(navigation)}</p>`}</main></body></html>`;
   return { subject, text, html };
 };

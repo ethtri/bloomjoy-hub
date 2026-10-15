@@ -52,6 +52,19 @@ const save = async (page, saves) => {
 };
 
 try {
+  await check('New frontend preserves old database optional decision controls and save behavior', async () => {
+    const legacyData = structuredClone(fixture); delete legacyData.requiredRefundActionsVersion;
+    const legacy = await session({ data: legacyData });
+    await legacy.page.goto(`${origin}/portal/notifications`); await waitPage(legacy.page);
+    assert.equal(await legacy.page.getByRole('checkbox', { name: /^Receive / }).count(), 6);
+    assert.equal(await legacy.page.getByText(/we email the responsible Managers automatically/).count(), 0);
+    assert(await legacy.page.getByText(/Turn on Refund decision ready for optional emails/).isVisible());
+    await legacy.page.getByRole('checkbox', { name: 'Receive Refund decision ready', exact: true }).check();
+    await row(legacy.page, 'Refund decision ready').getByRole('checkbox', { name: /North Atrium/ }).check();
+    await save(legacy.page, legacy.saves);
+    assert.equal(legacy.saved().alerts.find(item => item.id === 'decision-ready').enabled, true);
+    await snap(legacy.page, 'preferences-legacy-backend');
+  });
   const manager = await session(); const { page, saves } = manager;
   await page.goto(`${origin}/portal/notifications`); await waitPage(page);
   await check('Daily alone defaults on; five informational categories are optional', async () => {

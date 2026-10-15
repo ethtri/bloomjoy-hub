@@ -267,7 +267,7 @@ do $$ declare d text; anchor text; begin
  d:=pg_get_functiondef('public.service_claim_next_refund_manager_ready_notice(uuid,timestamptz)'::regprocedure);
  anchor:='''projection'',snapshot_value,''payloadRedacted'',true';
  if strpos(d,anchor)=0 then raise exception 'Ready claim response changed'; end if;
- d:=replace(d,anchor,'''projection'',snapshot_value,''noticeStage'',action_row.ready_notice_stage,''payloadRedacted'',true');
+ d:=replace(d,anchor,'''projection'',snapshot_value,''noticeStage'',action_row.ready_notice_stage,''requiredRefundActionsVersion'',case when (select activated_at is not null from private.email_alert_delivery_settings where singleton) then 1 end,''payloadRedacted'',true');
  d:=replace(d,'and old_action.notice_reason=''wallet_match_ready''',
   'and old_action.notice_reason=''wallet_match_ready'' and action_row.ready_evidence_basis is distinct from ''gift_denial_delivery_recovery''');
  anchor:='    snapshot_value:=public.service_refund_manager_ready_notice_snapshot(';
@@ -296,7 +296,16 @@ $patch$||anchor);
  d:=pg_get_functiondef('public.save_my_email_alert_preferences(jsonb,integer)'::regprocedure);
  anchor:='  for alert in select * from jsonb_array_elements(p_preferences->''alerts'') loop';
  if strpos(d,anchor)=0 then raise exception 'Preference category loop changed'; end if;
- execute replace(d,anchor,anchor||E'\n    if alert->>''id''=''decision-ready'' then continue; end if;');
+ execute replace(d,anchor,anchor||E'\n    if alert->>''id''=''decision-ready'' and (select activated_at is not null from private.email_alert_delivery_settings where singleton) then continue; end if;');
+end $$;
+
+-- Getter and save share this response. New UI keeps legacy enrollment until
+-- this exact backend policy exists and the personal sender owns delivery.
+do $$ declare d text; anchor text:='  return result;'; begin
+ d:=pg_get_functiondef('private.email_alert_context(uuid)'::regprocedure);
+ if strpos(d,anchor)=0 then raise exception 'Preference response changed'; end if;
+ execute replace(d,anchor,$patch$  return result||jsonb_build_object('requiredRefundActionsVersion',
+   case when (select activated_at is not null from private.email_alert_delivery_settings where singleton) then 1 end);$patch$);
 end $$;
 
 select pg_notify('pgrst','reload schema');

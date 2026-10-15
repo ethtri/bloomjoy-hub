@@ -5,6 +5,18 @@ import { alertSchedule, changeAlertMachine, changeMachineSubscriptions, emailAle
 const context = () => emailAlertContextSchema.parse(structuredClone(fixture));
 const equal = (actual: unknown, expected: unknown) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); };
 
+Deno.test('only the backend capability enables automatic action presentation; old or unknown versions retain opt-in edits', () => {
+  for (const version of [undefined, null, 0, 2, '1']) {
+    const data = emailAlertContextSchema.parse({ ...fixture, requiredRefundActionsVersion: version });
+    equal(data.requiredActionNotices, false);
+    const edited = changeMachineSubscriptions(preferencesFrom(data), data.machines, data.machines[0].machineId, ['daily', 'decision-ready']);
+    equal(edited.alerts.find(item => item.id === 'decision-ready')?.enabled, true);
+    const legacy = edited.alerts.find(item => item.id === 'decision-ready')!; legacy.machineIds = [];
+    equal(validateEmailAlertPreferences(edited, data.machines), 'Choose at least one machine for refund decision ready.');
+  }
+  equal(context().requiredActionNotices, true);
+});
+
 Deno.test('informational edits preserve former decision subscriptions without making them an enrollment gate', () => {
   const data = context(); const draft = preferencesFrom(data);
   const legacy = draft.alerts.find(item => item.id === 'decision-ready')!;

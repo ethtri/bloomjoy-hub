@@ -33,6 +33,8 @@ Deno.test("customer-notice recovery has one navigation action and no new financi
     caseUrl: "https://portal.example/refunds?case=synthetic", isReminder: true });
   assert(message.subject.startsWith("Reminder: Customer notice needs attention:"), "reminder names the operational purpose");
   assert(message.text.includes("refund decision is already saved"), "no repeated business decision");
+  assert((message.text.match(/retry the saved notice/g) ?? []).length === 1 && !message.text.includes('Opening the case'), "one concise recovery explanation");
+  assert(message.html.includes('Customer notice still needs attention'), "reminder names the recovery purpose");
   assert(!/approve or deny|Zelle|No matched purchase amount|Gift-card value/.test(message.text), "no false money or issuance instruction");
   assert((message.html.match(/<a href=/g) ?? []).length === 1, "one direct case navigation link");
   let rejected = false;

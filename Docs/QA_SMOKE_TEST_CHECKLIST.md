@@ -185,6 +185,8 @@
   Known exhausted denial-contact failure uses a saved-notice recovery message;
   queued, sent, unknown and complaint states cannot become another decision or
   an unsupported retry alert. Repeated ticks and day five add no third notice.
+  Before the matching backend capability is present, the new frontend retains
+  the existing optional decision controls, save behavior and truthful copy.
 - Verify the machine panel changes only its current machine, last-machine removal
   turns that category off, and enabling it never revives an old selection. Reports
   setup carries selected machines into review without changing other alerts.
