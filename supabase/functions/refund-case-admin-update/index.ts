@@ -802,7 +802,7 @@ serve(async (req) => {
         p_email: sanitizeText(body.customerEmail, 320) || null,
       });
       if (error) return jsonResponse({ error: error.code === "P4684"
-        ? "Email delivery to this address requires Refund Operations review. The decision is saved."
+        ? "Email delivery to this address requires manual review. The decision is saved."
         : error.code === "P4683"
         ? "The existing customer notice must finish or be reconciled before another delivery attempt. The decision is saved."
         : error.code === "P4672"

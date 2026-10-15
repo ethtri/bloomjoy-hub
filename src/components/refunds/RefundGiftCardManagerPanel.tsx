@@ -65,13 +65,13 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
   };
   const card = query.data;
   const denialNoticeCopy = card?.denial_delivery_recovery_state === 'complaint_review'
-    ? 'Decision saved. Email delivery to this address requires Refund Operations review.'
+    ? 'Decision saved. Email delivery to this address requires manual review.'
     : card?.denial_delivery_recovery_state === 'reconciliation_required'
     ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
     : card?.can_retry_denial ? 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
     : card && ['queued', 'claimed', 'pending'].includes(card.delivery_state) ? 'Decision saved. The System is sending the customer notice.'
     : card && ['sent', 'accepted', 'deferred', 'delivered'].includes(card.delivery_state) ? 'Decision saved. Customer notice sent.'
-    : 'Decision saved. Customer notice delivery needs Refund Operations review. Do not record another decision.';
+    : 'Decision saved. Customer notice delivery needs manual review. Do not record another decision.';
   return <section data-testid="refund-gift-card-manager" className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5">
     <h3 className="text-xl font-semibold">{card?.state === 'manager_review' ? 'Review gift card request' : 'Gift card request'}</h3>
     <div>
@@ -125,7 +125,7 @@ export function RefundGiftCardManagerPanel({ refundCase, onActionPendingChange }
           <p className="font-semibold">Delivery verification needed</p>
           <p>The email provider has not confirmed the existing send. The System must reconcile that result before another email or recipient correction. The same gift card is saved.</p>
           <Button variant="outline" className="min-h-11" onClick={() => void query.refetch()}>Refresh delivery status</Button>
-        </div> : card.delivery_recovery_state === 'code_unavailable' ? <p role="status" className="text-sm leading-6">The assigned code has expired or is no longer available for delivery. Contact Refund Operations to review this same request.</p> : card.can_resend ? <>
+        </div> : card.delivery_recovery_state === 'code_unavailable' ? <p role="status" className="text-sm leading-6">The assigned code has expired or is no longer available for delivery. Ask your team to review this same request.</p> : card.can_resend ? <>
         <Label htmlFor="gift-card-recipient">Customer email</Label>
         <Input id="gift-card-recipient" type="email" value={recipient ?? card.customer_email} disabled={pending}
           onChange={(event) => { setRecipient(event.target.value); setResendIntent(crypto.randomUUID()); setResent(false); }} />

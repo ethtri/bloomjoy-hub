@@ -298,7 +298,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
           await page.getByRole('button', { name: 'Deny request', exact: true }).click();
         } else await page.getByRole('button', { name: 'Approve $15.00 gift card', exact: true }).click();
         await page.getByText(mode.startsWith('deny')
-          ? mode === 'deny-complaint' ? 'Decision saved. Email delivery to this address requires Refund Operations review.'
+          ? mode === 'deny-complaint' ? 'Decision saved. Email delivery to this address requires manual review.'
             : mode === 'deny-unknown' ? 'Decision saved. We are verifying the existing email send. This status updates automatically.'
             : 'Decision saved. Customer notice delivery failed. Review the email address and retry the saved notice below.'
           : 'We have sent your gift card email. Check your inbox or spam folder. Reply to your Bloomjoy email if you need a hand.', { exact: true }).waitFor();
