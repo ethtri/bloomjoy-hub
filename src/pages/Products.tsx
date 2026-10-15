@@ -324,9 +324,9 @@ export default function ProductsPage() {
               className="mt-6"
             >
               {machineBuyerFaqs.map((faq, index) => (
-                <AccordionItem key={faq.q} value={`machine-faq-${index}`}>
+                <AccordionItem key={faq.q} value={`machine-faq-${index}`} className="[&_[role=region][data-state=closed]]:hidden">
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                  <AccordionContent forceMount className="text-muted-foreground data-[state=closed]:hidden">{faq.a}</AccordionContent>
+                  <AccordionContent forceMount className="text-muted-foreground">{faq.a}</AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>
