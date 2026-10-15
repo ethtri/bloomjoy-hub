@@ -129,6 +129,7 @@ export type RefundManagerNoticeRouting = {
   resolutionStatus: string;
   usedOpsFallback: boolean;
   mappingFingerprint?: string;
+  operationalAgingKey?: string;
 };
 
 export const getRefundManagerNoticeReservationRouteInputs = ({
@@ -246,6 +247,8 @@ export const bindRefundManagerNoticeReservationRouting = ({
     resolutionStatus,
     usedOpsFallback,
     mappingFingerprint,
+    ...(reservationRecord.requiredRefundActionsVersion === 1 && typeof reservationRecord.attemptKey === 'string'
+      ? { operationalAgingKey: reservationRecord.attemptKey } : {}),
   };
 };
 
@@ -253,19 +256,25 @@ export const resolveRefundManagerActionNoticeRouting = async ({
   supabase,
   refundCaseId,
   customerEmail,
+  operationalAgingKey,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
   customerEmail: string;
+  operationalAgingKey?: string;
 }): Promise<RefundManagerNoticeRouting> => {
   const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
   const mailboxIdentities = getRefundGmailMailboxIdentities();
   const { data, error } = await supabase.rpc(
-    "service_resolve_refund_customer_manager_cc",
+    operationalAgingKey ? "service_revalidate_refund_manager_operational_aging" : "service_resolve_refund_customer_manager_cc",
     {
       p_refund_case_id: refundCaseId,
       p_customer_email: normalizedCustomerEmail,
       p_mailbox_identities: mailboxIdentities,
+      ...(operationalAgingKey ? {
+        p_action_key: operationalAgingKey,
+        p_ops_fallback_recipients: getRefundManagerNoticeReservationRouteInputs({ customerEmail: normalizedCustomerEmail }).opsFallbackRecipients,
+      } : {}),
     },
   );
   if (error) throw error;
@@ -273,6 +282,10 @@ export const resolveRefundManagerActionNoticeRouting = async ({
   const resolution = data && typeof data === "object"
     ? data as Record<string, unknown>
     : {};
+  if (operationalAgingKey && resolution.deliveryAllowed !== true) {
+    if (resolution.deferred === true) throw new RefundManagerNoticeDeferredError();
+    throw new RefundManagerNoticeRouteChangedError();
+  }
   const resolutionStatus = typeof resolution.status === "string"
     ? resolution.status.slice(0, 80)
     : "resolution_failed";
@@ -452,6 +465,7 @@ export const sendRefundManagerActionNotice = async ({
         supabase,
         refundCaseId,
         customerEmail: normalizedCustomerEmail,
+        operationalAgingKey: routing.operationalAgingKey,
       });
       if (
         currentRouting.usedOpsFallback !== routing.usedOpsFallback ||
@@ -463,7 +477,8 @@ export const sendRefundManagerActionNotice = async ({
       ) {
         throw new Error("Refund manager notice route changed.");
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof RefundManagerNoticeDeferredError) throw error;
       throw new RefundManagerNoticeRouteChangedError();
     }
     if (actionId && claimToken) {
@@ -550,3 +565,6 @@ export class RefundManagerNoticeRouteChangedError extends Error {
     this.name = "RefundManagerNoticeRouteChangedError";
   }
 }
+
+/** A live Ops exception remains due while quiet hours or the master switch defer it. */
+export class RefundManagerNoticeDeferredError extends RefundManagerNoticeRouteChangedError {}

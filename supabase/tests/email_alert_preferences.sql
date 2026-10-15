@@ -2,6 +2,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select no_plan();
+update private.email_alert_delivery_settings set activated_at=null where singleton;
 set local session_replication_role=replica;
 insert into auth.users(id,email) values
  ('ea710000-0000-4000-8000-000000000001','manager@example.invalid'),
@@ -19,6 +20,7 @@ set local session_replication_role=origin;
 select set_config('request.jwt.claim.sub','ea710000-0000-4000-8000-000000000001',true);
 create temporary table alert_fixture as select public.get_my_email_alert_preferences() payload;
 select is((select payload->>'schemaVersion' from alert_fixture),'email_alert_preferences_v1','Versioned preference contract');
+select ok((select payload->>'requiredRefundActionsVersion' is null from alert_fixture),'Before adoption the response preserves optional decision controls');
 select is((select count(*)::int from alert_fixture,jsonb_array_elements(payload->'alerts') a where (a->>'enabled')::boolean),1,'Exactly daily enabled by default');
 select is((select a->>'id' from alert_fixture,jsonb_array_elements(payload->'alerts') a where (a->>'enabled')::boolean),'daily','Daily default applies to existing manager');
 select is((select jsonb_array_length(payload->'machines') from alert_fixture),1,'Current assignment scope only');
@@ -45,5 +47,15 @@ insert into public.reporting_machine_refund_managers(reporting_machine_id,manage
  values('ea740000-0000-4000-8000-000000000002','ea710000-0000-4000-8000-000000000002','outsider@example.invalid','active');
 set local session_replication_role=origin;
 select is((select count(*)::int from jsonb_array_elements(public.get_my_email_alert_preferences()->'alerts') a where (a->>'enabled')::boolean),1,'Future eligible manager gets daily without backfill');
+update private.email_alert_delivery_settings set activated_at=statement_timestamp(),delivery_enabled=true where singleton;
+select set_config('request.jwt.claim.sub','ea710000-0000-4000-8000-000000000001',true);
+update alert_fixture set payload=public.get_my_email_alert_preferences();
+select is((select payload->>'requiredRefundActionsVersion' from alert_fixture),'1','Adopted backend advertises the matching required-action policy');
+update alert_fixture set payload=jsonb_set(payload,'{alerts}',(select jsonb_agg(
+ case when a->>'id'='decision-ready' then a||'{"enabled":true,"scopeMode":"selected","machineIds":["ea740000-0000-4000-8000-000000000001"]}'::jsonb else a end)
+ from jsonb_array_elements(payload->'alerts') a));
+select is((public.save_my_email_alert_preferences((select payload from alert_fixture),1)->>'requiredRefundActionsVersion'),'1','Save returns the same backend capability as getter');
+select is((select count(*)::integer from public.email_alert_preferences where user_id='ea710000-0000-4000-8000-000000000001' and alert_id='decision-ready'),1,'Old client saves preserve the existing decision preference row');
+select is((select enabled from public.email_alert_preferences where user_id='ea710000-0000-4000-8000-000000000001' and alert_id='decision-ready'),false,'Old client cannot change the retained opt-out after policy adoption');
 select * from finish();
 rollback;

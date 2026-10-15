@@ -136,6 +136,46 @@ remain unknown; never substitute a prepared or paid amount. Details stay in Hub
 and optional immediate notifications. This decision authorizes implementation and
 deployment; release evidence belongs in the issue and PR.
 
+## 2026-10-15 - Automatic refund action-needed notices
+
+The owner approved automatic operational notices to the current responsible
+Machine Managers, replacing the October 2 decision-ready opt-in. These notices
+honor each recipient's saved or default quiet hours and do not depend on daily,
+weekly or former decision-ready subscriptions. Informational summaries remain
+optional. There is no new enrollment, acknowledgment or approval step.
+Quiet-hour or master-switch deferral preserves the same pending identity and
+does not spend its delivery retry budget. Unknown outcomes never rearm.
+
+Send one notice for the current semantic action and, if it is still outstanding,
+one reminder on the next business-day anniversary of the first successful notice,
+using the recipient's delivery timezone and the existing business-day clock.
+Backlog work receives its initial notice first; quiet or uncertain delivery cannot
+create a reminder burst. Recheck current assignment, action and delivery state
+before sending; stop when resolved or no longer actionable. This adopted-sender
+lane supersedes its legacy two-day digest reminder and redundant five-day
+same-Manager ping. Existing operational incident and routing-exception controls
+remain; there is no new escalation role or indefinite reminder loop.
+The existing five-business-day Ops exception remains only for an unresolved
+current Manager route, behind its existing feature gate and the adopted delivery
+master switch. It uses current account addresses and rechecks route and quiet
+hours before transport; it cannot become a day-five Manager ping.
+
+A saved denial whose customer notice has a known failure requiring supported
+human recovery receives a distinct contact-recovery notice, with the same bounded
+reminder rule. Preserve the original decision and notice. Canonical retry
+readiness, current authority and the exact recognized attempt govern the action;
+queued work, unknown outcomes and complaints must not be presented as another
+decision or a safe retry. If this supported failed contact has no safely resolved
+Manager route, send one initial **Customer contact needs an owner** notice to the
+existing Ops recipients, bound to the case and canonical denial root. No reminder
+loop applies to this owner-routing exception. Stop when the route is fixed,
+retry is queued or contact is settled; the assigned Manager then receives the
+normal bounded action notice. Existing Ops quiet hours and delivery protections
+apply. No new role, queue or setting is introduced.
+
+Implementation and release evidence belong in #1946
+and its PR; this decision is not proof of production activation.
+
 ## 2026-10-02 - Personal machine email alerts and daily-only defaults
 
 The owner approved implementation and production deployment of the six reviewed

@@ -63,7 +63,7 @@ select is((select c->>'claimed' from old_email_claim),'true','Legacy batch can r
 update private.email_alert_delivery_settings set delivery_enabled=true,activated_at=statement_timestamp();
 select is((select public.service_mark_refund_manager_digest_provider_started((c->>'batchId')::uuid,(c->>'claimToken')::uuid,c->>'mappingFingerprint',c->>'recipient') from old_email_claim),false,'Pre-cutover legacy reservation cannot start after ownership changes');
 select is((public.service_begin_next_refund_manager_digest('2026-10-03T15:00Z')->>'reason'),'personal_alert_sender_owns_daily','Activated owner prevents legacy schedule racing');
-select is(private.email_alert_ready_allowed('eb710000-0000-4000-8000-000000000001','eb740000-0000-4000-8000-000000000001','2026-10-03T15:00Z'),false,'Decision-ready defaults off after activation');
+select is(private.email_alert_ready_allowed('eb710000-0000-4000-8000-000000000001','eb740000-0000-4000-8000-000000000001','2026-10-03T15:00Z'),true,'Current Manager action notices are automatic after activation');
 create temporary table email_claim as select public.service_claim_next_email_alert('2026-10-03T15:00Z') c;
 select is((select c->>'claimed' from email_claim),'true','Due manager daily claims');
 select ok((select c->>'idempotencyKey'~'^[A-Za-z0-9_-]{1,200}$' from email_claim),'Transport-compatible stable idempotency key');

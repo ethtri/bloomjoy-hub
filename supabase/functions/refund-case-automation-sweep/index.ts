@@ -14,6 +14,7 @@ import {
   getRefundManagerNoticeReservationRouteInputs,
   getRefundManagerQueueUrl,
   RefundManagerNoticeRouteChangedError,
+  RefundManagerNoticeDeferredError,
   sendRefundManagerActionNotice,
 } from "../_shared/refund-manager-notification.ts";
 import {
@@ -3980,6 +3981,13 @@ const runEnabledManagerAgingSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
+  const ownership = await supabase.rpc("service_email_alert_delivery_status", {});
+  if (ownership.error) throw ownership.error;
+  const operationalExceptionsOnly = ownership.data?.requiredRefundActionsVersion === 1;
+  if (operationalExceptionsOnly && ownership.data?.deliveryEnabled !== true) {
+    addReason(counters, "manager_operational_notices_disabled");
+    return;
+  }
   if (
     !Number.isInteger(managerReminderBusinessDays) ||
     managerReminderBusinessDays < 1 || managerReminderBusinessDays > 10 ||
@@ -3995,7 +4003,7 @@ const runEnabledManagerAgingSweep = async (
   // The database applies all due/current/pending filters before this cap. A
   // backlog of resolved or not-yet-due rows therefore cannot starve later work.
   const { data: attentionStates, error: attentionError } = await supabase.rpc(
-    "service_list_due_refund_manager_aging_notices",
+    operationalExceptionsOnly ? "service_list_due_refund_manager_operational_exceptions" : "service_list_due_refund_manager_aging_notices",
     {
       p_observed_at: new Date().toISOString(),
       p_timezone: automationTimezone,
@@ -4003,6 +4011,9 @@ const runEnabledManagerAgingSweep = async (
       p_escalation_business_days: managerEscalationBusinessDays,
       p_template_version: REFUND_MANAGER_AGING_TEMPLATE_VERSION,
       p_limit: 100,
+      ...(operationalExceptionsOnly ? {
+        p_mailbox_identities: getRefundManagerNoticeReservationRouteInputs({ customerEmail: '' }).mailboxIdentities,
+      } : {}),
     },
   );
   if (attentionError) throw attentionError;
@@ -4099,7 +4110,7 @@ const runEnabledManagerAgingSweep = async (
         await finishAction(
           action,
           "suppressed",
-          `manager_notice_${textValue(attemptResult.reason) || "stale"}`,
+          attemptResult.reason === 'operational_exception_deferred' ? 'manager_operational_deferred' : `manager_notice_${textValue(attemptResult.reason) || "stale"}`,
           null,
           counters,
         );
@@ -4156,6 +4167,7 @@ const runEnabledManagerAgingSweep = async (
       counters.managerNoticesFailed += 1;
       if (milestone === "escalation") counters.escalationsFailed += 1;
       const routeNotSent = error instanceof RefundManagerNoticeRouteChangedError;
+      const deferred = error instanceof RefundManagerNoticeDeferredError;
       if (attemptReserved) {
         try {
           const { error: deliveryReviewError } = await supabase.rpc(
@@ -4163,7 +4175,7 @@ const runEnabledManagerAgingSweep = async (
             {
               p_refund_case_id: refundCase.id,
               p_action_key: actionKey,
-              p_outcome: routeNotSent ? "known_not_sent" : "delivery_unknown",
+              p_outcome: deferred ? 'operational_deferred' : routeNotSent ? "known_not_sent" : "delivery_unknown",
             },
           );
           if (deliveryReviewError) throw deliveryReviewError;
@@ -4178,8 +4190,8 @@ const runEnabledManagerAgingSweep = async (
       });
       await finishAction(
         action,
-        "failed",
-        routeNotSent
+        deferred ? 'suppressed' : "failed",
+        deferred ? 'manager_operational_deferred' : routeNotSent
           ? "manager_notice_route_changed_before_send"
           : attemptReserved
           ? "manager_notice_delivery_unknown"

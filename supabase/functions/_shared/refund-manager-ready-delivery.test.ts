@@ -32,6 +32,32 @@ const claim = {
 };
 const caseUrl = (caseId: string) => `https://portal.example/refunds?case=${caseId}`;
 
+Deno.test('required ready deferral preserves the existing notice budget without sending new outcomes to an old database', async () => {
+  for (const version of [undefined, 1, 2]) {
+    const outcomes: unknown[] = []; let sends = 0;
+    const result = await deliverRefundManagerReadyClaim({ claim: { ...claim, requiredRefundActionsVersion: version }, caseUrl,
+      client: { rpc: async (name, args) => {
+        if (name === 'service_mark_refund_manager_ready_notice_provider_started') return { data: false, error: null };
+        outcomes.push(args.p_outcome); return { data: true, error: null };
+      } }, sendEmail: async () => { sends++; return { providerMessageId: 'must-not-send' }; } });
+    assert(result === 'stale' && sends === 0, 'No provider access after rejected boundary');
+    assert(outcomes.join() === (version === 1 ? 'operational_deferred' : ''), 'Only exact new policy claims use the budget-preserving outcome');
+  }
+});
+
+Deno.test("required reminder preserves the same final route check and durable attempt key", async () => {
+  let starts = 0;
+  const result = await deliverRefundManagerReadyClaim({ claim: { ...claim, noticeStage: "reminder" }, caseUrl,
+    client: { rpc: async name => { if (name.includes("provider_started")) starts++; return { data: true, error: null }; } },
+    sendEmail: async message => {
+      assert(starts === 1, "current route checked before reminder transport");
+      assert(message.subject.startsWith("Reminder: "), "reminder is clearly named");
+      assert(message.idempotencyKey === `refund_manager_ready_${claim.intentId.replaceAll("-", "")}`, "existing outbox identity is the provider key");
+      return { providerMessageId: "synthetic-required-reminder" };
+    } });
+  assert(result === "sent", "required reminder settles through the existing ledger");
+});
+
 Deno.test("ready notice sends one current manager a prepared decision with a durable idempotency key", async () => {
   const calls: string[] = [];
   const messages: Array<{ to: string[]; idempotencyKey: string; text: string }> = [];

@@ -27,7 +27,7 @@ function MachinePanel({ context: initialContext, machineId, onClose }: { context
   const navigate = useNavigate();
   const cache = useQueryClient();
   const machine = context.machines.find(item => item.machineId === machineId)!;
-  const initial = context.alerts.filter(alert => alert.enabled && machinesForAlert(alert, context.machines).some(item => item.machineId === machineId)).map(alert => alert.id);
+  const initial = context.alerts.filter(alert => (!context.requiredActionNotices || alert.id !== 'decision-ready') && alert.enabled && machinesForAlert(alert, context.machines).some(item => item.machineId === machineId)).map(alert => alert.id);
   const [selected, setSelected] = useState<EmailAlertId[]>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -47,7 +47,7 @@ function MachinePanel({ context: initialContext, machineId, onClose }: { context
   return <><Sheet open onOpenChange={open => { if (!open) guard(onClose); }}><SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
     <SheetHeader className="border-b px-6 py-6 text-left"><SheetTitle>Email alerts</SheetTitle><SheetDescription>{machine.machineLabel}</SheetDescription></SheetHeader>
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5"><p className="mb-3 text-sm leading-relaxed text-muted-foreground">Choose updates for this machine. Your other machines keep their existing choices.</p>
-      <fieldset disabled={saving}>{context.alerts.filter(alert => alert.id !== 'decision-ready' || machine.isManager).map(alert => {
+      <fieldset disabled={saving}>{context.alerts.filter(alert => alert.id !== 'decision-ready' || !context.requiredActionNotices && machine.isManager).map(alert => {
         const allowed = alert.available && machine.availableAlertIds.includes(alert.id);
         return <label key={alert.id} className="flex min-h-20 items-start justify-between gap-4 border-b py-5"><span><span className="block text-sm font-semibold">{alertDefinitions[alert.id].name}</span><span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{allowed ? alertSchedule(alert.id, context.settings) : alert.unavailableReason || 'This update is not available for this machine.'}</span></span><Checkbox className="mt-1" aria-label={`Receive ${alertDefinitions[alert.id].name}`} disabled={!allowed && !selected.includes(alert.id)} checked={selected.includes(alert.id)} onCheckedChange={checked => setSelected(previous => checked === true ? [...previous.filter(id => id !== alert.id), alert.id] : previous.filter(id => id !== alert.id))}/></label>;
       })}</fieldset>

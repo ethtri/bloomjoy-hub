@@ -24,10 +24,10 @@ export type AlertSendEmail = (
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Subscription presentation around the mature, protected decision renderer; no workflow change. */
+/** Essential responsibility notices retain quiet-hours settings, without an opt-out promise. */
 export function decorateReadySubscription<
   T extends { html: string; text: string },
->(message: T, preferencesUrl: string): T {
+>(message: T, preferencesUrl: string, requiredActions = false): T {
   const url = new URL(preferencesUrl);
   if (url.protocol !== "https:" || url.username || url.password) {
     throw new Error("email_alert_link_invalid");
@@ -38,8 +38,12 @@ export function decorateReadySubscription<
   ).replaceAll("<", "&lt;");
   const header =
     '<p style="margin:0 0 26px;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#7b2946;letter-spacing:1px">bloomjoy HUB</p>';
+  const explanation = requiredActions
+    ? 'You receive this action-needed notice because you are a responsible Manager for this machine. Your quiet hours apply.'
+    : 'You receive this update because you follow refund decisions for this machine.';
+  const settingsLabel = requiredActions ? 'Manage quiet hours and optional summaries' : 'Manage or turn off email alerts';
   const footer =
-    `<p style="font-size:14px;line-height:1.5;margin:24px 0 12px">You receive this update because you follow refund decisions for this machine.</p><p><a href="${escaped}" style="color:#7b2946;font-weight:700;text-decoration:underline">Manage or turn off email alerts</a></p>`;
+    `<p style="font-size:14px;line-height:1.5;margin:24px 0 12px">${explanation}</p><p><a href="${escaped}" style="color:#7b2946;font-weight:700;text-decoration:underline">${settingsLabel}</a></p>`;
   return {
     ...message,
     html: message.html.replace(/(<main[^>]*>)/, `$1${header}`).replace(
@@ -47,7 +51,7 @@ export function decorateReadySubscription<
       `${footer}</main>`,
     ),
     text:
-      `${message.text}\n\nYou receive this update because you follow refund decisions for this machine.\nManage or turn off email alerts: ${url.toString()}`,
+      `${message.text}\n\n${explanation}\n${settingsLabel}: ${url.toString()}`,
   };
 }
 
@@ -64,7 +68,8 @@ export function deliverMachineReadyClaim(
     claim,
     caseUrl: links.caseUrl,
     sendEmail: (message) =>
-      sendEmail(decorateReadySubscription(message, links.preferencesUrl)),
+      sendEmail(decorateReadySubscription(message, links.preferencesUrl,
+        !!claim && typeof claim === 'object' && 'requiredRefundActionsVersion' in claim && claim.requiredRefundActionsVersion === 1)),
   });
 }
 

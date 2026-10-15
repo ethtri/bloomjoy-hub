@@ -173,10 +173,28 @@
   a technician without Account Settings access. Profile/Settings, Reports and
   machine-detail links reach the same personal preferences. Unassigned users
   receive assignment guidance rather than another user's machines.
-- With no saved preferences, only Daily operations brief is on, at 08:00 Pacific.
+- With no saved preferences, only the optional Daily operations brief is on, at 08:00 Pacific.
   Save a daily opt-out and change assignments: the opt-out persists. Save distinct
   daily/weekly scopes and schedules, reload and confirm both. A stale-tab save or
   revoked machine keeps the draft and explains the failed save.
+- Required refund actions notify current responsible Managers automatically,
+  including saved legacy decision-alert opt-outs. There is no enrollment checkbox.
+  Initial delivery and the single next-business-day reminder honor effective
+  quiet hours; the reminder clock starts at the first successful initial send.
+  Resolve/reassign the action between claim and send: old recipients cannot send.
+  Known exhausted denial-contact failure uses a saved-notice recovery message;
+  queued, sent, unknown and complaint states cannot become another decision or
+  an unsupported retry alert. Repeated ticks and day five add no third notice.
+  Before the matching backend capability is present, the new frontend retains
+  the existing optional decision controls, save behavior and truthful copy.
+- Known failed denial contact with no safe Manager route generates one initial
+  Ops owner-routing notice, honoring Ops quiet hours. Current route repair or a
+  queued retry between claim and provider cancels it; unknown delivery cannot
+  be resent. The old five-day escalation selects only genuine unresolved-route
+  Ops exceptions after adoption, with its existing gate/cadence, never another
+  Manager ping. Repeated proven pre-send quiet deferrals preserve the same action
+  and budget, then resume after quiet hours; unknown outcomes never rearm.
+  Old consumers cannot claim or mislabel the new Ops purpose.
 - Verify the machine panel changes only its current machine, last-machine removal
   turns that category off, and enabling it never revives an old selection. Reports
   setup carries selected machines into review without changing other alerts.
