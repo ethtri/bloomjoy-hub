@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { runRefundGiftCardSupply } from "../_shared/refund-gift-card-supply.ts";
+import { recordRefundWorkObservation, type RefundWorkRuntime } from "../_shared/refund-work-observation.ts";
 import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
@@ -84,6 +85,7 @@ import {
   resolveNayaxRefundExecutionConfig,
   resolveNayaxRefundWriteCredentials,
   runConfiguredNayaxRefundAccounts,
+  configuredNayaxRefundQueueAccounts,
 } from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
@@ -358,6 +360,7 @@ type RefundAutomationHealth = {
   schedulerStatus?: string;
   workflowStatus?: "healthy" | "degraded" | "instrumentation_unavailable";
   deliveryStatus?: "healthy" | "degraded" | "instrumentation_unavailable";
+  dueWork?: { schemaVersion?: string; status?: string };
   blockedReasons?: string[];
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
@@ -821,6 +824,7 @@ const finishAction = async (
   addReason(counters, reasonCategory);
 };
 
+const workObservationRuns = new Map<string, RefundWorkRuntime>();
 const finishRun = async (
   runId: string,
   status: "succeeded" | "failed" | "suppressed",
@@ -829,6 +833,14 @@ const finishRun = async (
   alertStatus: "not_needed" | "pending" | "sent" | "failed" | "suppressed" = "not_needed",
 ) => {
   if (!supabase) throw new Error("Refund automation is not configured.");
+  const observedRuntime = workObservationRuns.get(runId);
+  if (observedRuntime) {
+    try { observedRuntime.contact = await automaticCustomerContactAllowed({ throwOnReadError: true }); }
+    catch { observedRuntime.contact = null; }
+    const observation = await recordRefundWorkObservation(supabase, runId, "after", observedRuntime);
+    if (observation === "unavailable") addReason(counters, "work_observation_unavailable");
+    workObservationRuns.delete(runId);
+  }
   const { data, error } = await supabase.rpc("service_finish_refund_automation_run", {
     p_run_id: runId,
     p_status: status,
@@ -4379,6 +4391,7 @@ const runHealthCheck = async (
       : health.schedulerStatus === "healthy" &&
           health.workflowStatus === "instrumentation_unavailable" &&
           health.deliveryStatus === "healthy" &&
+          health.dueWork?.schemaVersion !== "refund_due_work_health_v1" &&
           (health.blockedReasons?.length ?? 0) === 0
       ? "healthy"
       : notificationHealthStatus,
@@ -4926,6 +4939,30 @@ serve(async (req) => {
         alertStatus,
         ...redactedSummary(counters),
       }, alertStatus === "pending" ? 200 : 502);
+    }
+
+    if (triggerSource === "scheduled") {
+      const config = resolveNayaxRefundExecutionConfig((name) => Deno.env.get(name));
+      const accounts = configuredNayaxRefundQueueAccounts((name) => Deno.env.get(name));
+      const contract = parseNayaxAttemptQueueContract();
+      let contactAvailable: boolean | null = null;
+      try { contactAvailable = await automaticCustomerContactAllowed({ throwOnReadError: true }); }
+      catch { addReason(counters, "work_contact_gate_unavailable"); }
+      const runtime: RefundWorkRuntime = {
+        automation: automationEnabled,
+        contact: contactAvailable,
+        manualOutbox: refundManualMessageOutboxEnabled(),
+        paymentExecutor: automationEnabled && nayaxAttemptQueueEnabled && config.blocks.length === 0 &&
+          !!contract && contract.baseUrl === NAYAX_REFUND_PRODUCTION_BASE_URL && accounts.length > 0 &&
+          accounts.every((account) => {
+            const credentials = resolveNayaxRefundWriteCredentials(account, (name) => Deno.env.get(name));
+            return !!credentials.requestToken && !!credentials.approveToken;
+          }),
+        policyWindow: policyWindowIsOpen(scheduledAt),
+      };
+      workObservationRuns.set(runId, runtime);
+      const observation = await recordRefundWorkObservation(supabase, runId, "before", runtime);
+      if (observation === "unavailable") addReason(counters, "work_observation_unavailable");
     }
 
     // System first finishes an exact saved approval that has not reached the
