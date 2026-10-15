@@ -813,6 +813,10 @@ serve(async (req) => {
       return jsonResponse({ gift_card: data });
     }
     if (["approveGiftCard", "denyGiftCard"].includes(body?.action)) {
+      if (body.action === "denyGiftCard" && body.customerFacingReasonVersion !== 1) {
+        return jsonResponse({ errorCode: "gift_denial_reason_review_required",
+          error: "Refresh this page to review the customer-facing reason before declining." }, 409);
+      }
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!anonKey || user.is_anonymous || !isUuid(sanitizeText(body.caseId, 80))) {
         return jsonResponse({ error: "Current assigned Manager access is required." }, 403);
