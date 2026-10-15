@@ -32,7 +32,7 @@ export const alertDefinitions: Record<EmailAlertId, { name: string; short: strin
   daily: { name: 'Daily operations brief', short: 'Daily brief', description: 'Yesterday’s performance and refund requests, grouped by machine.' },
   weekly: { name: 'Weekly performance review', short: 'Weekly review', description: 'Last week’s performance, comparisons, and refund requests.' },
   'new-refund': { name: 'New refund request', short: 'New refund requests', description: 'The reported problem and customer comment when a request arrives.' },
-  'decision-ready': { name: 'Refund decision ready', short: 'Refund decisions', description: 'An optional email when a case for a machine you manage is ready for your decision. Ready decisions also appear in your daily brief.' },
+  'decision-ready': { name: 'Refund decision ready', short: 'Refund decisions', description: 'An optional email when a case for a machine you manage is ready for your decision. View outstanding decisions in Refunds.' },
   'sales-quiet': { name: 'Cash sales unexpectedly quiet', short: 'Quiet cash-sales alerts', description: 'When verified cash activity for a complete reporting day is much lower than usual. Card activity is not included.' },
   'device-offline': { name: 'Nayax connection disconnected', short: 'Nayax connection alerts', description: 'When a previously connected machine’s Nayax MQTT connection stays disconnected for at least 15 minutes. Connection status alone does not establish machine condition.' },
 };
