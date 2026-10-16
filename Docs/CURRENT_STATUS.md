@@ -2,12 +2,16 @@
 
 Last compacted: 2026-09-29.
 
-## Refund queue outage (#1959)
+## Refund queue repair (#1959)
 
-Production list reads fail because the original-reader clock validator takes
-`FOR SHARE` inside a read-only transaction. A forward repair permits unlocked
-reads in read-only transactions and retains the lock for writes. Production
-rollout and the authenticated refresh check are pending.
+PR #1960 is merged and its database repair is deployed from `c905f7c5`.
+Read-only clock validation now succeeds while writes retain exact-reader locks.
+All 116 live lifecycle reads pass; before deployment one case raised the lock
+error and prevented the whole list from loading. Reviewed helper source,
+privileges and Auth settings are verified. The ten-day audit found ten affected
+queue reads and no observed collateral payment failure; three August receipt
+gaps predate this defect and remain separate completion work. The business
+browser profile was unavailable, so a rendered production refresh is unobserved.
 
 
 ## Monthly base compensation — draft only (#1929 / #1930)
