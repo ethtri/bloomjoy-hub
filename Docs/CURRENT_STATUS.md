@@ -2,6 +2,13 @@
 
 Last compacted: 2026-09-29.
 
+## Refund queue outage (#1959)
+
+Production list reads fail because the original-reader clock validator takes
+`FOR SHARE` inside a read-only transaction. A forward repair permits unlocked
+reads in read-only transactions and retains the lock for writes. Production
+rollout and the authenticated refresh check are pending.
+
 
 ## Monthly base compensation — draft only (#1929 / #1930)
 

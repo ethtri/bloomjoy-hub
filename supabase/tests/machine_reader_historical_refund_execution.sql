@@ -267,5 +267,55 @@ update public.refund_nayax_machine_inventory set provider_clock_observed_at='202
 set local session_replication_role=origin;
 select ok(not private.refund_case_reader_clock_context_matches('b7d70000-0000-4000-8000-000000000001','b7d40000-0000-4000-8000-000000000001','{"reportingMachineId":"b7d40000-0000-4000-8000-000000000001","timezone":"America/Los_Angeles","source":"native_machine_configuration","observedAt":"2026-09-01T00:00:00Z"}'),'Changed original clock observation invalidates the snapshot instead of borrowing a replacement clock');
 select ok(not has_function_privilege('authenticated','public.service_refund_case_reader_clock(uuid,uuid)','execute') and not has_function_privilege('anon','public.service_refund_case_reader_clock(uuid,uuid)','execute'),'Original case clock producer remains service-only');
+select ok(exists(select 1 from pg_locks where pid=pg_backend_pid()
+ and relation='public.refund_nayax_machine_inventory'::regclass and mode='RowShareLock'),
+ 'Write validation retains the reader inventory locking read');
+select ok(not has_function_privilege('authenticated','private.refund_case_reader_clock_context_matches(uuid,uuid,jsonb)','execute')
+ and not has_function_privilege('anon','private.refund_case_reader_clock_context_matches(uuid,uuid,jsonb)','execute')
+ and not has_function_privilege('service_role','private.refund_case_reader_clock_context_matches(uuid,uuid,jsonb)','execute'),
+ 'Clock validator remains private to the existing database paths');
+
+-- Keep a second, open case for the real manager queue read, independently of
+-- the completed payment above. Finish in read-only mode, as PostgREST does.
+set local session_replication_role=replica;
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+ customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+ incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,
+ card_last4,card_last4_provenance,payment_interaction,status,correlation_status,
+ deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
+ nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status,matched_sales_fact_id)
+values('b7d70000-0000-4000-8000-000000000002','RF-READONLY-CLOCK',
+ 'b7d40000-0000-4000-8000-000000000001','b7d30000-0000-4000-8000-000000000001',
+ 'readonly@example.invalid','Read-only queue fixture','2026-09-12T20:00:00Z','America/Los_Angeles',
+ 'exact','exact','card',1000,1090,'4242','physical_card','tap_card','needs_review',
+ 'needs_nayax',1,'form','{}',1,'manual_exception','manual_exception','not_requested',
+ 'b7d90000-0000-4000-8000-000000000001');
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
+ reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+ card_last4,currency_code,evidence_summary,expires_at)
+values('b7d80000-0000-4000-8000-000000000002','b7d70000-0000-4000-8000-000000000002',1,
+ 'b7d10000-0000-4000-8000-000000000001','b7d40000-0000-4000-8000-000000000001',
+ '1803990101',17,'2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence()||
+ '{"machine_clock_context":{"reportingMachineId":"b7d40000-0000-4000-8000-000000000001","timezone":"America/Los_Angeles","source":"native_machine_configuration","observedAt":"2026-09-02T00:00:00Z"}}'::jsonb,
+ now()+interval '1 hour');
+set local session_replication_role=origin;
+select pg_temp.set_actor('b7d10000-0000-4000-8000-000000000002');
+set local transaction_read_only=on;
+select is(current_setting('transaction_read_only'),'on','Queue regression uses an actual read-only transaction');
+select ok(private.refund_case_reader_clock_context_matches(
+ 'b7d70000-0000-4000-8000-000000000002','b7d40000-0000-4000-8000-000000000001',
+ '{"reportingMachineId":"b7d40000-0000-4000-8000-000000000001","timezone":"America/Los_Angeles","source":"native_machine_configuration","observedAt":"2026-09-02T00:00:00Z"}'),
+ 'Exact original clock context is readable without a row lock');
+select ok(not private.refund_case_reader_clock_context_matches(
+ 'b7d70000-0000-4000-8000-000000000002','b7d40000-0000-4000-8000-000000000001',
+ '{"reportingMachineId":"b7d40000-0000-4000-8000-000000000001","timezone":"America/Los_Angeles","source":"native_machine_configuration","observedAt":"2026-09-01T00:00:00Z"}'),
+ 'Read-only validation still rejects changed clock evidence');
+set local role authenticated;
+select lives_ok($sql$select public.get_refund_portal_queue_projection(statement_timestamp())$sql$,
+ 'Scoped manager queue loads historical clock evidence in a read-only transaction');
+select ok(exists(select 1 from jsonb_array_elements(public.get_refund_portal_queue_projection(statement_timestamp())->'items') item
+ where item->>'caseId'='b7d70000-0000-4000-8000-000000000002'),
+ 'Read-only manager queue contains the clock-backed open refund case');
+reset role;
 select * from finish();
 rollback;
