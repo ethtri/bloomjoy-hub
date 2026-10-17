@@ -44,25 +44,21 @@ async (page) => {
     await page.getByRole('heading', { name: 'Your response is saved.' }).waitFor();
 
     await page.goto(`${base}/refunds/request?demo=on`);
-    await page.getByText('Add optional details', { exact: true }).waitFor();
-    check(!(await page.getByLabel('How did you use the card? (optional)').isVisible()), 'Optional intake starts expanded');
-    await page.getByText('Add optional details', { exact: true }).click();
-    const interaction = page.getByLabel('How did you use the card? (optional)');
-    check(await interaction.isVisible(), 'Optional interaction is available');
-    for (const value of ['tap_card', 'insert_card', 'swipe_card', 'insert_or_swipe']) {
-      await interaction.selectOption(value);
-      check(await interaction.evaluate((element) => element.value) === value, `Interaction ${value} is not selectable`);
+    await page.getByRole('heading', { name: 'Request a refund' }).waitFor();
+    check(await page.getByText('Add optional details', { exact: true }).count() === 0, 'Optional intake menu was removed');
+    for (const label of ['Name (optional)', 'Phone (optional)', 'How close is the time? (optional)',
+      'How did you use the card? (optional)', 'Card type (optional)',
+      'Where did you find the last 4? (optional)', 'How did you find the time? (optional)']) {
+      check(await page.getByLabel(label, { exact: true }).count() === 0, `Initial intake still contains ${label}`);
     }
-    check(await page.getByLabel('Where did you find the last 4? (optional)').isVisible(), 'Last-four source is available');
-    check(await page.getByLabel('How did you find the time? (optional)').isVisible(), 'Time source is available');
-    check(await page.getByText('bank posting time can differ', { exact: false }).count() > 0, 'Posting-time explanation is visible');
+    check(await page.getByLabel('What happened? (optional)', { exact: true }).isVisible(), 'Optional description remains available');
     await page.getByText('I used Apple Pay or another phone/watch wallet', { exact: true }).click();
     check(await page.getByLabel('Device used (optional)').isVisible(), 'Phone/watch device choice is visible');
     check(await page.getByText('exact phone or watch you used', { exact: false }).count() > 0,
       'Initial wallet suffix guidance names the exact device');
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Intake page overflows');
     await page.screenshot({ path: `output/playwright/refund-structured-intake-${width}.png`, fullPage: true });
-    evidence.push({ width, correctionSaved: true, intakeOptionalCollapsed: true, noHorizontalOverflow: true });
+    evidence.push({ width, correctionSaved: true, intakeOptionalRemoved: true, noHorizontalOverflow: true });
   }
   console.log(JSON.stringify({ ok: true, evidence }));
 }

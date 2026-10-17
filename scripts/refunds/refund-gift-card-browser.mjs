@@ -75,7 +75,7 @@ try {
         await page.locator('#card-last4').fill('1234');
       } else {
         assert.equal(await page.locator('#card-last4').count(), 0);
-        await page.getByText('Add optional details', { exact: true }).click();
+        assert.equal(await page.getByText('Add optional details', { exact: true }).count(), 0);
         assert.equal(await page.locator('#card-network').count(), 0);
         assert.equal(await page.locator('#card-last4-source').count(), 0);
       }
@@ -90,6 +90,9 @@ try {
       await page.waitForURL('**/refunds/thank-you');
       assert.equal(submitted.length, 1);
       const input = submitted[0];
+      for (const removedField of ['customerName', 'customerPhone', 'incidentTimeConfidence', 'incidentTimeSource', 'cardNetwork', 'cardLast4Source']) {
+        assert.equal(removedField in input, false, `Initial intake must omit ${removedField}`);
+      }
       assert.equal(input.paymentMethod, tender === 'cash' ? 'cash' : 'card');
       assert.equal(input.resolutionMethod, tender === 'original' ? 'original_payment' : 'gift_card');
       assert.equal(input.cardLast4, tender === 'original' ? '1234' : undefined);

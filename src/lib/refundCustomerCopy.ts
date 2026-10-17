@@ -104,7 +104,7 @@ export const refundSpanishCopy = {
   'Purchase amount (cost of the items)': 'Importe de compra (precio de los productos)',
   'Enter the cost of the items here. Enter the bill you inserted below.': 'Indique aquí el precio de los productos. Abajo indique el efectivo que introdujo.',
   'Our machines do not provide change. Our team will review your request for a courtesy gift card.': 'Nuestras máquinas no dan cambio. Nuestro equipo revisará su solicitud de una tarjeta de regalo de cortesía.',
-  'Tell us how many items you paid for and how many you received in the optional details below.': 'En los detalles opcionales, indique cuántos productos pagó y cuántos recibió.',
+  'In “What happened?”, tell us how many items you paid for and how many you received.': 'En «¿Qué pasó?», indique cuántos productos pagó y cuántos recibió.',
   'Your request will be reviewed by a manager. We will email you when the review is complete.': 'Un gerente revisará su solicitud. Le enviaremos un correo cuando termine la revisión.',
   'Proposed gift card. A manager will review the amount before it is issued.': 'Tarjeta de regalo propuesta. Un gerente revisará el importe antes de emitirla.',
   'Submitting accepts the gift card terms. The final amount depends on manager review.': 'Al enviar, acepta las condiciones de la tarjeta de regalo. El importe final depende de la revisión del gerente.',

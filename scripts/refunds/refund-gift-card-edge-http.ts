@@ -91,6 +91,19 @@ try {
   const submission = { machineId, customerEmail: 'synthetic@example.invalid', issueSummary: 'Synthetic machine issue',
     incidentAt: new Date(Date.now() - 3600000).toISOString(), paymentMethod: 'card', paymentAmount: '11.00', resolutionMethod: 'gift_card',
     giftCardOffer: { poolId, value: 1500, expiresAt: offer.expires_at } };
+  for (const precision of [undefined, 'rough', 'exact', 'within_15_minutes', 'within_1_hour']) {
+    requests.length = 0;
+    const result = await post(intake, { ...submission, incidentTimeConfidence: precision });
+    assertEquals(result.status, 200, JSON.stringify(result.data));
+    const saved = requests.find((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST');
+    assert(saved);
+    assertEquals(saved.body.incident_time_confidence, precision ?? 'rough');
+    assertEquals((saved.body.intake_meta as Record<string, unknown>).incident_time_confidence_supplied, precision !== undefined);
+    assertEquals(saved.body.customer_name, null);
+    assertEquals(saved.body.customer_phone, null);
+    assert(!requests.some((r) => /nayax|resend|refund_case_messages/.test(r.path)),
+      'Removing initial optional details must not trigger a provider call or an extra customer question');
+  }
   const assertNoAmountEffects = () => {
     assert(!requests.some((r) => /service_get_refund_gift_card_offer|service_materialize_refund_gift_card_offer|service_claim_refund_submission|service_accept_refund_gift_card_offer|service_issue_refund_gift_card/.test(r.path)));
     assert(!requests.some((r) => r.path === '/rest/v1/refund_cases' && r.method === 'POST'));
@@ -155,6 +168,9 @@ try {
   assertEquals(reviewInsert.body.gift_card_value_cents, 9000);
   assertEquals(reviewInsert.body.gift_card_state, 'manager_review');
   assertEquals((reviewInsert.body.intake_meta as Record<string,unknown>).customer_locale, 'es');
+  const submissionEvent = requests.find((r) => r.path === '/rest/v1/refund_case_events' && r.body.event_type === 'customer_submitted');
+  assert(submissionEvent);
+  assertEquals((submissionEvent.body.metadata as Record<string, unknown>).incident_time_confidence_supplied, false);
   assert(!requests.some((r) => r.path.endsWith('/service_materialize_refund_gift_card_offer')));
   assert(!requests.some((r) => /nayax|resend/.test(r.path)));
   const acknowledgement = requests.find((r) => r.path === '/rest/v1/refund_case_messages' && r.method === 'POST');

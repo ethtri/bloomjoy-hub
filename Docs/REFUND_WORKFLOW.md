@@ -291,6 +291,13 @@ an existing case to a gift card; never automatically rewrite payment history.
 
 ## Customer forms and notifications
 
+Initial intake has no general optional-details menu or name/phone questions
+(#1964). Keep the optional problem description and conditional wallet/provider/
+device questions. Supplementary time/card evidence stays available through the
+targeted same-case update flow after internal research. Preserve unanswered
+time precision as an omitted input, with a conservative matching fallback;
+never present that fallback as an explicit customer statement.
+
 Required Manager decisions and supported human recovery of a known failed
 customer notice generate automatic action-needed email to the current responsible
 Managers. Existing quiet hours apply; informational summaries remain optional.

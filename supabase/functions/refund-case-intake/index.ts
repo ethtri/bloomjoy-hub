@@ -1415,6 +1415,7 @@ serve(async (req) => {
       ? submittedWalletDeviceKind
       : null;
     const submittedTimeConfidence = sanitizeText(body?.incidentTimeConfidence, 40).toLowerCase();
+    const incidentTimeConfidenceSupplied = Boolean(submittedTimeConfidence);
     const incidentTimeConfidence = [
       "exact",
       "within_15_minutes",
@@ -1962,6 +1963,7 @@ serve(async (req) => {
       qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
       incident_time_resolution: incidentResolution.resolution,
       incident_time_confidence: incidentTimeConfidence,
+      incident_time_confidence_supplied: incidentTimeConfidenceSupplied,
       incident_time_source: incidentTimeSource,
       payment_interaction: paymentValidation.paymentInteraction,
       card_last4_source: cardLast4Source,
@@ -2379,6 +2381,7 @@ serve(async (req) => {
         intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
         qr_claim_present: Boolean(verifiedQrClaim),
         incident_time_confidence: incidentTimeConfidence,
+        incident_time_confidence_supplied: incidentTimeConfidenceSupplied,
         payment_interaction: paymentValidation.paymentInteraction,
         issue_category: issueCategory,
         attachment_count: uploadedAttachments.length,

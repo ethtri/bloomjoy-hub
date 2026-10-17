@@ -29,10 +29,6 @@ import {
   isLocalUatDemoForced,
   startRefundQrClaim,
   submitRefundRequest,
-  type RefundCardNetwork,
-  type RefundCardLast4Source,
-  type RefundIncidentTimeConfidence,
-  type RefundIncidentTimeSource,
   type RefundIssueCategory,
   type RefundPaymentInteraction,
   type RefundPaymentMethod,
@@ -44,9 +40,7 @@ import {
 const emptyForm = {
   selectionKey: '',
   cashMachineId: '',
-  customerName: '',
   customerEmail: '',
-  customerPhone: '',
   incidentDate: '',
   incidentTime: '',
   paymentAmount: '',
@@ -55,14 +49,10 @@ const emptyForm = {
   paymentMethod: 'card' as RefundPaymentMethod,
   resolutionMethod: 'gift_card' as RefundResolutionMethod,
   cardLast4: '',
-  cardLast4Source: '' as RefundCardLast4Source | '',
-  cardNetwork: '' as RefundCardNetwork | '',
   cardWalletUsed: false,
   paymentInteraction: '' as RefundPaymentInteraction | '',
   walletProvider: '' as RefundWalletProvider | '',
   walletDeviceKind: '' as RefundWalletDeviceKind | '',
-  incidentTimeConfidence: '' as RefundIncidentTimeConfidence | '',
-  incidentTimeSource: '' as RefundIncidentTimeSource | '',
   issueCategory: '' as RefundIssueCategory | '',
   issueSummary: '',
 };
@@ -284,8 +274,6 @@ export default function RefundRequestPage() {
       resolutionMethod: 'gift_card',
       cashMachineId: '',
       cardLast4: '',
-      cardLast4Source: '',
-      cardNetwork: '',
       cardWalletUsed: false,
       paymentInteraction: paymentMethod === 'cash' ? 'cash' : '',
       walletProvider: '',
@@ -398,9 +386,7 @@ export default function RefundRequestPage() {
               : undefined),
         qrClaimToken: qrClaim?.claimToken,
         emailContextToken: emailContextToken || undefined,
-        customerName: form.customerName.trim(),
         customerEmail: form.customerEmail.trim().toLowerCase(),
-        customerPhone: form.customerPhone.trim(),
         issueSummary: form.issueSummary.trim(),
         incidentDate,
         incidentTime,
@@ -412,10 +398,6 @@ export default function RefundRequestPage() {
         expectedChangeAmount: isCashChange ? form.expectedChangeAmount.trim() : undefined,
         customerLocale: locale,
         cardLast4: needsCardDetails ? form.cardLast4.trim() : undefined,
-        cardLast4Source:
-          needsCardDetails && form.cardLast4Source ? form.cardLast4Source : undefined,
-        cardNetwork:
-          needsCardDetails && form.cardNetwork ? form.cardNetwork : undefined,
         cardWalletUsed: needsCardDetails ? form.cardWalletUsed : undefined,
         paymentInteraction:
           form.paymentMethod === 'cash' ? 'cash' : needsCardDetails ? form.paymentInteraction || 'unsure' : 'unsure',
@@ -431,8 +413,6 @@ export default function RefundRequestPage() {
           form.walletDeviceKind
             ? form.walletDeviceKind
             : undefined,
-        incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
-        incidentTimeSource: form.incidentTimeSource || undefined,
         issueCategory: form.issueCategory || 'other',
       };
       const storage = getRefundSessionStorage();
@@ -1003,7 +983,7 @@ export default function RefundRequestPage() {
                       />
                     </div>
 
-                {isPartialItems && <p className="text-sm leading-6 text-muted-foreground">{t('Tell us how many items you paid for and how many you received in the optional details below.')}</p>}
+                {isPartialItems && <p className="text-sm leading-6 text-muted-foreground">{t('In “What happened?”, tell us how many items you paid for and how many you received.')}</p>}
                 {isCashChange && <fieldset className="space-y-4 rounded-xl border border-pink-200 bg-pink-50 p-4">
                   <legend className="px-1 text-sm font-semibold">{t('Expected change from a cash payment')}</legend>
                   <p className="text-sm leading-6">{t('Our machines do not provide change. Our team will review your request for a courtesy gift card.')}</p>
@@ -1020,135 +1000,6 @@ export default function RefundRequestPage() {
                 </fieldset>}
                 {requiresManagerReview && <p role="status" className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm leading-6">{t('Your request will be reviewed by a manager. We will email you when the review is complete.')}</p>}
 
-                <details className="rounded-xl border border-border bg-muted/20 p-4">
-                  <summary className="cursor-pointer font-semibold text-foreground">{t("Add optional details")}</summary>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("These can help with unusual purchases. You can submit your request without them.")}</p>
-                  <div className="mt-4 grid gap-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="customer-name">{t("Name (optional)")}</Label>
-                        <Input
-                          id="customer-name"
-                          value={form.customerName}
-                          onChange={(event) => updateForm('customerName', event.target.value)}
-                          autoComplete="name"
-                          className="mt-2 bg-white"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="customer-phone">{t("Phone (optional)")}</Label>
-                        <Input
-                          id="customer-phone"
-                          value={form.customerPhone}
-                          onChange={(event) => updateForm('customerPhone', event.target.value)}
-                          autoComplete="tel"
-                          className="mt-2 bg-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="incident-time-confidence">{t("How close is the time? (optional)")}</Label>
-                      <select
-                        id="incident-time-confidence"
-                        value={form.incidentTimeConfidence}
-                        onChange={(event) =>
-                          updateForm(
-                            'incidentTimeConfidence',
-                            event.target.value as RefundIncidentTimeConfidence
-                          )
-                        }
-                        className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
-                      >
-                        <option value="">{t("Just a rough estimate")}</option>
-                        <option value="exact">{t("Exact or within a few minutes")}</option>
-                        <option value="within_15_minutes">{t("Within about 15 minutes")}</option>
-                        <option value="within_1_hour">{t("Within about 1 hour")}</option>
-                        <option value="rough">{t("Just a rough estimate")}</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="incident-time-source">{t("How did you find the time? (optional)")}</Label>
-                      <select
-                        id="incident-time-source"
-                        value={form.incidentTimeSource}
-                        onChange={(event) =>
-                          updateForm('incidentTimeSource', event.target.value as RefundIncidentTimeSource)
-                        }
-                        className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
-                      >
-                        <option value="">{t("Choose if known")}</option>
-                        <option value="transaction_alert_or_receipt">{t("Purchase alert or receipt")}</option>
-                        <option value="memory">{t("From memory")}</option>
-                        <option value="unknown">{t("I am not sure")}</option>
-                      </select>
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("A bank posting time can differ from when you used the machine.")}</p>
-                    </div>
-
-                    {needsCardDetails && (
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        {!form.cardWalletUsed && (
-                          <div>
-                            <Label htmlFor="payment-interaction">{t("How did you use the card? (optional)")}</Label>
-                            <select
-                              id="payment-interaction"
-                              value={form.paymentInteraction}
-                              onChange={(event) =>
-                                updateForm('paymentInteraction', event.target.value as RefundPaymentInteraction)
-                              }
-                              className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
-                            >
-                              <option value="">{t("Not sure")}</option>
-                              <option value="tap_card">{t("Tapped the card")}</option>
-                              <option value="insert_card">{t("Inserted the card")}</option>
-                              <option value="swipe_card">{t("Swiped the card")}</option>
-                              <option value="insert_or_swipe">{t("Inserted or swiped — not sure which")}</option>
-                              <option value="unsure">{t("I am not sure")}</option>
-                            </select>
-                          </div>
-                        )}
-                        <div>
-                          <Label htmlFor="card-network">{t("Card type (optional)")}</Label>
-                          <select
-                            id="card-network"
-                            value={form.cardNetwork}
-                            onChange={(event) =>
-                              updateForm('cardNetwork', event.target.value as RefundCardNetwork)
-                            }
-                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
-                          >
-                            <option value="">{t("Choose if known")}</option>
-                            <option value="visa">Visa</option>
-                            <option value="mastercard">Mastercard</option>
-                            <option value="discover">Discover</option>
-                            <option value="american_express">American Express</option>
-                            <option value="other_unknown">{t("Other / Not sure")}</option>
-                          </select>
-                        </div>
-                        <div>
-                          <Label htmlFor="card-last4-source">{t("Where did you find the last 4? (optional)")}</Label>
-                          <select
-                            id="card-last4-source"
-                            value={form.cardLast4Source}
-                            onChange={(event) =>
-                              updateForm('cardLast4Source', event.target.value as RefundCardLast4Source)
-                            }
-                            className="mt-2 h-11 w-full rounded-md border border-input bg-white px-3 text-sm"
-                          >
-                            <option value="">{t("Choose if known")}</option>
-                            <option value="physical_card">{t("Physical card")}</option>
-                            <option value="wallet_device">{t("Card shown for the wallet or device")}</option>
-                            <option value="bank_record">{t("Bank record or purchase alert")}</option>
-                            <option value="unknown">{t("I am not sure")}</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-
-
-                  </div>
-                </details>
 
                   {submissionError && (
                     <div

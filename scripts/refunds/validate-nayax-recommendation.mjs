@@ -498,6 +498,8 @@ assert.equal(customerTimeRough.oneClickEligible, false);
 assert.equal(customerTimeRough.candidates[0].selectionAllowed, true);
 assert.equal(customerTimeRough.candidates[0].isRecommended, true);
 assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
+assert.equal(customerTimeRough.candidates[0].matchFactors.find((factor) => factor.key === 'customer_time_confidence')?.label,
+  'Purchase time is treated as a rough estimate');
 
 const independentlyIdentifiedUncertainTime = recommend([sale({ id: "uncertain-time-exact-card" })], {
   incidentTimeConfidence: "rough",

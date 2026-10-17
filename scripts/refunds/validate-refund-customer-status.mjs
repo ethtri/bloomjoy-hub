@@ -113,14 +113,15 @@ const run = async () => {
       !status.includes('nayaxTransactionId'),
   );
   assert(
-    'The short intake keeps diagnostics optional and provides accessible inline errors',
+    'The short intake retains optional comments and wallet context with accessible inline errors',
     includesAll(request, [
-      'Add optional details',
+      'What happened? (optional)',
+      'Wallet (optional)',
       'aria-invalid',
       'aria-describedby',
       'field?.focus()',
       'noValidate',
-    ]) && !request.includes('Customer name is required'),
+    ]) && !request.includes('Add optional details') && !request.includes('Customer name is required'),
   );
   assert(
     'Intake and every eligible refund email can issue the fragment status link behind a default-off gate',
