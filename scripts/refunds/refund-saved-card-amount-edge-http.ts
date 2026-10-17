@@ -16,7 +16,7 @@ const db = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, as
   requests.push({ name, body, authorization: req.headers.get('authorization') });
   if (name === 'can_manage_refund_case_current_user') return Response.json(canView);
   if (name === 'admin_approve_selected_nayax_refund_for_system_v2') {
-    // The existing SQL is independently covered by refund_exception_amounts.sql.
+    // The existing SQL is independently covered by refund_partial_card_amount.sql.
     // Simulate its rejection to prove Edge never falls back to full approval.
     if (sqlFailure) return Response.json({ code: 'P0001', message: 'Synthetic stale or invalid amount' }, { status: 400 });
     return Response.json({ approved: true, status: 'system_finishing', attemptId: caseId,

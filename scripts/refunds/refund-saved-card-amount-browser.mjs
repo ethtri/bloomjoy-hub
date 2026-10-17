@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { readdir } from 'node:fs/promises';
 
 // Reuse the real workspace and its synthetic-only transport, including the
 // older saved selection whose managerAction is none (not a new radio choice).
@@ -64,7 +65,7 @@ export async function runSavedCardAmountChecks({ browser, appUrl, artifactDir, r
         assert.match(await dialog.innerText(), /\$30\.00 · card ending/);
         await dialog.getByText('Review completion email', { exact: true }).click();
         assert.match(await dialog.innerText(), /refund of \$20\.00/);
-        await dialog.screenshot({ path: path.join(artifactDir, `partial-confirm-${width}.png`) });
+        if (width === 320) await dialog.screenshot({ path: path.join(artifactDir, `partial-confirm-${width}.png`) });
         await page.getByTestId('refund-confirm-nayax-refund').click();
       }
       await page.getByText(/Final decision saved|finishing.*automatically|refund approved/i).first().waitFor();
@@ -82,4 +83,7 @@ export async function runSavedCardAmountChecks({ browser, appUrl, artifactDir, r
       await context.close();
     }
   }
+  assert.deepEqual((await readdir(artifactDir)).filter(name => /^partial-.*\.png$/.test(name)).sort(),
+    ['partial-confirm-320.png', 'partial-legacy-1440.png', 'partial-legacy-320.png'],
+    'Partial-refund evidence must contain exactly the three reviewed manifest images');
 }
