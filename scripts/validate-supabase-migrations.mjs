@@ -18,6 +18,7 @@ import { stageInactiveGiftMigrations, verifyInactiveBaselineCatalog, writeInacti
 import { verifyMonthlyVisitConcurrency } from './monthly-visit-compensation-concurrency.mjs';
 import { verifyCompanyAssignmentConcurrency } from './company-assignment-concurrency.mjs';
 import { verifyCompanyPayrollCorrection } from './company-payroll-correction.mjs';
+import { verifyRefundClaimQueue } from './refunds/refund-claim-queue-evidence.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -750,6 +751,8 @@ async function main() {
       log('Company duplicate-create, rename/create, archive/assignment and stale-save concurrent transactions passed without access provisioning.');
       await verifyCompanyPayrollCorrection({ dbPort });
       log('Merlin company correction replay, dependency drift guards and preserved payroll/access fixtures passed.');
+      await verifyRefundClaimQueue({ dbPort });
+      log('Refund claim real-helper performance, held-first selection and stale-snapshot concurrency passed.');
       if (options.portalSeedDir) {
         await writeRealRefundPreparationSeed({
           dbPort, outputDir: options.portalSeedDir,
