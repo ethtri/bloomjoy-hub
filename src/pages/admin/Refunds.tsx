@@ -1304,7 +1304,7 @@ const incidentTimeConfidenceLabel = (refundCase: RefundCaseRecord) => {
     case 'within_1_hour':
       return 'Customer says within about 1 hour';
     case 'rough':
-      return 'Customer says this is a rough estimate';
+      return 'Purchase time is treated as a rough estimate';
     default:
       return 'Customer did not say how exact the time was';
   }
