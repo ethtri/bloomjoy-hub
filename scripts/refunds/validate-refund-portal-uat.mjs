@@ -29,6 +29,7 @@ import { createUnknownProviderOutcomeChecks } from './portal-uat/journeys/unknow
 import { runPublicRefundSubmissionJourney } from './portal-uat/journeys/public-submission.mjs';
 import { shouldCaptureRefundPortalScreenshot } from './portal-uat/screenshot-policy.mjs';
 import { ineligibleEmailAlertPreferences } from './fixtures/email-alert-preferences.mjs';
+import { runSavedCardAmountChecks } from './refund-saved-card-amount-browser.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
@@ -5314,6 +5315,8 @@ const runSharedReadPreflightCheck = async ({ browser, appUrl, recorder }) => {
 };
 
 const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  await runSavedCardAmountChecks({ browser, appUrl, artifactDir, recorder,
+    buildSystemPreparedCardRefundOverview, installMockSupabaseRoutes, signInRefundUser, queueCase });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const functionCalls = [];
   const functionBodies = [];
@@ -5651,7 +5654,10 @@ const run = async () => {
     }
   );
   try {
-    if (process.argv.includes('--mobile-review-only')) {
+    if (process.argv.includes('--saved-card-amount-only')) {
+      await runSavedCardAmountChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder,
+        buildSystemPreparedCardRefundOverview, installMockSupabaseRoutes, signInRefundUser, queueCase });
+    } else if (process.argv.includes('--mobile-review-only')) {
       await runMobileReviewChecks({ browser, appUrl: args.appUrl, artifactDir: args.artifactDir, recorder });
     } else if (process.argv.includes('--ci-mobile-navigation-only')) {
       await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder, realProjectionSeed });
@@ -6037,7 +6043,7 @@ const run = async () => {
     return;
   }
 
-  if (process.argv.includes('--queue-recovery-only') || process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only') || process.argv.some(value => value.startsWith('--journeys='))) {
+  if (process.argv.includes('--saved-card-amount-only') || process.argv.includes('--queue-recovery-only') || process.argv.includes('--manager-clarity-only') || process.argv.includes('--read-budget-only') || process.argv.includes('--recovery-authority-only') || process.argv.some(value => value.startsWith('--journeys='))) {
     const focusedFailures = recorder.failed();
     if (focusedFailures.length > 0) {
       console.error(`Focused refund UAT failed: ${focusedFailures.length} check(s).`);

@@ -257,7 +257,7 @@ test('current card capability remains visible in the composed manager presentati
  });
  assert.equal(cardActionDisabled,false);
  const customerCommunicationActions=load('customerCommunicationActions',{
-  nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Refund $7.00'},
+  cardCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Refund $7.00'},
   recommendation:null,
   refundCanShowCandidateInventory:()=>true,
   isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority,
@@ -265,7 +265,7 @@ test('current card capability remains visible in the composed manager presentati
  });
  assert.equal(customerCommunicationActions.denial.disabled,false);
  const agentResearchActions=load('customerCommunicationActions',{
-  nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Finding the purchase'},
+  cardCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Finding the purchase'},
   recommendation:null,
   refundCanShowCandidateInventory:()=>false,
   isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority:false,
@@ -389,12 +389,13 @@ test('fresh reread binds provider execution to the exact saved purchase and vers
   selectedNayaxTransaction:freshPersistedSelection.selectedNayaxTransaction,
  };
  const editor={clearNayaxMatch:false,matchedNayaxCandidateToken:''};
- for(const [label,freshCase,freshReadiness,confirmed,expectedExecutions=0] of [
+ for(const approvalCents of [500,700]) for(const [label,freshCase,freshReadiness,confirmed,expectedExecutions=0] of [
   ['version drift',{...selectedCase,officialActionVersion:8},{...freshAvailability,caseVersion:8},true],
   ['capability revoked',selectedCase,{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'},true],
   ['selection drift',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,saleAmountCents:800}},freshAvailability,true],
   ['different transaction with identical display fields',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,transactionId:'saved-B'}},freshAvailability,true],
   ['unchanged exact saved purchase',selectedCase,freshAvailability,true,1],
+  ['partial approval rejection',selectedCase,freshAvailability,true,1],
  ]) {
   let executions=0;let reads=0;
   const handler=load('handleRunNayaxRefund',{
@@ -405,7 +406,9 @@ test('fresh reread binds provider execution to the exact saved purchase and vers
    selectedIdRef:{current:selectedCase.id},
    persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
    officialActionVersion:7,refundReadinessBlockMessage:managerModule.exports.refundReadinessBlockMessage,
-   executeNayaxCardRefund:async()=>{executions++;return {};},applyNayaxExecutionResult:async()=>{},
+   managerCardAmount:()=>({cents:approvalCents}),
+   approveSelectedNayaxCandidate:async input=>{assert.equal(input.refundAmountCents,500);assert.equal(input.expectedOfficialActionVersion,7);executions++;if(label==='partial approval rejection')throw new Error('Synthetic approval rejected');return {};},applyNayaxExecutionResult:async()=>{},
+   executeNayaxCardRefund:async input=>{assert.equal(approvalCents,700);assert.equal(input.refundAmountCents,undefined);executions++;return {};},
    isNayaxCardRefundExecutionError:()=>false,toast:{error:()=>{},info:()=>{}},
   });
   await handler();
