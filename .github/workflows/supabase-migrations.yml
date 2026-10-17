@@ -8,6 +8,7 @@ on:
       - 'scripts/validate-supabase-migrations.mjs'
       - 'scripts/monthly-visit-compensation-concurrency.mjs'
       - 'scripts/refunds/refund-populated-delivery-upgrade*.mjs'
+      - 'scripts/refunds/refund-claim-queue-evidence*.mjs'
       - 'scripts/refunds/fixtures/refund-*.sql'
       - '.github/workflows/supabase-migrations.yml'
   workflow_dispatch:
@@ -62,3 +63,11 @@ jobs:
           printf 'Combined disposable replay: monthly source `%s`, freshness dependency `%s`. No deployment.\n' "$GITHUB_SHA" "$dependency" >> "$GITHUB_STEP_SUMMARY"
       - name: Validate Supabase Migration Apply
         run: npm run db:validate-migrations
+      - name: Upload synthetic refund claim query evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refund-claim-queue-evidence-${{ github.run_id }}
+          path: output/refund-claim-queue-evidence.json
+          if-no-files-found: ignore
+          retention-days: 7

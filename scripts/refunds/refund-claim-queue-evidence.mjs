@@ -164,7 +164,7 @@ export async function verifyRefundClaimQueue({ dbPort }) {
   const config = { host: '127.0.0.1', port: dbPort, database: 'postgres', user: 'postgres', password: 'postgres' };
   const client = new pg.Client(config);
   const fixture = raceFixture();
-  const evidence = { schemaVersion: 'refund-claim-queue-evidence-v1', syntheticOnly: true, samples: [] };
+  const evidence = { schemaVersion: 'refund-claim-queue-evidence-v1', syntheticOnly: true, completed: false, samples: [] };
   let installed = false;
   await client.connect();
   try {
@@ -192,9 +192,7 @@ export async function verifyRefundClaimQueue({ dbPort }) {
     await assertHeldFirst(client);
     await client.query('rollback');
     evidence.concurrency = await staleSnapshotRace(config, client);
-    const directory = new URL('../../output/', import.meta.url);
-    fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(new URL('refund-claim-queue-evidence.json', directory), `${JSON.stringify(evidence, null, 2)}\n`);
+    evidence.completed = true;
     console.log('Refund claim synthetic evidence:', JSON.stringify({
       samples: evidence.samples.map(({ unrelatedAttempts, old, current }) => ({ unrelatedAttempts,
         oldHelperCalls: old.helperCalls, currentHelperCalls: current.helperCalls,
@@ -202,6 +200,11 @@ export async function verifyRefundClaimQueue({ dbPort }) {
     }));
     return evidence;
   } finally {
+    if (evidence.samples.length > 0) {
+      const directory = new URL('../../output/', import.meta.url);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(new URL('refund-claim-queue-evidence.json', directory), `${JSON.stringify(evidence, null, 2)}\n`);
+    }
     await client.query('rollback');
     if (installed) await client.query(fixture.cleanup);
     await client.end();
