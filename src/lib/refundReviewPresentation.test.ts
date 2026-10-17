@@ -46,6 +46,8 @@ Deno.test('reviewed case retains all material factors and does not promote cavea
   equal(model.uncertainties.map((factor) => factor.key),
     ['customer_time_confidence', 'request_time', 'amount', 'incident_time', 'card', 'card_network']);
   equal(model.supporting.length + model.conflicts.length + model.uncertainties.length, 8);
+  equal(model.uncertainties.find((factor) => factor.key === 'customer_time_confidence')?.label,
+    'Purchase time is treated as a rough estimate.');
   includes(model.uncertainties.find((factor) => factor.key === 'amount')!.label, '$0.60');
   includes(model.uncertainties.find((factor) => factor.key === 'amount')!.label, 'may explain it');
   includes(model.uncertainties.find((factor) => factor.key === 'incident_time')!.label, 'purchase timing remains uncertain');
@@ -141,7 +143,8 @@ Deno.test('partial factors retain known amount and timing caveats without invent
   } });
   equal(model.supporting.map((factor) => factor.key), ['machine']);
   includes(model.uncertainties.find((factor) => factor.key === 'amount')!.label, '$0.60');
-  includes(model.uncertainties.find((factor) => factor.key === 'customer_time_confidence')!.label, 'rough estimate');
+  equal(model.uncertainties.find((factor) => factor.key === 'customer_time_confidence')!.label,
+    'Purchase time is treated as a rough estimate.');
   includes(model.uncertainties.find((factor) => factor.key === 'provider_time')!.label, 'not proof of purchase time');
   equal(model.conflicts, []);
 });

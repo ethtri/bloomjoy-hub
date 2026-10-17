@@ -19,12 +19,10 @@ assert.match(page, /const legacyCash = form\.paymentMethod === 'cash' && \(!gift
 assert.match(page, /form\.paymentMethod === 'cash' && !legacyCash && <option value="expected_cash_change"/u);
 assert.match(page, /const wantsGiftCard = choosesGiftCard && !legacyCash/u);
 assert.match(page, /const needsCardDetails = form\.paymentMethod === 'card' && !wantsGiftCard/u);
-assert.equal([...page.matchAll(/\{needsCardDetails && \(/gu)].length, 2,
-  'Both required card details and optional card metadata must be gated by original-payment resolution');
+assert.equal([...page.matchAll(/\{needsCardDetails && \(/gu)].length, 1,
+  'Required card details and conditional wallet questions must be gated by original-payment resolution');
 assert.match(page, /form\.paymentMethod === 'cash' \? 'cash'/u);
 assert.match(page, /cardLast4: needsCardDetails \? form\.cardLast4\.trim\(\) : undefined/u);
-assert.match(page, /cardLast4Source:\s*needsCardDetails && form\.cardLast4Source \? form\.cardLast4Source : undefined/u);
-assert.match(page, /cardNetwork:\s*needsCardDetails && form\.cardNetwork \? form\.cardNetwork : undefined/u);
 assert.match(page, /cardWalletUsed: needsCardDetails \? form\.cardWalletUsed : undefined/u);
 assert.match(page, /if \(needsCardDetails && !\/\^\[0-9\]\{4\}\$\//u);
 assert.match(page, /const resolutionMethod: RefundResolutionMethod = wantsGiftCard \? 'gift_card' : 'original_payment'/u);

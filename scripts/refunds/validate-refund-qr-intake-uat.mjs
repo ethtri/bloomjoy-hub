@@ -389,7 +389,9 @@ const runDesktopQrJourney = async ({ browser, appUrl, artifactDir }) => {
   assert.equal(submission.cardNetwork, undefined);
   assert.equal(submission.cardWalletUsed, false);
   assert.equal(submission.paymentInteraction, 'unsure');
-  assert.equal(submission.incidentTimeConfidence, 'rough');
+  for (const removedField of ['customerName', 'customerPhone', 'incidentTimeConfidence', 'incidentTimeSource', 'cardNetwork', 'cardLast4Source']) {
+    assert.equal(removedField in submission, false, `Initial intake must omit ${removedField}`);
+  }
   assert.equal(submission.issueCategory, 'charged_no_product');
   assert.equal('productDescription' in submission, false);
   assert.equal('attachments' in submission, false, 'Public refund intake must not submit attachment bytes.');
@@ -565,7 +567,7 @@ const runDirectCashTransitionJourney = async ({ browser, appUrl, artifactDir }) 
 
   await page.getByRole('radio', { name: /^Card/ }).click();
   await page.locator('#resolution-original').click();
-  assert.equal(await page.getByLabel('How did you use the card? (optional)').inputValue(), '');
+  assert.equal(await page.getByLabel('How did you use the card? (optional)').count(), 0);
   assert.equal(await page.getByLabel('Last 4 digits shown for this payment').inputValue(), '');
   assert.equal(await page.getByLabel('Which machine did you use?').count(), 0);
 

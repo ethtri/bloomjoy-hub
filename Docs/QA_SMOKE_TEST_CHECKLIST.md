@@ -6,6 +6,27 @@
 
 # QA Smoke Test Checklist
 
+## Short customer refund intake (#1964)
+
+- At `/refunds/request`, verify English and Spanish at 1440 px and 390 px:
+  no `Add optional details` section, name/phone, time-precision/source, card-type,
+  physical-card interaction or last-four-source controls. The optional description
+  remains; partial-item guidance names that description rather than a removed menu.
+- Choose an original-card refund, check the wallet box and select wallet/device.
+  Switch to cash or a gift card: card details are hidden and excluded from the
+  submission. Retain required email/date/time/amount/issue validation and answers
+  after language changes or a failed request. Use synthetic local transport only.
+- Inspect the synthetic initial payload: removed fields are absent, including
+  `incidentTimeConfidence`. Run `npm run refunds:validate-gift-card-edge-http`:
+  omission saves conservative `rough` with `incident_time_confidence_supplied=false`
+  in intake metadata and the submission event; an explicitly supplied estimate
+  remains compatible and is marked supplied. No extra customer question is sent.
+- Run `npm run refunds:validate-purchase-correction` and
+  `npm run refunds:validate-wallet-correction`; verify targeted same-case time/card
+  checks remain available. Matching copy treats rough time as an estimate without
+  claiming the customer explicitly chose it. Keyboard focus and mobile reflow
+  remain usable; never submit a live case as a smoke test.
+
 ## Public customer experience (#1931, #1932, #1933, #624)
 
 - Use synthetic/local data at 320, 390, 768 and 1440px, including when web fonts are unavailable. The brand can wrap and the header fits without overflow; cart and menu controls are at least 44px. Tab reaches Skip to content; the mobile menu closes with Escape and returns focus to its toggle. Current navigation is announced.

@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-10-16 - Short refund intake without the general optional menu (#1964)
+
+The owner approved implementing the product/UX review: remove the general
+`Add optional details` section from initial refund intake, including name,
+phone and supplementary time/card evidence. Keep the optional description and
+conditional wallet/provider/device questions. Reuse the existing targeted
+same-case correction flow only when internal research needs a customer fact.
+Omitted time precision retains the conservative matching fallback; record
+whether the intake request supplied it and do not describe a fallback as the
+customer's statement. Preserve older API clients and historical evidence. No
+new required fields, automatic questions, decision steps or payment rules.
+
 ## 2026-10-11 - Automatic post-cutoff Pay Stub publication
 
 Owner authorized production automatic publication immediately after timesheet

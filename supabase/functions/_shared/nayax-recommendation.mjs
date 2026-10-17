@@ -502,7 +502,7 @@ const scoreCandidate = ({ candidate, request, policy }) => {
     matchFactors.push(factor(
       "customer_time_confidence",
       "manual",
-      "Customer said the purchase time is only a rough estimate",
+      "Purchase time is treated as a rough estimate",
     ));
   } else if (request.incidentTimeConfidence === "within_1_hour") {
     addReason(reasonCodes, "customer_time_within_1_hour");

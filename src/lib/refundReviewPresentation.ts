@@ -71,7 +71,7 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
   }
   const hasPurchaseTimeFactor = factors.some((factor) => ['time', 'incident_time'].includes(factor.key));
   const customerTimeCaveat = {
-    rough: 'Customer says the purchase time is a rough estimate.',
+    rough: 'Purchase time is treated as a rough estimate.',
     within_15_minutes: 'Customer says the purchase time is within about 15 minutes.',
     within_1_hour: 'Customer says the purchase time is within about 1 hour.',
   }[customer?.incidentTimeConfidence ?? ''];
@@ -93,7 +93,10 @@ export const getRefundReviewEvidence = ({ candidate, selected, customer }: {
     let group: keyof typeof groups = ['mismatch', 'blocked'].includes(factor.outcome)
       ? 'conflicts' : factor.outcome === 'match' ? 'supporting' : 'uncertainties';
     let label = factor.label;
-    if (factor.key === 'customer_time_confidence') group = 'uncertainties';
+    if (factor.key === 'customer_time_confidence') {
+      group = 'uncertainties';
+      if (customer?.incidentTimeConfidence === 'rough' && customerTimeCaveat) label = customerTimeCaveat;
+    }
     if (['provider_time', 'machine_time'].includes(factor.key)) group = 'uncertainties';
     if (factor.key === 'request_time') {
       group = 'uncertainties';
