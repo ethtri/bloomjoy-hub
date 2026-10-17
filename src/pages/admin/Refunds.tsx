@@ -5023,6 +5023,10 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
       return;
     }
     const expectedSelection = selectedCase.selectedNayaxTransaction;
+    const approvalAmount = expectedSelection?.transactionId && expectedSelection.saleAmountCents
+      ? managerCardAmount(expectedSelection.transactionId, expectedSelection.saleAmountCents).cents
+      : null;
+    if (!expectedSelection || !approvalAmount) return;
 
     nayaxRefundInFlightRef.current = true;
     setIsRunningNayaxRefund(true);
@@ -5080,8 +5084,16 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
       const executionInput = {
         caseId: selectedCase.id,
         expectedOfficialActionVersion: executionVersion,
+        refundAmountCents: approvalAmount,
       };
-      const result = await executeNayaxCardRefund(executionInput);
+      // The deployed selected-approval API freezes partial cents in v2. Never
+      // send a partial amount to the older full-charge execute contract.
+      const result = approvalAmount < expectedSelection.saleAmountCents
+        ? await approveSelectedNayaxCandidate(executionInput)
+        : await executeNayaxCardRefund({
+            caseId: executionInput.caseId,
+            expectedOfficialActionVersion: executionVersion,
+          });
       await applyNayaxExecutionResult(result, executionInput.caseId);
     } catch (executionError) {
       const response = isNayaxCardRefundExecutionError(executionError)
@@ -6845,7 +6857,8 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
       primaryAction.targetDecision === 'denied';
     const reviewedChoice = selectedNayaxCandidate(editor, effectiveCandidates);
     const canEditCardAmount = selectedCase.decision == null &&
-      (primaryAction?.mode === 'reviewed_nayax_final_decision' || primaryAction?.mode === 'selected_nayax_final_decision');
+      (primaryAction?.mode === 'reviewed_nayax_final_decision' || primaryAction?.mode === 'selected_nayax_final_decision' ||
+        primaryAction?.mode === 'nayax_refund_execution');
     const amountTransactionKey = primaryAction?.mode === 'reviewed_nayax_final_decision'
       ? reviewedChoice?.candidateToken : selectedCase.selectedNayaxTransaction?.transactionId;
     const amountTransactionCents = primaryAction?.mode === 'reviewed_nayax_final_decision'
@@ -6989,8 +7002,11 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           }
         : null,
     };
+    const cardCustomerDraft = canEditCardAmount && cardApprovalAmount?.cents && primaryAction?.messageType
+      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, { ...editor, refundAmount: cardApprovalAmount.value })
+      : nextCustomerDraft;
     const cardExecutionConfirmationPresentation: RefundCardExecutionConfirmationPresentation = {
-      title: `Approve ${formatCurrency(cardAmountCents)} card refund`,
+      title: `Approve ${formatCurrency(canEditCardAmount ? cardApprovalAmount?.cents : cardAmountCents)} card refund`,
       machine: {
         label: selectedCase.machineLabel,
         location: selectedCase.locationName,
@@ -7008,7 +7024,7 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           ? `${formatRefundDateTime(transactionMachineTime, transactionMachineTimezone)} · ${transactionMachineTimezone}`
           : null,
       },
-      customerDraft: nextCustomerDraft,
+      customerDraft: cardCustomerDraft,
       executionNotice: nayaxExecutionNotice
         ? {
             className: nayaxLookupNoticeClass(nayaxExecutionNotice.tone),
@@ -7016,13 +7032,13 @@ export default function AdminRefundsPage({ caseAccess = 'allowed', retryCaseAcce
           }
         : null,
       busy: isRunningNayaxRefund,
-      confirmDisabled: cardActionDisabled,
+      confirmDisabled: cardActionDisabled || (canEditCardAmount && !cardApprovalAmount?.cents),
     };
     const canAskForCustomerDetails =
       canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
       derivePortalRefundMissingFields(selectedCase).length > 0;
     const customerCommunicationActions: RefundCustomerCommunicationActionsPresentation = {
-      draft: nextCustomerDraft,
+      draft: cardCustomerDraft,
       requestCorrection: canAskForCustomerDetails && primaryAction?.messageType !== 'more_info'
         ? { disabled: isUsingDemoData }
         : null,
