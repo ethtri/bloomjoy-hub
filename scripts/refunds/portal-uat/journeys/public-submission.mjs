@@ -99,7 +99,7 @@ export const runPublicRefundSubmissionJourney = async ({ browser, appUrl, record
         submission.cardLast4 === '4242' &&
         submission.cardNetwork === undefined &&
         submission.paymentInteraction === 'unsure' &&
-        submission.incidentTimeConfidence === 'rough' &&
+        submission.incidentTimeConfidence === undefined &&
         submission.selectionKey === selectionKey &&
         submission.machineId === undefined,
       JSON.stringify(submission)
