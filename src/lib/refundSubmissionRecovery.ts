@@ -45,9 +45,17 @@ const canonicalize = (value: unknown): unknown => {
 };
 
 export const fingerprintRefundSubmission = async (input: Record<string, unknown>) => {
+  // Hash-only defaults preserve retries from before the optional-menu removal.
+  // They never enter the wire payload or become customer-provided evidence.
+  const recoveryInput = {
+    ...input,
+    customerName: input.customerName ?? '',
+    customerPhone: input.customerPhone ?? '',
+    incidentTimeConfidence: input.incidentTimeConfidence ?? 'rough',
+  };
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(canonicalize(input))),
+    new TextEncoder().encode(JSON.stringify(canonicalize(recoveryInput))),
   );
   return bytesToHex(new Uint8Array(digest));
 };

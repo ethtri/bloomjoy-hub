@@ -21,6 +21,10 @@
   omission saves conservative `rough` with `incident_time_confidence_supplied=false`
   in intake metadata and the submission event; an explicitly supplied estimate
   remains compatible and is marked supplied. No extra customer question is sent.
+- Run `npm run refunds:validate-submission-recovery`: a stored previous-build
+  default-field fingerprint reuses its submission identity after refresh to this
+  shorter form. Hash-only compatibility defaults never reappear in the payload;
+  genuinely changed supplied facts do not reuse the old request.
 - Run `npm run refunds:validate-purchase-correction` and
   `npm run refunds:validate-wallet-correction`; verify targeted same-case time/card
   checks remain available. Matching copy treats rough time as an estimate without

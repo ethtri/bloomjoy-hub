@@ -60,6 +60,32 @@ Deno.test('a refresh restores the opaque identity using only a non-PII fingerpri
   assertEquals(persisted.includes('12:15'), false);
 });
 
+Deno.test('refresh after optional-menu removal reuses the previous build identity without restoring wire fields', async () => {
+  // Reproduce the previous build's raw fingerprint independently of the current helper.
+  const previousFingerprint = async (previousInput: Record<string, unknown>) => {
+    const ordered = Object.fromEntries(Object.entries(previousInput).sort(([left], [right]) => left.localeCompare(right)));
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(ordered)));
+    return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  };
+  const previousInput = { ...input, customerName: '', customerPhone: '', incidentTimeConfidence: 'rough' };
+  const previousId = '00000000-0000-4000-8000-000000000001';
+  for (const priorFacts of [{}, { customerName: 'Synthetic name' }, { customerPhone: '555-0100' },
+    { incidentTimeConfidence: 'exact' }, { cardNetwork: 'visa' }]) {
+    const previousAttempt = { submissionId: previousId,
+      payloadFingerprint: await previousFingerprint({ ...previousInput, ...priorFacts }) };
+    const values = new Map([['bloomjoy-refund-submission-attempt', JSON.stringify(previousAttempt)]]);
+    const storage = { getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); } };
+    const reloaded = await prepareRefundSubmissionAttempt({ current: null, input, storage,
+      createId: () => '00000000-0000-4000-8000-000000000002' });
+    assertEquals(reloaded.persisted, true);
+    if (Object.keys(priorFacts).length === 0) assertEquals(reloaded.attempt, previousAttempt);
+    else assertNotEquals(reloaded.attempt.submissionId, previousId, 'Changed supplied facts must not reuse a previous request');
+    assertEquals('customerName' in input || 'customerPhone' in input || 'incidentTimeConfidence' in input, false);
+  }
+});
+
 Deno.test('throwing session storage never crashes or claims durable recovery', async () => {
   const storage = {
     getItem: (_key: string): string | null => { throw new Error('blocked'); },
